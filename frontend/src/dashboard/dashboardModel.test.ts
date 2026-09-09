@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { MissionListItem } from "../types";
+import type { CrmRecordItem, MissionListItem } from "../types";
 import {
   bucketMissionStatus,
   buildOnboardingChecklist,
   countStatusBreakdown,
+  filterRecordsByWorkflow,
   isActiveMission,
   resolveAttentionBanner,
   resolvePrimaryAction,
@@ -24,6 +25,22 @@ function mission(status: string, overrides: Partial<MissionListItem> = {}): Miss
 }
 
 describe("dashboardModel", () => {
+  it("filters CRM records by workflow context and defaults missing context to CRM", () => {
+    const records = [
+      { id: "crm", record_type: "contact", data: { name: "CRM" } },
+      { id: "gtm", record_type: "account", data: { name: "GTM", workflow_context: "gtm" } },
+      { id: "vertical", record_type: "opportunity", data: { name: "Vertical", workflow_context: "vertical" } },
+    ] as CrmRecordItem[];
+    expect(filterRecordsByWorkflow(records, "all").map((item) => item.id)).toEqual([
+      "crm",
+      "gtm",
+      "vertical",
+    ]);
+    expect(filterRecordsByWorkflow(records, "crm").map((item) => item.id)).toEqual(["crm"]);
+    expect(filterRecordsByWorkflow(records, "gtm").map((item) => item.id)).toEqual(["gtm"]);
+    expect(filterRecordsByWorkflow(records, "vertical").map((item) => item.id)).toEqual(["vertical"]);
+  });
+
   it("buckets mission statuses without double-counting", () => {
     const breakdown = countStatusBreakdown([
       mission("planned"),

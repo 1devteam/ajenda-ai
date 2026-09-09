@@ -18,10 +18,10 @@ import type {
   CrmSuggestion,
   CrmTimelineResponse,
 } from "../types";
+import { filterRecordsByWorkflow, type WorkflowView } from "../dashboard/dashboardModel";
 
 
 type CrmTab = "contact" | "account" | "opportunity" | "activity" | "task";
-type WorkflowView = "all" | "crm" | "gtm" | "vertical";
 
 const TABS: Array<{ id: CrmTab; label: string }> = [
   { id: "contact", label: "Contacts" },
@@ -240,9 +240,7 @@ export default function RecordsPage() {
     [pipeline],
   );
   const visibleRecords = useMemo(
-    () => workflowView === "all"
-      ? records
-      : records.filter((item) => String(item.data.workflow_context || "crm") === workflowView),
+    () => filterRecordsByWorkflow(records, workflowView),
     [records, workflowView],
   );
 

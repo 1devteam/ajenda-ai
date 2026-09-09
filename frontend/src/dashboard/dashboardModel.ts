@@ -1,8 +1,23 @@
-import type { MissionListItem, ReviewQueueItem } from "../types";
+import type { CrmRecordItem, MissionListItem, ReviewQueueItem } from "../types";
 
 export type MissionStatusBucket = "planned" | "running" | "completed" | "failed";
 
 export type StatusBreakdown = Record<MissionStatusBucket, number>;
+
+export type WorkflowView = "all" | "crm" | "gtm" | "vertical";
+
+/** Keep CRM records scoped to the operator's selected workflow context. */
+export function filterRecordsByWorkflow(
+  records: CrmRecordItem[],
+  workflowView: WorkflowView,
+): CrmRecordItem[] {
+  if (workflowView === "all") {
+    return records;
+  }
+  return records.filter(
+    (item) => String(item.data.workflow_context || "crm") === workflowView,
+  );
+}
 
 export type PrimaryAction = {
   id: "approvals" | "setup" | "launch";
