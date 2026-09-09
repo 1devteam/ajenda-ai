@@ -863,8 +863,10 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
         }
     if action_name == "record.write":
         role = (vertical_role or "").strip().lower()
-        workflow_context = "gtm" if role in {"vertical.gtm", "vertical.sales", "vertical.email"} else (
-            "vertical" if role.startswith("vertical.") else "crm"
+        workflow_context = (
+            "gtm"
+            if role in {"vertical.gtm", "vertical.sales", "vertical.email"}
+            else ("vertical" if role.startswith("vertical.") else "crm")
         )
         return {
             "record_type": "contact",
