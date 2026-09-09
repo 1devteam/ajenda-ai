@@ -749,6 +749,57 @@ export interface CrmSuggestionsResponse {
   items: CrmSuggestion[];
 }
 
+export interface VerticalTemplateStep {
+  step_key: string;
+  action_name: string;
+  title: string;
+  description: string;
+  depends_on: string[];
+  include_by_default: boolean;
+  optional: boolean;
+  side_effect_class: string;
+  binding_status: string;
+}
+
+export interface VerticalTemplate {
+  template_id: string;
+  role_key: string;
+  pack_id: string;
+  pack_version: string;
+  display_name: string;
+  description: string;
+  objective_template: string;
+  phase: string;
+  allows_runtime_queue: boolean;
+  authority_class: string;
+  grants_execution_authority: boolean;
+  steps: VerticalTemplateStep[];
+}
+
+export interface VerticalTemplateListResponse {
+  templates: VerticalTemplate[];
+}
+
+export interface VerticalTemplateCreateMissionRequest {
+  template_id: string;
+  selected_step_keys?: string[];
+  objective?: string;
+  mission_objective?: string;
+  approved_by?: string;
+  approval_reason?: string;
+  queue?: boolean;
+}
+
+export interface VerticalTemplateMissionResponse {
+  mission_id: string;
+  template_id: string;
+  created_task_ids: string[];
+  queued: boolean;
+  queue_outcomes: Array<{ task_id: string; ok: boolean; state: string; reason?: string | null }>;
+  authority_class: string;
+  grants_execution_authority: boolean;
+}
+
 export interface ApiFailure {
   status: number;
   message: string;

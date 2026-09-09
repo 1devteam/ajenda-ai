@@ -74,6 +74,9 @@ import type {
   VerifyEmailResponse,
   BusinessProfileFactUpsertRequest,
   BusinessProfileReadResponse,
+  VerticalTemplateListResponse,
+  VerticalTemplateMissionResponse,
+  VerticalTemplateCreateMissionRequest,
 } from "../types";
 
 async function parseBody(response: Response): Promise<unknown> {
@@ -1274,5 +1277,24 @@ export async function getCrmPipeline(caller: AuthedCaller): Promise<CrmPipelineR
 export async function listCrmSuggestions(caller: AuthedCaller): Promise<CrmSuggestionsResponse> {
   return withAuthedRuntime(caller, (config) =>
     request<CrmSuggestionsResponse>("/v1/crm/suggestions", {}, runtimeOptions(config)),
+  );
+}
+
+export async function listVerticalTemplates(caller: AuthedCaller): Promise<VerticalTemplateListResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<VerticalTemplateListResponse>("/v1/vertical-ops/templates", {}, runtimeOptions(config)),
+  );
+}
+
+export async function createVerticalTemplateMission(
+  caller: AuthedCaller,
+  body: VerticalTemplateCreateMissionRequest,
+): Promise<VerticalTemplateMissionResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<VerticalTemplateMissionResponse>(
+      "/v1/vertical-ops/missions",
+      { method: "POST", body: JSON.stringify({ ...body, queue: false }) },
+      runtimeOptions(config),
+    ),
   );
 }

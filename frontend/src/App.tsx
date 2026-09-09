@@ -15,6 +15,7 @@ import MissionsPage from "./pages/MissionsPage";
 import MissionDispatchPage from "./pages/MissionDispatchPage";
 import TasksPage from "./pages/TasksPage";
 import RecordsPage from "./pages/RecordsPage";
+import VerticalOpsPage from "./pages/VerticalOpsPage";
 import CredentialsPage from "./pages/CredentialsPage";
 import BusinessProfilePage from "./pages/BusinessProfilePage";
 import StandaloneWizardPage from "./pages/StandaloneWizardPage";
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="/active-work" element={<TasksPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/records" element={<RecordsPage />} />
+            <Route path="/vertical-ops" element={<VerticalOpsPage />} />
             <Route path="/results" element={<RecordsPage />} />
             <Route path="/credentials" element={<CredentialsPage />} />
             <Route path="/connections" element={<CredentialsPage />} />

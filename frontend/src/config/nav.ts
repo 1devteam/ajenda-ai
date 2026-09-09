@@ -7,6 +7,7 @@ import {
   FileCheck2,
   Building2,
   Plug,
+  Layers3,
 } from "lucide-react";
 
 export type NavItem = {
@@ -25,6 +26,7 @@ export const COMMAND_CENTER_NAV: NavItem[] = [
   { to: "/results", label: "Outcomes", icon: FileCheck2, match: ["/results", "/records"] },
   { to: "/business", label: "Business memory", icon: Building2, match: ["/business"] },
   { to: "/connections", label: "Connections", icon: Plug, match: ["/connections", "/credentials"] },
+  { to: "/vertical-ops", label: "Vertical operations", icon: Layers3, match: ["/vertical-ops"] },
 ];
 
 export function isNavItemActive(pathname: string, item: NavItem): boolean {
