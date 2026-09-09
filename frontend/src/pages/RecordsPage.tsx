@@ -377,6 +377,7 @@ export default function RecordsPage() {
               >
                 <strong>{recordTitle(item)}</strong>
                 <span>{recordMeta(item)}</span>
+                <span className="muted">{String(item.data.workflow_context || "crm").toUpperCase()} workflow</span>
               </button>
             ))}
           </div>
@@ -388,6 +389,7 @@ export default function RecordsPage() {
                 <p className="muted">
                   {selected.record_type} · {selected.id}
                 </p>
+                <p className="muted">Workflow: {String(selected.data.workflow_context || "crm").toUpperCase()}</p>
                 <div className="inline-controls">
                   <button type="button" className="button secondary" onClick={() => setEditing((value) => !value)}>
                     {editing ? "Cancel edit" : "Edit record"}
