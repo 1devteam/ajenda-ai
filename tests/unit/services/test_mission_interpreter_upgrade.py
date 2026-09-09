@@ -1,8 +1,24 @@
 """Coherent interpreter upgrade invariants (history, calendar, draft recipient, deps)."""
 
+import pytest
+
 from backend.services.mission_composition.capability_resolver import route_jobs_for_intent
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.mission_composition.proposal_store import load_recent_failure_context
+
+
+@pytest.mark.parametrize(
+    ("phrase", "outcome"),
+    [
+        ("merge records", "update_crm"),
+        ("advance the deal", "update_crm"),
+        ("segment accounts", "qualify_prospects"),
+        ("prepare sequence", "prepare_outreach"),
+        ("vertical research", "research_prospects"),
+    ],
+)
+def test_revops_vocabulary_normalizes_to_canonical_outcome(phrase: str, outcome: str) -> None:
+    assert outcome in interpret_instruction(f"Please {phrase} for this mission").requested_outcomes
 
 
 def test_calendar_day_query_not_quantity() -> None:
