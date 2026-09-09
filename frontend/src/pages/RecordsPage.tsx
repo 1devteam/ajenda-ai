@@ -420,10 +420,16 @@ export default function RecordsPage() {
                     {selected.record_type === "opportunity" ? (
                       <label>
                         Stage
-                        <input
+                        <select
                           value={editFields.stage}
                           onChange={(event) => setEditFields((fields) => ({ ...fields, stage: event.target.value }))}
-                        />
+                        >
+                          {(pipeline?.stages ?? []).map((stage) => (
+                            <option key={stage.stage} value={stage.stage}>
+                              {stage.stage}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                     ) : null}
                     <label>
