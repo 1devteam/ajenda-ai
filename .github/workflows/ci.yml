@@ -72,6 +72,9 @@ jobs:
       - name: Migration seed contract sentinel
         run: python scripts/validation/migration_seed_contract_check.py
 
+      - name: Ability rollout contract sentinel
+        run: python scripts/validation/ability_rollout_contract_check.py
+
   # ─────────────────────────────────────────────────────────────────────────
   # Job 2: Frontend supply-chain audit + production build
   # ─────────────────────────────────────────────────────────────────────────
@@ -96,6 +99,10 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test
 
   # ─────────────────────────────────────────────────────────────────────────
   # Job 3: Unit tests — no infrastructure, fast
