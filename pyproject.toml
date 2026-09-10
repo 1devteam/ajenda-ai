@@ -72,6 +72,7 @@ filterwarnings = [
 ]
 markers = [
   "integration: marks tests as integration tests requiring Docker/Testcontainers (deselect with -m 'not integration')",
+  "live: marks integration tests that require configured external provider credentials and network access",
   "unit: marks tests as unit tests (no external dependencies required)",
 ]
 

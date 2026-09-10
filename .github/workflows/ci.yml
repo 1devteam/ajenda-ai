@@ -176,7 +176,7 @@ jobs:
           python -m pytest tests/integration/ \
             -v \
             --tb=short \
-            -m "integration" \
+            -m "integration and not live" \
             --timeout=60
 
   # ─────────────────────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ from tests.integration.credentials.credential_e2e_support import (
     provision_operational_tenant,
 )
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.live]
 
 
 def test_hubspot_api_register_then_live_crm_research_no_egress_mock(
