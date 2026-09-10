@@ -25,6 +25,38 @@ def _context() -> ActionRuntimeContext:
     )
 
 
+def test_gtm_social_publish_fails_closed_without_trusted_destination_host() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    context = _context()
+    context.runtime_credentials = {
+        "gtm.social_publish": RuntimeCredentialMaterial(
+            reference=CredentialReference(
+                credential_id="social-proof",
+                provider="external_social",
+                credential_type="api_key",
+            ),
+            secret_value="fixture-token",
+        )
+    }
+
+    result = registry.invoke(
+        ToolInvocation(
+            action="gtm.social_publish",
+            input={"platform": "twitter", "content": "fixture"},
+            credential_reference=CredentialReference(
+                credential_id="social-proof",
+                provider="external_social",
+                credential_type="api_key",
+            ),
+        ),
+        context,
+    )
+
+    assert result.output["status"] == "error"
+    assert result.output["real"] is False
+    assert "trusted destination host" in result.output["error"]
+
+
 def test_gtm_lead_enrich_returns_evidence_without_side_effect() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(

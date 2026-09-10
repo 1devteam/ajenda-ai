@@ -946,7 +946,9 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             try:
                 secret = getattr(social_cred, "secret_value", None)
                 if secret:
-                    trusted = getattr(social_cred, "trusted_destination_hosts", None) or ("api.social.example.com",)
+                    trusted = tuple(getattr(social_cred, "trusted_destination_hosts", None) or ())
+                    if not trusted:
+                        raise ValueError("social publish credential has no trusted destination host")
                     publish_url = f"https://{trusted[0]}/publish"
                     headers = _provider_headers(
                         {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
