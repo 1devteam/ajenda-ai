@@ -12,6 +12,7 @@ import {
   sessionToRuntimeConfig,
 } from "../auth/session";
 import { newIdempotencyKey } from "../utils/errors";
+import type { VerticalPlanRequest } from "./verticalTypes";
 import type {
   AbilityActionListResponse,
   AutonomyDisclaimerListResponse,
@@ -76,7 +77,6 @@ import type {
   BusinessProfileReadResponse,
   VerticalTemplateListResponse,
   VerticalTemplateMissionResponse,
-  VerticalTemplateCreateMissionRequest,
 } from "../types";
 
 async function parseBody(response: Response): Promise<unknown> {
@@ -1288,13 +1288,15 @@ export async function listVerticalTemplates(caller: AuthedCaller): Promise<Verti
 
 export async function createVerticalTemplateMission(
   caller: AuthedCaller,
-  body: VerticalTemplateCreateMissionRequest,
+  body: VerticalPlanRequest,
+  options?: { idempotencyKey?: string },
 ): Promise<VerticalTemplateMissionResponse> {
+  const idempotencyKey = options?.idempotencyKey ?? newIdempotencyKey();
   return withAuthedRuntime(caller, (config) =>
     request<VerticalTemplateMissionResponse>(
       "/v1/vertical-ops/missions",
       { method: "POST", body: JSON.stringify({ ...body, queue: false }) },
-      runtimeOptions(config),
+      { ...runtimeOptions(config), idempotencyKey },
     ),
   );
 }
