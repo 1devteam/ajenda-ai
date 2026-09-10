@@ -31,6 +31,8 @@ GMAIL_EMAIL_ACTIONS = ("gtm.email_send", "gtm.email_check")
 GMAIL_EMAIL_SIDE_EFFECTS = ("external_send", "external_read")
 SMTP_EMAIL_ACTIONS = ("gtm.email_send",)
 SMTP_EMAIL_SIDE_EFFECTS = ("external_send",)
+SOCIAL_PUBLISH_ACTIONS = ("gtm.social_publish",)
+SOCIAL_PUBLISH_SIDE_EFFECTS = ("external_publish",)
 LINKEDIN_READ_ACTIONS = ("linkedin.profile_read", "provider.external_read")
 LINKEDIN_READ_SIDE_EFFECTS = ("external_read",)
 LINKEDIN_TRUSTED_HOSTS = ("api.linkedin.com",)
@@ -105,6 +107,7 @@ class ProviderCredentialManagementService:
             "google_contacts",
             "google_docs",
             "github",
+            "social",
             "generic",
         ] = "hubspot",
         secret_value: str | None = None,
@@ -116,10 +119,12 @@ class ProviderCredentialManagementService:
     ) -> ProviderCredentialCreateResult:
         normalized_id = _normalize_credential_id(credential_id)
         normalized_provider = provider.strip().lower()
-        if normalized_provider not in {"external_crm", "external_read_provider", "external_email"}:
+        if normalized_provider not in {"external_crm", "external_read_provider", "external_email", "external_social"}:
             raise ProviderCredentialManagementError(
-                "provider must be external_crm, external_read_provider, or external_email"
+                "provider must be external_crm, external_read_provider, external_email, or external_social"
             )
+        if normalized_provider == "external_social" and use_platform_master_key:
+            raise ProviderCredentialManagementError("external_social does not support platform master credentials")
 
         warning: str | None = None
         credential_type = self._resolve_credential_type(
@@ -145,6 +150,8 @@ class ProviderCredentialManagementService:
                     "All tenants sharing this mode depend on operator SMTP rotation and "
                     "centralized blast-radius risk. Prefer per-tenant email credentials for production."
                 )
+            elif normalized_provider == "external_social":
+                raise ProviderCredentialManagementError("external_social does not support platform master credentials")
             else:
                 warning = (
                     "WARNING: This credential uses the platform master HubSpot key. "
@@ -304,6 +311,13 @@ class ProviderCredentialManagementService:
             side_effects = tuple(allowed_side_effect_classes or SMTP_EMAIL_SIDE_EFFECTS)
             hosts = tuple(trusted_destination_hosts or ())
             return actions, side_effects, hosts
+        if provider == "external_social" and integration == "social":
+            actions = tuple(allowed_actions or SOCIAL_PUBLISH_ACTIONS)
+            side_effects = tuple(allowed_side_effect_classes or SOCIAL_PUBLISH_SIDE_EFFECTS)
+            hosts = tuple(_normalize_social_host(item) for item in (trusted_destination_hosts or ()))
+            if not hosts:
+                raise ProviderCredentialManagementError("trusted_destination_hosts is required for social publishing")
+            return actions, side_effects, hosts
         actions = tuple(allowed_actions or ())
         side_effects = tuple(allowed_side_effect_classes or ())
         hosts = tuple(trusted_destination_hosts or ())
@@ -409,6 +423,21 @@ def _salesforce_instance_host_from_secret(secret_value: str | None) -> str | Non
     from backend.services.credentials.salesforce_oauth_client import instance_host_from_url
 
     return instance_host_from_url(instance_url)
+
+
+def _normalize_social_host(value: str) -> str:
+    """Accept only an explicit DNS hostname for the egress allowlist."""
+    from urllib.parse import urlsplit
+
+    host = value.strip().lower().rstrip(".")
+    if not host or "://" in host or "/" in host or "*" in host or "@" in host:
+        raise ProviderCredentialManagementError("social trusted_destination_hosts must contain hostnames only")
+    parsed = urlsplit(f"//{host}")
+    if parsed.hostname != host or parsed.port is not None:
+        raise ProviderCredentialManagementError("social trusted_destination_hosts must contain hostnames only")
+    if "." not in host or not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", host):
+        raise ProviderCredentialManagementError("social trusted destination host is invalid")
+    return host
 
 
 def _normalize_credential_id(value: str) -> str:

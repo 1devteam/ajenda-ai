@@ -36,7 +36,8 @@ type IntegrationKind =
   | "google_calendar"
   | "google_contacts"
   | "google_docs"
-  | "github";
+  | "github"
+  | "social";
 
 const HUBSPOT_FORM: ProviderCredentialCreateRequest = {
   credential_id: "hubspot-crm",
@@ -150,6 +151,14 @@ const GITHUB_FORM: ProviderCredentialCreateRequest = {
   use_platform_master_key: false,
 };
 
+const SOCIAL_FORM: ProviderCredentialCreateRequest = {
+  credential_id: "social-publisher",
+  provider: "external_social",
+  integration: "social",
+  secret_value: "",
+  use_platform_master_key: false,
+};
+
 const FORM_BY_INTEGRATION: Record<IntegrationKind, ProviderCredentialCreateRequest> = {
   hubspot: HUBSPOT_FORM,
   gmail: GMAIL_FORM,
@@ -160,6 +169,7 @@ const FORM_BY_INTEGRATION: Record<IntegrationKind, ProviderCredentialCreateReque
   google_contacts: GOOGLE_CONTACTS_FORM,
   google_docs: GOOGLE_DOCS_FORM,
   github: GITHUB_FORM,
+  social: SOCIAL_FORM,
 };
 
 const INTEGRATION_LABELS: Record<IntegrationKind, string> = {
@@ -172,6 +182,7 @@ const INTEGRATION_LABELS: Record<IntegrationKind, string> = {
   google_contacts: "Google Contacts",
   google_docs: "Google Drive & Docs",
   github: "GitHub",
+  social: "Social publishing",
 };
 
 /** Display order: Google connectors first, then other providers. */
@@ -185,6 +196,7 @@ const INTEGRATION_ORDER: IntegrationKind[] = [
   "salesforce",
   "linkedin",
   "github",
+  "social",
 ];
 
 /**
@@ -897,6 +909,33 @@ export default function CredentialsPage() {
               >
                 Connect GitHub with OAuth
               </button>
+            </>
+          ) : integration === "social" ? (
+            <>
+              <p className="muted">
+                Social publishing uses a tenant-owned API key and an explicit destination host. This connection is
+                limited to <strong>gtm.social_publish</strong> and requires review plus idempotency before publishing.
+              </p>
+              <label>
+                Social API key
+                <input
+                  type="password"
+                  value={form.secret_value ?? ""}
+                  onChange={(event) => setForm({ ...form, secret_value: event.target.value })}
+                  placeholder="Paste the provider API key"
+                  required
+                />
+              </label>
+              <label>
+                Trusted destination host
+                <input
+                  value={(form.trusted_destination_hosts ?? [])[0] ?? ""}
+                  onChange={(event) => setForm({ ...form, trusted_destination_hosts: [event.target.value] })}
+                  placeholder="api.social.example.com"
+                  required
+                />
+                <span className="field-hint">Use a hostname only, without https://, paths, or wildcards.</span>
+              </label>
             </>
           ) : null}
 

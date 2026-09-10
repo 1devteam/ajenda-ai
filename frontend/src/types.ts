@@ -173,6 +173,7 @@ export interface ProviderCredentialCreateRequest {
     | "google_contacts"
     | "google_docs"
     | "github"
+    | "social"
     | "generic";
   secret_value?: string;
   use_platform_master_key?: boolean;

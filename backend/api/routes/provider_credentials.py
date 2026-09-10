@@ -81,6 +81,7 @@ class ProviderCredentialCreateRequest(BaseModel):
         "google_contacts",
         "google_docs",
         "github",
+        "social",
         "generic",
     ] = "hubspot"
     secret_value: str | None = Field(default=None, max_length=4000)

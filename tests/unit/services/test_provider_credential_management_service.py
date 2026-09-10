@@ -117,6 +117,51 @@ def test_register_smtp_email_credential(session_factory) -> None:
     assert "gtm.email_send" in result.summary.allowed_actions
 
 
+def test_register_social_publish_credential_is_scoped_to_publish_and_host(session_factory) -> None:
+    tenant_id = str(uuid.uuid4())
+    with session_factory() as session:
+        result = _service(session).register(
+            tenant_id=tenant_id,
+            credential_id="social-publisher",
+            provider="external_social",
+            integration="social",
+            secret_value="social-secret",
+            trusted_destination_hosts=["api.social.example.com."],
+            actor_id="user-1",
+        )
+        session.commit()
+
+    assert result.summary.provider == "external_social"
+    assert result.summary.allowed_actions == ["gtm.social_publish"]
+    assert result.summary.allowed_side_effect_classes == ["external_publish"]
+    assert result.summary.trusted_destination_hosts == ["api.social.example.com"]
+
+
+def test_social_publish_rejects_platform_master_and_unsafe_hosts(session_factory) -> None:
+    tenant_id = str(uuid.uuid4())
+    with session_factory() as session:
+        service = _service(session)
+        with pytest.raises(ProviderCredentialManagementError, match="platform master"):
+            service.register(
+                tenant_id=tenant_id,
+                credential_id="social-publisher",
+                provider="external_social",
+                integration="social",
+                use_platform_master_key=True,
+                actor_id="user-1",
+            )
+        with pytest.raises(ProviderCredentialManagementError, match="hostnames only"):
+            service.register(
+                tenant_id=tenant_id,
+                credential_id="social-publisher",
+                provider="external_social",
+                integration="social",
+                secret_value="social-secret",
+                trusted_destination_hosts=["https://api.social.example.com/publish"],
+                actor_id="user-1",
+            )
+
+
 def test_register_linkedin_read_credential(session_factory) -> None:
     tenant_id = str(uuid.uuid4())
     with session_factory() as session:
