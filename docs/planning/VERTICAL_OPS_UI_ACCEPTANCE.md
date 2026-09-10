@@ -30,8 +30,10 @@
 Self-service Social setup now accepts a tenant-owned API key through the
 Connections page. It requires an explicit hostname and defaults the credential
 scope to `gtm.social_publish` plus `external_publish`; platform-master Social
-credentials remain forbidden. A LinkedIn read connection is not publish
-authority. No external publish or send is performed during validation.
+credentials remain forbidden. Every real publish also requires a concrete
+trusted destination hostname on that credential; the runtime has no example
+host fallback. A LinkedIn read connection is not publish authority. No
+external publish or send is performed during validation.
 
 Review uses the persisted lifecycle graph. The general mission execution page
 recompiles graphs, so it is not used as the template review handoff. Execution
@@ -74,7 +76,8 @@ Validation on the changed tree:
   integration environment was isolated. No deployment was performed.
 
 The Social credential lane was subsequently added in `b48eeba` and validated
-with focused management, route, and runtime-authority tests plus the full gate.
+with focused management, route, runtime-authority and fail-closed destination
+tests plus the full gate.
 
 ## Local Compose deployment — 2026-09-10
 
