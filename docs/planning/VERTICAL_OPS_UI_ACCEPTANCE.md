@@ -27,11 +27,11 @@
 
 ## Explicit boundaries
 
-Self-service credential creation rejects `external_social` today
-(`credentials/management_service.py`). This change can select a compatible
-existing credential, but must display unavailability when none exists. Adding a
-social connector/provider is separate work; a LinkedIn read connection is not
-publish authority. No external publish or send is performed during validation.
+Self-service Social setup now accepts a tenant-owned API key through the
+Connections page. It requires an explicit hostname and defaults the credential
+scope to `gtm.social_publish` plus `external_publish`; platform-master Social
+credentials remain forbidden. A LinkedIn read connection is not publish
+authority. No external publish or send is performed during validation.
 
 Review uses the persisted lifecycle graph. The general mission execution page
 recompiles graphs, so it is not used as the template review handoff. Execution
@@ -68,10 +68,13 @@ Validation on the changed tree:
 - Ruff check/format, mypy, contract drift, runtime authority inventory, migration
   seed contract and ability rollout checks passed.
 - Full backend gate: `python -m pytest tests/unit/ tests/contract/ tests/deployment/
-  -m "not integration" --timeout=45` passed: 2,831 passed, 1 deselected (198.23s).
+  -m "not integration" --timeout=45` passed: 2,833 passed, 1 deselected (200.65s).
 - No migration round-trip: no schemas, migrations or backend runtime code changed.
 - No live browser/production mutation or external publish was performed; the
   integration environment was isolated. No deployment was performed.
+
+The Social credential lane was subsequently added in `b48eeba` and validated
+with focused management, route, and runtime-authority tests plus the full gate.
 
 ## Local Compose deployment — 2026-09-10
 
