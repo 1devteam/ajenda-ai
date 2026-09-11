@@ -43,6 +43,7 @@ from backend.services.abilities.vertical_role_catalog import RoleBindingStatus, 
 from backend.services.execution_coordinator import CoordinationResult, ExecutionCoordinator
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import CredentialReference, SideEffectClass
+from backend.services.vertical_ops.channel_state import SocialPublicationState
 from backend.services.vertical_ops.plan_templates import (
     VerticalMissionTemplate,
     VerticalTemplateStep,
@@ -669,6 +670,8 @@ class VerticalOpsTemplateService:
             "dependency_step_keys": list(step.depends_on),
             "graph_node_key": step.step_key,
         }
+        if step.action_name == "gtm.social_publish":
+            metadata_json["social_publication_state"] = SocialPublicationState.DRAFT.value
         if credential_payload is not None:
             metadata_json["credential_reference"] = credential_payload
 

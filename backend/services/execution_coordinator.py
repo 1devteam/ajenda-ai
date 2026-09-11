@@ -231,6 +231,8 @@ class ExecutionCoordinator:
                 }
                 constraints["side_effect_authorization"] = grant_payload
             metadata["execution_constraints"] = constraints
+            if parsed_invocation.action == "gtm.social_publish":
+                metadata["social_publication_state"] = "authorized"
             task.metadata_json = metadata
         elif metadata.get("task_type") == "tool.invoke":
             raise ValueError("pending-review tool task has no valid action to approve")

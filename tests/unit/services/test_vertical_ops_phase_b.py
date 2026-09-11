@@ -178,6 +178,7 @@ def test_social_template_requires_idempotency_credentials_and_marks_human_review
     assert task.action_name == "gtm.social_publish"
     assert task.requires_human_review is True
     assert task.metadata_json["side_effect_class"] == "external_publish"
+    assert task.metadata_json["social_publication_state"] == "draft"
 
 
 def test_research_external_read_requires_credentials_before_materialization() -> None:
