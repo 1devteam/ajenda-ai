@@ -506,3 +506,34 @@ def test_queue_task_rejects_terminal_completed_task() -> None:
         coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
 
     queue.enqueue_task.assert_not_called()
+
+
+def test_social_publication_moves_from_draft_to_reviewed_to_authorized() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PLANNED.value)
+    task.metadata_json = {
+        "task_type": "tool.invoke",
+        "social_publication_state": "draft",
+        "tool_invocation": {
+            "schema_version": 1,
+            "action": "gtm.social_publish",
+            "input": {"platform": "x", "content": "Draft"},
+        },
+    }
+    queue = MagicMock()
+    queue.enqueue_task.return_value = QueueOperationResult(ok=True)
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+
+    review = coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
+    assert review.ok is False
+    assert task.metadata_json["social_publication_state"] == "reviewed"
+
+    coordinator._tasks.get_for_update.return_value = task
+    approved = coordinator.approve_review_and_queue(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        actor="admin:user-123",
+        approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    assert approved.ok is True
+    assert task.metadata_json["social_publication_state"] == "authorized"

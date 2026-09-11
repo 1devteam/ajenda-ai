@@ -147,6 +147,10 @@ class ExecutionCoordinator:
     def _place_in_review(self, *, task: ExecutionTask, tenant_id: str, reason: str) -> None:
         transition_task(task, ExecutionTaskState.PENDING_REVIEW)
         task.requires_human_review = True
+        metadata = dict(task.metadata_json or {})
+        if metadata.get("social_publication_state") == "draft":
+            metadata["social_publication_state"] = "reviewed"
+            task.metadata_json = metadata
         self._session.flush()
         self._governance.append(
             GovernanceEvent(
