@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -11,6 +12,7 @@ from backend.services.tools.schemas import (
     ActionRuntimeContext,
     CredentialReference,
     RuntimeCredentialMaterial,
+    SideEffectClass,
     ToolInvocation,
 )
 
@@ -55,6 +57,18 @@ def test_gtm_social_publish_fails_closed_without_trusted_destination_host() -> N
     assert result.output["status"] == "error"
     assert result.output["real"] is False
     assert "trusted destination host" in result.output["error"]
+
+
+def test_gtm_social_draft_is_non_side_effecting_and_hashes_content() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(action="gtm.social_draft", input={"platform": "linkedin", "content": "Draft"}),
+        _context(),
+    )
+    assert result.side_effect_class == SideEffectClass.NONE
+    assert result.output["status"] == "draft"
+    assert result.output["content_hash"] == hashlib.sha256(b"Draft").hexdigest()
+    assert result.evidence
 
 
 def test_gtm_lead_enrich_returns_evidence_without_side_effect() -> None:

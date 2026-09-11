@@ -569,8 +569,22 @@ VERTICAL_OPS_PACK = VerticalRolePack(
             required_permissions=(Permission.EXECUTION_QUEUE.value,),
             evidence_expectations=("post_id", "platform", "content_hash"),
             enabled_by_default=False,
-            notes="Publish uses existing gtm.social_publish; drafts may use content draft abilities when added.",
+            notes="Drafts use gtm.social_draft; publishing uses existing gtm.social_publish under external_publish gates.",
             bindings=(
+                _runtime_binding(
+                    action_name="gtm.social_draft",
+                    capability_name="gtm",
+                    capability_version="1",
+                    adapter_name="local-gtm",
+                    adapter_version="1",
+                    side_effect_class=SideEffectClass.NONE,
+                    risk_level=AbilityRiskLevel.LOW,
+                    required_permissions=(),
+                    approval_required=False,
+                    credential_required=False,
+                    requires_human_review=False,
+                    evidence_expectations=("action_result_evidence", "platform", "content_hash"),
+                ),
                 _runtime_binding(
                     action_name="gtm.social_publish",
                     capability_name="gtm",

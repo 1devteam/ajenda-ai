@@ -512,6 +512,14 @@ class GtmSocialPublishInput(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
 
 
+class GtmSocialDraftInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: str = Field(default="twitter", min_length=1, max_length=80)
+    content: str = Field(min_length=1, max_length=280)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
 class WebResearchInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -7,6 +7,7 @@ Local/simulated providers for proof-of-concept and CI; production uses credentia
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from email.mime.text import MIMEText
 from typing import Any
@@ -38,6 +39,7 @@ from backend.services.tools.schemas import (
     GtmEmailDraftInput,
     GtmEmailSendInput,
     GtmLeadEnrichInput,
+    GtmSocialDraftInput,
     GtmSocialPublishInput,
     RuntimeCredentialMaterial,
     SideEffectClass,
@@ -343,6 +345,27 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
         summary = f"Drafted email ({mode})"
         if context.get("prospect_company"):
             summary = f"Drafted email for {context['prospect_company']} ({mode})"
+        return ActionResult(
+            action=inv.action,
+            provider="local_gtm",
+            side_effect_class=SideEffectClass.NONE,
+            output=draft,
+            evidence=[_make_evidence(inv.action, "local_gtm", ctx, summary, draft)],
+            summary=summary,
+        )
+
+    def social_draft_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
+        inp = GtmSocialDraftInput.model_validate(inv.input)
+        content_hash = hashlib.sha256(inp.content.encode("utf-8")).hexdigest()
+        draft = {
+            "platform": inp.platform,
+            "content": inp.content,
+            "content_hash": content_hash,
+            "status": "draft",
+            "real": False,
+            "context": inp.context,
+        }
+        summary = f"Social draft prepared for {inp.platform}"
         return ActionResult(
             action=inv.action,
             provider="local_gtm",
@@ -886,6 +909,15 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             side_effect_class=SideEffectClass.NONE,
             provider="local_gtm",
             input_model=GtmEmailDraftInput,
+        )
+    )
+    registry.register(
+        ActionDefinition(
+            name="gtm.social_draft",
+            handler=social_draft_handler,
+            side_effect_class=SideEffectClass.NONE,
+            provider="local_gtm",
+            input_model=GtmSocialDraftInput,
         )
     )
     registry.register(
