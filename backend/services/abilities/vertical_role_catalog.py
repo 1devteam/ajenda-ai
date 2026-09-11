@@ -26,6 +26,7 @@ from backend.domain.compliance import (
     is_supported_jurisdiction,
 )
 from backend.services.abilities.manifest import AbilityRiskLevel
+from backend.services.business_profile_categories import BUSINESS_PROFILE_CATEGORY_FIELDS
 from backend.services.tools.schemas import SideEffectClass
 
 _CANONICAL_PERMISSIONS: frozenset[str] = frozenset(item.value for item in Permission)
@@ -187,6 +188,7 @@ class VerticalRoleSpec(BaseModel):
     requires_human_review: bool = False
     required_permissions: tuple[str, ...] = ()
     evidence_expectations: tuple[str, ...] = ()
+    required_profile_categories: tuple[str, ...] = ()
     bindings: tuple[VerticalRoleBinding, ...] = ()
     enabled_by_default: bool = False
     authority_class: Literal["declarative"] = "declarative"
@@ -241,6 +243,21 @@ class VerticalRoleSpec(BaseModel):
                 raise ValueError("evidence_expectations entries must be non-empty")
             if stripped in normalized:
                 raise ValueError("evidence_expectations entries must be unique")
+            normalized.append(stripped)
+        return tuple(normalized)
+
+    @field_validator("required_profile_categories")
+    @classmethod
+    def normalize_profile_categories(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        normalized: list[str] = []
+        for value in values:
+            stripped = value.strip()
+            if not stripped:
+                raise ValueError("required_profile_categories entries must be non-empty")
+            if stripped not in BUSINESS_PROFILE_CATEGORY_FIELDS:
+                raise ValueError(f"unknown required profile category: {stripped}")
+            if stripped in normalized:
+                raise ValueError(f"duplicate required profile category: {stripped}")
             normalized.append(stripped)
         return tuple(normalized)
 
@@ -440,6 +457,7 @@ VERTICAL_OPS_PACK = VerticalRolePack(
             requires_human_review=False,
             required_permissions=(Permission.MISSION_MANAGE.value, Permission.EXECUTION_VIEW.value),
             evidence_expectations=("plan_id", "summary", "next_actions"),
+            required_profile_categories=("company",),
             enabled_by_default=False,
             notes=(
                 "Planning only. Mission plan and task graph materialization use mission_bridge; "
@@ -475,6 +493,7 @@ VERTICAL_OPS_PACK = VerticalRolePack(
             requires_human_review=False,
             required_permissions=(Permission.MISSION_MANAGE.value,),
             evidence_expectations=("kpi_updates", "recommendations"),
+            required_profile_categories=("company", "growth", "metrics"),
             enabled_by_default=False,
             notes="Recommendations first; durable KPI writes reuse record/sales write abilities when promoted.",
             bindings=(
@@ -515,6 +534,7 @@ VERTICAL_OPS_PACK = VerticalRolePack(
             requires_human_review=True,
             required_permissions=(Permission.EXECUTION_QUEUE.value,),
             evidence_expectations=("competitor_profiles", "sources"),
+            required_profile_categories=("company", "market"),
             enabled_by_default=False,
             notes="External reads require approval and tenant-visible credentials for provider.external_read.",
             bindings=(
@@ -568,6 +588,7 @@ VERTICAL_OPS_PACK = VerticalRolePack(
             requires_human_review=True,
             required_permissions=(Permission.EXECUTION_QUEUE.value,),
             evidence_expectations=("post_id", "platform", "content_hash"),
+            required_profile_categories=("company", "growth"),
             enabled_by_default=False,
             notes="Drafts use gtm.social_draft; publishing uses existing gtm.social_publish under external_publish gates.",
             bindings=(
@@ -621,6 +642,7 @@ VERTICAL_OPS_PACK = VerticalRolePack(
             requires_human_review=True,
             required_permissions=(Permission.EXECUTION_QUEUE.value,),
             evidence_expectations=("sequence_id", "sent_count", "replies"),
+            required_profile_categories=("company", "market", "growth"),
             enabled_by_default=False,
             notes="Draft and send map to existing GTM email abilities.",
             bindings=(
@@ -669,6 +691,7 @@ VERTICAL_OPS_PACK = VerticalRolePack(
             requires_human_review=True,
             required_permissions=(Permission.EXECUTION_QUEUE.value,),
             evidence_expectations=("ticket_refs", "reply_count"),
+            required_profile_categories=("company", "customer_insight"),
             enabled_by_default=False,
             notes="Reuse GTM email check/draft/send; dedicated support ticket actions remain future work.",
             bindings=(
@@ -727,6 +750,7 @@ VERTICAL_OPS_PACK = VerticalRolePack(
             requires_human_review=True,
             required_permissions=(Permission.EXECUTION_QUEUE.value, Permission.BILLING_READ.value),
             evidence_expectations=("campaign_updates", "spend_delta"),
+            required_profile_categories=("growth", "metrics"),
             enabled_by_default=False,
             notes="Phase C. No ads provider handler is bound in Phase A.",
             bindings=(
@@ -762,6 +786,7 @@ VERTICAL_OPS_PACK = VerticalRolePack(
             requires_human_review=True,
             required_permissions=(Permission.EXECUTION_QUEUE.value,),
             evidence_expectations=("pr_url", "files_changed", "tests_added"),
+            required_profile_categories=("company", "delivery"),
             enabled_by_default=False,
             notes="Phase C. No GitHub/PR handler is bound in Phase A.",
             bindings=(
@@ -794,6 +819,7 @@ VERTICAL_OPS_PACK = VerticalRolePack(
             requires_human_review=True,
             required_permissions=(Permission.BILLING_MANAGE.value, Permission.EXECUTION_QUEUE.value),
             evidence_expectations=("stripe_events", "revenue_snapshot", "alerts"),
+            required_profile_categories=("company", "metrics"),
             enabled_by_default=False,
             notes=(
                 "Financial risk uses risk_level + ComplianceCategory.FINANCIAL + permissions, "

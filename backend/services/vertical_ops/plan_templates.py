@@ -146,6 +146,8 @@ class VerticalMissionTemplate(BaseModel):
             raise ValueError("template step_key values must be unique")
 
         role = get_vertical_role(self.role_key)
+        if self.required_profile_categories != role.required_profile_categories:
+            raise ValueError("template required_profile_categories must match its vertical role contract")
         bindings_by_action = {binding.action_name: binding for binding in role.bindings}
         for step in self.steps:
             binding = bindings_by_action.get(step.action_name)

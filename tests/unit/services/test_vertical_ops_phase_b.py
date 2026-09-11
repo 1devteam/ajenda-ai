@@ -71,6 +71,7 @@ def test_phase_b_steps_are_runtime_bound_and_manifested() -> None:
         assert template.authority_class == "declarative"
         assert template.allows_runtime_queue is True
         assert template.required_profile_categories
+        assert template.required_profile_categories == get_vertical_role(template.role_key).required_profile_categories
         for step in template.steps:
             assert step.action_name in runtime_actions
             assert step.action_name in ABILITY_MANIFESTS_BY_ACTION
