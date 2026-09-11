@@ -81,6 +81,33 @@ def test_list_templates_returns_phase_b_and_c_catalog() -> None:
     assert all(item["allows_runtime_queue"] is False for item in phase_c)
 
 
+def test_create_mission_reports_missing_profile_categories_before_mutation() -> None:
+    tenant_id = uuid.uuid4()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    with (
+        patch.object(vertical_ops_module, "require_route_permission"),
+        patch.object(vertical_ops_module, "BusinessProfileRepository") as profile_repo_cls,
+    ):
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        response = client.post(
+            "/v1/vertical-ops/missions",
+            json={
+                "template_id": "vertical.research.v1",
+                "step_inputs": {"research-internal": {"query": "Acme competitors"}},
+            },
+            headers={"X-Tenant-Id": str(tenant_id)},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "profile_readiness_blocked",
+        "template_id": "vertical.research.v1",
+        "missing_profile_categories": ["company", "market"],
+    }
+
+
 def test_phase_c_queue_rejected_by_api() -> None:
     tenant_id = uuid.uuid4()
     app = _build_app(tenant_id)
@@ -127,7 +154,9 @@ def test_charter_blocks_default_never_do_social_publish() -> None:
         patch.object(vertical_ops_module, "_enforce_quota_and_features"),
         patch.object(vertical_ops_module, "BusinessProfileRepository") as profile_repo_cls,
     ):
-        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = MagicMock(
+            approved_facts={"business_name": {"value": "Acme"}, "growth_goals": {"value": "Grow"}}
+        )
         response = client.post(
             "/v1/vertical-ops/missions",
             json={
@@ -184,10 +213,14 @@ def test_create_mission_from_template_apply_only() -> None:
     with (
         patch.object(vertical_ops_module, "require_route_permission"),
         patch.object(vertical_ops_module, "_enforce_quota_and_features"),
+        patch.object(vertical_ops_module, "BusinessProfileRepository") as profile_repo_cls,
         patch.object(vertical_ops_module.VerticalOpsTemplateService, "build_bundle") as build_bundle,
         patch.object(vertical_ops_module.VerticalOpsTemplateService, "apply_to_mission", return_value=applied),
         patch.object(vertical_ops_module, "Mission", wraps=Mission),
     ):
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = MagicMock(
+            approved_facts={"business_name": {"value": "Acme"}, "target_customers": {"value": "Operators"}}
+        )
         build_bundle.return_value = MagicMock(
             role_key="vertical.research",
             planned_tasks=(MagicMock(),),
@@ -238,6 +271,7 @@ def test_create_mission_with_queue_uses_apply_and_queue() -> None:
     with (
         patch.object(vertical_ops_module, "require_route_permission"),
         patch.object(vertical_ops_module, "_enforce_quota_and_features"),
+        patch.object(vertical_ops_module, "BusinessProfileRepository") as profile_repo_cls,
         patch.object(vertical_ops_module.VerticalOpsTemplateService, "build_bundle") as build_bundle,
         patch.object(
             vertical_ops_module.VerticalOpsTemplateService,
@@ -245,6 +279,9 @@ def test_create_mission_with_queue_uses_apply_and_queue() -> None:
             return_value=(applied, queued),
         ) as apply_and_queue,
     ):
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = MagicMock(
+            approved_facts={"business_name": {"value": "Acme"}, "target_customers": {"value": "Operators"}}
+        )
         build_bundle.return_value = MagicMock(
             role_key="vertical.research",
             planned_tasks=(MagicMock(),),

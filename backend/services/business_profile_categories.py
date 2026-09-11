@@ -50,3 +50,22 @@ def profile_category_for_field(field: str) -> str | None:
     if normalized.startswith("default_"):
         return PROFILE_CATEGORY_BY_FIELD.get(normalized.removeprefix("default_"))
     return normalized if normalized in BUSINESS_PROFILE_CATEGORY_FIELDS else None
+
+
+def missing_profile_categories(approved_facts: object, required_categories: tuple[str, ...]) -> list[str]:
+    """Return required categories with no non-empty approved profile fact."""
+
+    if not isinstance(approved_facts, dict):
+        return list(required_categories)
+    present: set[str] = set()
+    for field, value in approved_facts.items():
+        if not isinstance(field, str) or not value:
+            continue
+        if isinstance(value, dict):
+            value = value.get("value") or value.get("default") or value.get("items") or value.get("values")
+        if not value:
+            continue
+        category = profile_category_for_field(field)
+        if category is not None:
+            present.add(category)
+    return [category for category in required_categories if category not in present]

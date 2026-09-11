@@ -29,6 +29,7 @@ from backend.queue.base import QueueAdapter
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.services.abilities.role_contracts import RoleName
+from backend.services.business_profile_categories import missing_profile_categories
 from backend.services.operating_charter import (
     OperatingCharterViolation,
     assert_action_allowed,
@@ -219,6 +220,28 @@ def _selected_actions(template_id: str, selected_step_keys: list[str] | None) ->
     template = get_vertical_mission_template(template_id)
     steps = template.selected_steps(selected_step_keys)
     return [step.action_name for step in steps]
+
+
+def _enforce_profile_readiness(*, db: Session, tenant_id: uuid.UUID, template_id: str) -> None:
+    """Fail closed before template application when required profile sections are absent."""
+
+    template = get_vertical_mission_template(template_id)
+    if not template.required_profile_categories:
+        return
+    profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=str(tenant_id))
+    missing = missing_profile_categories(
+        profile.approved_facts if profile is not None else None,
+        template.required_profile_categories,
+    )
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "profile_readiness_blocked",
+                "template_id": template_id,
+                "missing_profile_categories": missing,
+            },
+        )
 
 
 def _enforce_quota_and_features(
@@ -485,6 +508,8 @@ def create_mission_from_template(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    _enforce_profile_readiness(db=db, tenant_id=tenant_id, template_id=body.template_id)
+
     # Charter gates apply whenever runtime-bound tasks will be materialized or queued.
     if bundle.allows_runtime_queue:
         _enforce_operating_charter(db=db, tenant_id=tenant_id, actions=actions)
@@ -616,6 +641,8 @@ def apply_template_to_mission(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    _enforce_profile_readiness(db=db, tenant_id=tenant_id, template_id=body.template_id)
 
     if bundle.allows_runtime_queue:
         _enforce_operating_charter(db=db, tenant_id=tenant_id, actions=actions)

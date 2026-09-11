@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID, PROFILE_CONTACT_RECORD_ID
-from backend.services.business_profile_categories import profile_category_for_field
+from backend.services.business_profile_categories import missing_profile_categories, profile_category_for_field
 from backend.services.business_profile_record_sync import (
     build_profile_account_record,
     build_profile_contact_record,
@@ -65,3 +65,14 @@ def test_profile_brief_exposes_business_first_categories() -> None:
         "offer": ["products_services"],
     }
     assert profile_category_for_field("customer_polls") == "customer_insight"
+
+
+def test_missing_profile_categories_is_fail_closed_for_empty_facts() -> None:
+    assert missing_profile_categories({}, ("company", "growth")) == ["company", "growth"]
+    assert (
+        missing_profile_categories(
+            {"business_name": {"value": "Acme"}, "growth_goals": {"value": "Grow"}},
+            ("company", "growth"),
+        )
+        == []
+    )
