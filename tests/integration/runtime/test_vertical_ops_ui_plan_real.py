@@ -91,6 +91,7 @@ def test_ui_plan_inputs_survive_persistence_and_lifecycle_review(
         assert task.status == "planned"
         if social:
             assert task.requires_human_review is True
+            assert task.metadata_json["social_publication_state"] == "draft"
             assert task.metadata_json["tool_invocation"]["idempotency_key"] == operation_key
             assert task.metadata_json["tool_invocation"]["credential_reference"]["credential_id"] == "social-publisher"
         assert MissionRepository(session).get_for_tenant(mission_id=mission_id, tenant_id=str(uuid.uuid4())) is None
