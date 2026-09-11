@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.routes import business_profile as business_profile_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.app.dependencies.services import get_business_profile_repository
 from backend.auth.principal import Principal, PrincipalType
 from backend.domain.audit_event import AuditEvent
 from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
@@ -146,6 +147,7 @@ def _build_app(
 
     app.dependency_overrides[get_request_tenant_id] = _override_tenant_id
     app.dependency_overrides[get_tenant_db_session] = _override_db
+    app.dependency_overrides[get_business_profile_repository] = lambda: repo
     _FakeAuditEventRepository.events = []
     business_profile_module.BusinessProfileRepository = lambda _db: repo  # type: ignore[assignment]
     business_profile_module.AuditEventRepository = _FakeAuditEventRepository  # type: ignore[assignment]

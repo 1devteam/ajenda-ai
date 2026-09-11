@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.app.dependencies.services import get_business_profile_repository
 from backend.auth.permissions import Permission
 from backend.domain.audit_event import AuditEvent
 from backend.domain.business_profile import (
@@ -406,11 +407,12 @@ def read_business_profile_readiness(
     request: Request,
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
+    profile_repo: BusinessProfileRepository = Depends(get_business_profile_repository),
 ) -> BusinessProfileReadinessRead:
     """Report canonical profile category coverage without creating or mutating profile truth."""
     require_route_permission(request=request, db=db, permission=Permission.BUSINESS_PROFILE_READ, tenant_id=tenant_id)
     tenant_scope = str(tenant_id)
-    profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=tenant_scope)
+    profile = profile_repo.get_active_profile_for_tenant(tenant_id=tenant_scope)
     approved_facts = profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}
     missing = missing_profile_categories(approved_facts, tuple(BUSINESS_PROFILE_CATEGORY_FIELDS))
     categories = [

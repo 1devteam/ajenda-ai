@@ -15,8 +15,14 @@ from sqlalchemy.orm import Session
 
 from backend.app.dependencies.db import get_db_session
 from backend.queue.base import QueueAdapter
+from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.services.policy_guardian import PolicyGuardian
 from backend.services.runtime_governor import RuntimeGovernor
+
+
+def get_business_profile_repository(db: Session = Depends(get_db_session)) -> BusinessProfileRepository:
+    """Provide the tenant-scoped Business Profile repository to route handlers."""
+    return BusinessProfileRepository(db)
 
 
 def get_queue_adapter(request: Request) -> QueueAdapter:
