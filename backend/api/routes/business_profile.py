@@ -24,6 +24,10 @@ from backend.domain.business_profile import (
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.mission_repository import MissionRepository
+from backend.services.business_profile_categories import (
+    BUSINESS_PROFILE_CATEGORY_FIELDS,
+    missing_profile_categories,
+)
 from backend.services.business_profile_record_sync import sync_profile_to_internal_records
 
 router = APIRouter(prefix="/business-profile", tags=["business-profile"])
@@ -131,6 +135,22 @@ class BusinessProfileRead(BaseModel):
     schema_version: int
     created_at: str | None
     updated_at: str | None
+
+
+class BusinessProfileCategoryRead(BaseModel):
+    category: str
+    status: Literal["complete", "missing"]
+    fields: list[str]
+
+
+class BusinessProfileReadinessRead(BaseModel):
+    """Read-only category coverage used before selecting a vertical template."""
+
+    tenant_id: str
+    profile_id: UUID | None
+    ready: bool
+    missing_categories: list[str]
+    categories: list[BusinessProfileCategoryRead]
 
 
 class BusinessProfileFactUpsert(BaseModel):
@@ -379,6 +399,35 @@ def read_business_profile(
     tenant_scope = str(tenant_id)
     profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=tenant_scope)
     return _profile_to_read(profile, tenant_id=tenant_scope)
+
+
+@router.get("/readiness", response_model=BusinessProfileReadinessRead)
+def read_business_profile_readiness(
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> BusinessProfileReadinessRead:
+    """Report canonical profile category coverage without creating or mutating profile truth."""
+    require_route_permission(request=request, db=db, permission=Permission.BUSINESS_PROFILE_READ, tenant_id=tenant_id)
+    tenant_scope = str(tenant_id)
+    profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=tenant_scope)
+    approved_facts = profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}
+    missing = missing_profile_categories(approved_facts, tuple(BUSINESS_PROFILE_CATEGORY_FIELDS))
+    categories = [
+        BusinessProfileCategoryRead(
+            category=category,
+            status="missing" if category in missing else "complete",
+            fields=list(fields),
+        )
+        for category, fields in BUSINESS_PROFILE_CATEGORY_FIELDS.items()
+    ]
+    return BusinessProfileReadinessRead(
+        tenant_id=tenant_scope,
+        profile_id=profile.id if profile is not None else None,
+        ready=not missing,
+        missing_categories=missing,
+        categories=categories,
+    )
 
 
 @router.get("/history", response_model=BusinessProfileHistoryRead)

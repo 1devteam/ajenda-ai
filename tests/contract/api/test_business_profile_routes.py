@@ -215,6 +215,37 @@ def test_read_business_profile_returns_active_approved_facts_without_mutating() 
 
     assert response.status_code == 200
     assert response.json()["approved_facts"] == {"business_name": {"value": "Ajenda"}}
+
+
+def test_read_business_profile_readiness_reports_canonical_category_coverage() -> None:
+    tenant_id = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+    repo.add_profile(
+        _profile(
+            tenant_id=str(tenant_id),
+            facts={
+                "business_name": {"value": "Ajenda"},
+                "growth_goals": {"value": "Expand"},
+            },
+        )
+    )
+
+    response = _client(tenant_id, repo).get("/v1/business-profile/readiness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is False
+    assert body["missing_categories"] == [
+        "market",
+        "offer",
+        "governance",
+        "customer_insight",
+        "delivery",
+        "metrics",
+    ]
+    category_status = {item["category"]: item["status"] for item in body["categories"]}
+    assert category_status["company"] == "complete"
+    assert category_status["growth"] == "complete"
     assert len(repo.profiles) == 1
     assert repo.suggestions == {}
 
