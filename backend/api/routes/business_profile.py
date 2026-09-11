@@ -30,6 +30,7 @@ from backend.services.business_profile_categories import (
     missing_profile_categories,
 )
 from backend.services.business_profile_record_sync import sync_profile_to_internal_records
+from backend.services.vertical_ops.plan_templates import get_vertical_mission_template
 
 router = APIRouter(prefix="/business-profile", tags=["business-profile"])
 
@@ -149,6 +150,10 @@ class BusinessProfileReadinessRead(BaseModel):
 
     tenant_id: str
     profile_id: UUID | None
+    template_id: str | None
+    required_profile_categories: list[str]
+    missing_required_categories: list[str]
+    ready_for_template: bool
     ready: bool
     missing_categories: list[str]
     categories: list[BusinessProfileCategoryRead]
@@ -405,6 +410,7 @@ def read_business_profile(
 @router.get("/readiness", response_model=BusinessProfileReadinessRead)
 def read_business_profile_readiness(
     request: Request,
+    template_id: str | None = Query(default=None, min_length=1, max_length=160),
     tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
     db: Session = Depends(get_tenant_db_session),
     profile_repo: BusinessProfileRepository = Depends(get_business_profile_repository),
@@ -414,7 +420,14 @@ def read_business_profile_readiness(
     tenant_scope = str(tenant_id)
     profile = profile_repo.get_active_profile_for_tenant(tenant_id=tenant_scope)
     approved_facts = profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}
+    required_categories = tuple(BUSINESS_PROFILE_CATEGORY_FIELDS)
+    if template_id is not None:
+        try:
+            required_categories = get_vertical_mission_template(template_id).required_profile_categories
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     missing = missing_profile_categories(approved_facts, tuple(BUSINESS_PROFILE_CATEGORY_FIELDS))
+    missing_required = missing_profile_categories(approved_facts, required_categories)
     categories = [
         BusinessProfileCategoryRead(
             category=category,
@@ -426,6 +439,10 @@ def read_business_profile_readiness(
     return BusinessProfileReadinessRead(
         tenant_id=tenant_scope,
         profile_id=profile.id if profile is not None else None,
+        template_id=template_id,
+        required_profile_categories=list(required_categories),
+        missing_required_categories=missing_required,
+        ready_for_template=not missing_required,
         ready=not missing,
         missing_categories=missing,
         categories=categories,

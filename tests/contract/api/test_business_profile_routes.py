@@ -237,6 +237,19 @@ def test_read_business_profile_readiness_reports_canonical_category_coverage() -
     assert response.status_code == 200
     body = response.json()
     assert body["ready"] is False
+    assert body["template_id"] is None
+    assert body["ready_for_template"] is False
+    assert body["required_profile_categories"] == [
+        "company",
+        "market",
+        "offer",
+        "governance",
+        "growth",
+        "customer_insight",
+        "delivery",
+        "metrics",
+    ]
+    assert body["missing_required_categories"] == body["missing_categories"]
     assert body["missing_categories"] == [
         "market",
         "offer",
@@ -248,6 +261,22 @@ def test_read_business_profile_readiness_reports_canonical_category_coverage() -
     category_status = {item["category"]: item["status"] for item in body["categories"]}
     assert category_status["company"] == "complete"
     assert category_status["growth"] == "complete"
+
+
+def test_readiness_can_target_a_vertical_template() -> None:
+    tenant_id = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+    repo.add_profile(_profile(tenant_id=str(tenant_id), facts={"business_name": {"value": "Ajenda"}}))
+
+    response = _client(tenant_id, repo).get("/v1/business-profile/readiness?template_id=vertical.social.v1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["template_id"] == "vertical.social.v1"
+    assert body["required_profile_categories"] == ["company", "growth"]
+    assert body["missing_required_categories"] == ["growth"]
+    assert body["ready_for_template"] is False
+    assert body["ready"] is False
     assert len(repo.profiles) == 1
     assert repo.suggestions == {}
 
