@@ -41,6 +41,14 @@ def test_mission_brief_uses_profile_defaults_without_runtime_authority() -> None
     assert result.mission_create_prefill["allowed_tools"] == ["crm"]
     assert result.mission_create_prefill["compliance_category"] == "marketing"
     assert result.mission_create_prefill["jurisdiction"] == "US-NY"
+    profile_categories = {
+        item.field: item.profile_category for item in result.provenance if item.source == "business_profile"
+    }
+    assert profile_categories["profile_context.business_name"] == "company"
+    assert profile_categories["allowed_actions"] == "governance"
+    assert profile_categories["allowed_tools"] == "governance"
+    assert profile_categories["evidence_expectations"] == "governance"
+    assert profile_categories["jurisdiction"] == "governance"
     assert result.authority_flags.authority_class == "read_model"
     assert result.authority_flags.read_only is True
     assert result.authority_flags.creates_mission is False

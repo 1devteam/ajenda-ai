@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from backend.domain.business_profile import BusinessProfile
 from backend.domain.compliance import is_supported_compliance_category, is_supported_jurisdiction
+from backend.services.business_profile_categories import profile_category_for_field
 
 MISSION_BRIEF_SCHEMA_VERSION = 1
 MAX_MISSION_BRIEF_JSON_BYTES = 24_576
@@ -288,6 +289,13 @@ class MissionBriefProvenance(BaseModel):
     source: MissionBriefSource
     profile_category: str | None = None
     note: str | None = None
+
+    @field_validator("profile_category", mode="before")
+    @classmethod
+    def _normalize_profile_category(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        return profile_category_for_field(value) or value
 
 
 class MissionBriefConflict(BaseModel):

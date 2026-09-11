@@ -109,9 +109,7 @@ def build_profile_brief(*, approved_facts: dict[str, Any], provenance: dict[str,
             conflicting_fields.append(str(category))
 
     categories: set[str] = {
-        category_name
-        for field in brief
-        if (category_name := profile_category_for_field(field)) is not None
+        category_name for field in brief if (category_name := profile_category_for_field(field)) is not None
     }
 
     return {
