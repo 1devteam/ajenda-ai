@@ -108,11 +108,17 @@ def build_profile_brief(*, approved_facts: dict[str, Any], provenance: dict[str,
         ):
             conflicting_fields.append(str(category))
 
+    categories: set[str] = {
+        category_name
+        for field in brief
+        if (category_name := profile_category_for_field(field)) is not None
+    }
+
     return {
         "facts": brief,
         "categories": {
             category: sorted(field for field in brief if profile_category_for_field(field) == category)
-            for category in sorted({profile_category_for_field(field) for field in brief} - {None})
+            for category in sorted(categories)
         },
         "missing_fields": missing_fields,
         "conflicting_fields": sorted(set(conflicting_fields)),
