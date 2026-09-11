@@ -12,6 +12,7 @@ from backend.domain.business_profile_projection import (
     PROFILE_RECORD_SOURCE,
 )
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
+from backend.services.business_profile_categories import profile_category_for_field
 
 
 def _clean_text(value: Any) -> str | None:
@@ -109,6 +110,10 @@ def build_profile_brief(*, approved_facts: dict[str, Any], provenance: dict[str,
 
     return {
         "facts": brief,
+        "categories": {
+            category: sorted(field for field in brief if profile_category_for_field(field) == category)
+            for category in sorted({profile_category_for_field(field) for field in brief} - {None})
+        },
         "missing_fields": missing_fields,
         "conflicting_fields": sorted(set(conflicting_fields)),
     }
