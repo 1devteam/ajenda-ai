@@ -74,6 +74,8 @@ def test_list_templates_returns_phase_b_and_c_catalog() -> None:
         "vertical.finance.v1",
     } <= ids
     assert all(item["grants_execution_authority"] is False for item in payload["templates"])
+    social = next(item for item in payload["templates"] if item["template_id"] == "vertical.social.v1")
+    assert social["required_profile_categories"] == ["company", "growth"]
     phase_c = [item for item in payload["templates"] if item["phase"] == "C"]
     assert phase_c
     assert all(item["allows_runtime_queue"] is False for item in phase_c)

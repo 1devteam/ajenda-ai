@@ -26,6 +26,7 @@ from backend.services.abilities.vertical_role_catalog import (
     VerticalRoleBinding,
     get_vertical_role,
 )
+from backend.services.business_profile_categories import BUSINESS_PROFILE_CATEGORY_FIELDS
 from backend.services.tools.schemas import SideEffectClass
 
 PHASE_B_TEMPLATE_IDS: frozenset[str] = frozenset(
@@ -100,6 +101,7 @@ class VerticalMissionTemplate(BaseModel):
     phase: Literal["B", "C"] = "B"
     # Phase C templates are plan/graph only until provider proof exists.
     allows_runtime_queue: bool = True
+    required_profile_categories: tuple[str, ...] = ()
 
     @field_validator(
         "template_id",
@@ -133,6 +135,11 @@ class VerticalMissionTemplate(BaseModel):
             raise ValueError("Phase C templates must set allows_runtime_queue=false until providers prove safe")
         if self.phase == "B" and not self.allows_runtime_queue:
             raise ValueError("Phase B templates must allow runtime queue for runtime-bound steps")
+        if len(set(self.required_profile_categories)) != len(self.required_profile_categories):
+            raise ValueError("required_profile_categories must be unique")
+        unknown_categories = set(self.required_profile_categories) - set(BUSINESS_PROFILE_CATEGORY_FIELDS)
+        if unknown_categories:
+            raise ValueError(f"unknown required profile categories: {sorted(unknown_categories)}")
 
         step_keys = [step.step_key for step in self.steps]
         if len(step_keys) != len(set(step_keys)):
@@ -212,6 +219,7 @@ VERTICAL_MISSION_TEMPLATES: tuple[VerticalMissionTemplate, ...] = (
             "Phase B research mission: internal web research first, optional credentialed external read for enrichment."
         ),
         objective_template="Research competitors and capture sources for mission outcomes.",
+        required_profile_categories=("company", "market"),
         phase="B",
         allows_runtime_queue=True,
         steps=(
@@ -253,6 +261,7 @@ VERTICAL_MISSION_TEMPLATES: tuple[VerticalMissionTemplate, ...] = (
             "behind existing GTM high-risk gates."
         ),
         objective_template="Prepare and optionally send governed outreach email.",
+        required_profile_categories=("company", "market", "growth"),
         phase="B",
         allows_runtime_queue=True,
         steps=(
@@ -282,6 +291,7 @@ VERTICAL_MISSION_TEMPLATES: tuple[VerticalMissionTemplate, ...] = (
         display_name="Social Publish Mission",
         description=("Phase B social mission bound to existing gtm.social_publish under external_publish gates."),
         objective_template="Publish social content under governed external_publish authority.",
+        required_profile_categories=("company", "growth"),
         phase="B",
         allows_runtime_queue=True,
         steps=(
@@ -306,6 +316,7 @@ VERTICAL_MISSION_TEMPLATES: tuple[VerticalMissionTemplate, ...] = (
             "and human-review proof exist. Runtime queue is disabled."
         ),
         objective_template="Plan governed ad optimization work without executing provider mutations.",
+        required_profile_categories=("growth", "metrics"),
         phase="C",
         allows_runtime_queue=False,
         steps=(
@@ -329,6 +340,7 @@ VERTICAL_MISSION_TEMPLATES: tuple[VerticalMissionTemplate, ...] = (
             "idempotency proof exist. Runtime queue is disabled."
         ),
         objective_template="Plan governed code/PR work without opening PRs.",
+        required_profile_categories=("company", "delivery"),
         phase="C",
         allows_runtime_queue=False,
         steps=(
@@ -353,6 +365,7 @@ VERTICAL_MISSION_TEMPLATES: tuple[VerticalMissionTemplate, ...] = (
             "risk_level + ComplianceCategory.FINANCIAL, not a fake side-effect class."
         ),
         objective_template="Plan governed finance sync/mutation work without executing mutations.",
+        required_profile_categories=("company", "metrics"),
         phase="B",
         allows_runtime_queue=True,
         steps=(

@@ -92,6 +92,7 @@ class VerticalTemplateRead(BaseModel):
     allows_runtime_queue: bool
     authority_class: str
     grants_execution_authority: bool
+    required_profile_categories: list[str]
     steps: list[VerticalTemplateStepRead]
 
 
@@ -201,6 +202,7 @@ def _template_to_read(template_id: str) -> VerticalTemplateRead:
         allows_runtime_queue=template.allows_runtime_queue,
         authority_class=template.authority_class,
         grants_execution_authority=template.grants_execution_authority,
+        required_profile_categories=list(template.required_profile_categories),
         steps=steps,
     )
 
