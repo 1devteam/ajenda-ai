@@ -774,11 +774,24 @@ export interface VerticalTemplate {
   allows_runtime_queue: boolean;
   authority_class: string;
   grants_execution_authority: boolean;
+  required_profile_categories: string[];
   steps: VerticalTemplateStep[];
 }
 
 export interface VerticalTemplateListResponse {
   templates: VerticalTemplate[];
+}
+
+export interface BusinessProfileReadinessResponse {
+  tenant_id: string;
+  profile_id: string | null;
+  template_id: string | null;
+  required_profile_categories: string[];
+  missing_required_categories: string[];
+  ready_for_template: boolean;
+  ready: boolean;
+  missing_categories: string[];
+  categories: Array<{ category: string; status: "complete" | "missing"; fields: string[] }>;
 }
 
 export interface VerticalTemplateCreateMissionRequest {

@@ -13,6 +13,7 @@ function template(id: string, action: string): VerticalTemplate {
     template_id: `vertical.${id}.v1`, role_key: `vertical.${id}`, pack_id: "vertical_ops.v1", pack_version: "1.0.0",
     display_name: `${id} plan`, description: "Plan description", objective_template: `Plan ${id}`,
     phase: "B", allows_runtime_queue: true, authority_class: "declarative", grants_execution_authority: false,
+    required_profile_categories: id === "research" ? ["company", "market"] : ["company", "growth"],
     steps: [{ step_key: id === "research" ? "research-internal" : "social-publish", action_name: action,
       title: id, description: id, depends_on: [], include_by_default: true, optional: false,
       side_effect_class: id === "research" ? "internal_read" : "external_publish", binding_status: "runtime_bound" }],
@@ -40,6 +41,11 @@ beforeEach(() => {
   create = async (init) => json({ mission_id: "saved-mission", template_id: JSON.parse(String(init.body)).template_id, queued: false });
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     if (url.endsWith("/templates")) return json({ templates: [research, social] });
+    if (url.includes("/business-profile/readiness")) return json({
+      tenant_id: "tenant-a", profile_id: "profile-a", template_id: url.includes("social") ? social.template_id : research.template_id,
+      required_profile_categories: ["company"], missing_required_categories: [], ready_for_template: true,
+      ready: true, missing_categories: [], categories: [],
+    });
     if (url.endsWith("/provider-credentials")) return json({ credentials });
     if (url.endsWith("/vertical-ops/missions")) { posts.push(init); return create(init); }
     throw new Error(`Unexpected request: ${url}`);
@@ -165,8 +171,15 @@ describe("vertical operations forms", () => {
     expect(article("social").querySelectorAll("option")).toHaveLength(1);
   });
   it("keeps Research usable when connection listing fails", async () => {
-    vi.mocked(fetch).mockImplementation(async (url) => String(url).endsWith("/templates")
-      ? json({ templates: [research, social] }) : json({ detail: "permission denied" }, 403));
+    vi.mocked(fetch).mockImplementation(async (url) => {
+      if (String(url).endsWith("/templates")) return json({ templates: [research, social] });
+      if (String(url).includes("/business-profile/readiness")) {
+        return json({ tenant_id: "tenant-a", profile_id: "profile-a", template_id: research.template_id,
+          required_profile_categories: ["company"], missing_required_categories: [], ready_for_template: true,
+          ready: true, missing_categories: [], categories: [] });
+      }
+      return json({ detail: "permission denied" }, 403);
+    });
     await render();
     expect(container.textContent).toContain("Publishing connections could not be loaded");
     await fill(article("research"), "Research question", "Acme");

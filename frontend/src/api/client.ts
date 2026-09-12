@@ -75,6 +75,7 @@ import type {
   VerifyEmailResponse,
   BusinessProfileFactUpsertRequest,
   BusinessProfileReadResponse,
+  BusinessProfileReadinessResponse,
   VerticalTemplateListResponse,
   VerticalTemplateMissionResponse,
 } from "../types";
@@ -1283,6 +1284,20 @@ export async function listCrmSuggestions(caller: AuthedCaller): Promise<CrmSugge
 export async function listVerticalTemplates(caller: AuthedCaller): Promise<VerticalTemplateListResponse> {
   return withAuthedRuntime(caller, (config) =>
     request<VerticalTemplateListResponse>("/v1/vertical-ops/templates", {}, runtimeOptions(config)),
+  );
+}
+
+export async function getBusinessProfileReadiness(
+  caller: AuthedCaller,
+  templateId: string,
+): Promise<BusinessProfileReadinessResponse> {
+  const params = new URLSearchParams({ template_id: templateId });
+  return withAuthedRuntime(caller, (config) =>
+    request<BusinessProfileReadinessResponse>(
+      `/v1/business-profile/readiness?${params.toString()}`,
+      {},
+      runtimeOptions(config),
+    ),
   );
 }
 

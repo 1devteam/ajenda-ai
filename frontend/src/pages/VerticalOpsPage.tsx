@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { createVerticalTemplateMission, listProviderCredentials, listVerticalTemplates } from "../api/client";
+import { createVerticalTemplateMission, getBusinessProfileReadiness, listProviderCredentials, listVerticalTemplates } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
 import PageHeader from "../components/ui/PageHeader";
@@ -20,12 +20,23 @@ function TemplateForm({ template, session, credentials, connectionsLoading }: {
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [missionId, setMissionId] = useState<string | null>(null);
+  const [profileReadiness, setProfileReadiness] = useState<Awaited<ReturnType<typeof getBusinessProfileReadiness>> | null>(null);
+  const [profileReadinessLoading, setProfileReadinessLoading] = useState(true);
   const inFlight = useRef(false);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
+  useEffect(() => {
+    let cancelled = false;
+    setProfileReadinessLoading(true);
+    void getBusinessProfileReadiness(session, template.template_id)
+      .then((response) => { if (!cancelled) setProfileReadiness(response); })
+      .catch((caught) => { if (!cancelled) setError(caught); })
+      .finally(() => { if (!cancelled) setProfileReadinessLoading(false); });
+    return () => { cancelled = true; };
+  }, [session, template.template_id]);
   const defaults = template.steps.filter((step) => step.include_by_default);
   const research = defaults.some((step) => step.action_name === "web.research");
   const social = defaults.some((step) => step.action_name === "gtm.social_publish");
@@ -35,6 +46,11 @@ function TemplateForm({ template, session, credentials, connectionsLoading }: {
     buildVerticalPlan(template, fields, credentials, session.tenantId, operationKey);
   } catch (caught) {
     blocker = (caught as Error).message;
+  }
+  if (profileReadinessLoading) blocker = "Checking business profile readiness…";
+  else if (!profileReadiness) blocker = "Business profile readiness could not be verified.";
+  else if (profileReadiness && !profileReadiness.ready_for_template) {
+    blocker = `Complete business profile categories before planning: ${profileReadiness.missing_required_categories.join(", ")}.`;
   }
 
   function update(name: keyof PlanFields, value: string) {
@@ -70,6 +86,8 @@ function TemplateForm({ template, session, credentials, connectionsLoading }: {
       <h2>{template.display_name}</h2>
       <p className="muted">{template.description}</p>
       <p>{defaults.length} planned step(s){!template.allows_runtime_queue ? " · Planning only; execution unavailable" : ""}</p>
+      {profileReadiness && !profileReadiness.ready_for_template ?
+        <p role="status" className="field-hint">Missing profile categories: {profileReadiness.missing_required_categories.join(", ")}</p> : null}
       <form className="form-grid" onSubmit={(event) => void createPlan(event)}>
         <fieldset disabled={launching || !!missionId} className="space-y-3">
           {research ? <label>Research question
