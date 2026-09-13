@@ -104,4 +104,21 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
                 f"missing {len(missing_readback) if persisted_ids else crm_min}"
             )
 
+    opportunity_min = int(contract.get("internal_crm_opportunities_min", 0) or 0)
+    if opportunity_min:
+        persisted_contact_ids = {str(item.get("id")) for item in crm_records if item.get("id")}
+        projections = [
+            item for output in outputs for item in output.get("crm_projection_records", []) if isinstance(item, dict)
+        ]
+        projected_opportunities = {
+            str(item.get("contact_id"))
+            for item in projections
+            if item.get("contact_id") in persisted_contact_ids and item.get("opportunity_id")
+        }
+        if len(projected_opportunities) < opportunity_min:
+            reasons.append(
+                "required an internal CRM opportunity projection for every persisted record; "
+                f"produced {len(projected_opportunities)} of {opportunity_min}"
+            )
+
     return not reasons, reasons

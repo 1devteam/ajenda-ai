@@ -47,6 +47,27 @@ def test_market_scope_allows_comparison_qualifier_and_deal_records() -> None:
     assert not any(item.field == "target_scope" for item in intent.ambiguity)
 
 
+def test_explicit_user_supplied_crm_record_batch_selects_internal_persistence() -> None:
+    intent = interpret_instruction(
+        "Using Ajenda internal CRM only, create or update five account records, five contact records, "
+        "and five opportunity deal records for Austin software development prospects. "
+        "Preserve the user-supplied contact source and read back every saved record. "
+        "Do not use external systems and do not send messages."
+    )
+
+    assert "persist_internal_crm" in intent.requested_outcomes
+    assert "update_crm" not in intent.requested_outcomes
+    assert intent.unmatched_material_clauses == []
+    assert intent.send_policy.mode == "forbid"
+
+    jobs = route_jobs_for_intent(intent)
+    selections, missing = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    internal = next(item for item in selections if item.job_key == "crm.internal_persistence")
+    assert internal.action_name == "record.write"
+    assert internal.readiness == "ready"
+    assert not any(item["provider"] == "hubspot" for item in missing)
+
+
 def test_do_not_add_to_contacts_suppresses_crm_write() -> None:
     intent = interpret_instruction("Find three roofing companies in Austin, but don't add them to contacts")
     assert "research_prospects" in intent.requested_outcomes
