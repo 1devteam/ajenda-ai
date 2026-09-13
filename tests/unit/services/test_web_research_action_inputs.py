@@ -42,3 +42,42 @@ def test_local_fixture_constraint_disables_public_search() -> None:
     payload = build_action_input(action_name="web.research", intent=intent)
     assert payload["local_fixture_only"] is True
     assert payload["include_public_search"] is False
+
+
+def test_ajenda_internal_crm_source_disables_public_search() -> None:
+    intent = interpret_instruction(
+        "Research five software companies in Austin and summarize their matching Ajenda internal CRM records."
+    )
+    payload = build_action_input(action_name="web.research", intent=intent)
+    assert payload["include_public_search"] is False
+    assert payload["local_fixture_only"] is True
+
+
+def test_local_fixture_constraint_lowers_qualification_threshold() -> None:
+    intent = interpret_instruction(
+        "Research five software companies in Austin and qualify the best three using local fixture data only."
+    )
+    payload = build_action_input(action_name="sales.qualify", intent=intent)
+
+    assert payload["context"]["qualification_threshold_10"] == 5
+
+
+def test_local_fixture_constraint_propagates_to_contact_observation() -> None:
+    intent = interpret_instruction(
+        "Find five software companies in Austin and collect contacts using local fixture data only."
+    )
+    payload = build_action_input(action_name="research.observe_contacts", intent=intent)
+
+    assert payload["local_fixture_only"] is True
+
+
+def test_ajenda_internal_crm_source_propagates_to_contact_observation() -> None:
+    intent = interpret_instruction("Qualify five software companies in Austin using Ajenda internal CRM records.")
+    payload = build_action_input(action_name="research.observe_contacts", intent=intent)
+    assert payload["local_fixture_only"] is True
+
+
+def test_ajenda_internal_crm_source_uses_fixture_qualification_threshold() -> None:
+    intent = interpret_instruction("Qualify five software companies in Austin using Ajenda internal CRM records.")
+    payload = build_action_input(action_name="sales.qualify", intent=intent)
+    assert payload["context"]["qualification_threshold_10"] == 5

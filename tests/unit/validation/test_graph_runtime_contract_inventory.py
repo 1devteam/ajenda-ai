@@ -96,7 +96,9 @@ def test_inventory_exposes_source_derived_runtime_artifact_bindings() -> None:
     binding_edges = [edge for edge in inventory["edges"] if edge["type"] == "binds_artifact"]
     indexed = {(edge["from"], edge["to"]): edge for edge in binding_edges}
 
-    assert indexed[("action:sales.qualify", "artifact:observed_contacts")]["input_path"] == "$.input.prospects"
+    assert indexed[("action:sales.qualify", "artifact:observed_contacts")]["input_path"] == (
+        "$.input.context.observed_contacts"
+    )
     assert indexed[("action:sales.qualify", "artifact:prospect_candidates")]["input_path"] == "$.input.prospects"
     assert indexed[("action:gtm.lead_enrich", "artifact:qualified_prospects")]["input_path"] == "$.input.prospects"
     assert indexed[("action:decision.recommend_next_action", "artifact:observed_contacts")]["input_path"] == (

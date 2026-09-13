@@ -67,9 +67,9 @@ describe("dashboardModel", () => {
     expect(bucketMissionStatus("failed")).toBe("failed");
   });
 
-  it("keeps approved and paused missions in active work", () => {
+  it("keeps approved work active but removes paused review holds", () => {
     expect(isActiveMission(mission("approved"))).toBe(true);
-    expect(isActiveMission(mission("paused"))).toBe(true);
+    expect(isActiveMission(mission("paused"))).toBe(false);
     expect(isActiveMission(mission("queued"))).toBe(true);
     expect(isActiveMission(mission("completed"))).toBe(false);
     expect(isActiveMission(mission("cancelled"))).toBe(false);

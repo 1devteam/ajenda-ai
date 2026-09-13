@@ -78,6 +78,11 @@ export function bucketMissionStatus(status: string): MissionStatusBucket | "othe
 
 /** Active = non-terminal missions still on the operator radar. */
 export function isActiveMission(mission: MissionListItem): boolean {
+  // Paused missions remain available in history and review queues, but do not
+  // belong in the live-work rotation after runtime reconciliation.
+  if (mission.status.trim().toLowerCase() === "paused") {
+    return false;
+  }
   const bucket = bucketMissionStatus(mission.status);
   return bucket === "planned" || bucket === "running";
 }

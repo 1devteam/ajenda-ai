@@ -241,7 +241,7 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                 {
                     "from_step": dep,
                     "output_path": "$.observed_contacts",
-                    "input_path": "$.input.prospects",
+                    "input_path": "$.input.context.observed_contacts",
                 }
             )
         if action_name == "research.observe_contacts" and "web-research" in dep:
@@ -522,10 +522,17 @@ def apply_input_bindings(
         else:
             prospects = bound.get("prospects")
             if not isinstance(prospects, list) or not prospects:
-                # Still allow draft with market context if industry/location present.
-                if not (context.get("industry") or context.get("location") or bound.get("company")):
+                # Draft actions can still produce a non-deliverable market-context
+                # draft. Qualification, enrichment, observation, and synthesis
+                # require a concrete upstream artifact; allowing them through with
+                # only industry/location seeds defers a binding failure into the
+                # handler and obscures the real dependency gap.
+                market_context_draft = action_name in {"gtm.email_draft", "sales.draft_followup"} and (
+                    context.get("industry") or context.get("location") or bound.get("company")
+                )
+                if not market_context_draft:
                     raise InputBindingError(
-                        "binding_required but no upstream prospects were available for this ability"
+                        f"binding_required but no upstream prospects were available for {action_name or 'ability'}"
                     )
             audit["primary_prospect"] = _primary_prospect(bound)
 

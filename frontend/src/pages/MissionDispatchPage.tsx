@@ -32,6 +32,32 @@ import { failureText, pretty } from "../utils/errors";
 
 type StepStatus = "pending" | "complete" | "blocked" | "running";
 
+function crmOutcomeFromTask(task: AbilityTaskStatusResponse | null): {
+  persisted: number;
+  verified: number;
+  opportunities: string[];
+} | null {
+  if (!task || task.action !== "record.write") {
+    return null;
+  }
+  const metadata = task.metadata_json ?? {};
+  const handler = metadata.handler_result;
+  const envelope = handler && typeof handler === "object" ? (handler as Record<string, unknown>) : metadata;
+  const output = envelope.output;
+  if (!output || typeof output !== "object") {
+    return null;
+  }
+  const payload = output as Record<string, unknown>;
+  const projections = Array.isArray(payload.crm_projection_records) ? payload.crm_projection_records : [];
+  const persisted = typeof payload.persisted_count === "number" ? payload.persisted_count : 0;
+  const verified = typeof payload.readback_verified_count === "number" ? payload.readback_verified_count : 0;
+  const opportunities = projections
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+    .map((item) => (typeof item.opportunity_id === "string" ? item.opportunity_id : ""))
+    .filter(Boolean);
+  return { persisted, verified, opportunities };
+}
+
 /** Prefer confirmed composition instruction over lossy mission.objective restatement. */
 function compositionInstructionFromIntake(intake: Record<string, unknown> | null | undefined): string {
   if (!intake || typeof intake !== "object") {
@@ -132,6 +158,7 @@ export default function MissionDispatchPage() {
 
   const allowedActions = useMemo(() => intakeAllowedActions(lifecycle?.intake ?? null), [lifecycle?.intake]);
   const successCriteria = useMemo(() => intakeSuccessCriteria(lifecycle?.intake ?? null), [lifecycle?.intake]);
+  const crmOutcome = useMemo(() => crmOutcomeFromTask(taskStatus), [taskStatus]);
 
   const refreshLifecycle = useCallback(async () => {
     if (!session || !missionId) {
@@ -639,6 +666,22 @@ export default function MissionDispatchPage() {
             {taskStatus.action ? ` · ${taskStatus.action}` : ""}
           </p>
           <pre className="code-block">{pretty(taskStatus)}</pre>
+        </section>
+      ) : null}
+
+      {allowedActions.includes("record.write") ? (
+        <section className="panel success-panel" aria-label="CRM outcome">
+          <h2>Internal CRM outcome</h2>
+          {crmOutcome ? (
+            <p className="mission-card-meta">
+              Persisted <strong>{crmOutcome.persisted}</strong> record(s) · Read-back verified{" "}
+              <strong>{crmOutcome.verified}</strong> · Linked opportunities: <strong>{crmOutcome.opportunities.length}</strong>
+            </p>
+          ) : (
+            <p className="mission-card-meta">
+              Select the <code>record.write</code> task in Materialized tasks to load persisted CRM counts and linked opportunities.
+            </p>
+          )}
         </section>
       ) : null}
 

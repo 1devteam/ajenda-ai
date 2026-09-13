@@ -49,27 +49,61 @@ AJENDA_DEMO_PROFILE_FACTS: dict[str, dict[str, object]] = {
 
 def supplemental_demo_records() -> dict[str, dict[str, dict[str, Any]]]:
     """Sample prospect pipeline records for missions that research outbound opportunities."""
+    accounts = {
+        DEMO_PROSPECT_ACCOUNT_ID: {
+            "id": DEMO_PROSPECT_ACCOUNT_ID,
+            "name": "Brightline Operations",
+            "industry": "operations",
+            "score": 82,
+            "interest": "Evaluating Ajenda AI for governed mission automation",
+            "source": "ajenda_demo",
+        }
+    }
+    contacts = {
+        DEMO_PROSPECT_CONTACT_ID: {
+            "id": DEMO_PROSPECT_CONTACT_ID,
+            "name": "Morgan Ellis",
+            "account_id": DEMO_PROSPECT_ACCOUNT_ID,
+            "role": "Director of Operations",
+            "email": "morgan@brightlineops.example",
+            "source": "ajenda_demo",
+        }
+    }
+    for index, (name, domain, email) in enumerate(
+        (
+            ("Austin Forge Labs", "austinforge.example", "hello@austinforge.example"),
+            ("Capitol Codeworks", "capitolcodeworks.example", "team@capitolcodeworks.example"),
+            ("Lone Star Systems", "lonestarsystems.example", "contact@lonestarsystems.example"),
+            ("South Congress Software", "soco-software.example", "hello@soco-software.example"),
+            ("Barton Product Engineering", "barton-product.example", "info@barton-product.example"),
+        ),
+        start=1,
+    ):
+        account_id = f"fixture-austin-dev-{index}"
+        contact_id = f"fixture-austin-dev-contact-{index}"
+        accounts[account_id] = {
+            "id": account_id,
+            "name": name,
+            "industry": "software development",
+            "location": "Austin",
+            "domain": domain,
+            "website": f"https://{domain}",
+            "product_description": "Austin software product and application development firm.",
+            "research_summary": "Local fixture account for governed interpreter runtime proof.",
+            "automation_opportunity": "Evaluate governed AI mission automation for delivery operations.",
+            "source": "local_fixture",
+        }
+        contacts[contact_id] = {
+            "id": contact_id,
+            "name": f"{name} Contact",
+            "account_id": account_id,
+            "role": "Founder",
+            "email": email,
+            "source": "local_fixture",
+        }
     return {
-        "account": {
-            DEMO_PROSPECT_ACCOUNT_ID: {
-                "id": DEMO_PROSPECT_ACCOUNT_ID,
-                "name": "Brightline Operations",
-                "industry": "operations",
-                "score": 82,
-                "interest": "Evaluating Ajenda AI for governed mission automation",
-                "source": "ajenda_demo",
-            }
-        },
-        "contact": {
-            DEMO_PROSPECT_CONTACT_ID: {
-                "id": DEMO_PROSPECT_CONTACT_ID,
-                "name": "Morgan Ellis",
-                "account_id": DEMO_PROSPECT_ACCOUNT_ID,
-                "role": "Director of Operations",
-                "email": "morgan@brightlineops.example",
-                "source": "ajenda_demo",
-            }
-        },
+        "account": accounts,
+        "contact": contacts,
         "opportunity": {
             DEMO_PROSPECT_OPPORTUNITY_ID: {
                 "id": DEMO_PROSPECT_OPPORTUNITY_ID,

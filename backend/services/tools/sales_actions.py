@@ -254,6 +254,22 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                         filters={"contact_id": record_id},
                         limit=1,
                     )
+                    # The durable projection may be created by the workflow hook
+                    # during this same transaction. Query by the stable contact
+                    # identity as a fallback so the action result exposes the
+                    # opportunity even when the filtered projection query does
+                    # not see the freshly flushed JSON field yet.
+                    if not opportunities:
+                        opportunities = [
+                            item
+                            for item in crm.list_records(
+                                tenant_id=context.tenant_id,
+                                record_type="opportunity",
+                                query=record_id,
+                                limit=10,
+                            )
+                            if str(item.get("contact_id") or "") == record_id
+                        ][:1]
                     timeline = crm.list_timeline(
                         tenant_id=context.tenant_id,
                         record_type=payload.record_type,
@@ -598,6 +614,48 @@ def _has_real_contact(lead: dict[str, Any]) -> bool:
     return False
 
 
+def _merge_observed_contacts(
+    prospects: list[dict[str, Any]], observed_contacts: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Attach observed contact artifacts to their matching prospect records."""
+
+    if not observed_contacts:
+        return prospects
+    merged: list[dict[str, Any]] = []
+    for prospect in prospects:
+        item = dict(prospect)
+        identities = {
+            str(item.get(key) or "").strip().casefold()
+            for key in ("prospect_id", "account_id", "domain", "company", "name")
+            if str(item.get(key) or "").strip()
+        }
+        matches = [
+            contact
+            for contact in observed_contacts
+            if identities
+            & {
+                str(contact.get(key) or "").strip().casefold()
+                for key in ("prospect_id", "account_id", "domain", "company", "name")
+                if str(contact.get(key) or "").strip()
+            }
+        ]
+        if matches:
+            existing = item.get("observed_contacts")
+            prior = existing if isinstance(existing, list) else []
+            item["observed_contacts"] = [*prior, *matches]
+            for contact in matches:
+                kind = str(contact.get("kind") or "").strip().casefold()
+                value = str(contact.get("value") or "").strip()
+                if contact.get("source_url") and not item.get("source_url"):
+                    item["source_url"] = contact["source_url"]
+                if kind == "email" and value and not item.get("email"):
+                    item["email"] = value
+                elif kind == "phone" and value and not item.get("phone"):
+                    item["phone"] = value
+        merged.append(item)
+    return merged
+
+
 def _first_lead_text(*values: Any) -> str:
     """Return explicit lead text without synthesizing missing facts."""
 
@@ -712,6 +770,8 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
 def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = SalesLeadInput.model_validate(invocation.input)
     prospects_in = [p for p in payload.prospects if isinstance(p, dict)]
+    observed_contacts = [dict(item) for item in payload.context.get("observed_contacts", []) if isinstance(item, dict)]
+    prospects_in = _merge_observed_contacts(prospects_in, observed_contacts)
     if not prospects_in and (payload.lead or payload.account_id):
         prospects_in = [dict(payload.lead)] if payload.lead else [{"account_id": payload.account_id}]
 
