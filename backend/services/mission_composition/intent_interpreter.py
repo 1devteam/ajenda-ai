@@ -98,6 +98,7 @@ _QUALIFY_PATTERNS = (
 )
 _RESEARCH_PATTERNS = (
     r"\bresearch\b",
+    r"\bresearch\b[^.!?]{0,120}\b(?:ajenda\s+)?internal\s+crm\s+records?\b",
     r"\bfind\b",
     r"\bdiscover\b",
     r"companies in",
@@ -117,7 +118,8 @@ _LOCATION_TRAILING_STOP = re.compile(
     r"\s+\b(?:"
     r"identify|find|discover|and|with|for|to|that|who|which|"
     r"strong|best|top|draft|enrich|qualify|send|prepare|score|rank|"
-    r"prospects?|competitors?|competors?|leads?"
+    r"prospects?|competitors?|competors?|leads?|using|from|against|return|produce|provide|"
+    r"scores?|reasons?"
     r")\b",
     re.IGNORECASE,
 )
@@ -363,6 +365,11 @@ _LEADING_VERB_WORDS = frozenset(
         "find",
         "discover",
         "identify",
+        "qualify",
+        "score",
+        "rank",
+        "rate",
+        "grade",
         "search",
         "locate",
         "analyze",
@@ -419,11 +426,11 @@ _COORDINATED_PROHIBITION_START = re.compile(
     re.IGNORECASE,
 )
 _DETAILED_RETURN_DELIVERABLE = re.compile(
-    r"^(?:return|produce|provide|create)\b.*(?:comparison\s+table|report\b|highlight\b|evidence\s+gaps?)",
+    r"^(?:return|produce|provide|create)\b.*(?:sourced\s+comparison|comparison\s+table|report\b|highlight\b|evidence\s+gaps?)",
     re.IGNORECASE,
 )
 _REPORT_SYNTHESIS_CLAUSE = re.compile(
-    r"^(?:(?:return|produce|provide|create)\b.*(?:comparison\s+table|report\b)|"
+    r"^(?:(?:return|produce|provide|create)\b.*(?:sourced\s+comparison|comparison\s+table|report\b)|"
     r"highlight\b.*opportunit|identify\b.*evidence\s+gaps?)",
     re.IGNORECASE,
 )
@@ -939,13 +946,14 @@ def _classify_clause(
     salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
     connector_read = email_read or crm_read or salesforce_query
     # Trailing "summarize the messages/record" after a read is covered by list/read path.
-    if re.search(r"\bsummarize\b.{0,40}\b(?:messages?|emails?|records?|results?)\b", lower) and not connector_read:
+    if (
+        re.search(r"\bsummarize\b.{0,40}\b(?:messages?|emails?|records?|results?)\b", lower)
+        and not connector_read
+        and not internal_crm_requested
+    ):
         return [], False, True
     # "from HubSpot CRM records" is a source qualifier for prospect research, not only CRM read.
-    hubspot_as_source = bool(
-        re.search(r"\bfrom\s+(?:hubspot|(?:the\s+)?crm)\b", lower)
-        or re.search(r"\bcompanies\b.*\b(?:hubspot|crm)\b", lower)
-    )
+    hubspot_as_source = bool(re.search(r"\bfrom\s+hubspot\b", lower) or re.search(r"\bcompanies\b.*\bhubspot\b", lower))
     explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?|companies\s+in)\b", lower))
     if _contains_any(lower, _RESEARCH_PATTERNS) and (
         not connector_read or explicit_prospect_research or hubspot_as_source
@@ -1120,23 +1128,23 @@ def interpret_instruction(
     wants_salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
     connector_read = wants_email_read or wants_crm_read or wants_salesforce_query
     explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?|companies\s+in)\b", lower))
+    explicit_research_verb = bool(re.search(r"\b(?:research|discover|find)\b", lower))
     hubspot_as_research_source = bool(
-        re.search(r"\bfrom\s+(?:hubspot|(?:the\s+)?crm)\b", lower)
-        or re.search(r"\bcompanies\b.{0,80}\b(?:hubspot|crm)\s+records?\b", lower)
+        re.search(r"\bfrom\s+hubspot\b", lower) or re.search(r"\bcompanies\b.{0,80}\bhubspot\s+records?\b", lower)
     )
     direct_crm_record_read = _DIRECT_CRM_RECORD_READ.search(lower) is not None
     explicit_qualification_request = bool(re.search(r"\b(?:qualify|score|rank|rate|grade)\b", lower))
-    if direct_crm_record_read and not explicit_qualification_request:
+    if direct_crm_record_read and not explicit_qualification_request and not explicit_research_verb:
         wants_qualify = False
     # Direct CRM-record requests require the CRM authority as their source of
     # truth.  This prevents resolver fallback to public web discovery when the
     # adapter cannot represent an unsupported CRM scope (for example a market
     # wide location filter).
-    if direct_crm_record_read and "hubspot_source" not in context_requirements:
+    if direct_crm_record_read and not explicit_research_verb and "hubspot_source" not in context_requirements:
         context_requirements.append("hubspot_source")
     wants_research = (
         _contains_any(lower, _RESEARCH_PATTERNS)
-        and not direct_crm_record_read
+        and (not direct_crm_record_read or explicit_research_verb)
         and (not connector_read or explicit_prospect_research or hubspot_as_research_source)
     )
     wants_research_report = _REPORT_SYNTHESIS_REQUEST.search(text) is not None

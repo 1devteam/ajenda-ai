@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from sqlalchemy.dialects import postgresql
@@ -58,3 +59,25 @@ def test_update_metadata_flushes_and_refreshes_existing_mission() -> None:
     session.add.assert_called_once_with(mission)
     session.flush.assert_called_once_with()
     session.refresh.assert_called_once_with(mission)
+
+
+def test_list_by_tenant_pauses_review_hold_without_active_tasks() -> None:
+    tenant_id = str(uuid.uuid4())
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="Review-held mission",
+        status="running",
+        metadata_json={},
+    )
+    mission.id = uuid.uuid4()
+    mission.updated_at = datetime.now(UTC)
+    session = MagicMock()
+    session.scalars.return_value = [mission]
+    session.execute.return_value.all.return_value = [(mission.id, "pending_review", 1), (mission.id, "completed", 3)]
+
+    result = MissionRepository(session).list_by_tenant(tenant_id)
+
+    assert result == [mission]
+    assert mission.status == "paused"
+    assert mission.metadata_json["runtime_reconciliation"]["reason"] == "review_hold_without_active_tasks"
+    session.flush.assert_called_once_with()

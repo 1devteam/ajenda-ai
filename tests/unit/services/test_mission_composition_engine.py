@@ -78,6 +78,16 @@ def test_interpreter_maps_approved_prospect_save_to_crm_write() -> None:
     assert "update_crm" in intent.requested_outcomes
 
 
+def test_interpreter_accounts_sourced_comparison_as_research_deliverable() -> None:
+    intent = interpret_instruction(
+        "Find five software companies in Austin. Produce a sourced comparison and identify evidence gaps."
+    )
+
+    assert intent.interpretation_ready
+    assert "synthesize_research_report" in intent.requested_outcomes
+    assert intent.unmatched_material_clauses == []
+
+
 def test_interpreter_routes_governed_ajenda_profile_brief_to_internal_memory_only() -> None:
     instruction = (
         "Search Ajenda's approved business profile and governed internal memory. "
@@ -498,6 +508,28 @@ def test_hubspot_named_as_source_does_not_route_crm_write() -> None:
     intent = interpret_instruction("Research five roofing companies in Austin from HubSpot CRM records.")
     assert "research_prospects" in intent.requested_outcomes
     assert "update_crm" not in intent.requested_outcomes
+
+
+def test_research_with_internal_crm_summary_is_a_valid_read_mission() -> None:
+    intent = interpret_instruction(
+        "Research five software development companies in Austin and summarize their matching Ajenda internal CRM records. "
+        "Do not modify records or send messages."
+    )
+    assert "research_prospects" in intent.requested_outcomes
+    assert "update_crm" not in intent.requested_outcomes
+    assert "hubspot_source" not in intent.context_requirements
+    assert not intent.ambiguity
+
+
+def test_qualification_scores_and_reasons_are_a_supported_deliverable() -> None:
+    intent = interpret_instruction(
+        "Qualify five software development companies in Austin. Return qualification scores and reasons. "
+        "Do not modify records or send messages."
+    )
+    assert "qualify_prospects" in intent.requested_outcomes
+    assert intent.target_entities[0].industry == "software development"
+    assert intent.target_entities[0].location == "Austin"
+    assert not intent.ambiguity
 
 
 def test_direct_crm_record_read_does_not_route_web_discovery() -> None:

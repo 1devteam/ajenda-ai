@@ -1,6 +1,9 @@
 """Interpreter maps natural contacts language to enrich + CRM outcomes."""
 
+from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.mission_composition.plan_compiler import compile_planned_steps
+from backend.services.operating_charter import default_operating_charter
 
 
 def test_add_to_contacts_and_collect_info_are_recognized() -> None:
@@ -107,6 +110,16 @@ def test_ajenda_internal_crm_uses_distinct_job_and_record_write_graph() -> None:
         "$.input.context.qualified_prospects",
         "$.input.context.observed_contacts",
     }
+
+
+def test_qualification_binds_observed_contacts_under_context() -> None:
+    intent = interpret_instruction("Qualify five software development companies in Austin and collect contact info.")
+    steps = compile_planned_steps(
+        resolve_jobs(route_jobs_for_intent(intent), intent=intent, charter=default_operating_charter())[0],
+        intent=intent,
+    )
+    qualify = next(item for item in steps if item.action_name == "sales.qualify")
+    assert any(binding["input_path"] == "$.input.context.observed_contacts" for binding in qualify.input_bindings)
 
 
 def test_explicit_hubspot_crm_write_still_selects_hubspot_upsert() -> None:

@@ -96,7 +96,11 @@ _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
     ),
     (
         "qualification_reasons",
-        (r"\bqualification\s+reasons?\b", r"\breasons?\s+for\s+qualification\b"),
+        (
+            r"\bqualification\s+reasons?\b",
+            r"\breasons?\s+for\s+qualification\b",
+            r"^reasons?$",
+        ),
     ),
     (
         "ajenda_relevance",
@@ -106,7 +110,7 @@ _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
             r"\bwhy\s+ajenda(?:\s+ai)?\s+may\s+help\b",
         ),
     ),
-    ("qualification_score", (r"\bqualification\s+score\b", r"\bprospect\s+score\b")),
+    ("qualification_score", (r"\bqualification\s+scores?\b", r"\bprospect\s+scores?\b")),
     ("research_summary", (r"\bthe\s+research\b", r"\bresearch\s+summary\b", r"^research$")),
     ("sources", (r"\bsources?\b", r"\bcitations?\b")),
     ("drafts", (r"\bdrafts?\b", r"\bpersonalized\s+drafts?\b")),

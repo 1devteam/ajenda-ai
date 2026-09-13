@@ -196,6 +196,45 @@ def test_research_report_binding_fails_closed_when_upstream_candidates_are_empty
         )
 
 
+def test_enrichment_binding_fails_before_handler_when_qualification_is_empty() -> None:
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    qualify = _task(
+        node_key="ability-sales-qualify",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={"qualified_prospects": []},
+    )
+    enrich = _task(
+        node_key="ability-gtm-lead_enrich",
+        status=ExecutionTaskState.RUNNING.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        dependency_keys=["ability-sales-qualify"],
+        tool_input={
+            "company": "software (Austin)",
+            "prospects": [],
+            "context": {"binding_required": True, "industry": "software", "location": "Austin"},
+        },
+        input_bindings=[
+            {
+                "from_step": "ability-sales-qualify",
+                "output_path": "$.qualified_prospects",
+                "input_path": "$.input.prospects",
+            }
+        ],
+    )
+    enrich.metadata_json["tool_invocation"]["action"] = "gtm.lead_enrich"
+
+    with pytest.raises(Exception, match=r"gtm\.lead_enrich|no upstream"):
+        apply_input_bindings(
+            tool_input=enrich.metadata_json["tool_invocation"]["input"],
+            task=enrich,
+            mission_tasks=[qualify, enrich],
+        )
+
+
 def test_bind_prospects_into_record_write_data_remains_schema_valid() -> None:
     mission_id = uuid.uuid4()
     tenant_id = str(uuid.uuid4())

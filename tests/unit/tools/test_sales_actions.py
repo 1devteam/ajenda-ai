@@ -142,6 +142,39 @@ def test_sales_qualify_accepts_observed_email() -> None:
     assert "estimate follow-up" in qualified["ajenda_relevance"]
 
 
+def test_sales_qualify_joins_observed_contacts_to_prospects() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="sales.qualify",
+            input={
+                "prospects": [
+                    {
+                        "prospect_id": "account-1",
+                        "company": "Austin Software Studio",
+                        "source": "internal_record",
+                        "industry": "software development",
+                        "location": "Austin",
+                    }
+                ],
+                "context": {
+                    "observed_contacts": [
+                        {
+                            "prospect_id": "account-1",
+                            "kind": "email",
+                            "value": "founder@austin-studio.example",
+                            "real": True,
+                        }
+                    ]
+                },
+            },
+        ),
+        _context(),
+    )
+    assert result.output["prospect_count"] == 1
+    assert result.output["qualified_prospects"][0]["email"] == "founder@austin-studio.example"
+
+
 def test_sales_qualify_exposes_mission_dimensions_and_rejects_unverified_identity() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(

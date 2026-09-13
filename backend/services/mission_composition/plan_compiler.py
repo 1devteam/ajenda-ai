@@ -47,6 +47,8 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
     Returns None when the binding should be omitted (e.g. introduction_drafts → gtm.email_send
     cannot land on a forbidden ``prospects`` field).
     """
+    if action_name in {"sales.qualify", "sales.score_lead"} and output_name == "observed_contacts":
+        return "$.input.context.observed_contacts"
     if action_name in {
         "sales.qualify",
         "sales.score_lead",

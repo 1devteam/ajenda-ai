@@ -190,6 +190,8 @@ def _prospect_from_record(record: dict[str, Any], *, source: str, query: str) ->
         "research_summary": research_summary,
         "sources": sources,
         "signals": [research_summary[:240]] if research_summary else [],
+        "intent": data.get("intent"),
+        "automation_opportunity": data.get("automation_opportunity"),
         "source": source,
         "real": True,
         "identity_status": "verified" if record.get("id") else "unverified",

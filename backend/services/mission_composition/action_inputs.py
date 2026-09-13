@@ -120,6 +120,31 @@ def _instruction_text(intent: MissionIntent) -> str:
     return (intent.raw_instruction or intent.normalized_instruction or intent.objective or "").strip()
 
 
+def _local_fixture_only(intent: MissionIntent) -> bool:
+    """Read the fixture constraint from the original instruction, not the objective summary."""
+
+    return bool(
+        re.search(
+            r"\blocal\s+(?:test\s+)?fixtures?\b|\bfixture\s+data\s+only\b",
+            _instruction_text(intent),
+            re.IGNORECASE,
+        )
+        or _ajenda_internal_crm_only(intent)
+    )
+
+
+def _ajenda_internal_crm_only(intent: MissionIntent) -> bool:
+    """Keep explicitly Ajenda-internal CRM research off public search."""
+
+    return bool(
+        re.search(
+            r"\b(?:ajenda(?:'s)?\s+internal\s+crm|internal\s+ajenda\s+crm|ajenda\s+internal\s+(?:crm\s+)?records?)\b",
+            _instruction_text(intent),
+            re.IGNORECASE,
+        )
+    )
+
+
 def _extract_person_from_instruction(text: str) -> str | None:
     match = _PERSON_AFTER_ROLE_RE.search(text or "")
     if match is None:
@@ -517,13 +542,15 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
         local_fixture_only = bool(
             re.search(r"\blocal\s+(?:test\s+)?fixtures?\b|\bfixture\s+data\s+only\b", source, re.IGNORECASE)
         )
+        internal_crm_only = _ajenda_internal_crm_only(intent)
+        internal_only = local_fixture_only or internal_crm_only
         return {
             "query": research_query[:400],
             "company": extracted_company,
             "domain": domain,
             "fetch_public_page": fetch_public_page,
-            "include_public_search": not local_fixture_only,
-            "local_fixture_only": local_fixture_only,
+            "include_public_search": not internal_only,
+            "local_fixture_only": internal_only,
             "limit": limit,
         }
     if action_name == "web.search":
@@ -575,9 +602,9 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
             },
         }
     if action_name == "research.observe_contacts":
-        local_fixture_only = bool(
-            re.search(r"\blocal\s+(?:test\s+)?fixtures?\b|\bfixture\s+data\s+only\b", intent.objective, re.IGNORECASE)
-        )
+        # Ajenda-internal CRM research resolves contacts from tenant-scoped
+        # records rather than requiring public source pages.
+        local_fixture_only = _local_fixture_only(intent) or _ajenda_internal_crm_only(intent)
         return {
             "prospects": [],
             "requested_quantity": limit,
@@ -660,9 +687,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
             },
         }
     if action_name in {"sales.qualify", "sales.score_lead", "sales.recommend_next_action"}:
-        local_fixture_only = bool(
-            re.search(r"\blocal\s+(?:test\s+)?fixtures?\b|\bfixture\s+data\s+only\b", intent.objective, re.IGNORECASE)
-        )
+        local_fixture_only = _local_fixture_only(intent)
         return {
             "lead": lead,
             "prospects": [],
