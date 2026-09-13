@@ -239,6 +239,12 @@ _CRM_UPDATE_PATTERNS = (
     r"\bsave (?:them|it|these|those|each|leads?|prospects?)?\s*(?:to|into|in)\s+(?:my\s+)?(?:crm\s+)?contacts?\b",
     r"\bsave\s+(?:each|the)?\s*(?:company|companies|account|accounts)\b",
     r"\bsave\s+(?:only\s+)?(?:approved\s+)?(?:the\s+)?(?:prospects?|leads?|companies|records?)\s+(?:to|into|in)\s+(?:the\s+)?(?:ajenda\s+)?(?:internal\s+)?crm\b",
+    # Explicit CRM record batches. These phrases commonly enumerate the
+    # records to create/update before naming the internal CRM as the system
+    # of record (for example, "persist the following contacts to Ajenda
+    # internal CRM" or "create/update account, contact, and deal records").
+    r"\b(?:persist|save|write|upsert|create|update)\b[^.!?]{0,140}\b(?:account|accounts|company|companies|contact|contacts|deal|deals|opportunit(?:y|ies)|record|records)\b[^.!?]{0,100}\b(?:ajenda\s+)?(?:internal\s+)?crm\b",
+    r"\b(?:create|update|save|persist|write|upsert)\b[^.!?]{0,120}\b(?:account|accounts|company|companies|contact|contacts|deal|deals|opportunit(?:y|ies)|record|records)\b",
     r"\badd (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
     r"\bsave (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
     # Natural "save / add to contacts" language (Google Contacts, CRM, or internal contact book).
@@ -816,7 +822,7 @@ def _success_for_outcomes(
     if "persist_internal_crm" in outcomes:
         success.append(
             SuccessCriterion(
-                description="Every Ajenda internal CRM prospect record is persisted and verified by readback",
+                description="Every Ajenda internal CRM prospect record is persisted, verified by readback, and has an opportunity projection",
                 measurable=True,
             )
         )
