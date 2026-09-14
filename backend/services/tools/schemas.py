@@ -234,6 +234,14 @@ class CRMReconcileInput(BaseModel):
     observation: dict[str, Any] | None = None
 
 
+class CRMVerifyEffectInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    desired_state: dict[str, Any]
+    effect_receipt: dict[str, Any]
+    readback_observation: dict[str, Any] | None = None
+
+
 class ResearchReportInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
