@@ -58,6 +58,7 @@ DEFAULT_MAY_PERFORM: tuple[str, ...] = (
     "sales.create_followup_task",
     "calendar.create_event",
     "web.open_write",
+    "crm.mutate",
 )
 
 DEFAULT_NEVER_DO: tuple[str, ...] = (

@@ -140,3 +140,52 @@ def test_crm_verify_effect_rejects_cross_tenant_receipt() -> None:
 
     with pytest.raises(ValueError, match="does not match runtime tenant"):
         registry.invoke(ToolInvocation(action="crm.verify_effect", input=payload), _context())
+
+
+def test_crm_mutate_requires_idempotency_and_emits_verified_receipt() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    desired_state = {
+        "canonical_entity_id": "company:mutate.example",
+        "object_type": "account",
+        "lifecycle_state": "resolved",
+        "fields": {"name": "Mutate Example"},
+        "source_artifact_ids": ["artifact-mutate"],
+    }
+    identity_decision = {
+        "decision_status": "new",
+        "candidate_ids": ["candidate-mutate"],
+        "rule_version": "1.0.0",
+        "decided_by": "identity.resolve_company",
+    }
+    plan_result = registry.invoke(
+        ToolInvocation(
+            action="crm.reconcile",
+            input={"desired_state": desired_state, "identity_decision": identity_decision},
+        ),
+        _context(),
+    )
+    result = registry.invoke(
+        ToolInvocation(
+            action="crm.mutate",
+            idempotency_key="crm-mutate-1",
+            input={
+                "desired_state": desired_state,
+                "reconciliation_plan": plan_result.output["reconciliation_plan"],
+            },
+        ),
+        _context(),
+    )
+
+    assert result.side_effect_class.value == "internal_write"
+    assert result.output["effect_receipt"]["certainty"] == "verified"
+    assert result.records_changed
+    assert result.output["grants_execution_authority"] is False
+
+
+def test_crm_mutate_rejects_missing_idempotency_key() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    with pytest.raises(ValueError, match="requires an idempotency_key"):
+        registry.invoke(
+            ToolInvocation(action="crm.mutate", input={"desired_state": {}, "reconciliation_plan": {}}),
+            _context(),
+        )
