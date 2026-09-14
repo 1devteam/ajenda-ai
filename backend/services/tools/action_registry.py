@@ -232,6 +232,7 @@ _DEFAULT_REGISTRY: ActionRegistry | None = None
 def build_default_action_registry() -> ActionRegistry:
     from backend.services.tools.analysis_actions import register_analysis_actions
     from backend.services.tools.calendar_actions import register_calendar_actions
+    from backend.services.tools.crm_actions import register_crm_actions
     from backend.services.tools.decision_actions import register_decision_actions
     from backend.services.tools.document_actions import register_document_actions
     from backend.services.tools.finance_actions import register_finance_actions
@@ -250,6 +251,7 @@ def build_default_action_registry() -> ActionRegistry:
     from backend.services.tools.webhook_actions import register_webhook_actions
 
     registry = ActionRegistry()
+    register_crm_actions(registry)
     register_sales_actions(registry)
     register_http_actions(registry)
     register_provider_read_actions(registry)
