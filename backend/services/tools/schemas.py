@@ -217,6 +217,23 @@ class SalesLeadInput(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
 
 
+class CRMObserveInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    record_type: Literal["account", "contact", "opportunity"]
+    record_id: str | None = Field(default=None, max_length=160)
+    query: str = Field(default="", max_length=240)
+    limit: int = Field(default=20, ge=1, le=50)
+
+
+class CRMReconcileInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    desired_state: dict[str, Any]
+    identity_decision: dict[str, Any]
+    observation: dict[str, Any] | None = None
+
+
 class ResearchReportInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
