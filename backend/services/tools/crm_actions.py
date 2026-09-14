@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,6 +12,7 @@ from backend.services.tools.record_store import record_store_limitations, resolv
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
+    CRMMutateInput,
     CRMObserveInput,
     CRMReconcileInput,
     CRMVerifyEffectInput,
@@ -20,7 +23,9 @@ from backend.services.tools.schemas import (
 from backend.services.vertical_ops.crm_reconciliation import (
     CanonicalCRMDesiredState,
     CRMLifecycleState,
+    CRMOperationKind,
     CRMProviderObservation,
+    CRMReconciliationPlan,
     plan_crm_reconciliation,
 )
 from backend.services.vertical_ops.graft1st_contracts import (
@@ -233,6 +238,109 @@ def crm_verify_effect(invocation: ToolInvocation, context: ActionRuntimeContext)
     )
 
 
+def crm_mutate(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    if not invocation.idempotency_key or not invocation.idempotency_key.strip():
+        raise ValueError("crm.mutate requires an idempotency_key")
+    payload = CRMMutateInput.model_validate(invocation.input)
+    desired = CanonicalCRMDesiredState.model_validate(payload.desired_state)
+    plan = CRMReconciliationPlan.model_validate(payload.reconciliation_plan)
+    if plan.grants_execution_authority:
+        raise ValueError("CRM reconciliation plan cannot grant mutation authority")
+    if plan.canonical_entity_id != desired.canonical_entity_id:
+        raise ValueError("CRM mutation plan does not match desired canonical entity")
+    operation = plan.operation
+    if operation.operation_kind == CRMOperationKind.CONFLICT:
+        raise ValueError("CRM mutation cannot execute a conflict plan")
+
+    record_id = operation.provider_record_id or _deterministic_crm_record_id(desired)
+    store = resolve_record_store(context)
+    existing = store.read_record(tenant_id=context.tenant_id, record_type=desired.object_type, record_id=record_id)
+    existing_key = existing.get("crm_mutation_idempotency_key") if existing else None
+    if existing_key and existing_key != invocation.idempotency_key:
+        raise ValueError("CRM record was already mutated with a different idempotency key")
+    if operation.expected_provider_version and existing is None:
+        raise ValueError("CRM mutation expected an observed provider record that is no longer present")
+    if operation.expected_provider_version and operation.expected_provider_version != f"record:{record_id}":
+        raise ValueError("CRM mutation provider version does not match the internal record")
+
+    desired_data = {
+        **desired.fields,
+        "id": record_id,
+        "canonical_identity": desired.canonical_entity_id,
+        "lifecycle_state": desired.lifecycle_state.value,
+        "association_entity_ids": list(desired.association_entity_ids),
+        "source_artifact_ids": list(desired.source_artifact_ids),
+        "crm_mutation_idempotency_key": invocation.idempotency_key,
+    }
+    if operation.operation_kind == CRMOperationKind.NOOP:
+        written = existing
+        if written is None:
+            raise ValueError("CRM noop mutation requires an observed record")
+    else:
+        written = store.write_record(
+            tenant_id=context.tenant_id,
+            record_type=desired.object_type,
+            record_id=record_id,
+            data=desired_data,
+        )
+    readback = store.read_record(tenant_id=context.tenant_id, record_type=desired.object_type, record_id=record_id)
+    if readback != written:
+        raise ValueError(f"CRM mutation read-back verification failed for {record_id}")
+    now = datetime.now(UTC)
+    receipt = EffectReceiptContract(
+        provider="ajenda_internal",
+        provider_account_id=context.tenant_id,
+        action_name="crm.mutate",
+        idempotency_key=invocation.idempotency_key,
+        request_hash=_sha256_json(
+            {"desired_state": desired.model_dump(mode="json"), "plan": plan.model_dump(mode="json")}
+        ),
+        attempted_at=now,
+        certainty=EffectCertainty.VERIFIED,
+        provider_object_ids=(record_id,),
+        read_back_at=now,
+        read_back_hash=_sha256_json(readback),
+    )
+    output = {
+        "record": readback,
+        "operation_kind": operation.operation_kind.value,
+        "idempotency_key": invocation.idempotency_key,
+        "effect_receipt": receipt.model_dump(mode="json"),
+        "grants_execution_authority": False,
+    }
+    summary = f"Applied and read-back verified CRM {operation.operation_kind.value} for {record_id}."
+    return ActionResult(
+        action="crm.mutate",
+        provider="ajenda_crm",
+        side_effect_class=SideEffectClass.INTERNAL_WRITE,
+        output=output,
+        evidence=[
+            _evidence(
+                context=context,
+                action="crm.mutate",
+                summary=summary,
+                payload=output,
+                inspected=[record_id],
+                side_effect_class=SideEffectClass.INTERNAL_WRITE,
+            )
+        ],
+        records_inspected=[record_id],
+        records_changed=[] if operation.operation_kind == CRMOperationKind.NOOP else [record_id],
+        summary=summary,
+        confidence=1.0,
+    )
+
+
+def _deterministic_crm_record_id(desired: CanonicalCRMDesiredState) -> str:
+    digest = hashlib.sha256(desired.canonical_entity_id.casefold().encode()).hexdigest()[:20]
+    return f"{desired.object_type}-{digest}"
+
+
+def _sha256_json(value: Any) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
 def register_crm_actions(registry: ActionRegistry) -> None:
     registry.register(
         ActionDefinition(
@@ -250,6 +358,15 @@ def register_crm_actions(registry: ActionRegistry) -> None:
             provider="ajenda_crm",
             input_model=CRMVerifyEffectInput,
             side_effect_class=SideEffectClass.INTERNAL_READ,
+        )
+    )
+    registry.register(
+        ActionDefinition(
+            name="crm.mutate",
+            handler=crm_mutate,
+            provider="ajenda_crm",
+            input_model=CRMMutateInput,
+            side_effect_class=SideEffectClass.INTERNAL_WRITE,
         )
     )
     registry.register(

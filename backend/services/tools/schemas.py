@@ -242,6 +242,13 @@ class CRMVerifyEffectInput(BaseModel):
     readback_observation: dict[str, Any] | None = None
 
 
+class CRMMutateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    desired_state: dict[str, Any]
+    reconciliation_plan: dict[str, Any]
+
+
 class ResearchReportInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
