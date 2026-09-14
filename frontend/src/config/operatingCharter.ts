@@ -112,6 +112,7 @@ export const PREPARE_ACTION_OPTIONS = [
 export const PERFORM_ACTION_OPTIONS = [
   { action: "gtm.email_send", label: "Send external email (opt-in)" },
   { action: "gtm.crm_upsert", label: "Internal / CRM upsert" },
+  { action: "crm.mutate", label: "Mutate internal CRM" },
   { action: "record.write", label: "Internal record write" },
   { action: "sales.log_activity", label: "Log sales activity" },
   { action: "sales.create_followup_task", label: "Create follow-up task" },
