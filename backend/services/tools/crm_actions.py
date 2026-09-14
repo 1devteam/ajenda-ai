@@ -12,6 +12,7 @@ from backend.services.tools.schemas import (
     ActionRuntimeContext,
     CRMObserveInput,
     CRMReconcileInput,
+    CRMVerifyEffectInput,
     EvidenceItem,
     SideEffectClass,
     ToolInvocation,
@@ -22,7 +23,11 @@ from backend.services.vertical_ops.crm_reconciliation import (
     CRMProviderObservation,
     plan_crm_reconciliation,
 )
-from backend.services.vertical_ops.graft1st_contracts import IdentityMatchDecision
+from backend.services.vertical_ops.graft1st_contracts import (
+    EffectCertainty,
+    EffectReceiptContract,
+    IdentityMatchDecision,
+)
 
 
 def _evidence(
@@ -160,6 +165,74 @@ def crm_reconcile(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
     )
 
 
+def crm_verify_effect(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    payload = CRMVerifyEffectInput.model_validate(invocation.input)
+    desired = CanonicalCRMDesiredState.model_validate(payload.desired_state)
+    receipt = EffectReceiptContract.model_validate(payload.effect_receipt)
+    observation = (
+        CRMProviderObservation.model_validate(payload.readback_observation) if payload.readback_observation else None
+    )
+
+    reasons: list[str] = []
+    equivalent = False
+    if receipt.provider_account_id != context.tenant_id:
+        raise ValueError("CRM effect receipt provider account does not match runtime tenant")
+    if receipt.certainty == EffectCertainty.VERIFIED:
+        if observation is None:
+            reasons.append("verified receipt is missing read-back observation")
+        elif observation.provider_record_id not in receipt.provider_object_ids:
+            reasons.append("read-back record is not named by the effect receipt")
+        elif observation.canonical_entity_id != desired.canonical_entity_id:
+            reasons.append("read-back canonical identity differs from desired state")
+        elif observation.object_type != desired.object_type:
+            reasons.append("read-back object type differs from desired state")
+        else:
+            field_matches = all(observation.fields.get(key) == value for key, value in desired.fields.items())
+            associations_match = set(desired.association_entity_ids) <= set(observation.association_entity_ids)
+            lifecycle_matches = observation.lifecycle_state == desired.lifecycle_state
+            equivalent = field_matches and associations_match and lifecycle_matches
+            if not equivalent:
+                reasons.append("read-back state does not equal desired canonical state")
+    elif receipt.certainty == EffectCertainty.REJECTED:
+        reasons.append("provider rejected the attempted effect")
+    else:
+        reasons.append("provider effect remains ambiguous and cannot be promoted to verified")
+
+    output = {
+        "effect_receipt": receipt.model_dump(mode="json"),
+        "readback_observation": observation.model_dump(mode="json") if observation else None,
+        "equivalent": equivalent,
+        "verified": receipt.certainty == EffectCertainty.VERIFIED and equivalent,
+        "reasons": reasons,
+        "grants_execution_authority": False,
+    }
+    summary = (
+        "Verified CRM effect read-back matches desired state."
+        if output["verified"]
+        else "CRM effect read-back was not verified; no execution authority was granted."
+    )
+    inspected = list(receipt.provider_object_ids)
+    return ActionResult(
+        action="crm.verify_effect",
+        provider="ajenda_crm",
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+        output=output,
+        evidence=[
+            _evidence(
+                context=context,
+                action="crm.verify_effect",
+                summary=summary,
+                payload=output,
+                inspected=inspected,
+                side_effect_class=SideEffectClass.INTERNAL_READ,
+            )
+        ],
+        records_inspected=inspected,
+        summary=summary,
+        confidence=1.0 if output["verified"] else 0.0,
+    )
+
+
 def register_crm_actions(registry: ActionRegistry) -> None:
     registry.register(
         ActionDefinition(
@@ -167,6 +240,15 @@ def register_crm_actions(registry: ActionRegistry) -> None:
             handler=crm_observe,
             provider="ajenda_crm",
             input_model=CRMObserveInput,
+            side_effect_class=SideEffectClass.INTERNAL_READ,
+        )
+    )
+    registry.register(
+        ActionDefinition(
+            name="crm.verify_effect",
+            handler=crm_verify_effect,
+            provider="ajenda_crm",
+            input_model=CRMVerifyEffectInput,
             side_effect_class=SideEffectClass.INTERNAL_READ,
         )
     )

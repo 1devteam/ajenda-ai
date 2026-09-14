@@ -37,6 +37,7 @@ DEFAULT_MAY_PREPARE: tuple[str, ...] = (
     "crm.read",
     "crm.observe",
     "crm.reconcile",
+    "crm.verify_effect",
     "salesforce.soql_read",
     "provider.external_read",
     "linkedin.profile_read",
