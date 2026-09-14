@@ -813,7 +813,13 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
             "query": "Ajenda products services target customers differentiators approved business profile",
             "limit": min(max(limit, 5), 20),
         }
-    if action_name in {"record.search", "document.search", "retrieval.hybrid_search"}:
+    if action_name == "record.search":
+        return {
+            "record_type": "account",
+            "query": _compact_research_query(intent)[:240],
+            "limit": limit,
+        }
+    if action_name in {"document.search", "retrieval.hybrid_search"}:
         return {"query": query, "limit": limit}
     if action_name == "gtm.social_publish":
         # Build a schema-valid publish payload; never leave content empty.

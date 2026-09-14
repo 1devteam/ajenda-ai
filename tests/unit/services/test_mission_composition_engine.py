@@ -521,6 +521,29 @@ def test_research_with_internal_crm_summary_is_a_valid_read_mission() -> None:
     assert not intent.ambiguity
 
 
+def test_internal_crm_review_routes_to_local_records_before_qualification() -> None:
+    intent = interpret_instruction(
+        "Review the five Austin software companies already saved in Ajenda's CRM, "
+        "compare their qualification evidence and contact quality, rank them from strongest "
+        "to weakest, recommend the next step for each, and prepare draft introduction emails "
+        "for the top three contacts for my review, but do not send anything."
+    )
+
+    assert "read_crm" in intent.requested_outcomes
+    assert "internal_crm_source" in intent.context_requirements
+    jobs = route_jobs_for_intent(intent)
+    assert "research.discover_prospects" not in {job.job_key for job in jobs}
+
+    selections, missing = resolve_jobs(jobs, intent=intent)
+    assert missing == []
+    local_read = next(item for item in selections if item.job_key == "crm.read_records")
+    assert local_read.action_name == "record.search"
+
+    payload = build_action_input(action_name="record.search", intent=intent)
+    assert payload["record_type"] == "account"
+    assert payload["limit"] == 5
+
+
 def test_qualification_scores_and_reasons_are_a_supported_deliverable() -> None:
     intent = interpret_instruction(
         "Qualify five software development companies in Austin. Return qualification scores and reasons. "

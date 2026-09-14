@@ -147,6 +147,12 @@ _CRM_READ_PATTERNS = (
     r"\b(?:check|read|search|query|list|show|summarize|find|look up)\b[^.!?]{0,48}\b(?:hubspot|crm)\b",
     r"\b(?:hubspot|crm)\b[^.!?]{0,48}\b(?:records?|contacts?|companies|deals?|pipeline)\b",
 )
+_INTERNAL_CRM_READ_PATTERNS = (
+    # Internal CRM review is a local record read. Keep it distinct from
+    # connector reads so Ajenda does not route it through HubSpot research.
+    r"\b(?:review|inspect|summarize|compare|rank)\b[^.!?]{0,120}\b(?:ajenda(?:'s)?\s+crm|ajenda\s+internal\s+crm|internal\s+(?:ajenda\s+)?crm)\b",
+    r"\b(?:ajenda(?:'s)?\s+crm|ajenda\s+internal\s+crm|internal\s+(?:ajenda\s+)?crm)\b[^.!?]{0,100}\b(?:records?|companies|contacts?|deals?|pipeline)\b",
+)
 _CRM_READ_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\b[^.!?]{0,48}\b(?:read|check|search|query|list|show)\b[^.!?]{0,48}\b(?:hubspot|crm)\b",
     r"\b(?:do not|don't|dont|never|without)\b[^.!?]{0,48}\b(?:hubspot|crm)\b[^.!?]{0,48}\b(?:read|check|search|query|list|show)\b",
@@ -939,12 +945,16 @@ def _classify_clause(
         outcomes.append("read_business_profile")
     email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
     internal_crm_requested = _contains_any(lower, _INTERNAL_CRM_PATTERNS)
+    internal_crm_read = (
+        _contains_any(lower, _INTERNAL_CRM_READ_PATTERNS)
+        and not _contains_any(lower, _CRM_UPDATE_PATTERNS)
+        and not _contains_any(lower, _CRM_NEGATION_PATTERNS)
+    )
     crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
         lower, _CRM_NEGATION_PATTERNS
     )
     crm_read = (
-        _contains_any(lower, _CRM_READ_PATTERNS)
-        and not internal_crm_requested
+        (internal_crm_read or (_contains_any(lower, _CRM_READ_PATTERNS) and not internal_crm_requested))
         and not _contains_any(lower, _CRM_READ_NEGATION_PATTERNS)
         and not crm_write_requested
         and not _contains_any(lower, _CRM_NEGATION_PATTERNS)
@@ -1120,13 +1130,23 @@ def interpret_instruction(
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
     wants_email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
     internal_crm_requested = _contains_any(lower, _INTERNAL_CRM_PATTERNS)
+    internal_crm_read = (
+        _contains_any(lower, _INTERNAL_CRM_READ_PATTERNS)
+        and not _contains_any(lower, _CRM_UPDATE_PATTERNS)
+        and not _contains_any(lower, _CRM_NEGATION_PATTERNS)
+    )
     explicit_hubspot_record_read = bool(re.search(r"\buse\s+(?:the\s+)?(?:hubspot|crm)\s+records?\b", lower))
     crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
         lower, _CRM_NEGATION_PATTERNS
     )
     wants_crm_read = (
-        (explicit_hubspot_record_read or _contains_any(lower, _CRM_READ_PATTERNS))
-        and not internal_crm_requested
+        (
+            internal_crm_read
+            or (
+                (explicit_hubspot_record_read or _contains_any(lower, _CRM_READ_PATTERNS))
+                and not internal_crm_requested
+            )
+        )
         and not _contains_any(lower, _CRM_READ_NEGATION_PATTERNS)
         and not crm_write_requested
         and (explicit_hubspot_record_read or not _contains_any(lower, _CRM_NEGATION_PATTERNS))
@@ -1146,7 +1166,9 @@ def interpret_instruction(
     # truth.  This prevents resolver fallback to public web discovery when the
     # adapter cannot represent an unsupported CRM scope (for example a market
     # wide location filter).
-    if direct_crm_record_read and not explicit_research_verb and "hubspot_source" not in context_requirements:
+    if internal_crm_read and "internal_crm_source" not in context_requirements:
+        context_requirements.append("internal_crm_source")
+    elif direct_crm_record_read and not explicit_research_verb and "hubspot_source" not in context_requirements:
         context_requirements.append("hubspot_source")
     wants_research = (
         _contains_any(lower, _RESEARCH_PATTERNS)
