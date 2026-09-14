@@ -15,10 +15,10 @@ from backend.services.mission_composition.deliverable_contract import (
     extract_deliverable_request,
 )
 
-COMPOSITION_SCHEMA_VERSION = 6
+COMPOSITION_SCHEMA_VERSION = 7
 JOB_CATALOG_VERSION = "11"
-INTERPRETER_VERSION = "13"
-CAPABILITY_RESOLVER_VERSION = "9"
+INTERPRETER_VERSION = "14"
+CAPABILITY_RESOLVER_VERSION = "10"
 
 ProposalStatus = Literal[
     "interpretation_failed",

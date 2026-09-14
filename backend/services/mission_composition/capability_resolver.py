@@ -148,6 +148,11 @@ def _intent_input_sources(intent: MissionIntent) -> set[str]:
     sources: set[str] = set()
     if intent.has_recipient_context():
         sources.update({"recipient_context", "explicit_recipient", "explicit_email"})
+    if "internal_crm_source" in {str(item) for item in intent.context_requirements}:
+        # An internal CRM review is already a bounded source of account,
+        # prospect, and contact context. Treat it as available input so the
+        # planner does not invent public discovery work for a review request.
+        sources.update({"crm_record", "prospect_candidates", "observed_contacts", "recipient_context"})
     for entity in intent.target_entities:
         # Industry/location market targeting is not a concrete prospect list.
         if entity.name and entity.type in {"company", "person", "contact", "recipient"}:
@@ -454,6 +459,12 @@ def resolve_jobs(
 
     for job in jobs:
         preference = list(_ACTION_PREFERENCE.get(job.job_key, job.candidate_actions))
+        internal_crm_source = "internal_crm_source" in {str(item) for item in intent.context_requirements}
+        if internal_crm_source and job.job_key == "crm.read_records":
+            # Internal CRM review uses Ajenda's local record authority. Never
+            # route this request through the connector-bound sales.research
+            # adapter, which can only express HubSpot company lookup.
+            preference = ["record.search"]
         # Explicit CRM source: only connector-bound research actions (never public web first).
         if hubspot_source and job.job_key == "research.discover_prospects":
             preference = ["sales.research", "crm.research"]
