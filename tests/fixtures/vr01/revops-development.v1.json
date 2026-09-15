@@ -46,7 +46,7 @@
       "forbidden_outcomes": ["send_outreach"],
       "required_jobs": ["research.discover_prospects", "email.prepare_outreach"],
       "forbidden_actions": ["gtm.email_send"],
-      "expected_status": "interpretation_failed",
+      "expected_status": "gaps_open",
       "expected_clarification": true
     },
     {
@@ -57,7 +57,7 @@
       "forbidden_outcomes": [],
       "required_jobs": ["research.discover_prospects"],
       "forbidden_actions": [],
-      "expected_status": "interpretation_failed",
+      "expected_status": "gaps_open",
       "expected_clarification": true
     },
     {
@@ -79,7 +79,7 @@
       "forbidden_outcomes": ["send_outreach"],
       "required_jobs": ["research.discover_prospects"],
       "forbidden_actions": ["gtm.email_send"],
-      "expected_status": "interpretation_failed",
+      "expected_status": "gaps_open",
       "expected_clarification": true
     },
     {

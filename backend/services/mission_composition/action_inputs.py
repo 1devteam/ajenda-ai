@@ -126,9 +126,22 @@ _GITHUB_OWNER_REPO = re.compile(
 )
 
 
-def has_usable_research_scope(intent: MissionIntent) -> bool:
-    """True when discovery has a real market, company, or competitor — not the word 'companies'."""
+_PLACEHOLDER_RESEARCH_QUERIES = frozenset(
+    {
+        "companies",
+        "businesses",
+        "prospects",
+        "leads",
+        "prospect research",
+    }
+)
 
+
+def has_usable_research_scope(intent: MissionIntent) -> bool:
+    """True when discovery has a real market, company, or competitor — not a placeholder query."""
+
+    if any(item.field == "target_scope" for item in intent.ambiguity):
+        return False
     for entity in intent.target_entities:
         if entity.industry or entity.location or entity.domain or entity.url:
             return True
@@ -137,7 +150,11 @@ def has_usable_research_scope(intent: MissionIntent) -> bool:
         attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
         if attrs.get("research_mode") == "competitors" and (entity.name or attrs.get("seed_company")):
             return True
-    return False
+    source = _instruction_text(intent)
+    if _extract_company_from_instruction(source) or _extract_person_from_instruction(source):
+        return True
+    query = _compact_research_query(intent).strip().casefold()
+    return bool(query) and query not in _PLACEHOLDER_RESEARCH_QUERIES
 
 
 def extract_github_owner_repo(intent: MissionIntent) -> tuple[str, str] | None:
