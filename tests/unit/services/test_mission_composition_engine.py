@@ -544,6 +544,24 @@ def test_internal_crm_review_routes_to_local_records_before_qualification() -> N
     assert payload["limit"] == 5
 
 
+def test_internal_crm_review_with_negated_updates_stays_local() -> None:
+    intent = interpret_instruction(
+        "Review the five software development companies already saved in Ajenda\u2019s internal CRM. "
+        "Compare their qualification evidence and contact quality, rank them from strongest to weakest, "
+        "and recommend the next step for each. Use Ajenda\u2019s internal records only; do not search the web, "
+        "use HubSpot, modify CRM records, or send messages."
+    )
+
+    assert "read_crm" in intent.requested_outcomes
+    assert "internal_crm_source" in intent.context_requirements
+    jobs = route_jobs_for_intent(intent)
+    assert "research.discover_prospects" not in {job.job_key for job in jobs}
+    selections, missing = resolve_jobs(jobs, intent=intent)
+    assert missing == []
+    local_read = next(item for item in selections if item.job_key == "crm.read_records")
+    assert local_read.action_name == "record.search"
+
+
 def test_qualification_scores_and_reasons_are_a_supported_deliverable() -> None:
     intent = interpret_instruction(
         "Qualify five software development companies in Austin. Return qualification scores and reasons. "
