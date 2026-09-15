@@ -120,6 +120,47 @@ def _instruction_text(intent: MissionIntent) -> str:
     return (intent.raw_instruction or intent.normalized_instruction or intent.objective or "").strip()
 
 
+_GITHUB_OWNER_REPO = re.compile(
+    r"\bgithub\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)\b|"
+    r"\b([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)\b"
+)
+
+
+def has_usable_research_scope(intent: MissionIntent) -> bool:
+    """True when discovery has a real market, company, or competitor — not the word 'companies'."""
+
+    for entity in intent.target_entities:
+        if entity.industry or entity.location or entity.domain or entity.url:
+            return True
+        if entity.name and entity.type in {"company", "person", "competitor_set", "contact"}:
+            return True
+        attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+        if attrs.get("research_mode") == "competitors" and (entity.name or attrs.get("seed_company")):
+            return True
+    return False
+
+
+def extract_github_owner_repo(intent: MissionIntent) -> tuple[str, str] | None:
+    """Return owner/repo from structured entities or instruction text. Never invents 'pending'."""
+
+    for entity in intent.target_entities:
+        attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+        if attrs.get("github_owner") and attrs.get("github_repo"):
+            return str(attrs["github_owner"]), str(attrs["github_repo"])
+        if entity.type == "github_repo" and entity.name and "/" in entity.name:
+            parts = entity.name.strip("/").split("/", 1)
+            if len(parts) == 2 and parts[0] and parts[1]:
+                return parts[0], parts[1]
+    match = _GITHUB_OWNER_REPO.search(_instruction_text(intent))
+    if match is None:
+        return None
+    owner = match.group(1) or match.group(3)
+    repo = match.group(2) or match.group(4)
+    if not owner or not repo:
+        return None
+    return owner, repo
+
+
 def _local_fixture_only(intent: MissionIntent) -> bool:
     """Read the fixture constraint from the original instruction, not the objective summary."""
 
@@ -510,6 +551,10 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
         lead["location"] = location
 
     if action_name == "web.research":
+        if not has_usable_research_scope(intent):
+            raise ValueError(
+                "web.research requires industry, location, named company, or competitor set; refusing placeholder query"
+            )
         entity = intent.target_entities[0] if intent.target_entities else None
         source = _instruction_text(intent)
         research_query = _compact_research_query(intent)
@@ -554,6 +599,10 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
             "limit": limit,
         }
     if action_name == "web.search":
+        if not has_usable_research_scope(intent):
+            raise ValueError(
+                "web.search requires industry, location, named company, or competitor set; refusing placeholder query"
+            )
         return {"query": _compact_research_query(intent)[:400], "limit": limit}
     if action_name == "research.synthesize_report":
         return {
@@ -935,34 +984,13 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
             payload["profile_id"] = profile_id
         return payload
     if action_name == "github.repo_read":
-        owner = None
-        repo = None
-        for entity in intent.target_entities:
-            attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
-            if attrs.get("github_owner") and attrs.get("github_repo"):
-                owner = str(attrs["github_owner"])
-                repo = str(attrs["github_repo"])
-                break
-            if entity.type == "github_repo" and entity.name and "/" in entity.name:
-                parts = entity.name.strip("/").split("/", 1)
-                if len(parts) == 2:
-                    owner, repo = parts[0], parts[1]
-                    break
-        if owner is None or repo is None:
-            # Parse owner/repo from instruction text.
-            text_src = _instruction_text(intent)
-            match = re.search(
-                r"\bgithub\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)\b|"
-                r"\b([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)\b",
-                text_src,
+        parsed = extract_github_owner_repo(intent)
+        if parsed is None:
+            raise ValueError(
+                "github.repo_read requires owner and repository (for example octocat/Hello-World); "
+                "refusing to invent a placeholder repository"
             )
-            if match:
-                owner = match.group(1) or match.group(3)
-                repo = match.group(2) or match.group(4)
-        if not owner or not repo:
-            # Schema requires owner+repo; leave explicit placeholders for restatement/binding.
-            owner = owner or "pending"
-            repo = repo or "pending"
+        owner, repo = parsed
         return {"owner": owner, "repo": repo}
     if action_name == "provider.external_read":
         # Contacts-shaped default when composition selected this action for ops.google_contacts_read.

@@ -134,18 +134,23 @@ def compile_planned_steps(
                 )
 
         tool_input: dict[str, Any] = {}
+        compile_gap: str | None = None
         if intent is not None:
-            tool_input = build_action_input(
-                action_name=selection.action_name,
-                intent=intent,
-                vertical_role=selection.vertical_role,
-            )
-            definition = get_default_action_registry().get(selection.action_name)
-            if definition.input_model is not None:
-                # Validate the same payload shape the runtime registry will
-                # enforce. This prevents a vertical handoff from reaching graph
-                # materialization with an input contract that can never run.
-                definition.input_model.model_validate(tool_input)
+            try:
+                tool_input = build_action_input(
+                    action_name=selection.action_name,
+                    intent=intent,
+                    vertical_role=selection.vertical_role,
+                )
+                definition = get_default_action_registry().get(selection.action_name)
+                if definition.input_model is not None:
+                    # Validate the same payload shape the runtime registry will
+                    # enforce. This prevents a vertical handoff from reaching graph
+                    # materialization with an input contract that can never run.
+                    definition.input_model.model_validate(tool_input)
+            except (ValueError, TypeError) as exc:
+                compile_gap = str(exc)[:500]
+                tool_input = {}
 
         step = PlannedStepPreview(
             step_key=f"ability-{_slug(selection.action_name)}",
@@ -161,6 +166,7 @@ def compile_planned_steps(
             credential_reference=(
                 dict(selection.credential_reference) if isinstance(selection.credential_reference, dict) else None
             ),
+            compile_gap=compile_gap,
         )
         steps.append(step)
         step_by_job[selection.job_key] = step

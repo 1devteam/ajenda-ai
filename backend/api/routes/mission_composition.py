@@ -53,6 +53,7 @@ class ComposeMissionResponse(BaseModel):
     approval_gates: list[str]
     planned_steps: list[dict[str, Any]]
     task_graph_preview: dict[str, Any]
+    intelligence_envelope: dict[str, Any] | None = None
     clarifications: list[dict[str, Any]]
     ready_to_start: bool
     composition: dict[str, Any]
@@ -125,6 +126,9 @@ def _to_compose_response(record: MissionCompositionRecord) -> ComposeMissionResp
         approval_gates=list(record.approval_gates),
         planned_steps=[item.model_dump(mode="json") for item in record.planned_steps],
         task_graph_preview=dict(record.task_graph_preview),
+        intelligence_envelope=(
+            record.intelligence_envelope.model_dump(mode="json") if record.intelligence_envelope is not None else None
+        ),
         clarifications=[item.model_dump(mode="json") for item in record.clarifications],
         ready_to_start=record.ready_to_start,
         composition=record.model_dump(mode="json"),
