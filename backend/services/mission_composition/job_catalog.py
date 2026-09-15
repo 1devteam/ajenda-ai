@@ -13,7 +13,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="research.discover_prospects",
         display_name="Discover prospects",
-        vertical_role="vertical.research",
+        vertical_role="kernel",
         supported_outcomes=("research_prospects",),
         required_inputs=("target_industry_or_query",),
         produced_outputs=("prospect_candidates",),
@@ -27,7 +27,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="research.observe_sources",
         display_name="Observe contacts from sources",
-        vertical_role="vertical.research",
+        vertical_role="kernel",
         supported_outcomes=("observe_contacts",),
         required_inputs=("prospect_candidates",),
         produced_outputs=("observed_contacts",),
@@ -49,7 +49,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="research.synthesize_report",
         display_name="Synthesize research report",
-        vertical_role="vertical.research",
+        vertical_role="kernel",
         supported_outcomes=("synthesize_research_report",),
         required_inputs=("prospect_candidates",),
         produced_outputs=("research_report",),
@@ -64,7 +64,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="operations.verify_runtime_controls",
         display_name="Verify runtime controls",
-        vertical_role="vertical.operations",
+        vertical_role="kernel",
         supported_outcomes=("verify_runtime_controls",),
         required_inputs=(),
         produced_outputs=("runtime_control_verification_package",),
@@ -77,7 +77,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="intelligence.retrieve_knowledge",
         display_name="Retrieve current knowledge",
-        vertical_role="vertical.research",
+        vertical_role="kernel",
         # Optional decision support is planner/know-how selectable, not a
         # deterministic requirement of the observe_contacts outcome.
         supported_outcomes=(),
@@ -101,7 +101,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="intelligence.retrieve_business_profile",
         display_name="Read approved business profile",
-        vertical_role="vertical.research",
+        vertical_role="kernel",
         supported_outcomes=("read_business_profile",),
         required_inputs=("profile_query",),
         produced_outputs=("business_profile_facts",),
@@ -114,7 +114,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="intelligence.advise_next",
         display_name="Recommend next action",
-        vertical_role="vertical.research",
+        vertical_role="kernel",
         # The governed RevOps know-how owns this as optional decision support.
         supported_outcomes=(),
         required_inputs=("observed_contacts",),
@@ -139,7 +139,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="sales.research_context",
         display_name="Research against business context",
-        vertical_role="vertical.sales",
+        vertical_role="kernel",
         supported_outcomes=(),
         required_inputs=("prospect_candidates",),
         produced_outputs=("researched_prospects",),
@@ -163,7 +163,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="sales.qualify_prospects",
         display_name="Qualify prospects",
-        vertical_role="vertical.sales",
+        vertical_role="kernel",
         supported_outcomes=("qualify_prospects",),
         required_inputs=("prospect_candidates", "observed_contacts"),
         produced_outputs=("qualified_prospects",),
@@ -192,7 +192,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="gtm.enrich_contacts",
         display_name="Enrich selected prospects",
-        vertical_role="vertical.sales",
+        vertical_role="kernel",
         supported_outcomes=("enrich_contacts",),
         required_inputs=("qualified_prospects", "prospect_candidates"),
         produced_outputs=("enriched_prospects",),
@@ -215,7 +215,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="email.prepare_outreach",
         display_name="Prepare outreach drafts",
-        vertical_role="vertical.email",
+        vertical_role="pack.gtm",
         supported_outcomes=("prepare_outreach",),
         required_inputs=("recipient_context",),
         produced_outputs=("introduction_drafts",),
@@ -252,7 +252,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="email.deliver_outreach",
         display_name="Deliver outreach",
-        vertical_role="vertical.email",
+        vertical_role="pack.gtm",
         supported_outcomes=("send_outreach",),
         required_inputs=("introduction_drafts",),
         produced_outputs=("sent_messages",),
@@ -274,7 +274,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="email.read_messages",
         display_name="Read Gmail messages",
-        vertical_role="vertical.email",
+        vertical_role="pack.gtm",
         supported_outcomes=("read_email",),
         required_inputs=("email_query",),
         produced_outputs=("email_messages",),
@@ -287,7 +287,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="crm.read_records",
         display_name="Read HubSpot CRM records",
-        vertical_role="vertical.sales",
+        vertical_role="kernel",
         supported_outcomes=("read_crm",),
         required_inputs=("crm_query",),
         produced_outputs=("crm_records",),
@@ -300,7 +300,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="crm.query_salesforce",
         display_name="Query Salesforce records",
-        vertical_role="vertical.sales",
+        vertical_role="kernel",
         supported_outcomes=("query_salesforce",),
         required_inputs=("soql_query",),
         produced_outputs=("salesforce_records",),
@@ -313,7 +313,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="crm.internal_persistence",
         display_name="Persist prospects to Ajenda internal CRM",
-        vertical_role="vertical.sales",
+        vertical_role="kernel",
         supported_outcomes=("persist_internal_crm",),
         required_inputs=("qualified_prospects", "observed_contacts"),
         produced_outputs=("internal_crm_records",),
@@ -332,7 +332,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="crm.pipeline_maintenance",
         display_name="Pipeline maintenance",
-        vertical_role="vertical.sales",
+        vertical_role="kernel",
         supported_outcomes=("update_crm",),
         required_inputs=("qualified_prospects",),
         produced_outputs=("pipeline_records",),
@@ -370,7 +370,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="ops.calendar_briefing",
         display_name="Calendar briefing",
-        vertical_role="vertical.planning",
+        vertical_role="kernel",
         supported_outcomes=("read_calendar",),
         required_inputs=(),
         produced_outputs=("calendar_events",),
@@ -384,7 +384,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="ops.linkedin_profile_read",
         display_name="Read LinkedIn profile",
-        vertical_role="vertical.ops",
+        vertical_role="kernel",
         supported_outcomes=("read_linkedin",),
         required_inputs=(),
         produced_outputs=("linkedin_profile",),
@@ -397,7 +397,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="ops.github_repo_read",
         display_name="Read GitHub repository",
-        vertical_role="vertical.ops",
+        vertical_role="kernel",
         supported_outcomes=("read_github",),
         required_inputs=("github_owner_repo",),
         produced_outputs=("github_repo_metadata",),
@@ -410,7 +410,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="ops.google_contacts_read",
         display_name="Read Google Contacts",
-        vertical_role="vertical.ops",
+        vertical_role="kernel",
         supported_outcomes=("read_contacts",),
         required_inputs=(),
         produced_outputs=("contact_records",),
@@ -425,7 +425,7 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
     BusinessJob(
         job_key="gtm.publish_content",
         display_name="Publish social content",
-        vertical_role="vertical.gtm",
+        vertical_role="pack.gtm",
         supported_outcomes=("publish_content",),
         required_inputs=("publish_payload",),
         produced_outputs=("published_content",),

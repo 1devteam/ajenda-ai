@@ -134,7 +134,7 @@ def create_app() -> FastAPI:
     )
 
     # Mount all API routes
-    app.include_router(build_api_router())
+    app.include_router(build_api_router(settings=settings))
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(

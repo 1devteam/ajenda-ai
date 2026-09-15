@@ -16,7 +16,7 @@ from backend.services.mission_composition.deliverable_contract import (
 )
 
 COMPOSITION_SCHEMA_VERSION = 7
-JOB_CATALOG_VERSION = "12"
+JOB_CATALOG_VERSION = "13"
 INTERPRETER_VERSION = "14"
 CAPABILITY_RESOLVER_VERSION = "11"
 

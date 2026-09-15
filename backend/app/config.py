@@ -175,6 +175,10 @@ class Settings(BaseSettings):
         default=False,
         alias="AJENDA_HUBSPOT_PLATFORM_MASTER_AUTO_PROVISION",
     )
+    vertical_ops_enabled: bool = Field(
+        default=False,
+        alias="AJENDA_VERTICAL_OPS_ENABLED",
+    )
 
     # --- LLM drafting (Phase 2 prepare) ---
     llm_api_key: str | None = Field(default=None, alias="AJENDA_LLM_API_KEY")

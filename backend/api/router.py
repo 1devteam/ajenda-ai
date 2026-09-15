@@ -35,7 +35,7 @@ Route inventory under /v1/:
   /v1/admin/*         — Platform admin control plane
   /v1/onboarding/*    — Self-serve tenant signup and verification
   /v1/plugins/*       — Plugin discovery and standard contracts
-  /v1/vertical-ops/*  — Vertical mission templates (ADR-0007)
+  /v1/vertical-ops/*  — Vertical mission templates (optional pack; AJENDA_VERTICAL_OPS_ENABLED)
 
 Routes at root (/):
   /health             — Liveness probe (no auth required)
@@ -46,6 +46,9 @@ Metrics route:
 """
 
 from __future__ import annotations
+
+import os
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter
 
@@ -77,6 +80,9 @@ from backend.api.routes.vertical_ops import router as vertical_ops_router
 from backend.api.routes.webhooks import router as webhooks_router
 from backend.api.routes.workforce import router as workforce_router
 
+if TYPE_CHECKING:
+    from backend.app.config import Settings
+
 # Billing import is intentionally local to build_api_router() to avoid pulling
 # the stripe dependency (and its import-time side effects) into every module
 # that imports the router (common in unit/contract tests and non-billing paths).
@@ -84,11 +90,19 @@ from backend.api.routes.workforce import router as workforce_router
 # See PR 1 in the approved SaaS hardening plan.
 
 
-def build_api_router() -> APIRouter:
+def _vertical_ops_pack_enabled(settings: Settings | None) -> bool:
+    if settings is not None:
+        return bool(settings.vertical_ops_enabled)
+    raw = os.environ.get("AJENDA_VERTICAL_OPS_ENABLED", "")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def build_api_router(*, settings: Settings | None = None) -> APIRouter:
     """Build and return the root API router.
 
     Health and metrics routes are mounted at / (no version prefix).
     All business routes are mounted under /v1/.
+    Vertical-ops is a pack, not kernel: omitted unless AJENDA_VERTICAL_OPS_ENABLED.
     """
     root = APIRouter()
 
@@ -100,7 +114,8 @@ def build_api_router() -> APIRouter:
     v1 = APIRouter(prefix="/v1")
     v1.include_router(auth_router)  # /v1/auth/*
     v1.include_router(ability_runtime_router)  # /v1/ability-runtime/*
-    v1.include_router(vertical_ops_router)  # /v1/vertical-ops/*
+    if _vertical_ops_pack_enabled(settings):
+        v1.include_router(vertical_ops_router)  # /v1/vertical-ops/* (optional pack)
     v1.include_router(api_keys_router)  # /v1/api-keys/*
     v1.include_router(capability_router)  # /v1/capabilities/*
     v1.include_router(capability_adapter_router)  # /v1/capability-adapters/*

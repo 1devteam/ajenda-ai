@@ -18,7 +18,7 @@ from backend.services.operating_charter import default_operating_charter
 
 
 def test_versions_bumped_for_wave_a() -> None:
-    assert JOB_CATALOG_VERSION == "12"
+    assert JOB_CATALOG_VERSION == "13"
     assert INTERPRETER_VERSION == "14"
     assert CAPABILITY_RESOLVER_VERSION == "11"
 

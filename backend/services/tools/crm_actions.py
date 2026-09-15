@@ -7,6 +7,19 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+from backend.services.records.contracts import (
+    EffectCertainty,
+    EffectReceiptContract,
+    IdentityMatchDecision,
+)
+from backend.services.records.crm_reconciliation import (
+    CanonicalCRMDesiredState,
+    CRMLifecycleState,
+    CRMOperationKind,
+    CRMProviderObservation,
+    CRMReconciliationPlan,
+    plan_crm_reconciliation,
+)
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.record_store import record_store_limitations, resolve_record_store
 from backend.services.tools.schemas import (
@@ -19,19 +32,6 @@ from backend.services.tools.schemas import (
     EvidenceItem,
     SideEffectClass,
     ToolInvocation,
-)
-from backend.services.vertical_ops.crm_reconciliation import (
-    CanonicalCRMDesiredState,
-    CRMLifecycleState,
-    CRMOperationKind,
-    CRMProviderObservation,
-    CRMReconciliationPlan,
-    plan_crm_reconciliation,
-)
-from backend.services.vertical_ops.graft1st_contracts import (
-    EffectCertainty,
-    EffectReceiptContract,
-    IdentityMatchDecision,
 )
 
 

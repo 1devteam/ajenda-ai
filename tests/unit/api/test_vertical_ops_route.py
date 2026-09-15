@@ -454,11 +454,24 @@ def test_router_registers_vertical_ops_paths() -> None:
     from fastapi import FastAPI
 
     from backend.api.router import build_api_router
+    from backend.app.config import Settings
 
     app = FastAPI()
-    app.include_router(build_api_router())
+    app.include_router(build_api_router(settings=Settings.model_construct(vertical_ops_enabled=True)))
     paths = {getattr(route, "path", "") for route in app.routes}
     assert "/v1/vertical-ops/templates" in paths
     assert "/v1/vertical-ops/missions" in paths
     assert "/v1/vertical-ops/missions/{mission_id}/apply" in paths
     assert "/v1/vertical-ops/missions/{mission_id}/queue" in paths
+
+
+def test_kernel_router_omits_vertical_ops_pack() -> None:
+    from fastapi import FastAPI
+
+    from backend.api.router import build_api_router
+    from backend.app.config import Settings
+
+    app = FastAPI()
+    app.include_router(build_api_router(settings=Settings.model_construct(vertical_ops_enabled=False)))
+    paths = {getattr(route, "path", "") for route in app.routes}
+    assert not any(path.startswith("/v1/vertical-ops") for path in paths)
