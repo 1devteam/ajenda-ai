@@ -196,7 +196,7 @@ def test_validator_rejects_invalid_artifact_binding() -> None:
 
 @pytest.mark.parametrize(
     ("job_key", "connector"),
-    [("email.deliver_outreach", "gmail"), ("crm.pipeline_maintenance", "hubspot")],
+    [("email.deliver_outreach", "gmail")],
 )
 def test_validator_rejects_missing_external_connection(job_key: str, connector: str) -> None:
     proposal = _proposal(

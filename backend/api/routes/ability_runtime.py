@@ -77,6 +77,9 @@ READ_SAFE_ACTIONS: set[str] = {
     "web.browser_session",
     "crm.research",
     "crm.read",
+    "crm.observe",
+    "crm.reconcile",
+    "crm.verify_effect",
 }
 
 INTERNAL_WRITE_ACTIONS: set[str] = {
@@ -84,6 +87,18 @@ INTERNAL_WRITE_ACTIONS: set[str] = {
     "record.write",
     "sales.log_activity",
     "sales.create_followup_task",
+    "crm.mutate",
+}
+
+# Ajenda Records. Not a GTM SKU. Not an adapter. Free tenants may use these.
+KERNEL_CRM_ACTIONS: set[str] = {
+    "crm.observe",
+    "crm.reconcile",
+    "crm.verify_effect",
+    "crm.mutate",
+    "record.search",
+    "record.read",
+    "record.write",
 }
 
 EXTERNAL_ACTIONS: set[str] = {
@@ -643,9 +658,14 @@ def launch_task(
         ) from exc
 
     # Defense-in-depth quota and feature gate for ability-runtime launched tasks.
+    # Kernel CRM (Ajenda Records) is core product, not the GTM or ability_runtime SKU.
     quota = QuotaEnforcementService(db)
     quota.check_tenant_active(tenant_id)
-    if action_name in EXTERNAL_ACTIONS or _requires_runtime_authority(side_effect_class):
+    needs_runtime_feature = (
+        action_name not in KERNEL_CRM_ACTIONS
+        and (action_name in EXTERNAL_ACTIONS or _requires_runtime_authority(side_effect_class))
+    )
+    if needs_runtime_feature:
         try:
             quota.require_feature(tenant_id, "ability_runtime")
         except FeatureNotAvailableError as exc:
@@ -659,7 +679,7 @@ def launch_task(
                 detail=str(exc),
             ) from exc
 
-    # PR6: gate GTM actions behind feature (will be in pro+ plans)
+    # Adapter-pack GTM only. Internal CRM writes are not gtm.* and must not sit behind this SKU.
     if action_name.startswith("gtm."):
         try:
             quota.require_feature(tenant_id, "gtm")

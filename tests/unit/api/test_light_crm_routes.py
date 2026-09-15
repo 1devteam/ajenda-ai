@@ -71,3 +71,13 @@ def test_upsert_crm_record_uses_workflow_helper() -> None:
     payload = response.json()
     assert payload["id"] == "contact-9"
     mock_upsert.assert_called_once()
+
+
+def test_light_crm_http_uses_tenant_session_and_skips_gtm_quota() -> None:
+    import inspect
+
+    source = inspect.getsource(light_crm_module)
+    assert "get_tenant_db_session" in source
+    assert "get_db_session" not in source
+    assert "require_feature" not in source
+    assert "QuotaEnforcementService" not in source

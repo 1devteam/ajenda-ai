@@ -336,12 +336,11 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         supported_outcomes=("update_crm",),
         required_inputs=("qualified_prospects",),
         produced_outputs=("pipeline_records",),
-        # CRM-update outcomes require the connector-bound upsert. A local aggregate
-        # record cannot truthfully represent per-prospect CRM persistence.
-        candidate_actions=("gtm.crm_upsert",),
+        # Kernel persistence is Ajenda Records. HubSpot upsert remains the adapter overlay.
+        candidate_actions=("record.write", "gtm.crm_upsert"),
         risk_level="medium",
         maturity="runtime_bound",
-        credential_policy="required",
+        credential_policy="none",
         evidence_requirements=("action_result_evidence",),
         dependencies=(
             JobDependency(

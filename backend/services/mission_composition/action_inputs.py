@@ -492,6 +492,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
     tool.invoke does not fail closed on empty required fields (e.g. web.research.query).
     """
 
+    _ = vertical_role
     industry, location, query = _target_bits(intent)
     limit = _prospect_count(intent)
     primary_entity = intent.target_entities[0] if intent.target_entities else None
@@ -893,12 +894,6 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
             },
         }
     if action_name == "record.write":
-        role = (vertical_role or "").strip().lower()
-        workflow_context = (
-            "gtm"
-            if role in {"vertical.gtm", "vertical.sales", "vertical.email"}
-            else ("vertical" if role.startswith("vertical.") else "crm")
-        )
         return {
             "record_type": "contact",
             "data": {},
@@ -908,7 +903,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 "prospect_candidates": [],
                 "qualified_prospects": [],
                 "observed_contacts": [],
-                "workflow_context": workflow_context,
+                "workflow_context": "crm",
             },
         }
     if action_name in {"vertical.finance.prepare_reconciliation", "vertical.finance.prepare_invoice_drafts"}:

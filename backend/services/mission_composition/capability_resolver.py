@@ -44,7 +44,7 @@ _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "crm.read_records": ("sales.research",),
     "crm.query_salesforce": ("salesforce.soql_read",),
     "crm.internal_persistence": ("record.write",),
-    "crm.pipeline_maintenance": ("gtm.crm_upsert",),
+    "crm.pipeline_maintenance": ("record.write",),
     "ops.calendar_briefing": ("google_calendar.events_read",),
     "ops.linkedin_profile_read": ("linkedin.profile_read",),
     "ops.github_repo_read": ("github.repo_read",),
@@ -465,8 +465,11 @@ def resolve_jobs(
             # route this request through the connector-bound sales.research
             # adapter, which can only express HubSpot company lookup.
             preference = ["record.search"]
-        # Explicit CRM source: only connector-bound research actions (never public web first).
-        if hubspot_source and job.job_key == "research.discover_prospects":
+        if hubspot_source and job.job_key == "crm.pipeline_maintenance":
+            preference = ["gtm.crm_upsert"]
+            ordered = preference
+            require_connection = True
+        elif hubspot_source and job.job_key == "research.discover_prospects":
             preference = ["sales.research", "crm.research"]
             ordered = preference
             require_connection = True

@@ -126,3 +126,12 @@ def test_tenant_task_approval_uses_payload_bound_coordinator_path() -> None:
     assert call["actor"] == "test-user"
     assert call["approval_expires_at"].isoformat() == "2099-01-01T00:00:00+00:00"
     session.commit.assert_called_once()
+
+
+def test_review_queue_uses_tenant_session_and_local_record_hooks() -> None:
+    import inspect
+
+    source = inspect.getsource(review_queue_module)
+    assert "get_tenant_db_session" in source
+    assert "get_db_session" not in source
+    assert "on_draft_approved" in source

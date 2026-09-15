@@ -238,8 +238,6 @@ def _assert_job_graph_acyclic(jobs: tuple[PlannerJobProposal, ...]) -> None:
 
 
 def _required_connector(job_key: str) -> str | None:
-    if job_key in {"crm.read_records", "crm.pipeline_maintenance"}:
-        return "hubspot"
     if job_key == "email.deliver_outreach":
         return "gmail"
     return None

@@ -62,8 +62,9 @@ def test_inventory_preserves_resolver_readiness_surface() -> None:
     inventory = _inventory()
     nodes = {node["id"]: node for node in inventory["nodes"]}
 
+    write = nodes["selection:crm.pipeline_maintenance:record.write"]
+    assert write["normal_role"] == "primary"
     crm_upsert = nodes["selection:crm.pipeline_maintenance:gtm.crm_upsert"]
-    assert crm_upsert["normal_role"] == "primary"
     assert crm_upsert["connection_hint"]["integration"] == "hubspot"
     assert crm_upsert["requires_instantiated_resolver_state"] is True
     assert set(crm_upsert["readiness_states"]) == {

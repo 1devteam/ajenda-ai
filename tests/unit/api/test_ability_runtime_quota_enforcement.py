@@ -14,6 +14,7 @@ from backend.api.routes.ability_runtime import (
     EXTERNAL_ACTIONS,
     GTM_HIGH_RISK_ACTIONS,
     INTERNAL_WRITE_ACTIONS,
+    KERNEL_CRM_ACTIONS,
     READ_SAFE_ACTIONS,
     AbilityTaskCreate,
     _requires_runtime_authority,
@@ -23,7 +24,7 @@ from backend.domain.enums import MissionState
 from backend.domain.mission import MISSION_INTAKE_METADATA_KEY
 from backend.services.execution_coordinator import CoordinationResult
 from backend.services.operating_charter import default_operating_charter
-from backend.services.quota_enforcement import QuotaExceededError
+from backend.services.quota_enforcement import FeatureNotAvailableError, QuotaExceededError
 from backend.services.tools.runtime_authority import ToolRuntimeAuthority
 from backend.services.tools.schemas import CredentialReference, SideEffectClass
 
@@ -102,11 +103,24 @@ def test_ability_runtime_enforcement_imports_and_sets():
     # Internal writes also trigger authority (and thus potential future quota/feature)
     assert "record.write" in INTERNAL_WRITE_ACTIONS
     assert "sales.log_activity" in INTERNAL_WRITE_ACTIONS
+    assert "crm.mutate" in INTERNAL_WRITE_ACTIONS
 
     # Safe reads do not
     assert "sales.research" in READ_SAFE_ACTIONS
     assert "crm.research" in READ_SAFE_ACTIONS
     assert "crm.read" in READ_SAFE_ACTIONS
+    assert "crm.observe" in READ_SAFE_ACTIONS
+    assert "crm.reconcile" in READ_SAFE_ACTIONS
+    assert "crm.verify_effect" in READ_SAFE_ACTIONS
+    assert KERNEL_CRM_ACTIONS == {
+        "crm.observe",
+        "crm.reconcile",
+        "crm.verify_effect",
+        "crm.mutate",
+        "record.search",
+        "record.read",
+        "record.write",
+    }
     assert len(EXTERNAL_ACTIONS) >= 8
 
 
@@ -408,3 +422,78 @@ def test_launch_task_returns_429_when_mission_quota_exceeded() -> None:
     assert exc_info.value.detail["code"] == "QUOTA_EXCEEDED"
     assert exc_info.value.detail["field"] == "missions_per_month"
     quota_svc.check_and_record_task_creation.assert_not_called()
+
+
+def _queue_task_ok(task_id: uuid.UUID) -> MagicMock:
+    coordinator = MagicMock()
+    coordinator.queue_task.return_value = CoordinationResult(ok=True, task_id=task_id, state="queued")
+    return coordinator
+
+
+def test_launch_kernel_crm_observe_skips_gtm_and_ability_runtime_features() -> None:
+    tenant_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    db = MagicMock()
+    queue = MagicMock()
+    request = _authorized_request()
+    body = AbilityTaskCreate(action="crm.observe", input={"record_type": "contact", "limit": 5})
+    quota_svc = MagicMock()
+
+    with (
+        patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.ability_runtime.ExecutionCoordinator", return_value=_queue_task_ok(task_id)),
+        patch("backend.api.routes.ability_runtime._resolve_runtime_authority", return_value=(None, None)),
+    ):
+        launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
+
+    quota_svc.require_feature.assert_not_called()
+    quota_svc.check_tenant_active.assert_called_once_with(tenant_id)
+
+
+def test_launch_kernel_crm_mutate_skips_gtm_and_ability_runtime_features() -> None:
+    tenant_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    db = MagicMock()
+    queue = MagicMock()
+    request = _authorized_request()
+    body = AbilityTaskCreate(
+        action="crm.mutate",
+        input={"desired_state": {"canonical_entity_id": "company:acme"}, "reconciliation_plan": {}},
+        idempotency_key="crm-mutate-free-1",
+    )
+    quota_svc = MagicMock()
+
+    with (
+        patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.ability_runtime.ExecutionCoordinator", return_value=_queue_task_ok(task_id)),
+        patch("backend.api.routes.ability_runtime._resolve_runtime_authority", return_value=(None, None)),
+    ):
+        launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
+
+    quota_svc.require_feature.assert_not_called()
+
+
+def test_launch_gtm_crm_upsert_still_requires_gtm_feature() -> None:
+    tenant_id = uuid.uuid4()
+    db = MagicMock()
+    queue = MagicMock()
+    request = _authorized_request(roles=("guardian",))
+    body = AbilityTaskCreate(
+        action="gtm.crm_upsert",
+        input={"record_type": "contact", "data": {"email": "ops@example.com"}},
+        idempotency_key="gtm-upsert-1",
+    )
+    quota_svc = MagicMock()
+
+    def _require(_tenant_id: uuid.UUID, feature: str) -> None:
+        if feature == "gtm":
+            raise FeatureNotAvailableError(feature="gtm", plan="free")
+
+    quota_svc.require_feature.side_effect = _require
+
+    with patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc):
+        with pytest.raises(HTTPException) as exc_info:
+            launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
+
+    assert exc_info.value.status_code == 402
+    quota_svc.require_feature.assert_any_call(tenant_id, "gtm")

@@ -298,17 +298,18 @@ def test_ordinary_research_keeps_internal_sales_research_without_hubspot() -> No
     assert selected[0].requires_connection is False
 
 
-def test_crm_job_without_hubspot_fails_closed_instead_of_writing_aggregate_record() -> None:
+def test_crm_job_without_hubspot_writes_ajenda_records() -> None:
     intent = interpret_instruction("Find three roofing companies in Austin and add them to contacts")
     jobs = route_jobs_for_intent(intent)
 
     selected, missing = resolve_jobs(jobs, intent=intent)
     crm_selection = next(item for item in selected if item.job_key == "crm.pipeline_maintenance")
 
-    assert crm_selection.action_name == "gtm.crm_upsert"
-    assert crm_selection.readiness == "connection_required"
-    assert crm_selection.selection_status == "rejected"
-    assert any(item["action"] == "gtm.crm_upsert" and item["provider"] == "hubspot" for item in missing)
+    assert crm_selection.action_name == "record.write"
+    assert crm_selection.readiness == "ready"
+    assert crm_selection.selection_status == "selected"
+    assert not any(item["action"] == "gtm.crm_upsert" for item in missing)
+
 
 
 def test_sales_log_activity_composition_input_matches_runtime_schema() -> None:

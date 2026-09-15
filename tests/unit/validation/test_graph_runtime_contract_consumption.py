@@ -53,6 +53,7 @@ def test_real_controls_require_typed_behavioral_consumption() -> None:
     # explicit closure controls rather than deleting the finding class.
     for artifact in ("prospect_candidates", "qualified_prospects"):
         assert f"runtime-binding-gap:crm.pipeline_maintenance:gtm.crm_upsert:{artifact}" not in results
+        assert f"runtime-binding-gap:crm.pipeline_maintenance:record.write:{artifact}" not in results
 
     # sales.research and its crm.research alias share one typed handler. The
     # product now consumes bound prospect_candidates and emits researched_prospects,

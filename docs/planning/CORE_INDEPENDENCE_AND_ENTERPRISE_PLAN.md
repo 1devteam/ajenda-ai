@@ -28,7 +28,7 @@ Determined from the tree, not from product copy:
 - FastAPI `/v1`, PostgreSQL with RLS, Redis queue, WorkerLoop, TaskDispatcher, evidence, outcome reviews, OIDC, tenants, billing routes, frontend SPA.
 - Internal records exist: migration `0033`, `backend/services/light_crm/*`, `/v1/crm`, frontend records UI.
 - Internal CRM composition work has landed: `crm.observe`, `crm.reconcile`, `crm.verify_effect`, `crm.mutate`, `record.write`, reviews routed through local records (#529), negation routing (#530).
-- Composition versions at this SHA: `COMPOSITION_SCHEMA_VERSION = 7`, `JOB_CATALOG_VERSION = "11"`, `INTERPRETER_VERSION = "14"`, `CAPABILITY_RESOLVER_VERSION = "10"`.
+- Composition versions at this SHA: `COMPOSITION_SCHEMA_VERSION = 7`, `JOB_CATALOG_VERSION = "12"`, `INTERPRETER_VERSION = "14"`, `CAPABILITY_RESOLVER_VERSION = "11"` after Slice 1.
 - `StandardCrmClient` already writes internal records when no credential is present, and only then.
 - ADR-0009: missing external credentials fail closed. Production ignores simulation opt-in.
 - ADR-0010 (proposed): verticals are operating domains, not providers. Existing `vertical.*` code is transitional.

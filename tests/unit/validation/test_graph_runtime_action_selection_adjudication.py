@@ -37,6 +37,7 @@ def test_crm_pipeline_closure_is_primary_and_connection_conditioned() -> None:
     results = _results()
     for artifact in ("prospect_candidates", "qualified_prospects"):
         assert f"runtime-binding-gap:crm.pipeline_maintenance:gtm.crm_upsert:{artifact}" not in results
+        assert f"runtime-binding-gap:crm.pipeline_maintenance:record.write:{artifact}" not in results
 
 
 def test_catalog_only_binding_controls_remain_inactive() -> None:
