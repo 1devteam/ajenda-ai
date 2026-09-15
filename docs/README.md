@@ -4,6 +4,8 @@
 
 When docs conflict with code, **code + tests win**. Start with the canonical set below.
 
+**Active correction plan (proposed, not evidence):** [`planning/CORE_INDEPENDENCE_AND_ENTERPRISE_PLAN.md`](planning/CORE_INDEPENDENCE_AND_ENTERPRISE_PLAN.md) — take the kernel off HubSpot / GTM / vertical boot paths, prove Ajenda Records, then enterprise cutover. Implementation PRs cite slice numbers. This index date stays 2026-07-07 until Slice 3 rewrites the architecture map.
+
 ---
 
 ## Canonical (always current)
