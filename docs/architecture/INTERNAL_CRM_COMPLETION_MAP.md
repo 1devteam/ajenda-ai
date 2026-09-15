@@ -1,8 +1,10 @@
 # Internal CRM Completion Map
 
 **Status:** code-aligned implementation map  
-**Updated:** 2026-09-03  
+**Updated:** 2026-09-15  
 **Authority:** implementation, migrations, tests, and runtime proof; this document is not execution evidence
+
+HubSpot is not a completion item. Ajenda Records (`tenant_internal_records`, `/v1/crm`, `record.write`) are the durable store. External CRMs are optional adapters. Remaining named P1 is reviewed duplicate merge.
 
 ## Current system
 
@@ -34,7 +36,7 @@ The durable store and light-CRM service already support tenant-scoped accounts, 
 | P0 | Mission `record.write` persisted raw contacts outside the canonical light-CRM workflow | Earlier runtime proof created contact rows with empty `account_id` and no mission-linked activities | **Resolved:** mission ingestion now uses one idempotent canonical workflow and runtime proof shows 3 contacts, 3 linked accounts, 3 opportunities, 3 deterministic activities, and readback |
 | P1 | Record UI was primarily read-only and exposed raw JSON for detail | `RecordsPage` now has an authorized editor plus note and follow-up controls while retaining the canonical detail projection | **Resolved for the core operator path:** authenticated users can edit name/company, contact email, opportunity stage, owner, and tags, log notes, and create related follow-up tasks through the tenant-scoped CRM upsert route; the API/workflow remains the normalization and tenant-isolation authority. Reviewed duplicate merge remains follow-up work |
 | P1 | Pagination/count semantics were incomplete | API now accepts bounded `offset` plus `limit`, and `total` is computed from the tenant-scoped filtered query rather than page length | **Resolved:** list API and Records UI expose page navigation with true tenant-scoped totals |
-| P1 | Duplicate handling only proposes candidates | Read-only duplicate endpoint | Reviewed merge preserves lineage, relationships, and rollback evidence |
+| P1 | Duplicate handling only proposes candidates | Read-only duplicate endpoint | **Open:** reviewed merge preserves lineage, relationships, and rollback evidence. This is the remaining P1. HubSpot is not this work. |
 | P2 | CRM schema is JSONB-only | One universal table plus schema helpers | Indexed fields and migration strategy are defined from measured query needs, without losing extensibility |
 
 ## Target write path

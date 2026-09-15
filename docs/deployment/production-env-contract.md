@@ -41,6 +41,20 @@ Ajenda AI production deployments must not rely on development defaults.
 | `AJENDA_SIGNUP_REQUIRE_IDEMPOTENCY_KEY` | no | no | Defaults to true in production when unset. |
 | `AJENDA_CORS_ALLOWED_ORIGINS` | yes | no | Comma-separated origins when customer frontend is deployed. |
 
+## Optional HubSpot adapter (not required to boot)
+
+HubSpot variables are optional. An empty adapter host is legal. The kernel boots and serves `/health` and `/v1/crm` with all `AJENDA_HUBSPOT_*` unset.
+
+| Variable | Required | Secret | Purpose |
+|---|---:|---:|---|
+| `AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST` | no | no | TLS hostname of the HubSpot adapter. Empty default. Required only when registering a HubSpot credential. |
+| `AJENDA_HUBSPOT_PLATFORM_MASTER_KEY_ENABLED` | no | no | Must stay false in production examples. |
+| `AJENDA_HUBSPOT_PLATFORM_MASTER_AUTO_PROVISION` | no | no | Must stay false unless an operator explicitly opts in. |
+| `AJENDA_HUBSPOT_PLATFORM_MASTER_KEY` | no | yes | Shared platform master PAK. Do not put a real value in examples. |
+| `AJENDA_VERTICAL_OPS_ENABLED` | no | no | Vertical-ops HTTP pack. Default false. |
+
+Registering a HubSpot credential without a host still fails closed.
+
 ## Stripe and onboarding
 
 Production startup (`Settings.validate_runtime_contract`) rejects:

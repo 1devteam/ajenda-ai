@@ -1,10 +1,12 @@
 # Ajenda AI — Documentation Index
 
-**Last aligned with `main`:** 2026-07-07
+**Last aligned with `main` / `fix/core-independence`:** 2026-09-15
 
 When docs conflict with code, **code + tests win**. Start with the canonical set below.
 
-**Active correction plan (proposed, not evidence):** [`planning/CORE_INDEPENDENCE_AND_ENTERPRISE_PLAN.md`](planning/CORE_INDEPENDENCE_AND_ENTERPRISE_PLAN.md) — take the kernel off HubSpot / GTM / vertical boot paths, prove Ajenda Records, then enterprise cutover. Implementation PRs cite slice numbers. This index date stays 2026-07-07 until Slice 3 rewrites the architecture map.
+**Architecture map (rewritten Slice 3):** [`architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md) — kernel is api/worker/frontend/migrate/db/redis; `/v1/crm` is Ajenda Records; HubSpot, GTM, and vertical are packs.
+
+**Remaining independence slices (proposed, not evidence):** [`planning/CORE_INDEPENDENCE_AND_ENTERPRISE_PLAN.md`](planning/CORE_INDEPENDENCE_AND_ENTERPRISE_PLAN.md) — Slices 0–2 are on `fix/core-independence`. Slice 4 is enterprise cutover. Slice 5 is duplicate merge and later cleanup.
 
 ---
 
@@ -78,5 +80,6 @@ These dated documents are retained for history. They may describe plans or state
 | [`remediation/commercial_phase1.md`](remediation/commercial_phase1.md) | Superseded by implementation |
 | [`remediation/phase1_commercial_complete.md`](remediation/phase1_commercial_complete.md) | Superseded — see SYSTEM_ARCHITECTURE |
 | [`product/PRODUCT_VERTICAL_SLICE_BUILD_CONTRACT.md`](product/PRODUCT_VERTICAL_SLICE_BUILD_CONTRACT.md) | Historical — predates customer frontend, migrations 0032–0033, and CI live proof |
+| [`planning/GRAFT1ST_UNIVERSAL_CRM_CANONICAL_MAP.md`](planning/GRAFT1ST_UNIVERSAL_CRM_CANONICAL_MAP.md) | Superseded — GTM/vertical are not the workers that consume CRM; missions consume Records |
 
 For current commercial/onboarding status, use [`architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md) §3–6 and [`PROJECT_STATE_REPORT.md`](PROJECT_STATE_REPORT.md).

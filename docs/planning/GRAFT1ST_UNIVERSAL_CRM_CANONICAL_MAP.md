@@ -1,9 +1,13 @@
 # G.R.A.F.T.1st — Universal CRM Canonical Map
 
-**Status:** design contract for the Ajenda internal CRM evolution
+**Status:** superseded for “GTM/vertical as the workers that consume CRM.”
 
-**Scope:** A tenant-owned, vertical-neutral system of record that GTM abilities and
-vertical abilities consume through the existing mission graph and governed runtime.
+Missions consume Ajenda Records. GTM and vertical packs may consume Records too. They are not the kernel path.
+
+**Superseded by:** [`CORE_INDEPENDENCE_AND_ENTERPRISE_PLAN.md`](CORE_INDEPENDENCE_AND_ENTERPRISE_PLAN.md) slices 0–2 and [`SYSTEM_ARCHITECTURE.md`](../architecture/SYSTEM_ARCHITECTURE.md).  
+**Retained:** entity field notes below remain design vocabulary, not runtime proof.
+
+**Previous framing (do not implement from this):** a tenant-owned system of record that GTM abilities and vertical abilities consume as the primary workers.
 
 This map does not create a second runtime, planner, queue, policy authority, or
 provider truth store. External CRMs remain optional adapters. Ajenda owns the
@@ -14,22 +18,21 @@ canonical identity, relationship, lifecycle, evidence, and audit model.
 ```mermaid
 flowchart TB
     REQUEST[Business request] --> GRAPH[Mission composition + canonical graph]
-    GRAPH --> GTM[GTM abilities]
-    GRAPH --> VERTICAL[Vertical abilities]
-    GTM --> CRM[Universal Ajenda CRM]
-    VERTICAL --> CRM
-    CRM --> EVIDENCE[Evidence + lineage + audit]
-    CRM --> CONNECTOR[Optional CRM adapters]
-    CONNECTOR --> CRM
-    GRAPH --> RUNTIME[GRAFT admission → task → queue → lease → worker]
-    RUNTIME --> GTM
-    RUNTIME --> VERTICAL
+    GRAPH --> RECORDS[Ajenda Records]
+    GRAPH --> PACKS[Optional GTM / vertical packs]
+    PACKS --> RECORDS
+    RECORDS --> EVIDENCE[Evidence + lineage + audit]
+    RECORDS --> CONNECTOR[Optional CRM adapters]
+    CONNECTOR --> RECORDS
+    GRAPH --> RUNTIME[admission to task to queue to lease to worker]
+    RUNTIME --> RECORDS
 ```
 
-The CRM is the durable canonical business state. GTM and vertical abilities are
-workers that observe or propose changes to that state. A connector may provide
-external observations or execute an explicitly authorized mutation, but cannot
-replace Ajenda identity or lifecycle authority.
+The CRM is the durable canonical business state. Missions observe or mutate
+that state through kernel record actions. GTM and vertical packs may also
+observe or propose changes. A connector may provide external observations or
+execute an explicitly authorized mutation, but cannot replace Ajenda identity
+or lifecycle authority.
 
 ## 2. Universal core entities
 

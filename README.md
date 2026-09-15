@@ -39,14 +39,14 @@ flowchart LR
 | Self-serve onboarding API | Implemented (`/v1/onboarding/*`) — signup, verify, resend, promote |
 | Account self-service API | Implemented (`/v1/account/me`, `/plan`, `/usage`, `/billing`) |
 | Provider credentials API | Implemented (`/v1/account/provider-credentials` + revoke/delete) |
-| Ajenda central brain (standalone) | Implemented — durable `tenant_internal_records`, `web.research`, internal `gtm.crm_upsert` |
+| Ajenda central brain (standalone) | Implemented — durable `tenant_internal_records`, `web.research`, kernel `record.write` / `/v1/crm` |
 | Plugin discovery API | Implemented (`GET /v1/plugins`, action→plugin mapping) |
 | HubSpot CRM adapter (optional plugin) | Implemented (`services/hubspot_crm_adapter`, TLS ingress in Compose/K8s) |
 | Gmail + SMTP email plugins | Implemented — credential-bound `gtm.email_send` / `gtm.email_check`; missing credentials fail closed |
 | Google Calendar / Contacts connectors | Implemented — separate OAuth connect; external actions never silently simulate in production |
 | Credentials / Connections UI | Implemented at `/credentials` and `/connections` (OAuth-first Google cards) |
 | Mission composition engine | Implemented — plain language → structured `MissionIntent` → jobs → proposal; restatement on incomplete input |
-| Governed vertical operations | Implemented — `/v1/vertical-ops/*` template planning and bounded queue admission; Phase C templates remain plan-only |
+| Governed vertical operations | Optional pack — `/v1/vertical-ops/*` when `AJENDA_VERTICAL_OPS_ENABLED`; omitted from kernel API by default |
 | Stripe billing API | Implemented — checkout, portal (`billing:manage`), signed webhook with dedup |
 | Ability runtime API | Implemented — task launch, proofs, feature/quota gates |
 | Customer frontend | Implemented — React Router app (`/signup`, `/signin`, `/missions`, `/connections`, `/dashboard`, `/billing`) |
@@ -64,7 +64,7 @@ Ajenda runs fully without external CRM or email plugins:
 1. **Internal contacts** — `record.search`, `record.read`, `record.write` persist to `tenant_internal_records` when a DB session is available.
 2. **Web research** — `web.research` searches internal records and optionally fetches a public page snippet.
 3. **Sales intelligence** — `sales.qualify`, `sales.score_lead`, `sales.recommend_next_action`, `sales.draft_followup` run locally.
-4. **Internal CRM upsert** — `gtm.crm_upsert` without credentials writes to tenant internal records (`status=upserted_internal`).
+4. **Internal CRM upsert** — kernel `record.write` and `/v1/crm` write tenant internal records. `gtm.crm_upsert` is the adapter overlay and requires the GTM pack.
 5. **Plugin discovery** — `GET /v1/plugins` lists standalone vs optional plugins and standard CRM contract paths.
 
 See [`docs/product/plugin-architecture.md`](docs/product/plugin-architecture.md).
@@ -270,7 +270,7 @@ Current implementation note:
   - `/v1/operations/*`
   - `/v1/system/*`
   - `/v1/observability/*`
-  - `/v1/vertical-ops/*`
+  - `/v1/vertical-ops/*` (optional pack; `AJENDA_VERTICAL_OPS_ENABLED`)
   - `/v1/webhooks/*`
   - `/v1/admin/*`
 
@@ -371,7 +371,7 @@ The executable proof script is:
 
 - `deploy/scripts/live-runtime-proof.sh`
 
-This proof validates a running Compose stack (including HubSpot ingress TLS cert generation when missing), root and versioned health/readiness probes, real queue-backed worker completion, released lease state, task output lineage, worker completion audit evidence, live Prometheus metrics at `/v1/observability/metrics`, Prometheus scrape-target health, Redis lease cleanup, GTM `gtm.lead_enrich`, and the brain capstone slice.
+This proof validates a running Compose kernel (db, redis, migrate, api, worker; HubSpot certs only when `AJENDA_PROOF_START_HUBSPOT_INGRESS=1`), root and versioned health/readiness probes, real queue-backed worker completion, released lease state, task output lineage, worker completion audit evidence, live Prometheus metrics at `/v1/observability/metrics`, Prometheus scrape-target health, Redis lease cleanup, and the brain capstone slice. GTM `gtm.lead_enrich` is a pack path, not the kernel green-bar.
 
 On every push to `main`, `.github/workflows/ci.yml` runs this proof after integration tests and docker build succeed. Operators can also dispatch `.github/workflows/live-runtime-proof.yml` manually.
 

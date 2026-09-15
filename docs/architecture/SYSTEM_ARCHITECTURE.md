@@ -1,10 +1,12 @@
 # Ajenda AI — System Architecture (Code-Aligned)
 
 **Status:** Active  
-**Last verified against the 2026-08-18 V1 Path 3 working tree based on `d8a786c383d79f985663ebc1c0428d819f2d6b4a`:** 2026-08-18
+**Last verified:** 2026-09-15 against `fix/core-independence` after slices 0–2 (`bfb90688`)  
 **Source of truth:** implementation files, migrations, tests — not aspirational product docs.
 
 This document is the canonical visual and narrative map of what exists in the repository today. When docs conflict with code, code wins.
+
+**Kernel inventory (default Compose):** `db`, `redis`, `migrate`, `api`, `worker`, `frontend`. HubSpot adapter/ingress is an optional overlay (`compose --profile hubspot`). GTM is a plan-feature pack. Vertical-ops is a pack (`AJENDA_VERTICAL_OPS_ENABLED`, default off). `/v1/crm` is Ajenda Records.
 
 ---
 
@@ -26,7 +28,7 @@ flowchart TB
 
     subgraph API["FastAPI /v1"]
         Public["Public routes<br/>/onboarding/signup|verify|resend<br/>/billing/webhook/stripe"]
-        Protected["Protected routes<br/>ability-runtime, missions, tasks,<br/>billing/checkout|portal, api-keys, admin, …"]
+        Protected["Protected routes<br/>ability-runtime, missions, tasks,<br/>/v1/crm Records, billing, api-keys, admin"]
     end
 
     subgraph Data["PostgreSQL + RLS"]
@@ -34,6 +36,7 @@ flowchart TB
         Members["tenant_members"]
         Keys["api_key_records"]
         Runtime["missions, execution_tasks, leases, evidence, …"]
+        Records["tenant_internal_records<br/>Ajenda Records"]
         Billing["stripe_webhook_events, stripe_customer_id"]
     end
 
@@ -169,9 +172,10 @@ flowchart TD
     A["POST /v1/ability-runtime/tasks<br/>or /proofs/{proof}"] --> B["require EXECUTION_QUEUE permission"]
     B --> C["QuotaEnforcementService.check_tenant_active"]
     C --> D{"External or side-effect action?"}
-    D -->|yes| E["require_feature ability_runtime<br/>402 if missing"]
+    D -->|kernel CRM / record.write| A1
+    D -->|yes other side-effect| E["require_feature ability_runtime<br/>402 if missing"]
     D -->|no read-safe| F["skip ability_runtime gate"]
-    E --> G{"gtm.* action?"}
+    E --> G{"gtm pack action?"}
     F --> G
     G -->|yes| H["require_feature gtm"]
     G -->|no| A1{"Pre-provisioned capability<br/>and adapter authority?"}
@@ -187,6 +191,8 @@ flowchart TD
     K --> L["TaskDispatcher.run<br/>tool.invoke, evidence, audit"]
     L --> M["GET /v1/ability-runtime/tasks/{id}<br/>status, lineage, evidence"]
 ```
+
+**Kernel CRM** (`crm.observe`, `crm.reconcile`, `crm.verify_effect`, `crm.mutate`, `record.read`, `record.search`, `record.write`) launches without `gtm` or `ability_runtime`. `/v1/crm` has no quota feature gate. `gtm.crm_upsert` remains the HubSpot/GTM overlay and still requires the `gtm` feature. Vertical-ops HTTP is omitted unless `AJENDA_VERTICAL_OPS_ENABLED`.
 
 **Worker tenancy:** `AJENDA_WORKER_TENANT_MODE=multi` (default in staging/prod templates) round-robins active tenants via `tenant_scheduler`. `single` mode polls one `AJENDA_WORKER_TENANT_ID` only.
 
@@ -287,7 +293,7 @@ Onboarding routes use IP-keyed rate limits and body-hash idempotency when `AJEND
 | `/v1/account/*` | tenant | Self-service me, plan, usage, billing status |
 | `/v1/billing/*` | tenant / public webhook | Stripe checkout, portal, webhook |
 | `/v1/ability-runtime/*` | tenant | Product-facing task launcher |
-| `/v1/crm/*` | tenant | Light CRM over `tenant_internal_records` (pipeline, records, suggestions) |
+| `/v1/crm/*` | tenant | Ajenda Records over `tenant_internal_records` (pipeline, records, suggestions) |
 | `/v1/review-queue/*` | tenant | Draft/artifact review approve/reject queue |
 | `/v1/api-keys/*` | tenant | Key lifecycle |
 | `/v1/missions/*`, `/v1/tasks/*` | tenant | Mission/task queue authority plus read-only assembled RevOps deliverable |
@@ -301,6 +307,7 @@ Onboarding routes use IP-keyed rate limits and body-hash idempotency when `AJEND
 | `/v1/observability/*` | tenant / metrics | Lineage, metrics |
 | `/v1/admin/*` | admin | Cross-tenant control plane |
 | `/v1/system/*` | tenant | Status and diagnostics |
+| `/v1/vertical-ops/*` | pack | Optional vertical templates; omitted unless `AJENDA_VERTICAL_OPS_ENABLED` |
 
 Root (unversioned): `/health`, `/readiness`
 
@@ -308,7 +315,7 @@ Root (unversioned): `/health`, `/readiness`
 
 ## 9. Database migrations (Alembic head)
 
-**Head revision:** `0038_knowledge_retrieval`
+**Head revision:** `0045_stripe_revenue_payload`
 
 | Rev | Description |
 |-----|-------------|
@@ -324,12 +331,19 @@ Root (unversioned): `/health`, `/readiness`
 | 0030 | signup_attempt_log + abuse tables |
 | 0031 | backfill mission_plans from legacy mission metadata |
 | 0032 | OIDC login intents + customer auth sessions |
-| 0033 | tenant_internal_records (Ajenda standalone brain mode) |
+| 0033 | tenant_internal_records (Ajenda Records) |
 | 0034 | email_send_idempotency_receipts (SMTP replay protection) |
 | 0035 | mission_composition_proposals (including actor/status history fields) |
 | 0036 | interpretation thread/proposal-kind fields and tenant/actor/thread index |
 | 0037 | tenant-scoped durable Knowledge qualification and artifact ledger tables |
 | 0038 | JSONB GIN index for Knowledge Retrieval candidate discovery |
+| 0039 | tenant_members password_hash for local password login |
+| 0040 | durable onboarding / connector tables |
+| 0041 | restore tenant RLS boundaries |
+| 0042 | HTTP idempotency receipts |
+| 0043 | rebalance pricing-tier capacity |
+| 0044 | restore composition onboarding RLS |
+| 0045 | Stripe revenue payload |
 
 ---
 
@@ -367,13 +381,15 @@ Root (unversioned): `/health`, `/readiness`
 
 | Target | Ships | Does not ship |
 |--------|-------|---------------|
-| `deploy/compose/docker-compose.prod.yml` | api, worker, **frontend**, migrate, db, redis, prometheus, otel, hubspot-crm-ingress (optional plugin TLS) | per-tenant dedicated worker pools |
+| `deploy/compose/docker-compose.prod.yml` | **Default:** api, worker, frontend, migrate, db, redis, prometheus, otel. HubSpot adapter/ingress is Compose profile `hubspot`, not `depends_on` for api/worker. | per-tenant dedicated worker pools |
 | `deploy/k8s/*` | api, worker, **frontend**, ingress (`/v1` → API, `/` → frontend) | — |
 | `infra/` (Terraform/AWS) | VPC, RDS, Redis, ECS patterns | customer frontend module |
 
 ---
 
 ## 13. Remaining product work (production cutover)
+
+HubSpot is not a completion item. Connecting HubSpot is a customer/operator overlay.
 
 1. Production email — Resend + `AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN=false`
 2. Live Stripe keys, price IDs, and webhook endpoint on production API URL
