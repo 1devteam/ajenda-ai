@@ -27,7 +27,6 @@ services:
       # API and worker are separate processes, so the in-memory queue is invalid here.
       AJENDA_QUEUE_ADAPTER: redis
       AJENDA_QUEUE_URL: redis://redis:6379/0
-      AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST: hubspot-crm-ingress
       AJENDA_NETWORK_EGRESS_ALLOW_PRIVATE_DESTINATIONS: "true"
       AJENDA_NETWORK_EGRESS_TLS_VERIFY: "false"
       AJENDA_VECTOR_DB_ENABLED: "true"
@@ -59,13 +58,10 @@ services:
       AJENDA_QUEUE_URL: redis://redis:6379/0
       AJENDA_WORKER_TENANT_MODE: multi
       AJENDA_WORKER_TENANT_REFRESH_SECONDS: "30"
-      AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST: hubspot-crm-ingress
       AJENDA_NETWORK_EGRESS_ALLOW_PRIVATE_DESTINATIONS: "true"
       AJENDA_NETWORK_EGRESS_TLS_VERIFY: "false"
       AJENDA_VECTOR_DB_ENABLED: "true"
     depends_on:
-      hubspot-crm-ingress:
-        condition: service_started
       migrate:
         condition: service_completed_successfully
       db:
@@ -112,6 +108,7 @@ services:
     restart: unless-stopped
 
   hubspot-crm-adapter:
+    profiles: ["hubspot"]
     build:
       context: .
       dockerfile: services/hubspot_crm_adapter/Dockerfile
@@ -123,6 +120,7 @@ services:
     restart: unless-stopped
 
   hubspot-crm-ingress:
+    profiles: ["hubspot"]
     build:
       context: .
       dockerfile: deploy/compose/hubspot-crm-ingress/Dockerfile

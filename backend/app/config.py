@@ -158,9 +158,9 @@ class Settings(BaseSettings):
         alias="AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV",
     )
 
-    # --- HubSpot CRM integration ---
+    # --- HubSpot CRM integration (optional adapter; kernel does not require this) ---
     hubspot_crm_adapter_public_host: str = Field(
-        default="hubspot-crm-ingress",
+        default="",
         alias="AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST",
     )
     hubspot_platform_master_key_enabled: bool = Field(
@@ -172,7 +172,7 @@ class Settings(BaseSettings):
         alias="AJENDA_HUBSPOT_PLATFORM_MASTER_KEY",
     )
     hubspot_platform_master_auto_provision: bool = Field(
-        default=True,
+        default=False,
         alias="AJENDA_HUBSPOT_PLATFORM_MASTER_AUTO_PROVISION",
     )
 
@@ -382,6 +382,10 @@ class Settings(BaseSettings):
     @property
     def hubspot_crm_adapter_base_url(self) -> str:
         host = str(self.hubspot_crm_adapter_public_host).strip().lower().rstrip(".")
+        if not host:
+            raise ValueError(
+                "AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST is empty; HubSpot adapter is not configured"
+            )
         return f"https://{host}"
 
     @property

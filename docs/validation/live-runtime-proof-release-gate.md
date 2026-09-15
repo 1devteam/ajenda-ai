@@ -63,15 +63,17 @@ When future work changes tenant/auth, mission intake/planning, task graph, mater
 
 ## HubSpot ingress TLS prerequisite
 
-The prod-like Compose stack builds `hubspot-crm-ingress`. Host `server.crt` / `server.key` are gitignored and dockerignored; the ingress Dockerfile generates a self-signed pair at image build so nginx can start without local certs.
+The kernel live-runtime proof does **not** start HubSpot. `deploy/scripts/live-runtime-proof.sh` brings up `db redis migrate api worker prometheus otel-collector` only.
 
-Before `compose config` / `compose up --build`, the script runs:
+HubSpot adapter and ingress are Compose profile `hubspot`. The ingress Dockerfile generates a self-signed pair at image build so nginx can start without host certs. Host `server.crt` / `server.key` are gitignored and dockerignored.
+
+Set `AJENDA_PROOF_START_HUBSPOT_INGRESS=1` only when proving the optional adapter overlay. That path runs:
 
 ```text
 deploy/compose/hubspot-crm-ingress/generate-certs.sh
 ```
 
-This generates self-signed TLS material for local/CI proof. Operators running HubSpot ingress locally outside the proof script should run the same generator first.
+Operators running HubSpot ingress locally should use `docker compose --profile hubspot up -d` (or name the two HubSpot services). Do not add HubSpot to api/worker `depends_on`.
 
 ---
 

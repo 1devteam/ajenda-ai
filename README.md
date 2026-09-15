@@ -83,41 +83,38 @@ The governing decision and compatibility notes are in [`ADR-0009`](docs/architec
 
 ### HubSpot CRM integration (optional plugin)
 
-1. **Generate ingress TLS certs (first run / fresh clone)**
+The kernel does not start HubSpot. Adapter and TLS ingress are a Compose profile.
 
-   ```bash
-   bash deploy/compose/hubspot-crm-ingress/generate-certs.sh
-   ```
+```bash
+# Kernel only — no HubSpot
+docker compose up -d db redis migrate api worker frontend
 
-   Certs are gitignored. `deploy/scripts/live-runtime-proof.sh` runs this automatically before compose build in CI.
+# Optional adapter overlay
+docker compose --profile hubspot up -d
+# or: docker compose up -d hubspot-crm-adapter hubspot-crm-ingress
+```
 
-2. **Start stack with adapter + TLS ingress**
-
-   ```bash
-   docker compose up -d hubspot-crm-adapter hubspot-crm-ingress api worker
-   ```
-
-   - Adapter health: `http://127.0.0.1:8088/health`
-   - TLS ingress (worker target): `https://hubspot-crm-ingress:443` (Compose maps `8443:443`)
-
-3. **Register credentials (UI or API)**
+1. **Register credentials (UI or API)** after the adapter is running
 
    - UI: sign in → **Connections** (`/connections` or `/credentials`) → paste HubSpot personal access key
+   - Set `AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST` to the ingress hostname (`hubspot-crm-ingress` in Compose, or your production adapter host)
    - Google connectors (Gmail / Calendar / Contacts) use **separate OAuth buttons** (identity login stays `openid email profile` only)
-   - API: `POST /v1/account/provider-credentials` with `provider=external_crm`, `integration=hubspot`
+   - API: `POST /v1/account/provider-credentials` with `provider=external_crm`, `integration=hubspot` and `trusted_destination_hosts` if the adapter host is not in env
 
-4. **Launch governed CRM actions**
+2. **Launch governed CRM actions** (credential present)
 
    - `crm.research` / `sales.research` → adapter `GET /v1/search`
    - `gtm.crm_upsert` → adapter `POST /v1/upsert`
+   - Without a HubSpot credential, internal records stay on `/v1/crm` and `record.write`
 
-5. **Platform master key mode (operator only)**
+3. **Platform master key mode (operator only)**
 
    - Set `AJENDA_HUBSPOT_PLATFORM_MASTER_KEY_ENABLED=true` and `AJENDA_HUBSPOT_PLATFORM_MASTER_KEY`
+   - Set `AJENDA_HUBSPOT_PLATFORM_MASTER_AUTO_PROVISION=true` only if new tenants should receive the shared key
    - Tenants may register with `use_platform_master_key=true` (UI checkbox)
-   - **Warning:** shared blast radius — prefer per-tenant keys in production
+   - **Warning:** shared blast radius — prefer per-tenant keys in production. Auto-provision defaults to off.
 
-6. **Production hostname**
+4. **Production hostname**
 
    - Set `AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST=crm-adapter.ajenda.example.com`
    - K8s ingress routes `crm-adapter.ajenda.example.com` → `hubspot-crm-adapter` service (TLS required; private egress bypass is forbidden in production)
@@ -417,7 +414,8 @@ cp .env.example .env
 # 2. Install project in editable mode
 pip install -e ".[dev]"
 
-# 3. (Optional) Start infrastructure
+# 3. (Optional) Start kernel infrastructure — Postgres, Redis, API, worker, frontend
+#    HubSpot is not included. Use: docker compose --profile hubspot up -d
 docker compose up -d
 
 # 4. (Optional) Run migrations — use localhost when invoking alembic from the host:

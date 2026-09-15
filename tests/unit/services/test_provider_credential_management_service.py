@@ -336,3 +336,36 @@ def test_revoke_and_list_credentials(session_factory) -> None:
         revoked = service.revoke(tenant_id=tenant_id, credential_id="hubspot-crm", actor_id="user-1")
         session.commit()
         assert revoked.revoked is True
+
+
+def test_register_hubspot_fails_closed_without_adapter_host(session_factory) -> None:
+    tenant_id = str(uuid.uuid4())
+    with session_factory() as session:
+        service = _service(session, hubspot_crm_adapter_public_host="")
+        with pytest.raises(ProviderCredentialManagementError, match="trusted_destination_hosts"):
+            service.register(
+                tenant_id=tenant_id,
+                credential_id="hubspot-crm",
+                provider="external_crm",
+                integration="hubspot",
+                secret_value="tenant-hubspot-pak",
+                actor_id="user-1",
+            )
+
+
+def test_register_hubspot_accepts_explicit_trusted_hosts_when_env_host_empty(session_factory) -> None:
+    tenant_id = str(uuid.uuid4())
+    with session_factory() as session:
+        service = _service(session, hubspot_crm_adapter_public_host="")
+        result = service.register(
+            tenant_id=tenant_id,
+            credential_id="hubspot-crm",
+            provider="external_crm",
+            integration="hubspot",
+            secret_value="tenant-hubspot-pak",
+            trusted_destination_hosts=["crm-adapter.example.com"],
+            actor_id="user-1",
+        )
+        session.commit()
+
+    assert result.summary.trusted_destination_hosts == ["crm-adapter.example.com"]

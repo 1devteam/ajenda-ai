@@ -114,12 +114,17 @@ if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HUBSPOT_CERT_SCRIPT="$SCRIPT_DIR/../compose/hubspot-crm-ingress/generate-certs.sh"
-if [[ ! -f "$HUBSPOT_CERT_SCRIPT" ]]; then
-  fail "HubSpot ingress cert script not found: $HUBSPOT_CERT_SCRIPT"
+
+if [[ "${AJENDA_PROOF_START_HUBSPOT_INGRESS:-0}" == "1" ]]; then
+  HUBSPOT_CERT_SCRIPT="$SCRIPT_DIR/../compose/hubspot-crm-ingress/generate-certs.sh"
+  if [[ ! -f "$HUBSPOT_CERT_SCRIPT" ]]; then
+    fail "HubSpot ingress cert script not found: $HUBSPOT_CERT_SCRIPT"
+  fi
+  log "ensuring HubSpot CRM ingress TLS certs exist for compose profile hubspot"
+  bash "$HUBSPOT_CERT_SCRIPT"
+else
+  log "kernel proof: HubSpot ingress not started (set AJENDA_PROOF_START_HUBSPOT_INGRESS=1 for the optional adapter profile)"
 fi
-log "ensuring HubSpot CRM ingress TLS certs exist for compose build"
-bash "$HUBSPOT_CERT_SCRIPT"
 
 log "validating compose configuration"
 compose config --quiet

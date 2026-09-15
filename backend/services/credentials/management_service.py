@@ -252,10 +252,16 @@ class ProviderCredentialManagementService:
         if provider == "external_crm" and integration == "hubspot":
             actions = tuple(allowed_actions or HUBSPOT_EXTERNAL_CRM_ACTIONS)
             side_effects = tuple(allowed_side_effect_classes or HUBSPOT_EXTERNAL_CRM_SIDE_EFFECTS)
-            hosts = tuple(
-                trusted_destination_hosts
-                or (self._settings.hubspot_crm_adapter_public_host.strip().lower().rstrip("."),)
-            )
+            configured_host = self._settings.hubspot_crm_adapter_public_host.strip().lower().rstrip(".")
+            if trusted_destination_hosts:
+                hosts = tuple(str(host).strip() for host in trusted_destination_hosts if str(host).strip())
+            elif configured_host:
+                hosts = (configured_host,)
+            else:
+                raise ProviderCredentialManagementError(
+                    "HubSpot credentials require trusted_destination_hosts or "
+                    "AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST"
+                )
             return actions, side_effects, hosts
         if provider == "external_read_provider" and integration == "google_calendar":
             actions = tuple(allowed_actions or GOOGLE_CALENDAR_READ_ACTIONS)

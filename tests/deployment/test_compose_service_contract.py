@@ -90,6 +90,12 @@ def test_worker_service_waits_for_queue_database_and_migrations() -> None:
     assert "condition: service_healthy" in worker_block
     assert "redis:" in worker_block
     assert "condition: service_started" in worker_block
+    assert "hubspot" not in worker_block
+
+
+def test_api_service_does_not_depend_on_hubspot() -> None:
+    api_block = _service_block(_read(COMPOSE_FILE), "api")
+    assert "hubspot" not in api_block
 
 
 def test_live_runtime_proof_starts_core_proof_services() -> None:
