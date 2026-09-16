@@ -6,6 +6,7 @@ import {
   compileMission,
   createMissionPlan,
   getMissionDispatchReadiness,
+  getMissionDeliverable,
   getMissionLifecycle,
   getMissionRuntimeReadiness,
   getTaskStatus,
@@ -22,6 +23,7 @@ import type {
   RuntimeDispatchReadinessReadResponse,
   RuntimeReadinessReadResponse,
   RuntimeTaskMaterializationReadResponse,
+  MissionDeliverableResponse,
 } from "../types";
 import {
   buildMissionPlanPayload,
@@ -158,6 +160,7 @@ export default function MissionDispatchPage() {
   const [notice, setNotice] = useState("");
   const [monitoredTaskId, setMonitoredTaskId] = useState("");
   const [taskStatus, setTaskStatus] = useState<AbilityTaskStatusResponse | null>(null);
+  const [deliverable, setDeliverable] = useState<MissionDeliverableResponse | null>(null);
 
   const allowedActions = useMemo(() => intakeAllowedActions(lifecycle?.intake ?? null), [lifecycle?.intake]);
   const successCriteria = useMemo(() => intakeSuccessCriteria(lifecycle?.intake ?? null), [lifecycle?.intake]);
@@ -190,6 +193,21 @@ export default function MissionDispatchPage() {
     }
   }, [session, missionId]);
 
+  const refreshDeliverable = useCallback(async () => {
+    if (!session || !missionId) {
+      return;
+    }
+    try {
+      setDeliverable(await getMissionDeliverable(session, missionId));
+    } catch (err) {
+      // A deliverable is legitimately absent before a composed mission is confirmed.
+      const status = typeof err === "object" && err && "status" in err ? Number((err as { status?: unknown }).status) : 0;
+      if (status !== 404) {
+        setError(err);
+      }
+    }
+  }, [session, missionId]);
+
   useEffect(() => {
     if (!session) {
       return;
@@ -202,6 +220,7 @@ export default function MissionDispatchPage() {
           setLifecycle(lifecycleResponse);
         }
         await refreshReadinessViews();
+        await refreshDeliverable();
       } catch (err) {
         if (!cancelled) {
           setError(err);
@@ -212,7 +231,7 @@ export default function MissionDispatchPage() {
     return () => {
       cancelled = true;
     };
-  }, [session, missionId, refreshReadinessViews]);
+  }, [session, missionId, refreshReadinessViews, refreshDeliverable]);
 
   useEffect(() => {
     if (!session || !monitoredTaskId) {
@@ -225,6 +244,7 @@ export default function MissionDispatchPage() {
         if (!cancelled) {
           setTaskStatus(status);
         }
+        await refreshDeliverable();
       } catch (err) {
         if (!cancelled) {
           setError(err);
@@ -237,7 +257,7 @@ export default function MissionDispatchPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [session, monitoredTaskId]);
+  }, [session, monitoredTaskId, refreshDeliverable]);
 
   async function runStep(label: string, fn: () => Promise<void>) {
     setLoading(label);
@@ -628,6 +648,71 @@ export default function MissionDispatchPage() {
             {taskStatus.action ? ` · ${taskStatus.action}` : ""}
           </p>
           <pre className="code-block">{pretty(taskStatus)}</pre>
+        </section>
+      ) : null}
+
+      {deliverable ? (
+        <section className="panel" aria-label="Mission deliverable">
+          <div className="panel-heading-row">
+            <div>
+              <p className="cc-section-kicker">Durable output</p>
+              <h2>Prospect candidates</h2>
+            </div>
+            <span
+              className={`status-pill status-${
+                deliverable.completion.artifact_complete ? "completed" : "blocked"
+              }`}
+            >
+              {deliverable.completion.artifact_complete ? "artifact complete" : "incomplete"}
+            </span>
+          </div>
+          {deliverable.task_state.all_succeeded && !deliverable.completion.artifact_complete ? (
+            <p className="callout">
+              Tasks succeeded, but the requested artifact is incomplete. Ajenda is not treating this mission as
+              successful.
+            </p>
+          ) : null}
+          {deliverable.prospects.length > 0 ? (
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Company</th>
+                    <th>Website</th>
+                    <th>Summary</th>
+                    <th>Sources</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deliverable.prospects.map((prospect, index) => (
+                    <tr key={prospect.prospect_id ?? `${prospect.company_name ?? "prospect"}-${index}`}>
+                      <td>{prospect.company_name ?? "Unresolved company"}</td>
+                      <td>
+                        {prospect.website ? (
+                          <a href={prospect.website} target="_blank" rel="noreferrer">
+                            {prospect.website}
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td>{prospect.research_summary ?? prospect.product_description ?? "—"}</td>
+                      <td>{prospect.sources.length > 0 ? prospect.sources.join(", ") : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="muted">No prospect candidates were produced.</p>
+          )}
+          {deliverable.completion.assembly_errors.length > 0 ? (
+            <ul className="violation-list">
+              {deliverable.completion.assembly_errors.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          ) : null}
         </section>
       ) : null}
 
