@@ -98,6 +98,27 @@ def test_artifact_payload_validation_accepts_structurally_complete_rows() -> Non
     )
 
 
+def test_artifact_payload_rejects_unverified_public_prospect() -> None:
+    errors = validate_artifact_payload(
+        PROSPECT_CANDIDATES_SCHEMA,
+        [
+            {
+                "website": "https://directory.example/hvac",
+                "product_description": "",
+                "research_summary": "A directory result.",
+                "sources": ["https://directory.example/hvac"],
+                "source": "public_search",
+                "real": False,
+                "identity_status": "unverified",
+            }
+        ],
+    )
+    assert errors == (
+        "item 0 public prospect identity is not verified",
+        "item 0 public prospect identity_status must be verified",
+    )
+
+
 def test_artifact_payload_validation_reports_all_structural_errors() -> None:
     assert validate_artifact_payload(PROSPECT_CANDIDATES_SCHEMA, {"website": "https://acme.example"}) == (
         "typed per-item artifact payload must be a list",
