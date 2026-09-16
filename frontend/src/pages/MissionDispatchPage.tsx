@@ -9,6 +9,7 @@ import {
   getMissionLifecycle,
   getMissionRuntimeReadiness,
   getTaskStatus,
+  launchMission,
   materializeMissionRuntimeTasks,
   provisionBridgeRuntimeAuthority,
 } from "../api/client";
@@ -58,21 +59,23 @@ function crmOutcomeFromTask(task: AbilityTaskStatusResponse | null): {
   return { persisted, verified, opportunities };
 }
 
-/** Prefer confirmed composition instruction over lossy mission.objective restatement. */
-function compositionInstructionFromIntake(intake: Record<string, unknown> | null | undefined): string {
+function compositionReadyFromIntake(intake: Record<string, unknown> | null | undefined): boolean {
   if (!intake || typeof intake !== "object") {
-    return "";
+    return true;
   }
   const context = intake.context;
   if (!context || typeof context !== "object") {
-    return "";
+    return true;
   }
   const composition = (context as { composition?: unknown }).composition;
   if (!composition || typeof composition !== "object") {
-    return "";
+    return true;
   }
-  const instruction = (composition as { instruction?: unknown }).instruction;
-  return typeof instruction === "string" ? instruction.trim() : "";
+  const record = composition as Record<string, unknown>;
+  if (record.ready_to_start === false || record.proposal_status === "gaps_open") {
+    return false;
+  }
+  return true;
 }
 
 function formatCompileFailure(compiled: Record<string, unknown>): string {
@@ -371,64 +374,23 @@ export default function MissionDispatchPage() {
   }
 
   async function handleRunPipeline() {
-    if (!session) {
+    if (!session || !lifecycle || allowedActions.length === 0 || !compositionReadyFromIntake(lifecycle.intake)) {
       return;
     }
     setLoading("Running full pipeline…");
     setError(null);
     setNotice("");
     try {
-      let current = await refreshLifecycle();
-      if (!current) {
-        throw new Error("Could not load mission lifecycle.");
+      const response = await launchMission(session, missionId);
+      if (response.blockers.length > 0) {
+        throw new Error("Mission launch was blocked — review the runtime blockers below.");
       }
-      // Server compile is the only graph authority for dispatch. Always recompile so
-      // kitchen-sink intake graphs are replaced by composition-selected abilities.
-      // Do not pass mission.objective — it is often a lossy restatement; server uses
-      // stored composition.instruction when present.
-      const storedInstruction = compositionInstructionFromIntake(current.intake ?? null);
-      if (!storedInstruction && !current.mission.objective?.trim()) {
-        throw new Error("Mission has no composition instruction or objective to compile.");
-      }
-      const compiled = await compileMission(session, missionId, {
-        persist: true,
-        source: "mission_dispatch_ui",
-      });
-      const compileStatus = String(compiled.compile_status ?? "");
-      if (compileStatus !== "ready") {
-        throw new Error(formatCompileFailure(compiled));
-      }
-      current = (await refreshLifecycle()) ?? current;
-      const compiledActions =
-        (compiled.display as { allowed_actions?: string[] } | undefined)?.allowed_actions ??
-        intakeAllowedActions(current.intake ?? null);
-      if (compiledActions.length === 0) {
-        throw new Error("Server compile returned no abilities.");
-      }
-      // Plan + graph + materialization + admission are server-owned after compile.
-      if (!current.completeness.has_runtime_admission) {
-        await admitMissionToRuntime(session, missionId, {
-          admission_status: "admitted",
-          auto_provision_authority: true,
-        });
-        current = (await refreshLifecycle()) ?? current;
-      }
-
-      const readinessResponse = await getMissionRuntimeReadiness(session, missionId);
-      setReadiness(readinessResponse);
-      if (!readinessResponse.ready) {
-        throw new Error("Runtime readiness blocked — review blockers below before materializing tasks.");
-      }
-
-      const materialized = await materializeMissionRuntimeTasks(session, missionId);
-      setTaskMaterialization(materialized);
-      if (materialized.created_execution_task_ids.length > 0) {
-        setMonitoredTaskId(materialized.created_execution_task_ids[0]);
-      }
-      await admitMissionRuntimeQueue(session, missionId);
+      setMonitoredTaskId(response.queued_task_ids[0] ?? "");
       await refreshLifecycle();
       await refreshReadinessViews();
-      setNotice("Mission is live — tasks materialized and queued for workers.");
+      setNotice(
+        `Mission launched — ${response.queued_task_ids.length} task(s) queued for workers.`,
+      );
     } catch (err) {
       setError(err);
       await refreshLifecycle();
