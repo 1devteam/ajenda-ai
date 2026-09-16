@@ -413,6 +413,35 @@ export interface MissionLaunchResponse {
   idempotency_key?: string | null;
 }
 
+export interface MissionDeliverableResponse {
+  schema_version: number;
+  kind: string;
+  mission_id: string;
+  objective: string;
+  prospects: Array<{
+    prospect_id?: string | null;
+    company_name?: string | null;
+    website?: string | null;
+    product_description?: string | null;
+    research_summary?: string | null;
+    sources: string[];
+  }>;
+  limitations: string[];
+  task_state: {
+    task_count: number;
+    statuses: Record<string, number>;
+    all_terminal: boolean;
+    all_succeeded: boolean;
+  };
+  completion: {
+    artifact_complete: boolean;
+    complete: boolean;
+    missing_fields: string[];
+    invalid_fields: string[];
+    assembly_errors: string[];
+  };
+}
+
 export interface MissionIntakeQualityViolation {
   field: string;
   code: string;

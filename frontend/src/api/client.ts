@@ -37,6 +37,7 @@ import type {
   MissionComposeResponse,
   MissionCreateRequest,
   MissionLifecycleReadResponse,
+  MissionDeliverableResponse,
   MissionLaunchResponse,
   MissionListResponse,
   MissionPlanCreateRequest,
@@ -808,6 +809,19 @@ export async function getMission(caller: AuthedCaller, missionId: string): Promi
   return withAuthedRuntime(caller, (config) =>
     request<MissionReadResponse>(
       `/v1/missions/${encodeURIComponent(missionId)}`,
+      {},
+      runtimeOptions(config),
+    ),
+  );
+}
+
+export async function getMissionDeliverable(
+  caller: AuthedCaller,
+  missionId: string,
+): Promise<MissionDeliverableResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<MissionDeliverableResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/deliverable`,
       {},
       runtimeOptions(config),
     ),
