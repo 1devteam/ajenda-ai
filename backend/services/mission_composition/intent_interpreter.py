@@ -85,6 +85,7 @@ _QUALIFY_PATTERNS = (
     r"strong prospects",
     r"identify .* prospects",
     r"best (?:leads|prospects)",
+    r"\bbest\b[^.!?]{0,40}\b(?:companies|businesses|services|options)\b",
     # Score/rank/rate only when aimed at prospects/leads/competitors (not reports/rates).
     r"\bscore(?:s|d|ing)?\s+(?:them|these|those|it|the\s+(?:prospects?|leads?|competitors?))\b",
     r"\brank(?:s|ed|ing)?\s+(?:them|these|those|the\s+(?:strongest|best|prospects?|leads?|competitors?))\b",

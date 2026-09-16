@@ -32,7 +32,7 @@ def test_web_research_runs_without_external_plugins() -> None:
     assert result.output["domain"] is None
 
 
-def test_public_search_candidates_are_unverified_until_identity_is_proven(monkeypatch) -> None:
+def test_public_search_directory_hits_do_not_become_prospect_candidates(monkeypatch) -> None:
     from backend.services.tools import standalone_actions
 
     monkeypatch.setattr(
@@ -60,15 +60,9 @@ def test_public_search_candidates_are_unverified_until_identity_is_proven(monkey
         _context(),
     )
 
-    candidate = result.output["prospect_candidates"][0]
-    assert candidate["identity_status"] == "unverified"
-    assert candidate["real"] is False
-    assert candidate["search_hit_real"] is True
-    assert candidate["identity_evidence_urls"] == ["https://directory.example/hvac"]
-    assert candidate["website"] == "https://directory.example/hvac"
-    assert candidate["product_description"] == ""
-    assert candidate["research_summary"] == "A directory result."
-    assert candidate["sources"] == ["https://directory.example/hvac"]
+    assert result.output["prospect_candidates"] == []
+    assert result.output["rejected_public_candidates"] == 1
+    assert result.output["research_gap"] == "public search returned no verified individual company identities"
 
 
 def test_web_research_matches_market_tokens_on_tenant_accounts(monkeypatch) -> None:

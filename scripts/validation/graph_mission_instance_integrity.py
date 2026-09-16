@@ -33,6 +33,22 @@ def _task_nodes(context: dict[str, Any]) -> list[dict[str, Any]]:
     return [node for node in nodes or [] if isinstance(node, dict)]
 
 
+def _research_outputs(task_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    outputs: list[dict[str, Any]] = []
+    for task in task_results:
+        candidates = [task.get("output")]
+        handler = task.get("handler_result")
+        if isinstance(handler, dict):
+            candidates.append(handler.get("output"))
+        metadata = task.get("metadata_json")
+        if isinstance(metadata, dict):
+            metadata_handler = metadata.get("handler_result")
+            if isinstance(metadata_handler, dict):
+                candidates.append(metadata_handler.get("output"))
+        outputs.extend(item for item in candidates if isinstance(item, dict))
+    return outputs
+
+
 def evaluate_mission_instance(context: dict[str, Any]) -> dict[str, Any]:
     """Return deterministic, non-executing findings for one mission snapshot."""
 
@@ -42,6 +58,31 @@ def evaluate_mission_instance(context: dict[str, Any]) -> dict[str, Any]:
     nodes = _task_nodes(context)
     task_results = [item for item in context.get("task_results") or [] if isinstance(item, dict)]
     findings: list[dict[str, Any]] = []
+
+    for output in _research_outputs(task_results):
+        candidates = output.get("prospect_candidates")
+        public_rows = [
+            row for row in candidates or [] if isinstance(row, dict) and row.get("source") == "public_search"
+        ]
+        unverified_rows = [
+            row for row in public_rows if row.get("real") is not True or row.get("identity_status") != "verified"
+        ]
+        if unverified_rows:
+            findings.append(
+                _finding(
+                    "research.public_identity_unverified",
+                    "Public search rows reached the compiled mission result without verified company identity.",
+                    evidence={"row_count": len(unverified_rows)},
+                )
+            )
+        elif output.get("include_public_search") and output.get("web_result_count", 0) and not public_rows:
+            findings.append(
+                _finding(
+                    "research.public_identity_unresolved",
+                    "Public search returned results but produced no verified compiled prospect candidates.",
+                    evidence={"web_result_count": output.get("web_result_count")},
+                )
+            )
 
     quoted_lines = [line for line in instruction.splitlines() if line.lstrip().startswith(">")]
     if quoted_lines:

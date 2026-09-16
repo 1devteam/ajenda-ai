@@ -273,6 +273,23 @@ def _prospect_from_web_result(item: dict[str, Any], *, index: int) -> dict[str, 
     }
 
 
+def _public_candidate_is_verified(prospect: dict[str, Any]) -> bool:
+    """Only promote a public result after identity has been established.
+
+    Search-provider success proves that a URL was returned. It does not prove
+    that the URL is an individual company website, so directory/list pages must
+    remain research evidence rather than prospect artifacts.
+    """
+
+    return (
+        prospect.get("source") == "public_search"
+        and prospect.get("real") is True
+        and prospect.get("identity_status") == "verified"
+        and bool(str(prospect.get("company") or "").strip())
+        and bool(str(prospect.get("website") or "").strip())
+    )
+
+
 def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebResearchInput.model_validate(invocation.input)
     store = resolve_record_store(context)
@@ -429,8 +446,12 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         if len(prospect_candidates) >= payload.limit:
             break
     if len(prospect_candidates) < payload.limit:
+        rejected_public_candidates = 0
         for index, item in enumerate(web_results):
             prospect = _prospect_from_web_result(item, index=index)
+            if not _public_candidate_is_verified(prospect):
+                rejected_public_candidates += 1
+                continue
             key = prospect["company"].lower()
             if key in seen_companies:
                 continue
@@ -438,6 +459,8 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             prospect_candidates.append(prospect)
             if len(prospect_candidates) >= payload.limit:
                 break
+    else:
+        rejected_public_candidates = 0
 
     business_context = resolve_business_context(context)
     output = {
@@ -455,6 +478,12 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "crm_brain_matches": crm_search.results[: payload.limit],
         "web_results": web_results[: payload.limit],
         "web_result_count": len(web_results),
+        "rejected_public_candidates": rejected_public_candidates,
+        "research_gap": (
+            "public search returned no verified individual company identities"
+            if payload.include_public_search and not prospect_candidates and web_results
+            else None
+        ),
         "web_snippet": web_snippet,
         "include_public_search": payload.include_public_search,
         "local_fixture_only": payload.local_fixture_only,

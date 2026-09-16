@@ -136,6 +136,23 @@ def _path_field(json_path: str) -> str | None:
     return field or None
 
 
+def _public_prospect_errors(item: dict[str, Any], index: int) -> list[str]:
+    """Enforce identity quality for rows sourced from public search.
+
+    A provider returning a directory page is useful evidence, but it is not a
+    company identity and must never count as a completed prospect artifact.
+    """
+
+    if item.get("source") != "public_search":
+        return []
+    errors: list[str] = []
+    if item.get("real") is not True:
+        errors.append(f"item {index} public prospect identity is not verified")
+    if item.get("identity_status") != "verified":
+        errors.append(f"item {index} public prospect identity_status must be verified")
+    return errors
+
+
 def validate_artifact_payload(schema: CompositionArtifactSchema, payload: Any) -> tuple[str, ...]:
     """Validate one emitted artifact payload against its declared structural schema."""
 
@@ -150,6 +167,7 @@ def validate_artifact_payload(schema: CompositionArtifactSchema, payload: Any) -
             if not isinstance(item, dict):
                 errors.append(f"item {index} must be an object")
                 continue
+            errors.extend(_public_prospect_errors(item, index))
             for field in per_item_fields:
                 path_field = _path_field(field.json_path)
                 if path_field is None:

@@ -226,6 +226,21 @@ def route_jobs_for_intent(intent: MissionIntent) -> list[BusinessJob]:
                 selected.append(job)
                 selected_keys.add(job.job_key)
 
+    # Public discovery is only a source-observation stage. Always carry it
+    # through the existing identity verifier when the mission is not explicitly
+    # scoped to an internal CRM source. Qualification remains opt-in ("best",
+    # "rank", "qualify", etc.), but raw public hits must not be the terminal
+    # research path.
+    if (
+        "research_prospects" in outcomes
+        and not ({"internal_crm_source", "hubspot_source"} & set(intent.context_requirements))
+        and "research.observe_sources" not in selected_keys
+    ):
+        observe_job = BUSINESS_JOBS_BY_KEY.get("research.observe_sources")
+        if observe_job is not None:
+            selected.append(observe_job)
+            selected_keys.add(observe_job.job_key)
+
     expanded = list(selected)
     pending = list(selected)
     while pending:
