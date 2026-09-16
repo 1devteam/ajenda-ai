@@ -130,6 +130,7 @@ OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
     ),
     (r"\bstrong(?:est)? prospects?\b", "qualify_prospects"),
     (r"\bbest (?:leads?|prospects?)\b", "qualify_prospects"),
+    (r"\bbest\b[^.!?]{0,40}\b(?:companies|businesses|services|options)\b", "qualify_prospects"),
     (r"\btop (?:leads?|prospects?)\b", "qualify_prospects"),
     (r"\btop (?:three|five)\b", "qualify_prospects"),
     (r"\bpick the (?:strongest|best)\b", "qualify_prospects"),

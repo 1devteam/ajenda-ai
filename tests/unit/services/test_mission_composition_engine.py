@@ -340,6 +340,15 @@ def test_route_jobs_excludes_send_when_forbidden() -> None:
     assert "email.deliver_outreach" not in keys
 
 
+def test_public_discovery_always_routes_through_identity_observation() -> None:
+    intent = interpret_instruction("Find 10 HVAC companies in Dallas")
+    keys = {job.job_key for job in route_jobs_for_intent(intent)}
+
+    assert "research.discover_prospects" in keys
+    assert "research.observe_sources" in keys
+    assert "sales.qualify_prospects" not in keys
+
+
 def test_capability_resolver_selects_draft_not_send() -> None:
     intent = interpret_instruction(ROOFING_INSTRUCTION)
     jobs = route_jobs_for_intent(intent)
