@@ -71,6 +71,49 @@ def test_public_search_candidates_are_unverified_until_identity_is_proven(monkey
     assert candidate["sources"] == ["https://directory.example/hvac"]
 
 
+def test_web_research_matches_market_tokens_on_tenant_accounts(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    class _Store:
+        def search_records(self, **kwargs):  # type: ignore[no-untyped-def]
+            query = str(kwargs.get("query") or "")
+            if kwargs.get("record_type") != "account":
+                return []
+            if query == "HVAC companies in Dallas":
+                return []
+            if query == "HVAC":
+                return [
+                    {
+                        "id": "acct-dallas-hvac-1",
+                        "name": "Dallas Comfort HVAC",
+                        "industry": "HVAC",
+                        "location": "Dallas",
+                        "website": "https://dallascomfort.example",
+                        "product_description": "Residential HVAC service in Dallas.",
+                        "research_summary": "Dallas Comfort HVAC serves HVAC companies in Dallas.",
+                        "sources": ["https://dallascomfort.example"],
+                    }
+                ]
+            return []
+
+    monkeypatch.setattr(standalone_actions, "resolve_record_store", lambda _ctx: _Store())
+    monkeypatch.setattr(
+        standalone_actions,
+        "_fetch_duckduckgo_instant_answer",
+        lambda **_kwargs: {"results": [], "real": False, "error": None},
+    )
+
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="web.research",
+            input={"query": "HVAC companies in Dallas", "include_public_search": True, "limit": 10},
+        ),
+        _context(),
+    )
+    assert result.output["prospect_count"] == 1
+    assert result.output["prospect_candidates"][0]["company"] == "Dallas Comfort HVAC"
+
+
 def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> None:
     """Open research about a third party must not report tenant profile as company/domain."""
     from backend.services.business_context_resolver import BusinessContext

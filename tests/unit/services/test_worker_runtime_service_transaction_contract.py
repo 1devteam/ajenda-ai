@@ -277,6 +277,31 @@ def test_complete_rejects_output_that_does_not_emit_declared_artifact() -> None:
     queue.complete_task.assert_not_called()
 
 
+def test_complete_rejects_empty_declared_prospect_candidates() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    task.metadata_json["expected_output_contract"] = {"artifact": "prospect_candidates"}
+
+    with pytest.raises(
+        ValueError,
+        match="typed per-item artifact payload must contain at least one item",
+    ):
+        service.complete(
+            tenant_id=tenant_id,
+            lease_id=lease.id,
+            worker_id=worker_id,
+            task_output={
+                "handler": "tool.invoke",
+                "status": "completed",
+                "output": {"prospect_candidates": []},
+            },
+        )
+
+    assert task.status == ExecutionTaskState.RUNNING.value
+    queue.complete_task.assert_not_called()
+
+
 def test_complete_rejects_typed_declared_artifact_with_invalid_schema() -> None:
     service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
         status=ExecutionTaskState.RUNNING.value

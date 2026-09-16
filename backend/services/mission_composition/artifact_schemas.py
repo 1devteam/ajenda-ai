@@ -144,6 +144,8 @@ def validate_artifact_payload(schema: CompositionArtifactSchema, payload: Any) -
     if per_item_fields:
         if not isinstance(payload, list):
             return ("typed per-item artifact payload must be a list",)
+        if not payload:
+            return ("typed per-item artifact payload must contain at least one item",)
         for index, item in enumerate(payload):
             if not isinstance(item, dict):
                 errors.append(f"item {index} must be an object")
