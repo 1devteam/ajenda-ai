@@ -92,6 +92,43 @@ def _fetch_duckduckgo_instant_answer(*, query: str, limit: int, timeout_seconds:
     return search_bundle_as_legacy_dict(public_search(query=query, limit=limit, timeout_seconds=timeout_seconds))
 
 
+_MARKET_STOPWORDS = frozenset(
+    {
+        "companies",
+        "company",
+        "businesses",
+        "business",
+        "prospects",
+        "leads",
+        "find",
+        "research",
+        "in",
+        "the",
+        "a",
+        "an",
+        "of",
+        "for",
+        "and",
+        "or",
+        "to",
+    }
+)
+
+
+def _market_search_terms(query: str) -> tuple[str, ...]:
+    """Industry/location tokens from a research query. Never the placeholder word 'companies'."""
+
+    import re
+
+    tokens = re.findall(r"[A-Za-z][A-Za-z0-9&-]{1,}", query or "")
+    return tuple(dict.fromkeys(token for token in tokens if token.casefold() not in _MARKET_STOPWORDS))
+
+
+def _record_matches_market_terms(record: dict[str, Any], terms: tuple[str, ...]) -> bool:
+    blob = " ".join(str(value).casefold() for value in record.values())
+    return all(term.casefold() in blob for term in terms)
+
+
 def _guess_domain_from_query(query: str, *, company: str | None = None) -> str | None:
     """Return an explicit host already present in the query, if any.
 
@@ -276,6 +313,28 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                 limit=payload.limit,
             )
         )
+    market_terms = _market_search_terms(payload.query)
+    if market_terms and len(internal_matches) < payload.limit:
+        scoped = store.search_records(
+            tenant_id=context.tenant_id,
+            record_type="account",
+            query=market_terms[0],
+            limit=max(payload.limit, 20),
+        )
+        seen_ids = {str(item.get("id") or "") for item in internal_matches if isinstance(item, dict) and item.get("id")}
+        for record in scoped:
+            if not isinstance(record, dict):
+                continue
+            record_id = str(record.get("id") or "")
+            if record_id and record_id in seen_ids:
+                continue
+            if not _record_matches_market_terms(record, market_terms):
+                continue
+            internal_matches.append(record)
+            if record_id:
+                seen_ids.add(record_id)
+            if len(internal_matches) >= payload.limit:
+                break
 
     web_snippet: dict[str, Any] | None = None
     page_domain = search_domain

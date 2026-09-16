@@ -75,8 +75,13 @@ def test_artifact_schema_catalog_matches_job_outputs() -> None:
     )
 
 
-def test_artifact_payload_validation_accepts_empty_and_structurally_complete_rows() -> None:
-    assert validate_artifact_payload(PROSPECT_CANDIDATES_SCHEMA, []) == ()
+def test_artifact_payload_validation_rejects_empty_per_item_lists() -> None:
+    assert validate_artifact_payload(PROSPECT_CANDIDATES_SCHEMA, []) == (
+        "typed per-item artifact payload must contain at least one item",
+    )
+
+
+def test_artifact_payload_validation_accepts_structurally_complete_rows() -> None:
     assert (
         validate_artifact_payload(
             PROSPECT_CANDIDATES_SCHEMA,
