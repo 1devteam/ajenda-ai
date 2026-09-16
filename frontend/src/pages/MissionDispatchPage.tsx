@@ -80,6 +80,50 @@ function compositionReadyFromIntake(intake: Record<string, unknown> | null | und
   return true;
 }
 
+function deliverableFromTaskStatus(task: AbilityTaskStatusResponse): MissionDeliverableResponse | null {
+  const metadata = task.metadata_json ?? {};
+  const handler = metadata.handler_result;
+  const envelope = handler && typeof handler === "object" ? (handler as Record<string, unknown>) : metadata;
+  const output = envelope.output;
+  if (!output || typeof output !== "object") {
+    return null;
+  }
+  const payload = output as Record<string, unknown>;
+  const rawRows = payload.prospect_candidates;
+  if (!Array.isArray(rawRows)) {
+    return null;
+  }
+  const prospects = rawRows.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object")).map((row) => ({
+    prospect_id: typeof row.prospect_id === "string" ? row.prospect_id : null,
+    company_name: typeof row.company === "string" ? row.company : null,
+    website: typeof row.website === "string" ? row.website : null,
+    product_description: typeof row.product_description === "string" ? row.product_description : null,
+    research_summary: typeof row.research_summary === "string" ? row.research_summary : null,
+    sources: Array.isArray(row.sources) ? row.sources.filter((source): source is string => typeof source === "string") : [],
+  }));
+  return {
+    schema_version: 1,
+    kind: "task_output_fallback",
+    mission_id: task.mission_id ?? "",
+    objective: task.description ?? "",
+    prospects,
+    limitations: ["Rendered from persisted task output because the assembled deliverable read model is unavailable."],
+    task_state: {
+      task_count: 1,
+      statuses: { [task.status]: 1 },
+      all_terminal: ["completed", "failed", "blocked", "cancelled"].includes(task.status),
+      all_succeeded: task.status === "completed",
+    },
+    completion: {
+      artifact_complete: prospects.length > 0,
+      complete: prospects.length > 0 && task.status === "completed",
+      missing_fields: [],
+      invalid_fields: [],
+      assembly_errors: [],
+    },
+  };
+}
+
 function formatCompileFailure(compiled: Record<string, unknown>): string {
   const status = String(compiled.compile_status ?? "unknown");
   const blockers = Array.isArray(compiled.blockers) ? compiled.blockers : [];
@@ -193,16 +237,18 @@ export default function MissionDispatchPage() {
     }
   }, [session, missionId]);
 
-  const refreshDeliverable = useCallback(async () => {
+  const refreshDeliverable = useCallback(async (taskOverride?: AbilityTaskStatusResponse | null) => {
     if (!session || !missionId) {
       return;
     }
     try {
       setDeliverable(await getMissionDeliverable(session, missionId));
     } catch (err) {
-      // A deliverable is legitimately absent before a composed mission is confirmed.
       const status = typeof err === "object" && err && "status" in err ? Number((err as { status?: unknown }).status) : 0;
-      if (status !== 404) {
+      const fallback = taskOverride ? deliverableFromTaskStatus(taskOverride) : null;
+      if (status === 404 && fallback) {
+        setDeliverable(fallback);
+      } else if (status !== 404) {
         setError(err);
       }
     }
@@ -244,7 +290,7 @@ export default function MissionDispatchPage() {
         if (!cancelled) {
           setTaskStatus(status);
         }
-        await refreshDeliverable();
+        await refreshDeliverable(status);
       } catch (err) {
         if (!cancelled) {
           setError(err);
