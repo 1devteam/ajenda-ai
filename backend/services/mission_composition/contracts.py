@@ -23,6 +23,7 @@ CAPABILITY_RESOLVER_VERSION = "10"
 ProposalStatus = Literal[
     "interpretation_failed",
     "interpretation_ready",
+    "gaps_open",
     "composition_blocked",
     "connection_required",
     "charter_blocked",
@@ -596,19 +597,39 @@ class PlannedStepPreview(BaseModel):
     input_bindings: list[dict[str, str]] = Field(default_factory=list, max_length=20)
     tool_input: dict[str, Any] = Field(default_factory=dict)
     credential_reference: dict[str, Any] | None = None
+    compile_gap: str | None = Field(default=None, max_length=500)
 
 
-class IntelligenceEnvelope(BaseModel):
-    """Additive handoff contract spanning composition and runtime preview.
+CompositionLayer = Literal["interpreter", "algorithm", "planner"]
 
-    This is a provenance/read-model projection. It grants no execution
-    authority and intentionally does not replace MissionIntent or graph
-    materialization contracts.
+
+class LayerGap(BaseModel):
+    """One missing or invalid fact from a composition layer.
+
+    Gaps are diagnostic only. They do not grant execution authority or invent work.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: int = Field(default=1, ge=1, le=1)
+    layer: CompositionLayer
+    code: str = Field(min_length=1, max_length=80)
+    field: str = Field(min_length=1, max_length=120)
+    message: str = Field(min_length=1, max_length=1000)
+    blocking: bool = True
+
+
+class IntelligenceEnvelope(BaseModel):
+    """Shared work-naming contract for interpreter, algorithm, and planner.
+
+    This is a provenance/read-model projection. It grants no execution
+    authority and intentionally does not replace MissionIntent or graph
+    materialization contracts. Layer gaps are collected together so a
+    request does not die at the first broken layer.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = Field(default=2, ge=1, le=2)
     tenant_id: str = Field(min_length=1, max_length=160)
     instruction_sha256: str = Field(min_length=64, max_length=64)
     normalized_instruction_sha256: str = Field(min_length=64, max_length=64)
@@ -618,9 +639,13 @@ class IntelligenceEnvelope(BaseModel):
     context_requirements: tuple[str, ...] = Field(default=(), max_length=20)
     forbidden_actions: tuple[str, ...] = Field(default=(), max_length=40)
     expected_outputs: tuple[str, ...] = Field(default=(), max_length=60)
+    named_job_keys: tuple[str, ...] = Field(default=(), max_length=40)
     planned_step_keys: tuple[str, ...] = Field(default=(), max_length=40)
     input_bindings: tuple[dict[str, str], ...] = Field(default=(), max_length=80)
     interpretation_evidence: tuple[dict[str, Any], ...] = Field(default=(), max_length=50)
+    unresolved_fields: tuple[str, ...] = Field(default=(), max_length=40)
+    assumptions: tuple[str, ...] = Field(default=(), max_length=30)
+    layer_gaps: tuple[LayerGap, ...] = Field(default=(), max_length=80)
     authority_class: Literal["declarative", "read_model"] = "read_model"
 
 

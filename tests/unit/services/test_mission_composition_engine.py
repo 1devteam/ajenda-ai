@@ -15,7 +15,6 @@ from backend.services.mission_composition.plan_compiler import (
 )
 from backend.services.mission_composition.proposal_store import clear_proposals_for_tests
 from backend.services.mission_composition.service import (
-    MissionCompositionError,
     MissionCompositionService,
     _profile_context,
 )
@@ -144,9 +143,12 @@ def test_composition_projects_replayable_intelligence_envelope_without_authority
     assert envelope.tenant_id == "tenant-v2"
     assert envelope.requested_outcomes == tuple(record.intent.requested_outcomes)
     assert envelope.material_clause_ids
+    assert envelope.named_job_keys
     assert envelope.planned_step_keys == tuple(step.step_key for step in record.planned_steps)
     assert envelope.authority_class == "read_model"
+    assert not any(gap.blocking for gap in envelope.layer_gaps)
     assert record.composition_provenance.grants_execution_authority is False
+    assert record.ready_to_start is True
 
 
 def test_negated_crm_records_are_not_misread_as_hubspot_read() -> None:
@@ -231,19 +233,24 @@ def test_revops_composition_is_pinned_to_selected_know_how_version() -> None:
     assert record.composition_provenance.know_how_version == "1.0.0"
 
 
-def test_unrepresentable_action_scope_returns_planning_error_not_server_failure(
+def test_unrepresentable_action_scope_returns_named_work_with_planner_gap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def reject_scope(*_args: object, **_kwargs: object) -> list[object]:
         raise ValueError("CRM filter cannot be represented by company search")
 
     monkeypatch.setattr("backend.services.mission_composition.service.compile_planned_steps", reject_scope)
-    with pytest.raises(MissionCompositionError, match="cannot be represented") as exc_info:
-        MissionCompositionService(db=None).compose(
-            tenant_id="11111111-1111-1111-1111-111111111111",
-            instruction="Read HubSpot company records for roofing prospects.",
-        )
-    assert exc_info.value.code == "INTAKE_QUALITY"
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        instruction="Read HubSpot company records for roofing prospects.",
+    )
+    assert record.ready_to_start is False
+    envelope = record.intelligence_envelope
+    assert envelope is not None
+    planner_gaps = [gap for gap in envelope.layer_gaps if gap.layer == "planner" and gap.blocking]
+    assert planner_gaps
+    assert any("cannot be represented" in gap.message for gap in planner_gaps)
+    assert envelope.named_job_keys or record.ability_selections
 
 
 def test_valid_injected_structured_planner_is_persisted_as_non_authoritative_proposal() -> None:
@@ -430,6 +437,47 @@ def test_known_job_completion_contract_skips_success_criteria_restatement() -> N
     assert all(c.measurable for c in intent.success_criteria)
 
 
+def test_find_companies_names_research_and_holds_target_scope_without_fake_query() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        instruction="Find companies",
+    )
+    envelope = record.intelligence_envelope
+    assert envelope is not None
+    assert "research.discover_prospects" in envelope.named_job_keys
+    assert record.proposal_status != "interpretation_failed"
+    assert record.proposal_status == "gaps_open"
+    assert record.ready_to_start is False
+    layers = {gap.layer for gap in envelope.layer_gaps if gap.blocking}
+    assert "interpreter" in layers
+    assert "algorithm" in layers or "planner" in layers
+    assert any(gap.field == "target_scope" and gap.layer == "interpreter" for gap in envelope.layer_gaps)
+    assert any(
+        gap.blocking and gap.layer in {"algorithm", "planner"} and gap.field in {"target_scope", "planned_steps"}
+        for gap in envelope.layer_gaps
+    )
+    assert "web.research" not in record.allowed_actions
+    for step in record.planned_steps:
+        assert step.tool_input.get("query") != "companies"
+        assert step.compile_gap or step.action_name != "web.research"
+
+
+def test_github_read_without_owner_repo_reports_algorithm_gap_not_placeholder() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        instruction="Read my GitHub repository.",
+    )
+    assert record.ready_to_start is False
+    envelope = record.intelligence_envelope
+    assert envelope is not None
+    assert any(gap.field == "github_owner_repo" or gap.code == "unbound_required_input" for gap in envelope.layer_gaps)
+    for step in record.planned_steps:
+        if step.action_name == "github.repo_read":
+            assert step.tool_input.get("owner") != "pending"
+            assert step.tool_input.get("repo") != "pending"
+            assert step.compile_gap
+
+
 def test_fragment_answer_does_not_become_executable_mission() -> None:
     intent = interpret_instruction("Complete when the email is sent.")
     assert intent.requested_outcomes == []
@@ -457,6 +505,10 @@ def test_fragment_answer_does_not_become_executable_mission() -> None:
     again_text = " ".join(c.question for c in again.clarifications).lower()
     assert "restate the complete mission" in again_text
     assert "what concrete deliverables" not in again_text
+    envelope = record.intelligence_envelope
+    assert envelope is not None
+    layers = {gap.layer for gap in envelope.layer_gaps if gap.blocking}
+    assert layers == {"interpreter", "algorithm", "planner"}
 
 
 def test_send_only_instruction_uses_send_completion_contract() -> None:

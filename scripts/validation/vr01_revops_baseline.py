@@ -69,7 +69,9 @@ def evaluate_case(service: MissionCompositionService, case: dict[str, Any]) -> d
     elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
 
     outcomes = set(record.intent.requested_outcomes)
-    jobs = {item.job_key for item in record.job_assignments}
+    envelope = record.intelligence_envelope
+    named_jobs = set(envelope.named_job_keys) if envelope is not None else set()
+    jobs = named_jobs or {item.job_key for item in record.job_assignments}
     actions = set(record.allowed_actions)
     required_outcomes = _strings(case, "required_outcomes")
     forbidden_outcomes = _strings(case, "forbidden_outcomes")

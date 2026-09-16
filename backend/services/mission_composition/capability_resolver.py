@@ -8,6 +8,10 @@ from __future__ import annotations
 from typing import Any
 
 from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
+from backend.services.mission_composition.action_inputs import (
+    extract_github_owner_repo,
+    has_usable_research_scope,
+)
 from backend.services.mission_composition.contracts import (
     CAPABILITY_RESOLVER_VERSION,
     AbilityAlternative,
@@ -142,6 +146,12 @@ def intent_requires_hubspot_research_source(intent: MissionIntent) -> bool:
     return False
 
 
+def intent_input_sources(intent: MissionIntent) -> set[str]:
+    """What structured inputs the intent already satisfies (no invented work)."""
+
+    return _intent_input_sources(intent)
+
+
 def _intent_input_sources(intent: MissionIntent) -> set[str]:
     """What structured inputs the intent already satisfies (no invented work)."""
 
@@ -170,6 +180,10 @@ def _intent_input_sources(intent: MissionIntent) -> set[str]:
             sources.add("named_company")
     if intent.requested_quantity is not None:
         sources.add("quantity")
+    if extract_github_owner_repo(intent) is not None:
+        sources.add("github_owner_repo")
+    if has_usable_research_scope(intent):
+        sources.add("target_industry_or_query")
     # Standalone publish copy is available unless the instruction says "post the results".
     if "publish_content" in {str(o) for o in intent.requested_outcomes}:
         result_based = any(
@@ -487,6 +501,24 @@ def resolve_jobs(
             )
             for action_name in ordered
         ]
+
+        available_inputs = _intent_input_sources(intent)
+        if "target_industry_or_query" in job.required_inputs and "target_industry_or_query" not in available_inputs:
+            evaluated = [
+                candidate.model_copy(
+                    update={
+                        "selection_status": "rejected",
+                        "readiness": "unavailable",
+                        "selection_reason": (
+                            "Job requires a usable target scope (industry, location, named company, "
+                            "or competitor set); refusing a placeholder query."
+                        ),
+                    }
+                )
+                if candidate.readiness == "ready" and candidate.selection_status == "selected"
+                else candidate
+                for candidate in evaluated
+            ]
 
         ready = [
             candidate

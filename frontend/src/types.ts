@@ -380,6 +380,7 @@ export interface MissionComposeResponse {
     depends_on: string[];
   }>;
   task_graph_preview: Record<string, unknown>;
+  intelligence_envelope?: Record<string, unknown> | null;
   clarifications: Array<{ field: string; question: string; reason: string }>;
   ready_to_start: boolean;
   composition: Record<string, unknown>;

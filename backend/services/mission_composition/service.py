@@ -38,7 +38,6 @@ from backend.services.mission_composition.capability_resolver import resolve_job
 from backend.services.mission_composition.contracts import (
     COMPOSITION_SCHEMA_VERSION,
     AllowedActionsProvenance,
-    Clarification,
     CompositionProvenance,
     MissionCompositionRecord,
     MissionIntent,
@@ -47,7 +46,10 @@ from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
     build_deliverable_runtime_state,
 )
-from backend.services.mission_composition.intelligence_envelope import build_intelligence_envelope
+from backend.services.mission_composition.intelligence_envelope import (
+    build_intelligence_envelope,
+    clarifications_from_layer_gaps,
+)
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
 from backend.services.mission_composition.plan_compiler import (
@@ -321,21 +323,9 @@ class MissionCompositionService:
                 planner_provenance = {
                     "status": "rejected",
                     "reason_code": f"PLANNER_{type(exc).__name__.upper()}",
+                    "message": str(exc)[:500],
                     "grants_execution_authority": False,
                 }
-                intent = intent.model_copy(
-                    update={
-                        "ambiguity": [
-                            *intent.ambiguity,
-                            Clarification(
-                                field="planner_validation",
-                                question="The structured planning proposal was rejected. Please clarify or retry later.",
-                                reason="Model/provider output failed deterministic validation.",
-                            ),
-                        ],
-                        "interpretation_ready": False,
-                    }
-                )
             else:
                 planner_proposal = planner_result.proposal.model_dump(mode="json")
                 planner_provenance = {
@@ -356,20 +346,18 @@ class MissionCompositionService:
             preferred_credential_by_integration=preferred_creds,
             credential_type_by_id=type_by_id,
         )
+        planner_compile_error: str | None = None
         try:
             planned_steps = compile_planned_steps(selections, intent=intent)
         except ValueError as exc:
-            # A selected action may reject an unrepresentable scope (for
-            # example, a CRM filter routed to a company-search action). This
-            # is an interpretation/planning failure, not an API 500: return a
-            # durable clarification response and never create runtime state.
-            raise MissionCompositionError(
-                code="INTAKE_QUALITY",
-                message=(
-                    "The requested scope cannot be represented by the selected mission action. "
-                    f"Restate the scope or choose a supported outcome: {exc}"
-                ),
-            ) from exc
+            # Keep named jobs even when a selected action cannot bind inputs.
+            # This is a planner gap on the shared envelope, not an API abort
+            # and not an interpretation failure.
+            planner_compile_error = str(exc)
+            try:
+                planned_steps = compile_planned_steps(selections, intent=None)
+            except ValueError:
+                planned_steps = []
         job_assignments = compile_job_assignments(selections)
         task_graph_preview = compile_task_graph_preview(
             planned_steps,
@@ -381,6 +369,11 @@ class MissionCompositionService:
             intent=intent,
             jobs=jobs,
             planned_steps=planned_steps,
+            selections=selections,
+            missing_connections=missing,
+            planner_provenance=planner_provenance,
+            planner_proposal=planner_proposal,
+            planner_compile_error=planner_compile_error,
         )
         allowed_actions = [
             item.action_name for item in selections if item.selection_status == "selected" and item.readiness == "ready"
@@ -401,14 +394,16 @@ class MissionCompositionService:
         interpretation_ok = bool(intent.interpretation_ready) and not intent.ambiguity
         composition_ok = bool(allowed_actions) and required_jobs_ready
         connection_blocked = bool(missing) and not composition_ok
-        ready_to_start = interpretation_ok and composition_ok and not connection_blocked
+        blocking_gaps = [gap for gap in intelligence_envelope.layer_gaps if gap.blocking]
+        ready_to_start = interpretation_ok and composition_ok and not connection_blocked and not blocking_gaps
+        named_work = bool(jobs)
 
-        if not interpretation_ok:
+        if not named_work:
             proposal_status: str = "interpretation_failed"
         elif connection_blocked:
             proposal_status = "connection_required"
-        elif not composition_ok:
-            proposal_status = "composition_blocked"
+        elif blocking_gaps or not composition_ok:
+            proposal_status = "gaps_open"
         else:
             proposal_status = "proposal_ready"
 
@@ -433,7 +428,10 @@ class MissionCompositionService:
             task_graph_preview=task_graph_preview,
             planner_proposal=planner_proposal,
             planner_provenance=planner_provenance,
-            clarifications=list(intent.ambiguity),
+            clarifications=clarifications_from_layer_gaps(
+                intelligence_envelope.layer_gaps,
+                existing=list(intent.ambiguity),
+            ),
             ready_to_start=ready_to_start,
             composition_provenance=CompositionProvenance(
                 authority_class="read_model",
@@ -653,6 +651,11 @@ class MissionCompositionService:
                     "instruction": record.instruction,
                     "job_assignments": [item.model_dump(mode="json") for item in record.job_assignments],
                     "ability_selections": [item.model_dump(mode="json") for item in record.ability_selections],
+                    "intelligence_envelope": (
+                        record.intelligence_envelope.model_dump(mode="json")
+                        if record.intelligence_envelope is not None
+                        else None
+                    ),
                     "forbidden_actions": record.forbidden_actions,
                     "allowed_actions_provenance": record.allowed_actions_provenance.model_dump(mode="json"),
                     "missing_connections": record.missing_connections,
@@ -987,6 +990,11 @@ class MissionCompositionService:
                 "actor_id": actor_id,
                 "job_assignments": [item.model_dump(mode="json") for item in record.job_assignments],
                 "ability_selections": [item.model_dump(mode="json") for item in record.ability_selections],
+                "intelligence_envelope": (
+                    record.intelligence_envelope.model_dump(mode="json")
+                    if record.intelligence_envelope is not None
+                    else None
+                ),
                 **(
                     {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: deliverable_runtime_state}
                     if deliverable_runtime_state is not None
