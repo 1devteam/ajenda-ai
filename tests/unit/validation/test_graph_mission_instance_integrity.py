@@ -113,3 +113,59 @@ def test_explicit_google_contacts_request_is_not_rejected_as_irrelevant() -> Non
     )
 
     assert "mission_selection.unsupported_google_contacts" not in _codes(report)
+
+
+def test_public_search_identity_gap_blocks_compiled_mission_result() -> None:
+    report = MODULE.evaluate_mission_instance(
+        {
+            "instruction": "Find HVAC companies in Dallas.",
+            "objective": "Find HVAC companies in Dallas.",
+            "mission_status": "completed",
+            "task_results": [
+                {
+                    "task_id": "research",
+                    "status": "completed",
+                    "handler_result": {
+                        "output": {
+                            "include_public_search": True,
+                            "web_result_count": 10,
+                            "prospect_candidates": [
+                                {
+                                    "source": "public_search",
+                                    "real": False,
+                                    "identity_status": "unverified",
+                                }
+                            ],
+                        }
+                    },
+                }
+            ],
+        }
+    )
+
+    assert report["status"] == "blocked"
+    assert "research.public_identity_unverified" in _codes(report)
+
+
+def test_public_search_without_verified_compiled_candidates_is_a_gap() -> None:
+    report = MODULE.evaluate_mission_instance(
+        {
+            "instruction": "Find HVAC companies in Dallas.",
+            "objective": "Find HVAC companies in Dallas.",
+            "mission_status": "completed",
+            "task_results": [
+                {
+                    "task_id": "research",
+                    "status": "completed",
+                    "output": {
+                        "include_public_search": True,
+                        "web_result_count": 10,
+                        "prospect_candidates": [],
+                    },
+                }
+            ],
+        }
+    )
+
+    assert report["status"] == "blocked"
+    assert "research.public_identity_unresolved" in _codes(report)
