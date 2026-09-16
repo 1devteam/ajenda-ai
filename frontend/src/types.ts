@@ -401,6 +401,18 @@ export interface MissionComposeConfirmResponse {
   next_steps: string[];
 }
 
+export interface MissionLaunchResponse {
+  mission_id: string;
+  compile_status: string;
+  graph_materialized: boolean;
+  runtime_admitted: boolean;
+  runtime_tasks_materialized: number;
+  queued_task_ids: string[];
+  pending_review_task_ids: string[];
+  blockers: Array<Record<string, unknown>>;
+  idempotency_key?: string | null;
+}
+
 export interface MissionIntakeQualityViolation {
   field: string;
   code: string;

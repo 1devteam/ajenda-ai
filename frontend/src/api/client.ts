@@ -37,6 +37,7 @@ import type {
   MissionComposeResponse,
   MissionCreateRequest,
   MissionLifecycleReadResponse,
+  MissionLaunchResponse,
   MissionListResponse,
   MissionPlanCreateRequest,
   MissionPlanReadResponse,
@@ -783,6 +784,21 @@ export async function confirmMissionComposition(
         method: "POST",
         body: JSON.stringify(payload),
       },
+      { ...runtimeOptions(config), idempotencyKey },
+    );
+  });
+}
+
+export async function launchMission(
+  caller: AuthedCaller,
+  missionId: string,
+  options?: { idempotencyKey?: string },
+): Promise<MissionLaunchResponse> {
+  return withAuthedRuntime(caller, (config) => {
+    const idempotencyKey = options?.idempotencyKey?.trim() || newIdempotencyKey();
+    return request<MissionLaunchResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/launch`,
+      { method: "POST", body: JSON.stringify({}) },
       { ...runtimeOptions(config), idempotencyKey },
     );
   });
