@@ -125,3 +125,45 @@ def test_observe_contacts_marks_matching_site_verified_and_directory_unverified(
     assert observed["sources"] == [matching.url]
     assert all(item.get("company") != "Acme HVAC Directory" for item in result.output["observed_contacts"])
     assert any(item.get("reason") == "identity_unverified" for item in result.output["unobserved"])
+
+
+def test_observe_contacts_promotes_external_directory_links_after_verification() -> None:
+    from backend.services.tools.web_actions import research_observe_contacts
+
+    directory = PageSnapshot(
+        url="https://directory.example/hvac",
+        real=True,
+        status_code=200,
+        title="Top HVAC companies",
+        text_preview="Local HVAC providers",
+        body_preview="",
+        extraction={"links": [{"url": "https://acmehvac.example/", "text": "Acme HVAC"}]},
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    official = PageSnapshot(
+        url="https://acmehvac.example/",
+        real=True,
+        status_code=200,
+        title="Acme HVAC",
+        text_preview="Acme HVAC serves Dallas homeowners. service@acmehvac.example",
+        body_preview="",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.observe_contacts",
+        input={
+            "prospects": [{"company": "Top HVAC companies", "domain": "directory.example", "url": directory.url}],
+            "requested_quantity": 1,
+            "binding_required": True,
+        },
+    )
+    with patch("backend.services.tools.web_actions.fetch_public_page", side_effect=[directory, official]):
+        result = research_observe_contacts(invocation, _context())
+
+    promoted = result.output["verified_prospect_candidates"]
+    assert len(promoted) == 1
+    assert promoted[0]["company"] == "Acme HVAC"
+    assert promoted[0]["prospect_id"] == "web:resolved:acmehvac.example"
+    assert promoted[0]["identity_status"] == "verified"
+    assert promoted[0]["identity_evidence_urls"] == [directory.url, official.url]
+    assert result.output["observed_contacts"][0]["website"] == official.url

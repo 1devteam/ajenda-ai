@@ -51,6 +51,29 @@ def test_acceptance_counts_drafts_across_fanout_output() -> None:
     assert reasons == []
 
 
+def test_acceptance_counts_verified_directory_resolutions() -> None:
+    met, reasons = evaluate_mission_acceptance(
+        tasks=[
+            _task(
+                {
+                    "prospect_candidates": [],
+                    "verified_prospect_candidates": [
+                        {
+                            "prospect_id": "web:acme",
+                            "company": "Acme HVAC",
+                            "identity_status": "verified",
+                        }
+                    ],
+                }
+            )
+        ],
+        contract={"candidate_min": 1, "require_verified_identity": True},
+    )
+
+    assert met is True
+    assert reasons == []
+
+
 def test_acceptance_requires_research_report_opportunities() -> None:
     task = _task({"research_report": {"comparison": [], "market_opportunities": [{"title": "one"}]}})
     met, reasons = evaluate_mission_acceptance(

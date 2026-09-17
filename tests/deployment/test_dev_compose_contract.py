@@ -28,3 +28,13 @@ def test_dev_compose_frontend_waits_for_healthy_api() -> None:
 
     assert 'test: ["CMD-SHELL", "/app/deploy/scripts/readinesscheck.sh"]' in compose
     assert "condition: service_healthy" in compose
+
+
+def test_dev_compose_kernel_does_not_depend_on_optional_hubspot() -> None:
+    compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+
+    worker_block = compose.split("\n  worker:\n", 1)[1].split("\n  migrate:\n", 1)[0]
+    assert "hubspot-crm-ingress:" not in worker_block
+    for service in ("hubspot-crm-adapter", "hubspot-crm-ingress"):
+        block = compose.split(f"\n  {service}:\n", 1)[1]
+        assert 'profiles: ["hubspot"]' in block.split("\n  ", 1)[0] or 'profiles: ["hubspot"]' in block

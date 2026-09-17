@@ -230,7 +230,10 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     duplicate_url_count = 0
     pages: list[dict[str, object]] = []
     observed_contacts: list[dict[str, object]] = []
+    verified_prospect_candidates: list[dict[str, object]] = []
     unobserved: list[dict[str, object]] = []
+    followed_directory_links = 0
+    followed_link_hosts: set[str] = set()
     limit = payload.requested_quantity
 
     for prospect in raw_prospects:
@@ -364,8 +367,124 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         if identity_status != "verified":
             # Directory pages may contain convincing contact data, but they do
             # not establish which individual company that data belongs to.
-            # Preserve the page as evidence while refusing to promote contacts
-            # from an unresolved public identity.
+            # Follow only bounded external HTTPS links from the page, then run
+            # the same host/name check against each linked page. Directory
+            # hosts and generic labels remain unresolved.
+            links = snapshot.extraction.get("links", []) if isinstance(snapshot.extraction, dict) else []
+            source_host = page_host(snapshot.url)
+            for link in links[:5] if isinstance(links, list) else []:
+                if followed_directory_links >= limit * 3:
+                    break
+                if not isinstance(link, dict):
+                    continue
+                linked_url = link.get("url")
+                label = str(link.get("text") or "").strip()
+                if not isinstance(linked_url, str) or not linked_url.startswith("https://") or not label:
+                    continue
+                linked_host = page_host(linked_url)
+                if (
+                    not linked_host
+                    or linked_host == source_host
+                    or any(
+                        marker in linked_host
+                        for marker in (
+                            "directory",
+                            "yelp.",
+                            "yellowpages",
+                            "facebook.",
+                            "linkedin.",
+                            "instagram.",
+                            "maps.",
+                        )
+                    )
+                ):
+                    continue
+                if linked_host in followed_link_hosts:
+                    continue
+                followed_link_hosts.add(linked_host)
+                followed_directory_links += 1
+                tokens = [
+                    token.lower()
+                    for token in re.findall(r"[a-z0-9]{3,}", label)
+                    if token.lower() not in {"the", "and", "inc", "llc", "company", "companies", "website"}
+                ]
+                if not tokens:
+                    continue
+                linked_snapshot = fetch_public_page(
+                    url_or_domain=linked_url,
+                    timeout_seconds=payload.timeout_seconds,
+                    action_name="research.observe_contacts",
+                    text_preview_chars=8000,
+                )
+                linked_text = " ".join(
+                    part
+                    for part in (linked_snapshot.title, linked_snapshot.text_preview, linked_snapshot.body_preview)
+                    if isinstance(part, str)
+                ).lower()
+                linked_actual_host = page_host(linked_snapshot.url)
+                if (
+                    not linked_snapshot.real
+                    or linked_actual_host != linked_host
+                    or not all(token in linked_text for token in tokens)
+                ):
+                    continue
+                candidate = {
+                    **prospect,
+                    "prospect_id": f"web:resolved:{linked_host}",
+                    "company": label[:240],
+                    "domain": linked_host,
+                    "website": linked_snapshot.url,
+                    "url": linked_snapshot.url,
+                    "source": "public_search",
+                    "real": True,
+                    "identity_status": "verified",
+                    "identity_evidence_urls": [snapshot.url, linked_snapshot.url],
+                    "sources": [snapshot.url, linked_snapshot.url],
+                    "research_summary": " ".join(
+                        part for part in (linked_snapshot.title, linked_snapshot.text_preview) if isinstance(part, str)
+                    )[:1000],
+                }
+                verified_prospect_candidates.append(candidate)
+                extracted = extract_observed_contacts(
+                    text=" ".join(
+                        part
+                        for part in (linked_snapshot.title, linked_snapshot.text_preview, linked_snapshot.body_preview)
+                        if isinstance(part, str)
+                    ),
+                    source_url=linked_snapshot.url,
+                )
+                for item in extracted:
+                    observed_contacts.append(
+                        {
+                            **item,
+                            "company": candidate["company"],
+                            "domain": linked_host,
+                            "website": linked_snapshot.url,
+                            "product_description": candidate.get("product_description", ""),
+                            "research_summary": candidate["research_summary"],
+                            "sources": candidate["sources"],
+                            "prospect_id": candidate.get("prospect_id"),
+                            "identity_status": "verified",
+                            "identity_evidence_urls": candidate["identity_evidence_urls"],
+                        }
+                    )
+                if not extracted:
+                    observed_contacts.append(
+                        {
+                            "kind": None,
+                            "value": None,
+                            "source_url": linked_snapshot.url,
+                            "real": True,
+                            "company": candidate["company"],
+                            "domain": linked_host,
+                            "website": linked_snapshot.url,
+                            "research_summary": candidate["research_summary"],
+                            "sources": candidate["sources"],
+                            "prospect_id": candidate.get("prospect_id"),
+                            "identity_status": "verified",
+                            "identity_evidence_urls": candidate["identity_evidence_urls"],
+                        }
+                    )
             unobserved.append({**page_record, "reason": "identity_unverified"})
             continue
         haystack = " ".join(
@@ -448,11 +567,17 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             }
             for prospect in raw_prospects
         ],
+        "verified_prospect_candidates": verified_prospect_candidates,
         "observed_contacts": observed_contacts,
         "observed_count": len(unique_urls_with_real),
         "contact_value_count": len(observed_contacts),
         "unobserved": unobserved,
         "pages": pages,
+        "directory_link_resolution": {
+            "followed_count": followed_directory_links,
+            "unique_hosts": len(followed_link_hosts),
+            "max_followed": limit * 3,
+        },
         "requested_quantity": limit,
         "accept_met": accept_met,
         "real": bool(observed_contacts),

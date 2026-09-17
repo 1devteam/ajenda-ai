@@ -39,6 +39,17 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
         return list(records.values())
 
     candidates = unique_records("prospect_candidates")
+    # Public identity observation may promote directory links after the
+    # discovery task has completed. Those verified identities are emitted by
+    # the observation task and count toward the same candidate contract.
+    observed_candidates = unique_records("verified_prospect_candidates")
+    for item in observed_candidates:
+        identity = str(item.get("prospect_id") or item.get("company") or item.get("domain") or "")
+        if identity and not any(
+            str(existing.get("prospect_id") or existing.get("company") or existing.get("domain") or "") == identity
+            for existing in candidates
+        ):
+            candidates.append(item)
     qualified = unique_records("qualified_prospects")
     drafts = unique_records("introduction_drafts")
 

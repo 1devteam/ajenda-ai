@@ -7,9 +7,10 @@ BROWSER_SESSION is the reserved mode for headless multi-step work later.
 from __future__ import annotations
 
 import re
+from html import unescape
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from backend.services.internet.contracts import PageSnapshot
 from backend.services.internet.modes import InternetAccessMode
@@ -74,7 +75,44 @@ def _normalize_whitespace(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def extract_html_snapshot(html: str, *, text_preview_chars: int = DEFAULT_TEXT_PREVIEW_CHARS) -> dict[str, Any]:
+def _extract_public_links(html: str, *, base_url: str, limit: int = 50) -> list[dict[str, str]]:
+    """Extract bounded HTTPS anchor links with visible labels.
+
+    Link discovery is evidence collection only. Callers must still fetch and
+    verify the linked page before treating its label as a company identity.
+    """
+
+    links: list[dict[str, str]] = []
+    seen: set[str] = set()
+    pattern = re.compile(
+        r"<a\b[^>]*?href\s*=\s*([\"'])(.*?)\1[^>]*>(.*?)</a>",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    for match in pattern.finditer(html):
+        raw_href = unescape(match.group(2)).strip()
+        label = _normalize_whitespace(re.sub(r"<[^>]+>", " ", unescape(match.group(3))))
+        if not raw_href or not label:
+            continue
+        absolute = urljoin(base_url, raw_href)
+        parsed = urlparse(absolute)
+        if parsed.scheme.lower() != "https" or not parsed.hostname:
+            continue
+        normalized = absolute.split("#", 1)[0].rstrip("/")
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        links.append({"url": normalized, "text": label[:240]})
+        if len(links) >= limit:
+            break
+    return links
+
+
+def extract_html_snapshot(
+    html: str,
+    *,
+    text_preview_chars: int = DEFAULT_TEXT_PREVIEW_CHARS,
+    base_url: str = "https://invalid.local/",
+) -> dict[str, Any]:
     preview_limit = max(1, int(text_preview_chars))
     parser = _HtmlTextExtractor()
     try:
@@ -86,6 +124,7 @@ def extract_html_snapshot(html: str, *, text_preview_chars: int = DEFAULT_TEXT_P
             "title": None,
             "meta_description": None,
             "text_preview": _normalize_whitespace(re.sub(r"<[^>]+>", " ", html))[:preview_limit],
+            "links": _extract_public_links(html, base_url=base_url),
             "parser": "fallback_strip_tags",
         }
     title = _normalize_whitespace(" ".join(parser.title_parts))[:240] or None
@@ -96,6 +135,7 @@ def extract_html_snapshot(html: str, *, text_preview_chars: int = DEFAULT_TEXT_P
         "title": title,
         "meta_description": parser.meta_description,
         "text_preview": text[:preview_limit],
+        "links": _extract_public_links(html, base_url=base_url),
         "parser": "html.parser",
     }
 
@@ -154,7 +194,7 @@ def fetch_public_page(
         body = response.body_text or ""
         preview_limit = max(DEFAULT_TEXT_PREVIEW_CHARS, min(int(text_preview_chars), response_text_limit))
         extraction = (
-            extract_html_snapshot(body, text_preview_chars=preview_limit)
+            extract_html_snapshot(body, text_preview_chars=preview_limit, base_url=page_url)
             if body
             else {
                 "title": None,
@@ -175,6 +215,7 @@ def fetch_public_page(
             extraction={
                 "parser": extraction.get("parser"),
                 "meta_description": extraction.get("meta_description"),
+                "links": extraction.get("links", []),
                 "response_text_limit": response_text_limit,
                 "default_snippet_limit": DEFAULT_RESPONSE_TEXT_LIMIT,
             },

@@ -24,13 +24,14 @@ def test_extract_html_snapshot_title_and_text() -> None:
       <title>Acme Corp</title>
       <meta name="description" content="Acme builds robots.">
       <script>evil()</script>
-    </head><body><h1>Welcome</h1><p>We ship bots.</p></body></html>
+    </head><body><h1>Welcome</h1><p>We ship bots.</p><a href="/contact">Contact Acme</a></body></html>
     """
     extracted = extract_html_snapshot(html)
     assert extracted["title"] == "Acme Corp"
     assert "Acme builds robots" in (extracted["text_preview"] or "")
     assert "We ship bots" in (extracted["text_preview"] or "")
     assert "evil" not in (extracted["text_preview"] or "")
+    assert extracted["links"] == [{"url": "https://invalid.local/contact", "text": "Contact Acme"}]
 
 
 def test_fetch_public_page_uses_egress_and_extracts() -> None:

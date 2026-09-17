@@ -7,11 +7,13 @@ from pathlib import Path
 
 COMPOSE_FILE = Path("deploy/compose/docker-compose.prod.yml")
 LIVE_RUNTIME_PROOF = Path("deploy/scripts/live-runtime-proof.sh")
+OPERATOR_MISSION_PROOF = Path("deploy/scripts/operator-mission-proof.py")
 PLUGIN_RUNTIME_PROOF = Path("deploy/scripts/plugin-runtime-proof.sh")
 STAGING_AUTONOMY_PLUGIN_PROOF = Path("deploy/scripts/staging-autonomy-plugin-proof.sh")
 
 REQUIRED_SERVICES = frozenset(
     {
+        "frontend",
         "api",
         "worker",
         "migrate",
@@ -29,6 +31,7 @@ LIVE_PROOF_STARTED_SERVICES = (
     "migrate",
     "api",
     "worker",
+    "frontend",
     "prometheus",
     "otel-collector",
 )
@@ -79,6 +82,7 @@ def test_api_service_waits_for_required_dependencies() -> None:
     assert "redis:" in api_block
     assert "condition: service_started" in api_block
     assert "otel-collector:" in api_block
+    assert "hubspot-crm-ingress:" not in api_block
 
 
 def test_worker_service_waits_for_queue_database_and_migrations() -> None:
@@ -90,6 +94,14 @@ def test_worker_service_waits_for_queue_database_and_migrations() -> None:
     assert "condition: service_healthy" in worker_block
     assert "redis:" in worker_block
     assert "condition: service_started" in worker_block
+    assert "hubspot-crm-ingress:" not in worker_block
+
+
+def test_optional_hubspot_services_do_not_block_kernel_boot() -> None:
+    compose = _read(COMPOSE_FILE)
+
+    for service_name in ("hubspot-crm-adapter", "hubspot-crm-ingress"):
+        assert 'profiles: ["hubspot"]' in _service_block(compose, service_name)
 
 
 def test_live_runtime_proof_starts_core_proof_services() -> None:
@@ -102,11 +114,31 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     assert 'fail "compose env file not found: $COMPOSE_ENV_FILE"' in script
     assert 'docker compose --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
     assert expected_command in script
+    assert "operator-mission-proof.py" in script
+    assert "AJENDA_OPERATOR_MISSION_PROOF" in script
     assert 'log "queueing low-risk GTM lead enrich proof task"' in script
     assert '"action": "gtm.lead_enrich"' in script
     assert '"domain": "proof.example.com"' not in script
     assert "AJENDA_PROOF_PLUGIN_LANE_ENABLED" in script
     assert "plugin-runtime-proof.sh" in script
+
+
+def test_operator_mission_proof_uses_public_api_and_never_direct_runtime_handlers() -> None:
+    script = _read(OPERATOR_MISSION_PROOF)
+
+    for path in (
+        "/v1/onboarding/signup",
+        "/v1/missions/compose",
+        "/v1/missions/proposals/",
+        "/v1/missions/{mission_id}/launch",
+        "/v1/missions/{mission_id}/deliverable",
+    ):
+        assert path in script
+    assert '"verification_code"' in script
+    assert '"tenant_id", "signup"' not in script
+    assert "tool_invoke_handler" not in script
+    assert "ExecutionCoordinator" not in script
+    assert "sqlalchemy" not in script
 
 
 def test_plugin_runtime_proof_script_is_env_gated() -> None:

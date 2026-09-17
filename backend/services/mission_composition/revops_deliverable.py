@@ -503,6 +503,14 @@ def _assemble_prospects(
         for source in _string_tuple(row.get("sources")):
             if source not in record["sources"]:
                 record["sources"].append(source)
+        identity = record["prospect_id"] or record["_identity_company"] or "unknown"
+        _set_scalar(
+            record,
+            field="website",
+            value=_nonempty_text(row.get("website")),
+            identity=identity,
+            assembly_errors=assembly_errors,
+        )
         contact = RevOpsObservedContactRead(
             kind=_nonempty_text(row.get("kind")),
             value=_nonempty_text(row.get("value")),

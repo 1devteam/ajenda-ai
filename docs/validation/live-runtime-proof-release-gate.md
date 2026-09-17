@@ -61,17 +61,13 @@ The release gate is a proof surface for the subsystem lanes defined in `docs/pro
 
 When future work changes tenant/auth, mission intake/planning, task graph, materialization, queue admission, queue adapter state, lease lifecycle, worker dispatcher execution, tool/action runtime, evidence/audit, declarative governance, or validation behavior, the release gate must either add matching proof or explicitly defer that proof to named targeted tests and validation artifacts.
 
-## HubSpot ingress TLS prerequisite
+## Kernel and optional integrations
 
-The prod-like Compose stack builds `hubspot-crm-ingress`. Host `server.crt` / `server.key` are gitignored and dockerignored; the ingress Dockerfile generates a self-signed pair at image build so nginx can start without local certs.
-
-Before `compose config` / `compose up --build`, the script runs:
-
-```text
-deploy/compose/hubspot-crm-ingress/generate-certs.sh
-```
-
-This generates self-signed TLS material for local/CI proof. Operators running HubSpot ingress locally outside the proof script should run the same generator first.
+The default proof starts the customer frontend, API, worker, database, Redis,
+migrations, Prometheus, and OTEL collector. HubSpot is not part of the kernel
+and must not block API or worker startup. The HubSpot adapter and ingress remain
+available only through the explicit Compose `hubspot` profile when that optional
+integration is intentionally tested.
 
 ---
 
@@ -91,6 +87,8 @@ Configurable inputs:
 | `AJENDA_PROOF_POLL_SECONDS` | `2` | Poll interval for retry loops |
 | `AJENDA_PROOF_CURL_CONNECT_TIMEOUT_SECONDS` | `5` | Curl connection timeout |
 | `AJENDA_PROOF_CURL_MAX_TIME_SECONDS` | `10` | Curl max request time |
+| `AJENDA_OPERATOR_MISSION_PROOF` | unset (`0`) | When `1`, run the real frontend → compose → confirm → launch → worker → deliverable HVAC proof |
+| `AJENDA_PROOF_FRONTEND_BASE_URL` | `http://localhost:8080` | Frontend base URL used by the operator mission proof |
 | `AJENDA_PROOF_PLUGIN_LANE_ENABLED` | unset (`0`) | When `1`, run optional plugin proof after core echo/GTM proof |
 | `AJENDA_PROOF_AUTONOMY_LANE` | unset (`0`) | When `1`, plugin script also runs informed-autonomy tier-3 queue proof |
 | `AJENDA_E2E_HUBSPOT_PAK` | unset | HubSpot bearer/PAK for live CRM plugin lane |
@@ -108,6 +106,19 @@ deploy/scripts/staging-autonomy-plugin-proof.sh
 ```
 
 When `AJENDA_PROOF_PLUGIN_LANE_ENABLED=1`, `live-runtime-proof.sh` delegates to `plugin-runtime-proof.sh` after the core worker/metrics proof succeeds. The plugin lane is **not** part of the default CI release gate unless an operator enables it and supplies live provider tokens.
+
+When `AJENDA_OPERATOR_MISSION_PROOF=1`, the proof runs
+`deploy/scripts/operator-mission-proof.py`. This is the staging operator proof:
+it uses onboarding and public HTTP APIs, requires a complete HVAC composition,
+confirms that confirmation does not queue work, launches once through the server
+authority, waits for the deployed worker, and requires exactly ten persisted,
+artifact-complete prospects. It is intentionally opt-in until a real public
+search provider is configured. The public identity path preserves raw directory
+hits as intermediate evidence, extracts only bounded external HTTPS links, and
+promotes a company only after the linked page passes the existing host/name
+verification rule. A staging proof must also expose a verification code or
+provide a test mailbox delivery path; production email verification remains
+private.
 
 ---
 

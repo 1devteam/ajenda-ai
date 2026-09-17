@@ -24,8 +24,6 @@ services:
     env_file:
       - .env.prod
     depends_on:
-      hubspot-crm-ingress:
-        condition: service_started
       migrate:
         condition: service_completed_successfully
       db:
@@ -50,8 +48,6 @@ services:
     env_file:
       - .env.prod
     depends_on:
-      hubspot-crm-ingress:
-        condition: service_started
       migrate:
         condition: service_completed_successfully
       db:
@@ -110,6 +106,7 @@ services:
     restart: unless-stopped
 
   hubspot-crm-adapter:
+    profiles: ["hubspot"]
     build:
       context: ../..
       dockerfile: services/hubspot_crm_adapter/Dockerfile
@@ -119,6 +116,7 @@ services:
     restart: unless-stopped
 
   hubspot-crm-ingress:
+    profiles: ["hubspot"]
     build:
       context: ../..
       dockerfile: deploy/compose/hubspot-crm-ingress/Dockerfile

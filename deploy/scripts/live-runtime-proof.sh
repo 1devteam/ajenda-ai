@@ -113,14 +113,6 @@ if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then
   fail "compose env file not found: $COMPOSE_ENV_FILE"
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HUBSPOT_CERT_SCRIPT="$SCRIPT_DIR/../compose/hubspot-crm-ingress/generate-certs.sh"
-if [[ ! -f "$HUBSPOT_CERT_SCRIPT" ]]; then
-  fail "HubSpot ingress cert script not found: $HUBSPOT_CERT_SCRIPT"
-fi
-log "ensuring HubSpot CRM ingress TLS certs exist for compose build"
-bash "$HUBSPOT_CERT_SCRIPT"
-
 log "validating compose configuration"
 compose config --quiet
 
@@ -128,7 +120,7 @@ log "resetting prior compose volumes (avoids stale DB credentials after env rota
 compose down -v --remove-orphans >/dev/null 2>&1 || true
 
 log "starting compose services"
-compose up -d --build db redis migrate api worker prometheus otel-collector
+compose up -d --build db redis migrate api worker frontend prometheus otel-collector
 
 log "checking compose service state"
 compose ps
@@ -144,6 +136,15 @@ compose exec -T db pg_isready -U ajenda -d ajenda >/dev/null
 
 log "checking redis ping"
 compose exec -T redis redis-cli PING | grep -q '^PONG$'
+
+if [[ "${AJENDA_OPERATOR_MISSION_PROOF:-0}" == "1" ]]; then
+  log "running operator mission proof through frontend and public APIs"
+  AJENDA_OPERATOR_PROOF_API_BASE_URL="$API_BASE_URL" \
+    AJENDA_OPERATOR_PROOF_FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:8080}" \
+    python deploy/scripts/operator-mission-proof.py
+else
+  log "operator mission proof skipped (set AJENDA_OPERATOR_MISSION_PROOF=1 with staging public-search credentials)"
+fi
 
 log "queueing real echo task for configured worker tenant and waiting for worker completion"
 proof_json="$(
