@@ -59,6 +59,20 @@ def test_intermediate_artifact_is_not_exposed_as_deliverable() -> None:
     assert materialized_artifact_for_task(task) is None
 
 
+def test_intermediate_artifact_preserves_verified_internal_rows() -> None:
+    task = _task(
+        artifact="prospect_candidates",
+        payload=[
+            {"company": "Dallas Comfort HVAC", "source": "internal_record", "real": True},
+            {"company": "Directory listing", "source": "public_search", "real": False},
+        ],
+    )
+    task.metadata_json["expected_output_contract"]["materialization_role"] = "intermediate"
+    artifact = materialized_artifact_for_task(task)
+    assert artifact is not None
+    assert artifact.payload == [{"company": "Dallas Comfort HVAC", "source": "internal_record", "real": True}]
+
+
 def test_collect_materialized_artifacts_accumulates_distinct_sibling_outputs() -> None:
     qualified = _task(
         artifact="qualified_prospects",

@@ -42,17 +42,30 @@ def materialized_artifact_for_task(task: ExecutionTask) -> MaterializedArtifact 
         return None
     metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
     raw_contract = metadata.get("expected_output_contract")
-    if isinstance(raw_contract, dict) and raw_contract.get("materialization_role") == "intermediate":
-        # Intermediate source payloads feed downstream bindings only. Keeping
-        # them out of the deliverable read model prevents unverified public
-        # search rows from looking like completed prospects.
-        return None
     output = handler_output_for_task(task)
     if artifact_key not in output:
         return None
     payload = output[artifact_key]
     if payload is None:
         return None
+    if isinstance(raw_contract, dict) and raw_contract.get("materialization_role") == "intermediate":
+        # Mixed internal/public discovery is common. Preserve rows whose
+        # identity is already authoritative, while keeping unresolved public
+        # hits available only to the downstream observation stage.
+        if artifact_key == "prospect_candidates" and isinstance(payload, list):
+            payload = [
+                item
+                for item in payload
+                if isinstance(item, dict)
+                and (
+                    item.get("source") in {"internal_record", "local_fixture", "crm"}
+                    or (item.get("real") is True and item.get("identity_status") == "verified")
+                )
+            ]
+            if not payload:
+                return None
+        else:
+            return None
     return MaterializedArtifact(artifact_key=artifact_key, payload=payload)
 
 
