@@ -182,7 +182,8 @@ def build_runtime_task_preview_items(*, mission_id: UUID, readiness: Any) -> lis
         execution_constraints: dict[str, Any] = (
             deepcopy(raw_execution_constraints) if isinstance(raw_execution_constraints, dict) else {}
         )
-        node_metadata = graph_node.get("metadata") if isinstance(graph_node.get("metadata"), dict) else {}
+        raw_node_metadata = graph_node.get("metadata")
+        node_metadata: dict[str, Any] = raw_node_metadata if isinstance(raw_node_metadata, dict) else {}
         if node_metadata.get("materialization_role") == "intermediate":
             expected_output_contract["materialization_role"] = "intermediate"
             expected_output_contract["allow_empty"] = node_metadata.get("allow_empty") is True
