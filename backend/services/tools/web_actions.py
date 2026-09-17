@@ -386,10 +386,16 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         company_matches = bool(company_tokens) and any(token in page_text for token in company_tokens)
         host_tokens = _host_identity_tokens(actual_host)
         host_identity_matches = bool(host_tokens) and any(token in page_text for token in host_tokens)
+        industry_evidence = any(
+            marker in page_text for marker in ("hvac", "heating", "cooling", "air conditioning", "furnace")
+        )
+        locality_evidence = any(marker in page_text for marker in ("dallas", "dfw", "texas", " tx "))
         identity_status = (
             "verified"
             if host_matches
             and not directory_host
+            and industry_evidence
+            and locality_evidence
             and (company_matches or host_identity_matches or len(company_tokens) <= 1)
             else "unverified"
         )

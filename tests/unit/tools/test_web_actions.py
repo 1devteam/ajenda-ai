@@ -76,7 +76,7 @@ def test_observe_contacts_marks_matching_site_verified_and_directory_unverified(
         real=True,
         status_code=200,
         title="Acme HVAC | Heating and cooling",
-        text_preview="Contact Acme HVAC at service@acmehvac.example",
+        text_preview="Acme HVAC serves Dallas. Contact Acme HVAC at service@acmehvac.example",
         body_preview="",
         access_mode=InternetAccessMode.PAGE_READ,
     )
