@@ -157,6 +157,7 @@ class RbacAuthorizer:
                     Permission.BILLING_MANAGE,
                     Permission.MISSION_CREATE,
                     Permission.MISSION_MANAGE,
+                    Permission.RUNTIME_OPERATE,
                     Permission.EXECUTION_VIEW,
                     Permission.EXECUTION_QUEUE,
                     Permission.RUNTIME_VIEW,

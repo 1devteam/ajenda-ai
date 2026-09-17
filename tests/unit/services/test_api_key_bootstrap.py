@@ -66,6 +66,7 @@ def test_tenant_operator_key_has_api_key_permissions() -> None:
     assert principal is not None
     assert Permission.API_KEYS_CREATE in principal.permissions
     assert Permission.MISSION_MANAGE in principal.permissions
+    assert Permission.RUNTIME_OPERATE in principal.permissions
     assert Permission.ACCOUNT_READ in principal.permissions
     assert Permission.BILLING_READ in principal.permissions
     assert Permission.BILLING_MANAGE in principal.permissions
