@@ -42,7 +42,9 @@ _DIRECTORY_HOST_MARKERS = (
     "bestprosintown.com",
     "bestpickreports.com",
     "consumeraffairs.com",
+    "forbes.com",
     "homeadvisor.com",
+    "hvacinformed.com",
     "houzz.com",
     "thumbtack.com",
     "yelp.",
@@ -57,6 +59,15 @@ _DIRECTORY_HOST_MARKERS = (
 def _is_directory_or_third_party_host(host: str) -> bool:
     normalized = host.lower().removeprefix("www.").rstrip(".")
     return any(marker in normalized for marker in _DIRECTORY_HOST_MARKERS)
+
+
+def _host_identity_tokens(host: str) -> list[str]:
+    label = host.lower().removeprefix("www.").split(".", 1)[0]
+    return [
+        token
+        for token in re.findall(r"[a-z0-9]{4,}", re.sub(r"([a-z])([A-Z])", r"\1 \2", label))
+        if token not in {"company", "companies", "heating", "cooling", "plumbing", "services", "service"}
+    ]
 
 
 def web_page_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
@@ -373,9 +384,13 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         )
         directory_host = _is_directory_or_third_party_host(actual_host)
         company_matches = bool(company_tokens) and any(token in page_text for token in company_tokens)
+        host_tokens = _host_identity_tokens(actual_host)
+        host_identity_matches = bool(host_tokens) and any(token in page_text for token in host_tokens)
         identity_status = (
             "verified"
-            if host_matches and not directory_host and (company_matches or len(company_tokens) <= 1)
+            if host_matches
+            and not directory_host
+            and (company_matches or host_identity_matches or len(company_tokens) <= 1)
             else "unverified"
         )
         page_record["identity_status"] = identity_status
@@ -509,11 +524,6 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             for part in (snapshot.title, snapshot.text_preview, snapshot.body_preview)
             if isinstance(part, str) and part
         )
-        extracted = extract_observed_contacts(text=haystack, source_url=snapshot.url)
-        if not extracted:
-            unobserved.append({**page_record, "reason": "no_contact_on_page"})
-            continue
-
         raw_sources = prospect.get("sources")
         sources = [
             str(source).strip()[:500]
@@ -522,6 +532,30 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         ]
         if snapshot.url and snapshot.url not in sources:
             sources.append(snapshot.url[:500])
+        extracted = extract_observed_contacts(text=haystack, source_url=snapshot.url)
+        if not extracted:
+            if identity_status == "verified":
+                observed_contacts.append(
+                    {
+                        "kind": None,
+                        "value": None,
+                        "source_url": snapshot.url,
+                        "real": True,
+                        "company": prospect.get("company"),
+                        "domain": page_record["domain"],
+                        "website": str(prospect.get("website") or prospect.get("url") or snapshot.url)[:500],
+                        "product_description": str(prospect.get("product_description") or "")[:1000],
+                        "research_summary": str(prospect.get("research_summary") or "")[:1000],
+                        "sources": sources,
+                        "prospect_id": prospect.get("prospect_id"),
+                        "identity_status": "verified",
+                        "identity_evidence_urls": page_record["identity_evidence_urls"],
+                    }
+                )
+            else:
+                unobserved.append({**page_record, "reason": "no_contact_on_page"})
+            continue
+
         research_summary = prospect.get("research_summary")
         if not isinstance(research_summary, str) or not research_summary.strip():
             raw_signals = prospect.get("signals")
