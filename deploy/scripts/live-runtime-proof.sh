@@ -3,6 +3,7 @@ set -euo pipefail
 
 COMPOSE_FILE="${AJENDA_PROOF_COMPOSE_FILE:-deploy/compose/docker-compose.prod.yml}"
 COMPOSE_ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"
+COMPOSE_PROJECT_NAME="${AJENDA_PROOF_COMPOSE_PROJECT_NAME:-ajenda-ai}"
 API_BASE_URL="${AJENDA_PROOF_API_BASE_URL:-http://localhost:8000}"
 PROMETHEUS_BASE_URL="${AJENDA_PROOF_PROMETHEUS_BASE_URL:-http://localhost:9090}"
 PROMETHEUS_JOB_NAME="${AJENDA_PROOF_PROMETHEUS_JOB_NAME:-ajenda-api}"
@@ -25,7 +26,7 @@ require_command() {
 }
 
 compose() {
-  docker compose --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
 wait_for_http_ok() {
