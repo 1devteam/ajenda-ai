@@ -116,8 +116,11 @@ fi
 log "validating compose configuration"
 compose config --quiet
 
-log "resetting prior compose volumes (avoids stale DB credentials after env rotation)"
-compose down -v --remove-orphans >/dev/null 2>&1 || true
+log "stopping prior compose services while preserving persistent database volumes"
+# A runtime proof must not destroy operator sign-ins, tenants, missions, or
+# artifacts.  Environment rotation is handled by migrations and service
+# restart; volume deletion belongs to an explicit disposable test command.
+compose down --remove-orphans >/dev/null 2>&1 || true
 
 log "starting compose services"
 compose up -d --build db redis migrate api worker frontend prometheus otel-collector
