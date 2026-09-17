@@ -149,8 +149,10 @@ def main() -> int:
     deadline = time.monotonic() + TIMEOUT_SECONDS
     deliverable: dict[str, Any] | None = None
     lifecycle: dict[str, Any] | None = None
+    runtime_evidence: dict[str, Any] | None = None
     while time.monotonic() < deadline:
         lifecycle = request("GET", API_BASE, f"/v1/missions/{mission_id}/lifecycle", headers=headers)
+        runtime_evidence = request("GET", API_BASE, f"/v1/missions/{mission_id}/runtime-evidence", headers=headers)
         try:
             candidate = request("GET", API_BASE, f"/v1/missions/{mission_id}/deliverable", headers=headers)
         except ProofFailure as exc:
@@ -169,7 +171,11 @@ def main() -> int:
         time.sleep(POLL_SECONDS)
 
     if deliverable is None:
-        raise ProofFailure(f"mission did not produce a terminal deliverable: {json.dumps(lifecycle, sort_keys=True)}")
+        raise ProofFailure(
+            "mission did not produce a terminal deliverable: "
+            f"lifecycle={json.dumps(lifecycle, sort_keys=True)} "
+            f"runtime_evidence={json.dumps(runtime_evidence, sort_keys=True)}"
+        )
     task_state = deliverable.get("task_state") or {}
     completion = deliverable.get("completion") or {}
     prospects = deliverable.get("prospects")
@@ -196,6 +202,8 @@ def main() -> int:
                 "prospect_count": len(prospects),
                 "evidence_count": len(deliverable.get("evidence_references") or []),
                 "mission_status": (lifecycle or {}).get("mission", {}).get("status"),
+                "runtime_evidence_first_divergence": (runtime_evidence or {}).get("first_divergence"),
+                "runtime_evidence_contradictions": (runtime_evidence or {}).get("contradictions", []),
             },
             sort_keys=True,
         )

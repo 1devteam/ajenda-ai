@@ -6,12 +6,17 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
+from backend.auth.permissions import Permission
 from backend.domain.execution_task import ExecutionTask
+from backend.domain.worker_lease import WorkerLease
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
+from backend.repositories.lineage_record_repository import LineageRecordRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.services.document_artifacts import read_artifact
@@ -19,6 +24,10 @@ from backend.services.mission_composition.deliverable_runtime_artifacts import c
 from backend.services.mission_composition.revops_deliverable import (
     RevOpsMissionDeliverableRead,
     assemble_revops_mission_deliverable,
+)
+from backend.services.mission_runtime_evidence_projection import (
+    MissionRuntimeEvidenceProjection,
+    build_mission_runtime_evidence_projection,
 )
 
 router = APIRouter(prefix="/missions", tags=["missions"])
@@ -89,3 +98,44 @@ def read_revops_mission_deliverable(
         if str(exc) == "mission deliverable runtime state is absent":
             raise HTTPException(status_code=404, detail="mission deliverable runtime state not found") from exc
         raise HTTPException(status_code=409, detail="mission deliverable assembly is invalid") from exc
+
+
+@router.get("/{mission_id}/runtime-evidence", response_model=MissionRuntimeEvidenceProjection)
+def read_mission_runtime_evidence(
+    mission_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> MissionRuntimeEvidenceProjection:
+    """Expose persisted runtime facts for GRAFT review without executing work."""
+
+    tenant_scope = str(tenant_id)
+    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_VIEW, tenant_id=tenant_id)
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_scope)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+    tasks = ExecutionTaskRepository(db).list_for_mission_for_tenant(mission_id=mission_id, tenant_id=tenant_scope)
+    task_ids = [task.id for task in tasks]
+    leases = (
+        list(
+            db.scalars(
+                select(WorkerLease).where(WorkerLease.tenant_id == tenant_scope, WorkerLease.task_id.in_(task_ids))
+            )
+        )
+        if task_ids
+        else []
+    )
+    lineage = LineageRecordRepository(db).list_for_mission_for_tenant(
+        mission_id=mission_id,
+        tenant_id=tenant_scope,
+    )
+    evidence = EvidenceRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_scope)
+    return build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_scope,
+        mission_metadata=mission.metadata_json if isinstance(mission.metadata_json, dict) else {},
+        tasks=tasks,
+        leases=leases,
+        lineage=lineage,
+        evidence=evidence,
+    )
