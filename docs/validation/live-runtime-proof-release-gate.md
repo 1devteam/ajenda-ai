@@ -89,7 +89,7 @@ Configurable inputs:
 | `AJENDA_PROOF_CURL_MAX_TIME_SECONDS` | `10` | Curl max request time |
 | `AJENDA_OPERATOR_MISSION_PROOF` | unset (`0`) | When `1`, run the real frontend → compose → confirm → launch → worker → deliverable HVAC proof |
 | `AJENDA_PROOF_FRONTEND_BASE_URL` | `http://localhost:8080` | Frontend base URL used by the operator mission proof |
-| `AJENDA_PROOF_PLUGIN_LANE_ENABLED` | unset (`0`) | When `1`, run optional plugin proof after core echo/GTM proof |
+| `AJENDA_PROOF_PLUGIN_LANE_ENABLED` | unset (`0`) | When `1`, run optional plugin proof after the operator mission proof |
 | `AJENDA_PROOF_AUTONOMY_LANE` | unset (`0`) | When `1`, plugin script also runs informed-autonomy tier-3 queue proof |
 | `AJENDA_E2E_HUBSPOT_PAK` | unset | HubSpot bearer/PAK for live CRM plugin lane |
 | `AJENDA_E2E_GMAIL_TOKEN` | unset | Gmail bearer for live email plugin lane |
@@ -131,7 +131,7 @@ The primary release gate runs automatically in `.github/workflows/ci.yml` after 
 | Checkout | uses merged `main` commit |
 | Write prod-like Compose environment | generates `deploy/compose/.env.prod` with staging-mode settings and a fresh worker tenant UUID (not committed) |
 | Run live runtime proof | executes `deploy/scripts/live-runtime-proof.sh` |
-| Stop compose stack | `docker compose down -v --remove-orphans` (always, even on failure) |
+| Stop compose stack | `docker compose -p ajenda-ai down --remove-orphans` (always, even on failure; volumes are preserved) |
 
 This job is promotion-blocking for `main`. PR branches do not run the full Compose proof unless an operator dispatches the manual workflow below.
 
@@ -165,11 +165,11 @@ artifacts/live-runtime-proof/compose-logs.txt
 
 | Workflow | Run | Commit | Result | Notes |
 |---|---|---|---|---|
-| CI — Pull Request Gate | #1041 | `efe332b` | success | `main` push; Live Runtime Proof passed after HubSpot ingress cert auto-generation (#338) |
+| CI — Pull Request Gate | #1041 | `efe332b` | historical | Legacy proof result; superseded by the operator mission gate described below |
 | Live Runtime Proof (manual) | #3 | `ed3c665` | success | Prometheus scrape-health check included |
 | Live Runtime Proof (manual) | #2 | `051271b` | success | First full GitHub-hosted Compose proof |
 
-CI run #1041 exercised the default proof path on `main`: echo worker proof, GTM `lead_enrich`, brain capstone slice, and skipped plugin lane (no live provider tokens). HubSpot ingress image build succeeded after `generate-certs.sh` ran inside the proof script.
+The historical rows above document earlier proof behavior. They are not evidence for the current operator mission gate and must not be used as release proof.
 
 ---
 
@@ -217,9 +217,9 @@ The versioned system probes must return successful HTTP responses:
 
 These checks prevent drift between root infrastructure probes and versioned operational system routes.
 
-### 4. Real queue-backed worker execution
+### 4. Real operator mission execution
 
-The script creates a real tenant, mission, and echo task inside the running API container, queues the task through `ExecutionCoordinator`, and waits for the worker to complete it.
+The script invokes the same public API path as the operator UI: compose, confirm, one server launch, queue admission, Redis delivery, worker claim, public research, identity verification, qualification, and durable deliverable retrieval. It does not create tasks or leases directly in the database and does not call a handler directly.
 
 Required result:
 
@@ -309,41 +309,7 @@ Forbidden result:
 
 - stale Redis lease key remains after worker completion and lease release
 
-### 9. GTM tool.invoke proof (`gtm.lead_enrich`)
-
-After the core echo proof succeeds, the script queues a second real task on the same proof tenant using `task_type=tool.invoke` and action `gtm.lead_enrich`.
-
-Required result:
-
-- task reaches `completed` within the proof timeout
-
-Forbidden result:
-
-- task remains queued, claimed, or running past the proof timeout
-- task reaches `failed` or `dead_lettered` during the success-path proof
-
-This lane exercises the governed tool runtime path without live external provider tokens.
-
-### 10. Brain capstone slice
-
-The script runs `deploy/scripts/brain-capstone-runtime-proof.py` inside the API container for the proof tenant.
-
-Required result:
-
-- JSON payload reports `ok: true`
-- payload includes a non-empty `artifact_id`
-
-Optional env:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `AJENDA_BRAIN_CAPSTONE_SEND` | unset | When set with email credentials, also exercises optional send lane |
-
-Forbidden result:
-
-- capstone script reports `ok: false` or missing `artifact_id`
-
-### 11. Optional plugin lane (not default CI)
+### 9. Optional plugin lane (not default CI)
 
 When `AJENDA_PROOF_PLUGIN_LANE_ENABLED=1` and live provider tokens are supplied, the script delegates to `deploy/scripts/plugin-runtime-proof.sh` after the core proof lanes succeed.
 
@@ -361,13 +327,13 @@ live runtime proof passed
 
 A passing run means the prod-like stack proved the following together:
 
-- HubSpot ingress TLS certs exist before compose build (generated when missing)
+- the default stack starts without HubSpot-specific ingress or certificate generation
 - API probes are reachable
 - versioned system probes are reachable
 - Postgres is ready
 - Redis is ready
-- queue admission works through the runtime coordinator
-- worker execution completes real queued echo work
+- one operator mission is admitted through the runtime coordinator
+- the deployed worker executes the queued mission
 - worker lease authority reaches released state
 - task output lineage is written
 - worker completion audit is written
@@ -376,8 +342,7 @@ A passing run means the prod-like stack proved the following together:
 - Prometheus is ready
 - Prometheus reports the configured `ajenda-api` scrape target as healthy
 - Redis lease cleanup succeeds
-- GTM `gtm.lead_enrich` tool.invoke task completes
-- brain capstone slice returns `ok: true` with `artifact_id`
+- the durable HVAC deliverable contains verified, evidence-backed candidates
 
 Any script failure is promotion-blocking for the environment being proven (including the automatic `main` CI job).
 

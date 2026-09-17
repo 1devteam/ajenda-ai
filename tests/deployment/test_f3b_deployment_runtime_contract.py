@@ -103,9 +103,11 @@ LEGACY_UNSUPPORTED_APP_ENV = frozenset(
 
 NON_SETTINGS_DEPLOYMENT_ENV = frozenset(
     {
+        "AJENDA_OPERATOR_MISSION_PROOF",
         "AJENDA_PROOF_API_BASE_URL",
         "AJENDA_PROOF_COMPOSE_ENV_FILE",
         "AJENDA_PROOF_COMPOSE_FILE",
+        "AJENDA_PROOF_COMPOSE_PROJECT_NAME",
         "AJENDA_PROOF_CURL_CONNECT_TIMEOUT_SECONDS",
         "AJENDA_PROOF_CURL_MAX_TIME_SECONDS",
         "AJENDA_PROOF_POLL_SECONDS",
@@ -255,11 +257,11 @@ def test_compose_and_live_proof_use_same_env_file_for_config_up_exec_down() -> N
     assert "POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.prod}" in compose
     assert "image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}" in compose
     assert 'COMPOSE_ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"' in script
-    assert 'docker compose --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
+    assert 'docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
     assert "compose config --quiet" in script
     assert "compose up -d --build db redis migrate api worker frontend prometheus otel-collector" in script
     assert (
-        'docker compose --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml down -v --remove-orphans'
+        'docker compose -p "$AJENDA_PROOF_COMPOSE_PROJECT_NAME" --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml down --remove-orphans'
         in workflow
     )
 

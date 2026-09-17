@@ -112,15 +112,16 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     assert 'COMPOSE_ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"' in script
     assert 'if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then' in script
     assert 'fail "compose env file not found: $COMPOSE_ENV_FILE"' in script
-    assert 'docker compose --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
+    assert 'docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
     assert expected_command in script
     assert "operator-mission-proof.py" in script
     assert "AJENDA_OPERATOR_MISSION_PROOF" in script
-    assert 'log "queueing low-risk GTM lead enrich proof task"' in script
-    assert '"action": "gtm.lead_enrich"' in script
-    assert '"domain": "proof.example.com"' not in script
-    assert "AJENDA_PROOF_PLUGIN_LANE_ENABLED" in script
-    assert "plugin-runtime-proof.sh" in script
+    assert "AJENDA_OPERATOR_MISSION_PROOF" in script
+    assert "operator mission proof is required" in script
+    assert "ExecutionCoordinator" not in script
+    assert "tool_invoke_handler" not in script
+    assert "brain-capstone-runtime-proof.py" not in script
+    assert "gtm.lead_enrich" not in script
 
 
 def test_operator_mission_proof_uses_public_api_and_never_direct_runtime_handlers() -> None:

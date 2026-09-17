@@ -20,6 +20,8 @@ jobs:
       AJENDA_PROOF_TIMEOUT_SECONDS: "120"
       AJENDA_PROOF_POLL_SECONDS: "2"
       AJENDA_PROOF_COMPOSE_ENV_FILE: deploy/compose/.env.prod
+      AJENDA_PROOF_COMPOSE_PROJECT_NAME: ajenda-ai
+      AJENDA_OPERATOR_MISSION_PROOF: "1"
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v7
@@ -81,8 +83,8 @@ jobs:
         if: always()
         run: |
           mkdir -p artifacts/live-runtime-proof
-          docker compose --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml ps > artifacts/live-runtime-proof/compose-ps.txt || true
-          docker compose --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml logs --no-color --tail=300 > artifacts/live-runtime-proof/compose-logs.txt || true
+          docker compose -p "$AJENDA_PROOF_COMPOSE_PROJECT_NAME" --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml ps > artifacts/live-runtime-proof/compose-ps.txt || true
+          docker compose -p "$AJENDA_PROOF_COMPOSE_PROJECT_NAME" --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml logs --no-color --tail=300 > artifacts/live-runtime-proof/compose-logs.txt || true
 
       - name: Upload diagnostics
         if: always()
@@ -94,4 +96,4 @@ jobs:
 
       - name: Stop compose stack
         if: always()
-        run: docker compose --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml down -v --remove-orphans
+        run: docker compose -p "$AJENDA_PROOF_COMPOSE_PROJECT_NAME" --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml down --remove-orphans
