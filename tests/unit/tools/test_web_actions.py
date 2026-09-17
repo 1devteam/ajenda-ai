@@ -167,3 +167,37 @@ def test_observe_contacts_promotes_external_directory_links_after_verification()
     assert promoted[0]["identity_status"] == "verified"
     assert promoted[0]["identity_evidence_urls"] == [directory.url, official.url]
     assert result.output["observed_contacts"][0]["website"] == official.url
+
+
+def test_observe_contacts_does_not_treat_known_listing_host_as_official() -> None:
+    from backend.services.tools.web_actions import research_observe_contacts
+
+    listing = PageSnapshot(
+        url="https://www.bestprosintown.com/tx/dallas/hvac/",
+        real=True,
+        status_code=200,
+        title="Best HVAC companies in Dallas",
+        text_preview="Airtron Heating and Air Conditioning",
+        body_preview="",
+        extraction={"links": []},
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.observe_contacts",
+        input={
+            "prospects": [
+                {
+                    "company": "Best HVAC companies in Dallas",
+                    "domain": "bestprosintown.com",
+                    "url": listing.url,
+                }
+            ],
+            "requested_quantity": 1,
+            "binding_required": True,
+        },
+    )
+    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=listing):
+        result = research_observe_contacts(invocation, _context())
+
+    assert result.output["prospect_candidates"][0]["identity_status"] == "unverified"
+    assert result.output["observed_contacts"] == []

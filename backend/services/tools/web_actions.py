@@ -32,6 +32,32 @@ from backend.services.tools.schemas import (
     WebPageReadInput,
 )
 
+# These hosts publish listings, reviews, or lead-generation pages.  A matching
+# industry/location title on one of them is evidence about a market, not proof
+# of an individual company's identity.  Keep this policy in the observer so
+# every public-search provider gets the same identity boundary.
+_DIRECTORY_HOST_MARKERS = (
+    "directory",
+    "angi.com",
+    "bestprosintown.com",
+    "bestpickreports.com",
+    "consumeraffairs.com",
+    "homeadvisor.com",
+    "houzz.com",
+    "thumbtack.com",
+    "yelp.",
+    "yellowpages",
+    "facebook.",
+    "linkedin.",
+    "instagram.",
+    "maps.",
+)
+
+
+def _is_directory_or_third_party_host(host: str) -> bool:
+    normalized = host.lower().removeprefix("www.").rstrip(".")
+    return any(marker in normalized for marker in _DIRECTORY_HOST_MARKERS)
+
 
 def web_page_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebPageReadInput.model_validate(invocation.input)
@@ -345,10 +371,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             and actual_host
             and (actual_host == expected_host or actual_host.endswith(f".{expected_host}"))
         )
-        directory_host = any(
-            marker in actual_host
-            for marker in ("directory", "yelp.", "yellowpages", "facebook.", "linkedin.", "instagram.", "maps.")
-        )
+        directory_host = _is_directory_or_third_party_host(actual_host)
         company_matches = bool(company_tokens) and any(token in page_text for token in company_tokens)
         identity_status = (
             "verified"
@@ -372,7 +395,12 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             # hosts and generic labels remain unresolved.
             links = snapshot.extraction.get("links", []) if isinstance(snapshot.extraction, dict) else []
             source_host = page_host(snapshot.url)
-            for link in links[:5] if isinstance(links, list) else []:
+            # Directory pages commonly place the actual company links after
+            # navigation and advertising links.  Inspect a bounded prefix of
+            # the extracted links; the global host cap still limits network
+            # work and prevents an untrusted page from turning this into a
+            # crawler.
+            for link in links[:25] if isinstance(links, list) else []:
                 if followed_directory_links >= limit * 3:
                     break
                 if not isinstance(link, dict):
@@ -385,18 +413,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                 if (
                     not linked_host
                     or linked_host == source_host
-                    or any(
-                        marker in linked_host
-                        for marker in (
-                            "directory",
-                            "yelp.",
-                            "yellowpages",
-                            "facebook.",
-                            "linkedin.",
-                            "instagram.",
-                            "maps.",
-                        )
-                    )
+                    or any(marker in linked_host for marker in _DIRECTORY_HOST_MARKERS)
                 ):
                     continue
                 if linked_host in followed_link_hosts:
