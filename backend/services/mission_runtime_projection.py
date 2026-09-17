@@ -183,6 +183,9 @@ def build_runtime_task_preview_items(*, mission_id: UUID, readiness: Any) -> lis
             deepcopy(raw_execution_constraints) if isinstance(raw_execution_constraints, dict) else {}
         )
         node_metadata = graph_node.get("metadata") if isinstance(graph_node.get("metadata"), dict) else {}
+        if node_metadata.get("materialization_role") == "intermediate":
+            expected_output_contract["materialization_role"] = "intermediate"
+            expected_output_contract["allow_empty"] = node_metadata.get("allow_empty") is True
         input_bindings = node_metadata.get("input_bindings") if isinstance(node_metadata, dict) else None
         payload_preview = {
             "mission_id": mission_id,

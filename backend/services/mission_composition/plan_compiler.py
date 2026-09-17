@@ -236,6 +236,20 @@ def compile_task_graph_preview(
             input_contract["credential_reference"] = dict(step.credential_reference)
         # Approval authority is issued only against a persisted, tenant-owned
         # task during human review, never while compiling this graph.
+        # Public discovery is a source stage when the composition also selected
+        # identity observation. Its raw hits must be handed to that downstream
+        # verifier even when none is verified yet; they are never a completed
+        # deliverable. The final typed artifact remains fail-closed.
+        intermediate_public_discovery = (
+            step.action_name == "web.research"
+            and bool(step.tool_input.get("include_public_search"))
+            and any(
+                item.action_name == "research.observe_contacts"
+                and any(binding.get("from_step") == step.step_key for binding in item.input_bindings)
+                for item in steps
+            )
+        )
+        output_contract: dict[str, Any] = {"artifact": step.output_contract}
         nodes.append(
             {
                 "node_key": step.step_key,
@@ -249,7 +263,7 @@ def compile_task_graph_preview(
                     "purpose": f"Composition-selected ability {step.action_name}.",
                 },
                 "input_contract": input_contract,
-                "output_contract": {"artifact": step.output_contract},
+                "output_contract": output_contract,
                 "metadata": {
                     "sequence": step.sequence,
                     "action": step.action_name,
@@ -258,6 +272,8 @@ def compile_task_graph_preview(
                     # Runtime binder (ToolRuntimeAuthority) consumes these under lease.
                     "input_bindings": list(step.input_bindings),
                     "output_contract": step.output_contract,
+                    "materialization_role": "intermediate" if intermediate_public_discovery else "terminal",
+                    "allow_empty": intermediate_public_discovery,
                 },
             }
         )

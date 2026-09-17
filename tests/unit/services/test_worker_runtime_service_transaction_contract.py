@@ -302,6 +302,44 @@ def test_complete_rejects_empty_declared_prospect_candidates() -> None:
     queue.complete_task.assert_not_called()
 
 
+def test_complete_allows_explicit_intermediate_public_discovery_payload() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=True)
+    task.metadata_json["expected_output_contract"] = {
+        "artifact": "prospect_candidates",
+        "materialization_role": "intermediate",
+        "allow_empty": True,
+    }
+    task.metadata_json["tool_invocation"] = {
+        "action": "web.research",
+        "input": {"include_public_search": True},
+    }
+
+    service.complete(
+        tenant_id=tenant_id,
+        lease_id=lease.id,
+        worker_id=worker_id,
+        task_output={
+            "handler": "artifact-test",
+            "status": "completed",
+            "output": {
+                "prospect_candidates": [
+                    {
+                        "company": "Directory listing",
+                        "website": "https://directory.example/hvac",
+                        "identity_status": "unverified",
+                        "real": False,
+                    }
+                ]
+            },
+        },
+    )
+
+    assert task.status == ExecutionTaskState.COMPLETED.value
+
+
 def test_complete_rejects_typed_declared_artifact_with_invalid_schema() -> None:
     service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
         status=ExecutionTaskState.RUNNING.value

@@ -361,6 +361,13 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         if not snapshot.real:
             unobserved.append({**page_record, "reason": snapshot.error or "page_fetch_failed"})
             continue
+        if identity_status != "verified":
+            # Directory pages may contain convincing contact data, but they do
+            # not establish which individual company that data belongs to.
+            # Preserve the page as evidence while refusing to promote contacts
+            # from an unresolved public identity.
+            unobserved.append({**page_record, "reason": "identity_unverified"})
+            continue
         haystack = " ".join(
             part
             for part in (snapshot.title, snapshot.text_preview, snapshot.body_preview)

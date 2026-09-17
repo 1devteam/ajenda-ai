@@ -32,7 +32,7 @@ def test_web_research_runs_without_external_plugins() -> None:
     assert result.output["domain"] is None
 
 
-def test_public_search_directory_hits_do_not_become_prospect_candidates(monkeypatch) -> None:
+def test_public_search_directory_hits_are_forwarded_only_to_observation(monkeypatch) -> None:
     from backend.services.tools import standalone_actions
 
     monkeypatch.setattr(
@@ -60,7 +60,8 @@ def test_public_search_directory_hits_do_not_become_prospect_candidates(monkeypa
         _context(),
     )
 
-    assert result.output["prospect_candidates"] == []
+    assert len(result.output["prospect_candidates"]) == 1
+    assert result.output["prospect_candidates"][0]["identity_status"] == "unverified"
     assert result.output["rejected_public_candidates"] == 1
     assert result.output["research_gap"] == "public search returned no verified individual company identities"
 

@@ -40,6 +40,13 @@ def materialized_artifact_for_task(task: ExecutionTask) -> MaterializedArtifact 
     artifact_key = declared_artifact_key(task)
     if artifact_key is None:
         return None
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    raw_contract = metadata.get("expected_output_contract")
+    if isinstance(raw_contract, dict) and raw_contract.get("materialization_role") == "intermediate":
+        # Intermediate source payloads feed downstream bindings only. Keeping
+        # them out of the deliverable read model prevents unverified public
+        # search rows from looking like completed prospects.
+        return None
     output = handler_output_for_task(task)
     if artifact_key not in output:
         return None

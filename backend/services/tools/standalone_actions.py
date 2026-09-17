@@ -399,6 +399,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
 
     prospect_candidates: list[dict[str, Any]] = []
     seen_companies: set[str] = set()
+    verified_public_candidate_count = 0
     candidate_records = (
         [
             record
@@ -451,7 +452,12 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             prospect = _prospect_from_web_result(item, index=index)
             if not _public_candidate_is_verified(prospect):
                 rejected_public_candidates += 1
-                continue
+                # Preserve the raw hit for the explicitly planned observation
+                # stage. It is source evidence, not a completed prospect; the
+                # intermediate output contract prevents it from materializing.
+                prospect["identity_status"] = "unverified"
+            else:
+                verified_public_candidate_count += 1
             key = prospect["company"].lower()
             if key in seen_companies:
                 continue
@@ -479,9 +485,10 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "web_results": web_results[: payload.limit],
         "web_result_count": len(web_results),
         "rejected_public_candidates": rejected_public_candidates,
+        "verified_public_candidate_count": verified_public_candidate_count,
         "research_gap": (
             "public search returned no verified individual company identities"
-            if payload.include_public_search and not prospect_candidates and web_results
+            if payload.include_public_search and verified_public_candidate_count == 0 and web_results
             else None
         ),
         "web_snippet": web_snippet,

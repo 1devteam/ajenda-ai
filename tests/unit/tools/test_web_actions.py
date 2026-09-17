@@ -123,3 +123,5 @@ def test_observe_contacts_marks_matching_site_verified_and_directory_unverified(
     assert observed["product_description"] == "Residential heating and cooling services."
     assert observed["research_summary"] == "Acme HVAC provides heating and cooling services."
     assert observed["sources"] == [matching.url]
+    assert all(item.get("company") != "Acme HVAC Directory" for item in result.output["observed_contacts"])
+    assert any(item.get("reason") == "identity_unverified" for item in result.output["unobserved"])

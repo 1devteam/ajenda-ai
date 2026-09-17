@@ -89,6 +89,22 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
     schema = ARTIFACT_SCHEMAS_BY_KEY.get(artifact_key)
     if schema is None:
         return
+    # A public discovery node can be explicitly marked as an intermediate
+    # source stage. Its payload is intentionally raw and may contain unresolved
+    # identities; research.observe_contacts owns verification before any
+    # terminal artifact is materialized. Never infer this from the action name.
+    if raw_contract.get("materialization_role") == "intermediate":
+        invocation = metadata.get("tool_invocation")
+        action = invocation.get("action") if isinstance(invocation, dict) else None
+        invocation_input = invocation.get("input") if isinstance(invocation, dict) else None
+        if (
+            raw_contract.get("allow_empty") is not True
+            or action != "web.research"
+            or not isinstance(invocation_input, dict)
+            or invocation_input.get("include_public_search") is not True
+        ):
+            raise ValueError("intermediate output contract is only permitted for public web discovery")
+        return
     errors = validate_artifact_payload(schema, raw_output[artifact_key])
     if errors:
         raise ValueError(f"declared artifact '{artifact_key}' failed schema validation: {'; '.join(errors)}")

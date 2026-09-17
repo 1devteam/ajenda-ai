@@ -53,6 +53,12 @@ def test_materialized_artifact_fails_closed_when_handler_output_does_not_name_de
     assert materialized_artifact_for_task(task) is None
 
 
+def test_intermediate_artifact_is_not_exposed_as_deliverable() -> None:
+    task = _task(artifact="prospect_candidates", payload=[{"identity_status": "unverified"}])
+    task.metadata_json["expected_output_contract"]["materialization_role"] = "intermediate"
+    assert materialized_artifact_for_task(task) is None
+
+
 def test_collect_materialized_artifacts_accumulates_distinct_sibling_outputs() -> None:
     qualified = _task(
         artifact="qualified_prospects",
