@@ -995,6 +995,40 @@ class MissionCompositionService:
                     if record.intelligence_envelope is not None
                     else None
                 ),
+                # These fields are part of the confirmed composition contract.
+                # Recompile is a refresh of the same mission meaning; it must not
+                # erase the acceptance, authority provenance, or fail-closed gaps
+                # that admission and worker rollup consume downstream.
+                "forbidden_actions": list(record.forbidden_actions),
+                "allowed_actions_provenance": record.allowed_actions_provenance.model_dump(mode="json"),
+                "missing_connections": list(record.missing_connections),
+                "composition_provenance": record.composition_provenance.model_dump(mode="json"),
+                "acceptance_contract": {
+                    "candidate_min": record.intent.requested_quantity
+                    if "research_prospects" in record.intent.requested_outcomes
+                    else 0,
+                    "qualified_min": record.intent.requested_quantity
+                    if "qualify_prospects" in record.intent.requested_outcomes
+                    else 0,
+                    "draft_min": record.intent.requested_quantity
+                    if "prepare_outreach" in record.intent.requested_outcomes
+                    else 0,
+                    "research_report_required": "synthesize_research_report"
+                    in record.intent.requested_outcomes,
+                    "market_opportunities_min": 3
+                    if "synthesize_research_report" in record.intent.requested_outcomes
+                    else 0,
+                    "internal_crm_records_min": record.intent.requested_quantity
+                    if "persist_internal_crm" in record.intent.requested_outcomes
+                    else 0,
+                    "internal_crm_opportunities_min": record.intent.requested_quantity
+                    if "persist_internal_crm" in record.intent.requested_outcomes
+                    else 0,
+                    "internal_crm_readback_required": "persist_internal_crm"
+                    in record.intent.requested_outcomes,
+                    "score_threshold_10": 7,
+                    "require_verified_identity": "qualify_prospects" in record.intent.requested_outcomes,
+                },
                 **(
                     {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: deliverable_runtime_state}
                     if deliverable_runtime_state is not None

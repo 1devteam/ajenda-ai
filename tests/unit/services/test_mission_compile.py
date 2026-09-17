@@ -163,6 +163,55 @@ def test_compile_persists_graph_and_refreshes_allowed_actions() -> None:
         assert (mat.get("graph_validation_result") or {}).get("summary", "").startswith("Server compile")
 
 
+def test_compile_preserves_downstream_acceptance_and_provenance_contract() -> None:
+    mission = _mission(objective="Find ten HVAC companies in Dallas, qualify them, and show each website and sources.")
+    tenant_id = mission.tenant_id
+    original_context = {
+        "composition": {
+            "acceptance_contract": {"candidate_min": 10, "require_verified_identity": True},
+            "forbidden_actions": ["gtm.email_send"],
+            "allowed_actions_provenance": {"source": "confirmed_composition"},
+            "missing_connections": [],
+            "composition_provenance": {"planner": "mission_composition_engine"},
+        }
+    }
+    mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["context"] = original_context
+    service = MissionCompositionService(db=MagicMock())
+
+    with (
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_cls,
+        patch("backend.services.mission_composition.service.MissionRepository") as mission_repo_cls,
+        patch("backend.services.mission_composition.service.MissionPlanRepository") as plan_repo_cls,
+    ):
+        profile_cls.return_value.get_active_profile_for_tenant.return_value = None
+        cred_cls.return_value.list_for_tenant.return_value = []
+        mission_repo_cls.return_value.get_for_tenant.return_value = mission
+        plan_repo_cls.return_value.create_or_get_active_for_mission.return_value = MissionPlan(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            status=MissionPlanStatus.DRAFT.value,
+            metadata_json={},
+        )
+
+        service.compile_for_mission(
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            persist=True,
+            actor_id="operator-1",
+        )
+
+    updated = mission_repo_cls.return_value.update_metadata.call_args.kwargs["metadata_json"]
+    composition = updated[MISSION_INTAKE_METADATA_KEY]["context"]["composition"]
+    assert isinstance(composition["forbidden_actions"], list)
+    assert isinstance(composition["allowed_actions_provenance"], dict)
+    assert isinstance(composition["missing_connections"], list)
+    assert isinstance(composition["composition_provenance"], dict)
+    assert composition["acceptance_contract"]["candidate_min"] == 10
+    assert composition["acceptance_contract"]["require_verified_identity"] is True
+
+
 def test_compile_supersedes_runtime_task_materialization_and_cancels_planned_tasks() -> None:
     """Recompile must not leave old planned ExecutionTasks queueable (Codex P1)."""
     planned_task_id = uuid.uuid4()

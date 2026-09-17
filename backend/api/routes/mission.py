@@ -2392,10 +2392,19 @@ def admit_mission_graph_to_runtime(
     if rejected_reviews:
         raise HTTPException(status_code=400, detail="rejected outcome review blocks runtime admission")
 
+    intake_for_graft = metadata.get(MISSION_INTAKE_METADATA_KEY)
+    intake_context = intake_for_graft.get("context") if isinstance(intake_for_graft, dict) else None
+    composition_for_graft = intake_context.get("composition") if isinstance(intake_context, dict) else None
+    compiled_instruction = (
+        composition_for_graft.get("instruction")
+        if isinstance(composition_for_graft, dict) and isinstance(composition_for_graft.get("instruction"), str)
+        else None
+    )
+    graft_instruction = (compiled_instruction or mission.objective or "").strip()
     graft_report = evaluate_admission_integrity(
         session=db,
         tenant_id=tenant_id_str,
-        instruction=mission.objective,
+        instruction=graft_instruction,
         task_graph=task_graph,
     )
     if graft_report["status"] != "clear":
