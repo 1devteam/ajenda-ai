@@ -245,8 +245,14 @@ def test_live_runtime_proof_workflow_writes_canonical_compose_env_file() -> None
     assert 'env_path = Path("deploy/compose/.env.prod")' in workflow
     assert LIVE_PROOF_REQUIRED_APP_ENV <= names
     assert "AJENDA_ENV=staging" in workflow
+    assert '"AJENDA_WORKER_TENANT_MODE=multi"' in workflow
     assert "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY" not in workflow
     assert not (names - _settings_env_aliases() - NON_SETTINGS_DEPLOYMENT_ENV)
+    for workflow_path in (
+        Path(".github/workflows/ci.yml"),
+        Path(".github/workflows/premerge-live-runtime-proof.yml"),
+    ):
+        assert '"AJENDA_WORKER_TENANT_MODE=multi"' in _read(workflow_path)
 
 
 def test_compose_and_live_proof_use_same_env_file_for_config_up_exec_down() -> None:
