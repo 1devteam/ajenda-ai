@@ -319,6 +319,7 @@ jobs:
                       "AJENDA_OIDC_ISSUER=http://localhost:8080/realms/ajenda",
                       "AJENDA_OIDC_AUDIENCE=ajenda-api",
                       "AJENDA_OIDC_JWKS_URI=http://localhost:8080/realms/ajenda/protocol/openid-connect/certs",
+                      "AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN=true",
                       f"AJENDA_WORKER_TENANT_ID={worker_tenant_id}",
                       "AJENDA_RATE_LIMIT_REQUESTS=10000",
                       "AJENDA_RATE_LIMIT_WINDOW_SECONDS=60",
