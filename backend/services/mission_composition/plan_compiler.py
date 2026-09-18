@@ -94,6 +94,19 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
     return f"$.input.context.{output_name}"
 
 
+def _dependency_output_name(*, dependency: BusinessJob, downstream_action: str) -> str:
+    """Choose the downstream-facing product when a job declares multiple outputs."""
+
+    if dependency.job_key == "research.observe_sources" and downstream_action in {
+        "sales.qualify",
+        "sales.score_lead",
+        "record.write",
+        "gtm.crm_upsert",
+    }:
+        return "observed_contacts"
+    return dependency.produced_outputs[0] if dependency.produced_outputs else "result"
+
+
 def compile_planned_steps(
     selections: list[AbilitySelection],
     *,
@@ -119,7 +132,9 @@ def compile_planned_steps(
                 depends_on.append(dep_step.step_key)
                 dep_job_spec = BUSINESS_JOBS_BY_KEY.get(dep_job)
                 output_name = (
-                    dep_job_spec.produced_outputs[0] if dep_job_spec and dep_job_spec.produced_outputs else "result"
+                    _dependency_output_name(dependency=dep_job_spec, downstream_action=selection.action_name)
+                    if dep_job_spec
+                    else "result"
                 )
                 input_path = _binding_input_path(action_name=selection.action_name, output_name=output_name)
                 if input_path is None:

@@ -16,10 +16,8 @@ from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.worker_lease import WorkerLease
-from backend.services.mission_composition.deliverable_runtime_artifacts import (
-    declared_artifact_key,
-    materialized_artifact_for_task,
-)
+from backend.services.mission_composition.deliverable_runtime_artifacts import declared_artifact_key
+from backend.services.tools.mission_input_binding import handler_output_for_task
 
 
 class RuntimeEvidenceNode(BaseModel):
@@ -279,7 +277,13 @@ def build_mission_runtime_evidence_projection(
             contradictions.append(f"task:{task_id}:completed_without_evidence")
 
         expected_artifact = declared_artifact_key(task)
-        if task.status == "completed" and expected_artifact and materialized_artifact_for_task(task) is None:
+        # Intermediate discovery rows can be intentionally filtered from the
+        # deliverable read model. Runtime evidence must still report the raw
+        # declared task output as present, otherwise a successful discovery
+        # task is falsely diagnosed as artifact loss.
+        task_output = handler_output_for_task(task)
+        has_declared_output = expected_artifact in task_output if expected_artifact else False
+        if task.status == "completed" and expected_artifact and not has_declared_output:
             missing.append(f"task:{task_id}:artifact:{expected_artifact}")
             contradictions.append(f"task:{task_id}:completed_without_artifact:{expected_artifact}")
 

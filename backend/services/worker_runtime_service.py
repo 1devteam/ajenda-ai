@@ -110,9 +110,11 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
         raise ValueError(f"declared artifact '{artifact_key}' failed schema validation: {'; '.join(errors)}")
 
 
-def _observe_acceptance_reasons(siblings: list[ExecutionTask]) -> list[str]:
+def _observe_acceptance_reasons(siblings: list[ExecutionTask], *, require_contacts: bool) -> list[str]:
     """Describe incomplete contact coverage without redefining execution success."""
 
+    if not require_contacts:
+        return []
     for item in siblings:
         if _task_action_name(item) != "research.observe_contacts":
             continue
@@ -550,8 +552,11 @@ class WorkerRuntimeService:
 
             # All graph tasks terminal.
             any_failed = any(item.status in failedish for item in siblings)
-            acceptance_reasons = _observe_acceptance_reasons(siblings)
             acceptance_contract = _mission_acceptance_contract(mission)
+            acceptance_reasons = _observe_acceptance_reasons(
+                siblings,
+                require_contacts=acceptance_contract.get("require_observed_contacts", True) is True,
+            )
             contract_met, contract_reasons = evaluate_mission_acceptance(
                 tasks=siblings,
                 contract=acceptance_contract,

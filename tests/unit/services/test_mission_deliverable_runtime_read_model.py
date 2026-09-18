@@ -102,6 +102,39 @@ def test_refresh_keeps_bound_field_missing_until_its_artifact_exists() -> None:
     assert state["completion"]["complete"] is False
 
 
+def test_refresh_requires_requested_row_count() -> None:
+    request = extract_deliverable_request("Return company name and website.")
+    assert request is not None
+    state = build_deliverable_runtime_state(request, minimum_rows=10)
+    assert state is not None
+    metadata = {"mission_intake": {"context": {"composition": {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: state}}}}
+    task = _task(
+        artifact="verified_prospect_candidates",
+        payload=[
+            {
+                "company": "One HVAC",
+                "real": True,
+                "identity_status": "verified",
+                "website": "https://example.com",
+                "product_description": "HVAC services",
+                "research_summary": "HVAC in Dallas",
+                "sources": ["https://example.com"],
+            }
+        ],
+        task_id="00000000-0000-0000-0000-000000000003",
+    )
+
+    updated, completion = refresh_deliverable_completion_metadata(metadata, [task])
+
+    assert updated
+    assert completion is not None
+    assert completion.complete is False
+    statuses = {field.field_key: field for field in completion.fields}
+    assert statuses["website"].status == "insufficient_rows"
+    assert statuses["website"].observed_rows == 1
+    assert statuses["website"].required_rows == 10
+
+
 def test_refresh_does_not_mutate_input_metadata() -> None:
     metadata = _metadata("Return drafts.")
     original_state = metadata["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]

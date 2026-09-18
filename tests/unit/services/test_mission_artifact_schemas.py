@@ -70,6 +70,7 @@ def test_artifact_schema_catalog_matches_job_outputs() -> None:
     assert tuple(ARTIFACT_SCHEMAS_BY_KEY) == (
         "prospect_candidates",
         "observed_contacts",
+        "verified_prospect_candidates",
         "qualified_prospects",
         "revenue_records",
     )

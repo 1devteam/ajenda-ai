@@ -383,11 +383,16 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     public_search_real = False
     side_effect = SideEffectClass.INTERNAL_READ
     public_query = (payload.query or "").strip()
+    public_search_limit = payload.limit
     if payload.include_public_search:
         side_effect = SideEffectClass.EXTERNAL_READ
+        # Public directories consume the first search slots. Overfetch a
+        # bounded candidate pool so identity observation can discard them and
+        # still reach the requested verified-company count.
+        public_search_limit = min(max(payload.limit * 3, payload.limit), 50)
         search_bundle = _fetch_duckduckgo_instant_answer(
             query=public_query,
-            limit=payload.limit,
+            limit=public_search_limit,
             timeout_seconds=payload.timeout_seconds,
         )
         raw_results = search_bundle.get("results") or []
@@ -463,7 +468,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                 continue
             seen_companies.add(key)
             prospect_candidates.append(prospect)
-            if len(prospect_candidates) >= payload.limit:
+            if len(prospect_candidates) >= public_search_limit:
                 break
     else:
         rejected_public_candidates = 0
@@ -482,7 +487,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "internal_records": internal_matches[: payload.limit],
         "internal_count": len(internal_matches),
         "crm_brain_matches": crm_search.results[: payload.limit],
-        "web_results": web_results[: payload.limit],
+        "web_results": web_results,
         "web_result_count": len(web_results),
         "rejected_public_candidates": rejected_public_candidates,
         "verified_public_candidate_count": verified_public_candidate_count,

@@ -116,3 +116,39 @@ def test_projection_names_declared_artifact_when_completed_output_is_missing() -
     assert projection.first_divergence == "task:artifact"
     assert f"task:{task.id}:artifact:observed_contacts" in projection.missing_evidence
     assert f"task:{task.id}:completed_without_artifact:observed_contacts" in projection.contradictions
+
+
+def test_projection_accepts_declared_intermediate_output_even_when_read_model_filters_it() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status="completed",
+        metadata={
+            "task_type": "tool.invoke",
+            "expected_output_contract": {
+                "artifact": "prospect_candidates",
+                "materialization_role": "intermediate",
+            },
+            "handler_result": {
+                "output": {"prospect_candidates": [{"company": "Directory result", "source": "public_search"}]}
+            },
+        },
+    )
+
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        mission_metadata={
+            "runtime_task_materialization": {"created_execution_task_ids": [str(task.id)]},
+            "runtime_queue_admission": {"admitted_execution_task_ids": [str(task.id)]},
+        },
+        tasks=[task],
+        leases=[],
+        lineage=[],
+        evidence=[],
+    )
+
+    assert f"task:{task.id}:artifact:prospect_candidates" not in projection.missing_evidence
+    assert f"task:{task.id}:completed_without_artifact:prospect_candidates" not in projection.contradictions

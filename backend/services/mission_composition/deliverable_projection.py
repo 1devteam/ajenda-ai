@@ -47,6 +47,7 @@ class DeliverableProjection(BaseModel):
     kind: Literal["revops_report"] = "revops_report"
     bindings: tuple[DeliverableFieldBinding, ...] = Field(default=(), max_length=30)
     request_unresolved_items: tuple[str, ...] = Field(default=(), max_length=30)
+    minimum_rows: int = Field(default=0, ge=0, le=1000)
     grants_execution_authority: Literal[False] = False
 
     @property
@@ -75,15 +76,21 @@ _WHOLE_ARTIFACT_BINDINGS: dict[DeliverableFieldKey, tuple[str, ...]] = {
 # Candidate artifacts indicate where a later typed artifact schema may prove a
 # subfield. Candidate status is not deliverable satisfaction.
 _CANDIDATE_ARTIFACTS: dict[DeliverableFieldKey, tuple[str, ...]] = {
-    "company_name": ("prospect_candidates", "observed_contacts", "qualified_prospects", "enriched_prospects"),
-    "website": ("prospect_candidates", "researched_prospects", "enriched_prospects"),
+    "company_name": (
+        "verified_prospect_candidates",
+        "prospect_candidates",
+        "observed_contacts",
+        "qualified_prospects",
+        "enriched_prospects",
+    ),
+    "website": ("verified_prospect_candidates", "prospect_candidates", "researched_prospects", "enriched_prospects"),
     "product_description": ("researched_prospects",),
     "qualification_evidence": ("qualified_prospects",),
     "qualification_reasons": ("qualified_prospects",),
     "ajenda_relevance": ("researched_prospects", "recommendation"),
     "qualification_score": ("qualified_prospects",),
-    "research_summary": ("researched_prospects",),
-    "sources": ("observed_contacts", "researched_prospects"),
+    "research_summary": ("verified_prospect_candidates", "prospect_candidates", "researched_prospects"),
+    "sources": ("verified_prospect_candidates", "observed_contacts", "researched_prospects"),
 }
 
 
@@ -113,12 +120,20 @@ def _typed_binding(
         matched_jobs.append(schema.producer_job)
     if not matched_artifacts:
         return None
+    # Prefer the terminal verified-company artifact when public research is in
+    # the graph. Raw discovery remains an input artifact, not the deliverable
+    # owner for overlapping fields.
+    priority = {"verified_prospect_candidates": 0, "prospect_candidates": 1}
+    ordered = sorted(
+        zip(matched_artifacts, matched_jobs, strict=True),
+        key=lambda item: priority.get(item[0], 2),
+    )
     return DeliverableFieldBinding(
         field_key=field_key,
         status="bound",
         basis="typed_artifact_field",
-        artifact_keys=tuple(matched_artifacts),
-        producer_jobs=tuple(dict.fromkeys(matched_jobs)),
+        artifact_keys=tuple(item[0] for item in ordered),
+        producer_jobs=tuple(dict.fromkeys(item[1] for item in ordered)),
     )
 
 
@@ -166,6 +181,7 @@ def project_deliverable_request(
     request: DeliverableRequest,
     *,
     know_how: VerticalKnowHowContract = REVOPS_V1_KNOW_HOW,
+    minimum_rows: int = 0,
 ) -> DeliverableProjection:
     """Describe artifact support for a typed request without claiming execution readiness."""
 
@@ -174,4 +190,5 @@ def project_deliverable_request(
     return DeliverableProjection(
         bindings=bindings,
         request_unresolved_items=request.unresolved_items,
+        minimum_rows=minimum_rows,
     )

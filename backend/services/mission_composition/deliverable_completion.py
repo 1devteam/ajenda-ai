@@ -18,7 +18,13 @@ from backend.services.mission_composition.artifact_schemas import (
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
 from backend.services.mission_composition.deliverable_projection import DeliverableProjection
 
-FieldCompletionStatus = Literal["satisfied", "missing_artifact", "invalid_artifact", "unproven"]
+FieldCompletionStatus = Literal[
+    "satisfied",
+    "missing_artifact",
+    "invalid_artifact",
+    "insufficient_rows",
+    "unproven",
+]
 
 
 class MaterializedArtifact(BaseModel):
@@ -50,6 +56,8 @@ class DeliverableFieldCompletion(BaseModel):
     field_key: DeliverableFieldKey
     status: FieldCompletionStatus
     artifact_keys: tuple[str, ...] = ()
+    observed_rows: int = 0
+    required_rows: int = 0
     grants_execution_authority: Literal[False] = False
 
 
@@ -154,6 +162,15 @@ def evaluate_deliverable_completion(
                 status = "missing_artifact"
             elif any(not validations[artifact.artifact_key].valid for artifact in present):
                 status = "invalid_artifact"
+            elif (
+                projection.minimum_rows
+                and max(
+                    (len(artifact.payload) for artifact in present if isinstance(artifact.payload, list)),
+                    default=0,
+                )
+                < projection.minimum_rows
+            ):
+                status = "insufficient_rows"
             elif any(_typed_field_has_value(artifact=artifact, field_key=binding.field_key) for artifact in present):
                 status = "satisfied"
             else:
@@ -166,6 +183,13 @@ def evaluate_deliverable_completion(
                 field_key=binding.field_key,
                 status=status,
                 artifact_keys=binding.artifact_keys,
+                observed_rows=max(
+                    (len(artifact.payload) for artifact in present if isinstance(artifact.payload, list)),
+                    default=0,
+                )
+                if binding.basis == "typed_artifact_field"
+                else 0,
+                required_rows=projection.minimum_rows,
             )
         )
 

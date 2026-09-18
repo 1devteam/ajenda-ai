@@ -78,6 +78,21 @@ OBSERVED_CONTACTS_SCHEMA = CompositionArtifactSchema(
     ),
 )
 
+VERIFIED_PROSPECT_CANDIDATES_SCHEMA = CompositionArtifactSchema(
+    artifact_key="verified_prospect_candidates",
+    producer_job="research.observe_sources",
+    fields=(
+        ArtifactFieldProjection(deliverable_field="website", json_path="$[].website", scope="per_item"),
+        ArtifactFieldProjection(
+            deliverable_field="product_description", json_path="$[].product_description", scope="per_item"
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="research_summary", json_path="$[].research_summary", scope="per_item"
+        ),
+        ArtifactFieldProjection(deliverable_field="sources", json_path="$[].sources", scope="per_item"),
+    ),
+)
+
 QUALIFIED_PROSPECTS_SCHEMA = CompositionArtifactSchema(
     artifact_key="qualified_prospects",
     producer_job="sales.qualify_prospects",
@@ -123,6 +138,7 @@ REVENUE_RECORDS_SCHEMA = CompositionArtifactSchema(
 ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     PROSPECT_CANDIDATES_SCHEMA.artifact_key: PROSPECT_CANDIDATES_SCHEMA,
     OBSERVED_CONTACTS_SCHEMA.artifact_key: OBSERVED_CONTACTS_SCHEMA,
+    VERIFIED_PROSPECT_CANDIDATES_SCHEMA.artifact_key: VERIFIED_PROSPECT_CANDIDATES_SCHEMA,
     QUALIFIED_PROSPECTS_SCHEMA.artifact_key: QUALIFIED_PROSPECTS_SCHEMA,
     REVENUE_RECORDS_SCHEMA.artifact_key: REVENUE_RECORDS_SCHEMA,
 }
@@ -168,6 +184,8 @@ def validate_artifact_payload(schema: CompositionArtifactSchema, payload: Any) -
                 errors.append(f"item {index} must be an object")
                 continue
             errors.extend(_public_prospect_errors(item, index))
+            if schema.artifact_key == "verified_prospect_candidates" and not str(item.get("company") or "").strip():
+                errors.append(f"item {index} missing required field: company")
             for field in per_item_fields:
                 path_field = _path_field(field.json_path)
                 if path_field is None:

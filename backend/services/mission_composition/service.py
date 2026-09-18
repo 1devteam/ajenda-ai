@@ -667,7 +667,10 @@ class MissionCompositionService:
         except QuotaExceededError as exc:
             raise MissionCompositionError(code="QUOTA_EXCEEDED", message=str(exc)) from exc
 
-        deliverable_runtime_state = build_deliverable_runtime_state(_runtime_deliverable_request(record.intent))
+        deliverable_runtime_state = build_deliverable_runtime_state(
+            _runtime_deliverable_request(record.intent),
+            minimum_rows=record.intent.requested_quantity or 0,
+        )
         intake = build_mission_intake_metadata(
             success_criteria=success_criteria,
             constraints=constraints,
@@ -721,6 +724,7 @@ class MissionCompositionService:
                         # add stricter scoring, but it must not be the first
                         # point at which raw search hits become unacceptable.
                         "require_verified_identity": "research_prospects" in record.intent.requested_outcomes,
+                        "require_observed_contacts": "observe_contacts" in record.intent.requested_outcomes,
                     },
                 }
             },
@@ -1011,7 +1015,10 @@ class MissionCompositionService:
             context = (
                 dict(intake_updated.get("context") or {}) if isinstance(intake_updated.get("context"), dict) else {}
             )
-            deliverable_runtime_state = build_deliverable_runtime_state(_runtime_deliverable_request(record.intent))
+            deliverable_runtime_state = build_deliverable_runtime_state(
+                _runtime_deliverable_request(record.intent),
+                minimum_rows=record.intent.requested_quantity or 0,
+            )
             context["composition"] = {
                 "proposal_id": record.proposal_id,
                 "schema_version": record.schema_version,

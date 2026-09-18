@@ -33,14 +33,18 @@ class DeliverableRuntimeState(BaseModel):
     grants_execution_authority: Literal[False] = False
 
 
-def build_deliverable_runtime_state(request: DeliverableRequest | None) -> dict[str, object] | None:
+def build_deliverable_runtime_state(
+    request: DeliverableRequest | None,
+    *,
+    minimum_rows: int = 0,
+) -> dict[str, object] | None:
     """Build JSON-safe durable state from the canonical interpreted request."""
 
     if request is None:
         return None
     state = DeliverableRuntimeState(
         request=request,
-        projection=project_deliverable_request(request),
+        projection=project_deliverable_request(request, minimum_rows=minimum_rows),
     )
     return state.model_dump(mode="json")
 

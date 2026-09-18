@@ -272,9 +272,10 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     followed_directory_links = 0
     followed_link_hosts: set[str] = set()
     limit = payload.requested_quantity
+    page_attempt_limit = min(max(limit * 3, limit), 50)
 
     for prospect in raw_prospects:
-        if len(pages) >= limit:
+        if len(pages) >= page_attempt_limit:
             break
         url = prospect_source_url(prospect)
         if payload.local_fixture_only:
@@ -495,6 +496,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     "research_summary": " ".join(
                         part for part in (linked_snapshot.title, linked_snapshot.text_preview) if isinstance(part, str)
                     )[:1000],
+                    "observed_contacts": [],
                 }
                 verified_prospect_candidates.append(candidate)
                 extracted = extract_observed_contacts(
@@ -506,37 +508,37 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     source_url=linked_snapshot.url,
                 )
                 for item in extracted:
-                    observed_contacts.append(
-                        {
-                            **item,
-                            "company": candidate["company"],
-                            "domain": linked_host,
-                            "website": linked_snapshot.url,
-                            "product_description": candidate.get("product_description", ""),
-                            "research_summary": candidate["research_summary"],
-                            "sources": candidate["sources"],
-                            "prospect_id": candidate.get("prospect_id"),
-                            "identity_status": "verified",
-                            "identity_evidence_urls": candidate["identity_evidence_urls"],
-                        }
-                    )
+                    contact = {
+                        **item,
+                        "company": candidate["company"],
+                        "domain": linked_host,
+                        "website": linked_snapshot.url,
+                        "product_description": candidate.get("product_description", ""),
+                        "research_summary": candidate["research_summary"],
+                        "sources": candidate["sources"],
+                        "prospect_id": candidate.get("prospect_id"),
+                        "identity_status": "verified",
+                        "identity_evidence_urls": candidate["identity_evidence_urls"],
+                    }
+                    observed_contacts.append(contact)
+                    candidate["observed_contacts"].append(contact)
                 if not extracted:
-                    observed_contacts.append(
-                        {
-                            "kind": None,
-                            "value": None,
-                            "source_url": linked_snapshot.url,
-                            "real": True,
-                            "company": candidate["company"],
-                            "domain": linked_host,
-                            "website": linked_snapshot.url,
-                            "research_summary": candidate["research_summary"],
-                            "sources": candidate["sources"],
-                            "prospect_id": candidate.get("prospect_id"),
-                            "identity_status": "verified",
-                            "identity_evidence_urls": candidate["identity_evidence_urls"],
-                        }
-                    )
+                    contact = {
+                        "kind": None,
+                        "value": None,
+                        "source_url": linked_snapshot.url,
+                        "real": True,
+                        "company": candidate["company"],
+                        "domain": linked_host,
+                        "website": linked_snapshot.url,
+                        "research_summary": candidate["research_summary"],
+                        "sources": candidate["sources"],
+                        "prospect_id": candidate.get("prospect_id"),
+                        "identity_status": "verified",
+                        "identity_evidence_urls": candidate["identity_evidence_urls"],
+                    }
+                    observed_contacts.append(contact)
+                    candidate["observed_contacts"].append(contact)
             unobserved.append({**page_record, "reason": "identity_unverified"})
             continue
         haystack = " ".join(
@@ -590,23 +592,38 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             product_description = ""
         website = str(prospect.get("website") or prospect.get("url") or snapshot.url or "").strip()
 
+        # A verified official page is itself a verified company artifact. It
+        # must be promoted even when the page exposes no phone or email.
+        verified_candidate = {
+            **prospect,
+            "website": website[:500],
+            "real": True,
+            "identity_status": "verified",
+            "identity_evidence_urls": page_record["identity_evidence_urls"],
+            "sources": sources,
+            "research_summary": research_summary.strip()[:1000],
+            "product_description": product_description.strip()[:1000],
+            "observed_contacts": [],
+        }
+        verified_prospect_candidates.append(verified_candidate)
+
         for item in extracted:
-            observed_contacts.append(
-                {
-                    **item,
-                    "company": prospect.get("company"),
-                    "domain": page_record["domain"],
-                    "website": website[:500],
-                    "product_description": product_description.strip()[:1000],
-                    "research_summary": research_summary.strip()[:1000],
-                    "sources": sources,
-                    "prospect_id": prospect.get("prospect_id"),
-                    "identity_status": identity_status,
-                    "identity_evidence_urls": page_record["identity_evidence_urls"],
-                    "contact_role_status": "verified" if prospect.get("role") else "unverified",
-                    "contact_role_evidence": "bound prospect role" if prospect.get("role") else None,
-                }
-            )
+            contact = {
+                **item,
+                "company": prospect.get("company"),
+                "domain": page_record["domain"],
+                "website": website[:500],
+                "product_description": product_description.strip()[:1000],
+                "research_summary": research_summary.strip()[:1000],
+                "sources": sources,
+                "prospect_id": prospect.get("prospect_id"),
+                "identity_status": identity_status,
+                "identity_evidence_urls": page_record["identity_evidence_urls"],
+                "contact_role_status": "verified" if prospect.get("role") else "unverified",
+                "contact_role_evidence": "bound prospect role" if prospect.get("role") else None,
+            }
+            observed_contacts.append(contact)
+            verified_candidate["observed_contacts"].append(contact)
 
     unique_urls_with_real = {str(item["source_url"]) for item in observed_contacts if item.get("real") is True}
     accept_met = len(unique_urls_with_real) >= limit
@@ -648,6 +665,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             "followed_count": followed_directory_links,
             "unique_hosts": len(followed_link_hosts),
             "max_followed": limit * 3,
+            "page_attempt_limit": page_attempt_limit,
         },
         "requested_quantity": limit,
         "accept_met": accept_met,

@@ -196,6 +196,8 @@ class RevOpsCompletionRead(BaseModel):
     artifact_complete: bool = False
     assembly_errors: tuple[str, ...] = ()
     complete: bool = False
+    observed_row_count: int = 0
+    required_row_count: int = 0
 
 
 class RevOpsMissionDeliverableRead(BaseModel):
@@ -292,12 +294,14 @@ def _completion_read(
     missing: list[DeliverableFieldKey] = []
     invalid: list[DeliverableFieldKey] = []
     unproven: list[DeliverableFieldKey] = []
+    observed_row_count = max((field.observed_rows for field in completion.fields), default=0)
+    required_row_count = max((field.required_rows for field in completion.fields), default=0)
     for field in completion.fields:
         if field.status == "satisfied":
             satisfied.append(field.field_key)
         elif field.status == "missing_artifact":
             missing.append(field.field_key)
-        elif field.status == "invalid_artifact":
+        elif field.status in {"invalid_artifact", "insufficient_rows"}:
             invalid.append(field.field_key)
         else:
             unproven.append(field.field_key)
@@ -312,6 +316,8 @@ def _completion_read(
         artifact_complete=completion.complete,
         assembly_errors=errors,
         complete=completion.complete and not errors,
+        observed_row_count=observed_row_count,
+        required_row_count=required_row_count,
     )
 
 
@@ -467,35 +473,47 @@ def _assemble_prospects(
     records: dict[str, dict[str, Any]] = {}
     companies: dict[str, set[str]] = defaultdict(set)
 
-    for row in _artifact_rows(artifacts, "prospect_candidates"):
-        record = _record_for_row(
-            row,
-            records=records,
-            companies=companies,
-            assembly_errors=assembly_errors,
-            artifact_key="prospect_candidates",
-        )
-        if record is None:
-            continue
-        identity = record["prospect_id"] or record["_identity_company"] or "unknown"
-        _set_scalar(
-            record,
-            field="company_name",
-            value=_nonempty_text(row.get("company") or row.get("company_name")),
-            identity=identity,
-            assembly_errors=assembly_errors,
-        )
-        for field in ("website", "product_description", "research_summary"):
+    for artifact_key in ("prospect_candidates", "verified_prospect_candidates"):
+        for row in _artifact_rows(artifacts, artifact_key):
+            record = _record_for_row(
+                row,
+                records=records,
+                companies=companies,
+                assembly_errors=assembly_errors,
+                artifact_key=artifact_key,
+            )
+            if record is None:
+                continue
+            identity = record["prospect_id"] or record["_identity_company"] or "unknown"
             _set_scalar(
                 record,
-                field=field,
-                value=_nonempty_text(row.get(field)),
+                field="company_name",
+                value=_nonempty_text(row.get("company") or row.get("company_name")),
                 identity=identity,
                 assembly_errors=assembly_errors,
             )
-        for source in _string_tuple(row.get("sources")):
-            if source not in record["sources"]:
-                record["sources"].append(source)
+            for field in ("website", "product_description", "research_summary"):
+                _set_scalar(
+                    record,
+                    field=field,
+                    value=_nonempty_text(row.get(field)),
+                    identity=identity,
+                    assembly_errors=assembly_errors,
+                )
+            for source in _string_tuple(row.get("sources")):
+                if source not in record["sources"]:
+                    record["sources"].append(source)
+            for raw_contact in row.get("observed_contacts", []):
+                if not isinstance(raw_contact, dict):
+                    continue
+                contact = RevOpsObservedContactRead(
+                    kind=_nonempty_text(raw_contact.get("kind")),
+                    value=_nonempty_text(raw_contact.get("value")),
+                    source_url=_nonempty_text(raw_contact.get("source_url")),
+                    real=raw_contact.get("real") is True,
+                )
+                if contact not in record["observed_contacts"]:
+                    record["observed_contacts"].append(contact)
 
     for row in _artifact_rows(artifacts, "observed_contacts"):
         record = _record_for_row(

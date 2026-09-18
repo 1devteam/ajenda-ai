@@ -30,7 +30,10 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         vertical_role="vertical.research",
         supported_outcomes=("observe_contacts",),
         required_inputs=("prospect_candidates",),
-        produced_outputs=("observed_contacts",),
+        # The verified company set is the terminal research artifact. Contact
+        # observations remain an additional output for missions that request
+        # them explicitly.
+        produced_outputs=("verified_prospect_candidates", "observed_contacts"),
         candidate_actions=("research.observe_contacts",),
         risk_level="low",
         maturity="runtime_bound",
