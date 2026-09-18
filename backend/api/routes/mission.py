@@ -2400,7 +2400,11 @@ def admit_mission_graph_to_runtime(
         if isinstance(composition_for_graft, dict) and isinstance(composition_for_graft.get("instruction"), str)
         else None
     )
-    graft_instruction = (compiled_instruction or mission.objective or "").strip()
+    # Mission objective is the server-normalized instruction.  The stored
+    # composition instruction preserves the raw operator text for provenance
+    # and may still contain harmless Markdown quote prefixes; feeding that raw
+    # copy to GRAFT would reject a mission that already compiled successfully.
+    graft_instruction = (mission.objective or compiled_instruction or "").strip()
     graft_report = evaluate_admission_integrity(
         session=db,
         tenant_id=tenant_id_str,

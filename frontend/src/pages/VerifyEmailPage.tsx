@@ -51,7 +51,7 @@ export default function VerifyEmailPage() {
     try {
       const response = await resendVerification(normalizedEmail);
       setEmail(response.email);
-      if (response.verification_code && import.meta.env.DEV) {
+      if (response.verification_code) {
         setCode(response.verification_code);
         setNotice(`Local staging verification code: ${response.verification_code}`);
       } else {

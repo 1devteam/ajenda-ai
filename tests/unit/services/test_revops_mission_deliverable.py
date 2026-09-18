@@ -223,6 +223,29 @@ def test_assembler_builds_complete_report_from_typed_runtime_artifacts() -> None
     assert report.evidence_references[0].evidence_id == evidence.id
 
 
+def test_assembler_projects_company_name_from_research_candidates() -> None:
+    mission = _mission("Return website, research summary, and sources.")
+    task = _task(
+        task_id=11,
+        artifact="prospect_candidates",
+        payload=[
+            {
+                "prospect_id": "prospect-research-1",
+                "company": "Research Only HVAC",
+                "website": "https://research-only.example",
+                "product_description": "HVAC services.",
+                "research_summary": "A research candidate.",
+                "sources": ["https://research-only.example"],
+            }
+        ],
+    )
+
+    report = assemble_revops_mission_deliverable(mission=mission, tasks=[task])
+
+    assert report.completion.complete is True
+    assert report.prospects[0].company_name == "Research Only HVAC"
+
+
 def test_task_success_does_not_make_partial_or_unproven_deliverable_complete() -> None:
     mission = _mission("Return company name, drafts, assumptions, and limitations.")
     qualified = _artifact_tasks()[2]

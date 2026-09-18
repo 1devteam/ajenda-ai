@@ -15,7 +15,7 @@ from backend.services.worker_runtime_service import WorkerRuntimeService
 def test_composition_owners_persist_canonical_deliverable_runtime_state() -> None:
     confirm_source = inspect.getsource(MissionCompositionService.confirm)
     recompile_source = inspect.getsource(MissionCompositionService.compile_for_mission)
-    canonical_builder = "build_deliverable_runtime_state(record.intent.deliverable_request)"
+    canonical_builder = "build_deliverable_runtime_state(_runtime_deliverable_request(record.intent))"
 
     assert canonical_builder in confirm_source
     assert "DELIVERABLE_RUNTIME_STATE_METADATA_KEY" in confirm_source

@@ -161,6 +161,14 @@ def test_compile_persists_graph_and_refreshes_allowed_actions() -> None:
         assert mat.get("materialization_status") == "validated"
         assert (mat.get("graph_validation_result") or {}).get("validation_status") == "valid"
         assert (mat.get("graph_validation_result") or {}).get("summary", "").startswith("Server compile")
+        composition = (intake.get("context") or {}).get("composition") or {}
+        runtime_state = composition.get("deliverable_runtime_state")
+        assert runtime_state is not None
+        assert [field["field_key"] for field in runtime_state["request"]["fields"]] == [
+            "website",
+            "research_summary",
+            "sources",
+        ]
 
 
 def test_compile_preserves_downstream_acceptance_and_provenance_contract() -> None:

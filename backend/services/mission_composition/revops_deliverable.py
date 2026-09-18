@@ -478,6 +478,13 @@ def _assemble_prospects(
         if record is None:
             continue
         identity = record["prospect_id"] or record["_identity_company"] or "unknown"
+        _set_scalar(
+            record,
+            field="company_name",
+            value=_nonempty_text(row.get("company") or row.get("company_name")),
+            identity=identity,
+            assembly_errors=assembly_errors,
+        )
         for field in ("website", "product_description", "research_summary"):
             _set_scalar(
                 record,

@@ -42,6 +42,10 @@ from backend.services.mission_composition.contracts import (
     MissionCompositionRecord,
     MissionIntent,
 )
+from backend.services.mission_composition.deliverable_contract import (
+    DeliverableFieldRequirement,
+    DeliverableRequest,
+)
 from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
     build_deliverable_runtime_state,
@@ -91,6 +95,30 @@ class MissionCompositionError(ValueError):
         self.code = code
         self.message = message
         super().__init__(message)
+
+
+def _runtime_deliverable_request(intent: MissionIntent) -> DeliverableRequest | None:
+    """Return the explicit request or the server-declared research artifact contract.
+
+    Short operator requests often name the research outcome without spelling out
+    a report field list.  The compiler already owns that outcome and its
+    ``prospect_candidates`` artifact, so it can persist the minimal typed read
+    model needed to display that artifact.  No rows are invented here; runtime
+    completion still validates the materialized payload against this contract.
+    """
+
+    if intent.deliverable_request is not None:
+        return intent.deliverable_request
+    if "research_prospects" not in intent.requested_outcomes:
+        return None
+    return DeliverableRequest(
+        scope="per_prospect",
+        fields=(
+            DeliverableFieldRequirement(field_key="website", source_text="website"),
+            DeliverableFieldRequirement(field_key="research_summary", source_text="research summary"),
+            DeliverableFieldRequirement(field_key="sources", source_text="sources"),
+        ),
+    )
 
 
 def _profile_context(profile: Any) -> dict[str, Any]:
@@ -639,7 +667,7 @@ class MissionCompositionService:
         except QuotaExceededError as exc:
             raise MissionCompositionError(code="QUOTA_EXCEEDED", message=str(exc)) from exc
 
-        deliverable_runtime_state = build_deliverable_runtime_state(record.intent.deliverable_request)
+        deliverable_runtime_state = build_deliverable_runtime_state(_runtime_deliverable_request(record.intent))
         intake = build_mission_intake_metadata(
             success_criteria=success_criteria,
             constraints=constraints,
@@ -979,7 +1007,7 @@ class MissionCompositionService:
             context = (
                 dict(intake_updated.get("context") or {}) if isinstance(intake_updated.get("context"), dict) else {}
             )
-            deliverable_runtime_state = build_deliverable_runtime_state(record.intent.deliverable_request)
+            deliverable_runtime_state = build_deliverable_runtime_state(_runtime_deliverable_request(record.intent))
             context["composition"] = {
                 "proposal_id": record.proposal_id,
                 "schema_version": record.schema_version,

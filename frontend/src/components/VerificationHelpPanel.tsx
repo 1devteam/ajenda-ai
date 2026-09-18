@@ -40,7 +40,11 @@ export default function VerificationHelpPanel({
     try {
       const response = await resendVerification(normalizedEmail);
       setEmail(response.email);
-      if (response.verification_code && import.meta.env.DEV) {
+      // The API controls whether a verification code is exposed.  When local
+      // or staging configuration intentionally exposes it, the production
+      // build must still render the returned code; hiding it behind Vite's
+      // DEV flag makes the account impossible to activate without email.
+      if (response.verification_code) {
         setCode(response.verification_code);
         setNotice("Local staging exposes the verification code below — no real email is required.");
       } else {
@@ -89,7 +93,7 @@ export default function VerificationHelpPanel({
 
       {notice ? <p className="muted">{notice}</p> : null}
 
-      {import.meta.env.DEV && code ? (
+      {code ? (
         <div className="callout">
           <p className="muted">
             Local staging verification code: <strong>{code}</strong>
