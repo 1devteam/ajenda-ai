@@ -87,7 +87,9 @@ Configurable inputs:
 | `AJENDA_PROOF_POLL_SECONDS` | `2` | Poll interval for retry loops |
 | `AJENDA_PROOF_CURL_CONNECT_TIMEOUT_SECONDS` | `5` | Curl connection timeout |
 | `AJENDA_PROOF_CURL_MAX_TIME_SECONDS` | `10` | Curl max request time |
-| `AJENDA_OPERATOR_MISSION_PROOF` | unset (`0`) | When `1`, run the real frontend → compose → confirm → launch → worker → deliverable HVAC proof |
+| `AJENDA_OPERATOR_MISSION_PROOF` | unset (`0`) | When `1`, run the real frontend → compose → confirm → launch → worker → deliverable operator proof |
+| `AJENDA_OPERATOR_PROOF_INSTRUCTION` | fixture research instruction | Operator instruction used by the proof; CI uses local fixture data for deterministic runtime coverage |
+| `AJENDA_OPERATOR_PROOF_EXPECTED_PROSPECT_COUNT` | `5` | Expected rows for the selected proof instruction |
 | `AJENDA_PROOF_FRONTEND_BASE_URL` | `http://localhost:8080` | Frontend base URL used by the operator mission proof |
 | `AJENDA_PROOF_PLUGIN_LANE_ENABLED` | unset (`0`) | When `1`, run optional plugin proof after the operator mission proof |
 | `AJENDA_PROOF_AUTONOMY_LANE` | unset (`0`) | When `1`, plugin script also runs informed-autonomy tier-3 queue proof |
@@ -109,11 +111,13 @@ When `AJENDA_PROOF_PLUGIN_LANE_ENABLED=1`, `live-runtime-proof.sh` delegates to 
 
 When `AJENDA_OPERATOR_MISSION_PROOF=1`, the proof runs
 `deploy/scripts/operator-mission-proof.py`. This is the staging operator proof:
-it uses onboarding and public HTTP APIs, requires a complete HVAC composition,
-confirms that confirmation does not queue work, launches once through the server
-authority, waits for the deployed worker, and requires exactly ten persisted,
-artifact-complete prospects. It is intentionally opt-in until a real public
-search provider is configured. The public identity path preserves raw directory
+it uses onboarding and public HTTP APIs, confirms that confirmation does not queue
+work, launches once through the server authority, waits for the deployed worker,
+and requires the configured number of persisted, artifact-complete prospects.
+The CI release gate selects a local-fixture instruction so the queue, lease,
+worker, evidence, and deliverable path is deterministic on a fresh tenant. A
+provider-backed HVAC proof remains a separate staging run and must configure a
+real public search provider. The public identity path preserves raw directory
 hits as intermediate evidence, extracts only bounded external HTTPS links, and
 promotes a company only after the linked page passes the existing host/name
 verification rule. A staging proof must also expose a verification code or

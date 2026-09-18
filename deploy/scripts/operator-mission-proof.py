@@ -20,7 +20,11 @@ API_BASE = os.environ.get("AJENDA_OPERATOR_PROOF_API_BASE_URL", "http://localhos
 FRONTEND_BASE = os.environ.get("AJENDA_OPERATOR_PROOF_FRONTEND_BASE_URL", "http://localhost:8080").rstrip("/")
 TIMEOUT_SECONDS = float(os.environ.get("AJENDA_OPERATOR_PROOF_TIMEOUT_SECONDS", "180"))
 POLL_SECONDS = float(os.environ.get("AJENDA_OPERATOR_PROOF_POLL_SECONDS", "3"))
-INSTRUCTION = "Find 10 HVAC companies in Dallas"
+INSTRUCTION = os.environ.get(
+    "AJENDA_OPERATOR_PROOF_INSTRUCTION",
+    "Find five software development companies in Austin using local fixture data only.",
+)
+EXPECTED_PROSPECT_COUNT = int(os.environ.get("AJENDA_OPERATOR_PROOF_EXPECTED_PROSPECT_COUNT", "5"))
 
 
 class ProofFailure(RuntimeError):
@@ -183,9 +187,10 @@ def main() -> int:
         raise ProofFailure(f"mission tasks did not all succeed: {task_state}")
     if completion.get("artifact_complete") is not True or completion.get("complete") is not True:
         raise ProofFailure(f"deliverable is incomplete: {completion}")
-    if not isinstance(prospects, list) or len(prospects) != 10:
+    if not isinstance(prospects, list) or len(prospects) != EXPECTED_PROSPECT_COUNT:
         raise ProofFailure(
-            f"expected exactly 10 persisted prospects, got {len(prospects) if isinstance(prospects, list) else prospects}"
+            f"expected exactly {EXPECTED_PROSPECT_COUNT} persisted prospects, "
+            f"got {len(prospects) if isinstance(prospects, list) else prospects}"
         )
     if any(not isinstance(row, dict) or not row.get("company_name") or not row.get("website") for row in prospects):
         raise ProofFailure("one or more prospects lacks a company name or website")
