@@ -19,4 +19,5 @@ def test_observe_contacts_uses_fixture_without_network() -> None:
     )
     assert result.output["accept_met"] is True
     assert result.output["observed_contacts"][0]["via"] == "local_fixture"
+    assert result.output["verified_prospect_candidates"][0]["identity_status"] == "verified"
     assert result.output["pages"][0]["url"].startswith("fixture://")

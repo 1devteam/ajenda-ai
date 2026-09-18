@@ -716,7 +716,11 @@ class MissionCompositionService:
                         else 0,
                         "internal_crm_readback_required": "persist_internal_crm" in record.intent.requested_outcomes,
                         "score_threshold_10": 7,
-                        "require_verified_identity": "qualify_prospects" in record.intent.requested_outcomes,
+                        # Public research is not complete until the observation
+                        # stage promotes verified identities. Qualification may
+                        # add stricter scoring, but it must not be the first
+                        # point at which raw search hits become unacceptable.
+                        "require_verified_identity": "research_prospects" in record.intent.requested_outcomes,
                     },
                 }
             },
@@ -1053,7 +1057,7 @@ class MissionCompositionService:
                     else 0,
                     "internal_crm_readback_required": "persist_internal_crm" in record.intent.requested_outcomes,
                     "score_threshold_10": 7,
-                    "require_verified_identity": "qualify_prospects" in record.intent.requested_outcomes,
+                    "require_verified_identity": "research_prospects" in record.intent.requested_outcomes,
                 },
                 **(
                     {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: deliverable_runtime_state}

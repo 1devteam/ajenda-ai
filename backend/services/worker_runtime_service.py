@@ -589,7 +589,11 @@ class WorkerRuntimeService:
             # Mission state reports runtime execution. Deliverable quality is
             # recorded independently above so partial evidence does not erase a
             # successfully executed, persisted, and read-back-verified result.
-            target = MissionState.FAILED if any_failed else MissionState.COMPLETED
+            # Terminal task execution is not mission success. A mission whose
+            # acceptance or deliverable contract is unmet must remain visibly
+            # failed so callers cannot mistake raw/intermediate output for a
+            # valid product result.
+            target = MissionState.FAILED if any_failed or not acceptance_met else MissionState.COMPLETED
             if mission.status != MissionState.RUNNING.value:
                 # Hop through running when coming from planned/queued so state machine stays honest.
                 if mission.status in {

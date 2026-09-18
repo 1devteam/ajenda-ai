@@ -320,6 +320,20 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     "identity_evidence_urls": [],
                 }
             )
+            # Local fixtures are authoritative test data. Promote the
+            # observed fixture company into the same verified identity stream
+            # used by public research so acceptance never depends on the raw
+            # discovery payload.
+            verified_prospect_candidates.append(
+                {
+                    **prospect,
+                    "real": True,
+                    "source": "local_fixture",
+                    "identity_status": "verified",
+                    "identity_evidence_urls": [],
+                    "sources": prospect.get("sources") if isinstance(prospect.get("sources"), list) else [],
+                }
+            )
             for item in fixture_contacts:
                 observed_contacts.append(
                     {

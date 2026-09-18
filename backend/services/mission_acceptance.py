@@ -60,13 +60,18 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
             reports.append(report)
 
     candidate_min = int(contract.get("candidate_min", 0) or 0)
-    if len(candidates) < candidate_min:
-        reasons.append(f"required at least {candidate_min} prospect candidates, produced {len(candidates)}")
-
     if contract.get("require_verified_identity"):
-        verified = [item for item in candidates if item.get("identity_status") == "verified"]
+        # A public discovery row is only an input to identity observation. It
+        # must never satisfy the terminal candidate count by itself. Prefer the
+        # observation-stage promotion list and fall back to explicitly verified
+        # rows for internal/legacy producers.
+        verified = [item for item in observed_candidates if item.get("identity_status") == "verified"]
+        if not verified:
+            verified = [item for item in candidates if item.get("identity_status") == "verified"]
         if len(verified) < candidate_min:
             reasons.append(f"required {candidate_min} verified prospect identities, produced {len(verified)}")
+    elif len(candidates) < candidate_min:
+        reasons.append(f"required at least {candidate_min} prospect candidates, produced {len(candidates)}")
 
     qualified_min = int(contract.get("qualified_min", 0) or 0)
     threshold = int(contract.get("score_threshold_10", 7) or 7)
