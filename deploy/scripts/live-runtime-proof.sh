@@ -11,6 +11,9 @@ TIMEOUT_SECONDS="${AJENDA_PROOF_TIMEOUT_SECONDS:-90}"
 POLL_SECONDS="${AJENDA_PROOF_POLL_SECONDS:-2}"
 CURL_CONNECT_TIMEOUT_SECONDS="${AJENDA_PROOF_CURL_CONNECT_TIMEOUT_SECONDS:-5}"
 CURL_MAX_TIME_SECONDS="${AJENDA_PROOF_CURL_MAX_TIME_SECONDS:-10}"
+GRAFT_IMPACT_REPORT="${AJENDA_PROOF_GRAFT_IMPACT_REPORT:-/tmp/ajenda-graph-impact-report.json}"
+GRAFT_RUNTIME_EVIDENCE="${AJENDA_PROOF_GRAFT_RUNTIME_EVIDENCE:-/tmp/ajenda-runtime-evidence.json}"
+GRAFT_RUNTIME_IMPACT="${AJENDA_PROOF_GRAFT_RUNTIME_IMPACT:-/tmp/ajenda-graph-runtime-impact.json}"
 
 log() {
   printf '[live-runtime-proof] %s\n' "$*"
@@ -141,6 +144,13 @@ compose exec -T db pg_isready -U ajenda -d ajenda >/dev/null
 log "checking redis ping"
 compose exec -T redis redis-cli PING | grep -q '^PONG$'
 
+log "building static GRAFT impact snapshot"
+python scripts/validation/graph_impact_analysis.py \
+  --base-ref "${AJENDA_PROOF_GRAFT_BASE_REF:-HEAD^}" \
+  --head-ref "${AJENDA_PROOF_GRAFT_HEAD_REF:-HEAD}" \
+  --json \
+  --output "$GRAFT_IMPACT_REPORT" >/dev/null
+
 if [[ "${AJENDA_OPERATOR_MISSION_PROOF:-0}" != "1" ]]; then
   fail "operator mission proof is required; set AJENDA_OPERATOR_MISSION_PROOF=1"
 fi
@@ -148,7 +158,14 @@ fi
 log "running operator mission proof through frontend and public APIs"
 AJENDA_OPERATOR_PROOF_API_BASE_URL="$API_BASE_URL" \
   AJENDA_OPERATOR_PROOF_FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:8080}" \
+  AJENDA_OPERATOR_PROOF_RUNTIME_EVIDENCE_OUTPUT="$GRAFT_RUNTIME_EVIDENCE" \
   python deploy/scripts/operator-mission-proof.py
+
+log "joining static GRAFT impact with runtime mission evidence"
+python scripts/validation/graph_runtime_impact.py \
+  --impact-report "$GRAFT_IMPACT_REPORT" \
+  --runtime-evidence "$GRAFT_RUNTIME_EVIDENCE" \
+  --output "$GRAFT_RUNTIME_IMPACT"
 
 log "checking live observability metrics"
 metrics_body="$(curl_body "$API_BASE_URL/v1/observability/metrics")"

@@ -118,8 +118,12 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     assert "AJENDA_OPERATOR_MISSION_PROOF" in script
     assert "AJENDA_OPERATOR_MISSION_PROOF" in script
     assert "operator mission proof is required" in script
+    assert "graph_impact_analysis.py" in script
+    assert "graph_runtime_impact.py" in script
+    assert "AJENDA_PROOF_GRAFT_RUNTIME_IMPACT" in script
     assert "ExecutionCoordinator" not in script
     assert "tool_invoke_handler" not in script
+    assert "AJENDA_OPERATOR_PROOF_RUNTIME_EVIDENCE_OUTPUT" in script
     assert "brain-capstone-runtime-proof.py" not in script
     assert "gtm.lead_enrich" not in script
 

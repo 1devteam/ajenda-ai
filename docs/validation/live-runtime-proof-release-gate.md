@@ -91,6 +91,8 @@ Configurable inputs:
 | `AJENDA_OPERATOR_PROOF_INSTRUCTION` | fixture research instruction | Operator instruction used by the proof; CI uses local fixture data for deterministic runtime coverage |
 | `AJENDA_OPERATOR_PROOF_EXPECTED_PROSPECT_COUNT` | `5` | Expected rows for the selected proof instruction |
 | `AJENDA_PROOF_FRONTEND_BASE_URL` | `http://localhost:8080` | Frontend base URL used by the operator mission proof |
+| `AJENDA_PROOF_GRAFT_BASE_REF` / `AJENDA_PROOF_GRAFT_HEAD_REF` | `HEAD^` / `HEAD` | Git refs used to build the static GRAFT impact snapshot |
+| `AJENDA_PROOF_GRAFT_RUNTIME_IMPACT` | `/tmp/ajenda-graph-runtime-impact.json` | Joined static/runtime GRAFT artifact produced by the proof |
 | `AJENDA_PROOF_PLUGIN_LANE_ENABLED` | unset (`0`) | When `1`, run optional plugin proof after the operator mission proof |
 | `AJENDA_PROOF_AUTONOMY_LANE` | unset (`0`) | When `1`, plugin script also runs informed-autonomy tier-3 queue proof |
 | `AJENDA_E2E_HUBSPOT_PAK` | unset | HubSpot bearer/PAK for live CRM plugin lane |
@@ -123,6 +125,11 @@ promotes a company only after the linked page passes the existing host/name
 verification rule. A staging proof must also expose a verification code or
 provide a test mailbox delivery path; production email verification remains
 private.
+
+The live proof also writes the mission runtime-evidence response and joins it
+with the static impact snapshot using
+`graph_runtime_impact.py`. The joined artifact is diagnostic evidence only; it
+does not grant execution authority or decide whether a repair is authorized.
 
 ---
 
