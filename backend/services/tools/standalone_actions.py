@@ -388,19 +388,49 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         side_effect = SideEffectClass.EXTERNAL_READ
         # Public directories consume the first search slots. Overfetch a
         # bounded candidate pool so identity observation can discard them and
-        # still reach the requested verified-company count.
+        # still reach the requested verified-company count. Use a small set of
+        # deterministic query variants so a directory-heavy first result page
+        # does not become the entire candidate universe.
         public_search_limit = min(max(payload.limit * 3, payload.limit), 50)
-        search_bundle = _fetch_duckduckgo_instant_answer(
-            query=public_query,
-            limit=public_search_limit,
-            timeout_seconds=payload.timeout_seconds,
+        query_variants = tuple(
+            dict.fromkeys(
+                query
+                for query in (
+                    public_query,
+                    f"{public_query} official website",
+                    f"{public_query} local contractor",
+                )
+                if query.strip()
+            )
         )
-        raw_results = search_bundle.get("results") or []
-        if isinstance(raw_results, list):
-            web_results = [item for item in raw_results if isinstance(item, dict)]
-        public_search_real = bool(search_bundle.get("real"))
-        err = search_bundle.get("error")
-        search_error = str(err) if err else None
+        seen_result_urls: set[str] = set()
+        search_errors: list[str] = []
+        for query_variant in query_variants:
+            search_bundle = _fetch_duckduckgo_instant_answer(
+                query=query_variant,
+                limit=public_search_limit,
+                timeout_seconds=payload.timeout_seconds,
+            )
+            raw_results = search_bundle.get("results") or []
+            if isinstance(raw_results, list):
+                for item in raw_results:
+                    if not isinstance(item, dict):
+                        continue
+                    result_url = str(item.get("url") or item.get("FirstURL") or "").strip()
+                    if result_url and result_url in seen_result_urls:
+                        continue
+                    if result_url:
+                        seen_result_urls.add(result_url)
+                    web_results.append(item)
+                    if len(web_results) >= public_search_limit:
+                        break
+            public_search_real = public_search_real or bool(search_bundle.get("real"))
+            err = search_bundle.get("error")
+            if err:
+                search_errors.append(str(err))
+            if len(web_results) >= public_search_limit:
+                break
+        search_error = "; ".join(dict.fromkeys(search_errors)) or None
 
     prospect_candidates: list[dict[str, Any]] = []
     seen_companies: set[str] = set()
@@ -489,6 +519,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "crm_brain_matches": crm_search.results[: payload.limit],
         "web_results": web_results,
         "web_result_count": len(web_results),
+        "search_queries": list(query_variants) if payload.include_public_search else [],
         "rejected_public_candidates": rejected_public_candidates,
         "verified_public_candidate_count": verified_public_candidate_count,
         "research_gap": (

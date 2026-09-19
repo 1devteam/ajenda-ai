@@ -311,6 +311,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     page_attempt_limit = min(max(limit * 3, limit), 50)
 
     for prospect in raw_prospects:
+        if len(verified_prospect_candidates) >= limit:
+            break
         if len(pages) >= page_attempt_limit:
             break
         url = prospect_source_url(prospect)
@@ -474,7 +476,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             # the extracted links; the global host cap still limits network
             # work and prevents an untrusted page from turning this into a
             # crawler.
-            for link in links[:25] if isinstance(links, list) else []:
+            for link in links[:50] if isinstance(links, list) else []:
                 if followed_directory_links >= limit * 3:
                     break
                 if not isinstance(link, dict):
@@ -494,13 +496,6 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     continue
                 followed_link_hosts.add(linked_host)
                 followed_directory_links += 1
-                tokens = [
-                    token.lower()
-                    for token in re.findall(r"[a-z0-9]{3,}", label)
-                    if token.lower() not in {"the", "and", "inc", "llc", "company", "companies", "website"}
-                ]
-                if not tokens:
-                    continue
                 linked_snapshot = fetch_public_page(
                     url_or_domain=linked_url,
                     timeout_seconds=payload.timeout_seconds,
@@ -513,16 +508,42 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     if isinstance(part, str)
                 ).lower()
                 linked_actual_host = page_host(linked_snapshot.url)
+                linked_title = str(linked_snapshot.title or "").strip()
+                generic_link_label = label.lower() in {
+                    "website",
+                    "visit website",
+                    "learn more",
+                    "view website",
+                    "view profile",
+                    "get details",
+                    "read more",
+                }
+                identity_label = linked_title if generic_link_label and linked_title else label
+                tokens = [
+                    token.lower()
+                    for token in re.findall(r"[a-z0-9]{3,}", identity_label)
+                    if token.lower() not in {"the", "and", "inc", "llc", "company", "companies", "website", "home"}
+                ]
+                host_tokens = _host_identity_tokens(linked_actual_host)
+                identity_text_match = bool(tokens) and any(token in linked_text for token in tokens)
+                host_text_match = bool(host_tokens) and any(token in linked_text for token in host_tokens)
+                industry_text_match = any(
+                    marker in linked_text for marker in ("hvac", "heating", "cooling", "air conditioning", "furnace")
+                )
+                locality_text_match = any(marker in linked_text for marker in ("dallas", "dfw", "texas", " tx "))
                 if (
                     not linked_snapshot.real
                     or linked_actual_host != linked_host
-                    or not all(token in linked_text for token in tokens)
+                    or not industry_text_match
+                    or not locality_text_match
+                    or not (identity_text_match or host_text_match)
                 ):
                     continue
+                company_label = identity_label[:240] or linked_host
                 candidate = {
                     **prospect,
                     "prospect_id": f"web:resolved:{linked_host}",
-                    "company": label[:240],
+                    "company": company_label,
                     "domain": linked_host,
                     "website": linked_snapshot.url,
                     "url": linked_snapshot.url,
@@ -577,6 +598,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     }
                     observed_contacts.append(contact)
                     candidate["observed_contacts"].append(contact)
+                if len(verified_prospect_candidates) >= limit:
+                    break
             unobserved.append({**page_record, "reason": "identity_unverified"})
             continue
         haystack = " ".join(
@@ -641,6 +664,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                         "identity_evidence_urls": page_record["identity_evidence_urls"],
                     }
                 )
+                if len(verified_prospect_candidates) >= limit:
+                    break
             else:
                 unobserved.append({**page_record, "reason": "no_contact_on_page"})
             continue
@@ -691,6 +716,12 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             }
             observed_contacts.append(contact)
             verified_candidate["observed_contacts"].append(contact)
+
+        if len(verified_prospect_candidates) >= limit:
+            # The requested quantity is a terminal artifact cardinality. Keep
+            # the raw page evidence collected so far, but do not promote extra
+            # verified rows beyond the operator's requested count.
+            break
 
     unique_urls_with_real = {str(item["source_url"]) for item in observed_contacts if item.get("real") is True}
     accept_met = len(unique_urls_with_real) >= limit

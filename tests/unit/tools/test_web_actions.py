@@ -169,6 +169,42 @@ def test_observe_contacts_promotes_external_directory_links_after_verification()
     assert result.output["observed_contacts"][0]["website"] == official.url
 
 
+def test_observe_contacts_uses_linked_title_when_directory_label_is_generic() -> None:
+    from backend.services.tools.web_actions import research_observe_contacts
+
+    directory = PageSnapshot(
+        url="https://directory.example/hvac",
+        real=True,
+        status_code=200,
+        title="Dallas HVAC directory",
+        text_preview="Browse local HVAC companies in Dallas.",
+        body_preview="",
+        extraction={"links": [{"url": "https://cool.example/", "text": "Visit website"}]},
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    official = PageSnapshot(
+        url="https://cool.example/",
+        real=True,
+        status_code=200,
+        title="Cool Air Heating",
+        text_preview="Cool Air Heating provides HVAC and air conditioning services in Dallas, Texas.",
+        body_preview="",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.observe_contacts",
+        input={
+            "prospects": [{"company": "Dallas HVAC directory", "domain": "directory.example", "url": directory.url}],
+            "requested_quantity": 1,
+            "binding_required": True,
+        },
+    )
+    with patch("backend.services.tools.web_actions.fetch_public_page", side_effect=[directory, official]):
+        result = research_observe_contacts(invocation, _context())
+
+    assert result.output["verified_prospect_candidates"][0]["company"] == "Cool Air Heating"
+
+
 def test_observe_contacts_keeps_verified_company_without_contact_details() -> None:
     from backend.services.tools.web_actions import research_observe_contacts
 
