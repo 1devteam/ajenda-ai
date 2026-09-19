@@ -154,6 +154,28 @@ The report includes:
 - relevant invariants,
 - risk domains.
 
+## Static/runtime impact artifact
+
+Static impact describes what a change can reach in the declared repository
+graph. The mission runtime evidence projection describes what one tenant
+mission actually selected and executed. Keep those facts separate, then join
+them for review with:
+
+`python scripts/validation/graph_runtime_impact.py --impact-report artifacts/graph-impact-report.json --runtime-evidence <mission-runtime-evidence.json> --output artifacts/graph-runtime-impact.json`
+
+The joined artifact exposes, with source provenance:
+
+- static affected nodes and impacted tests;
+- runtime-observed task nodes;
+- selected runtime nodes with no observed task flow;
+- runtime contradictions and missing evidence;
+- unknowns caused by an absent snapshot.
+
+It is read-only and grants no execution authority. It does not produce
+applicability, repair, or safety decisions; those remain evaluator work. A
+runtime evidence snapshot can be obtained from the tenant-scoped
+`GET /v1/missions/{id}/runtime-evidence` endpoint.
+
 Migrations, database tables, egress sinks, and state resources participate in the same traversal as runtime/security/external nodes. A migration that changes a tenant table can therefore reach the tenant DB boundary and select the tenant-isolation invariant instead of remaining an unmapped file.
 
 ## Proof selection
