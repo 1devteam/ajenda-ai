@@ -253,3 +253,71 @@ def test_observe_contacts_does_not_treat_known_listing_host_as_official() -> Non
 
     assert result.output["prospect_candidates"][0]["identity_status"] == "unverified"
     assert result.output["observed_contacts"] == []
+
+
+def test_observe_contacts_rejects_marketplace_page_even_when_host_matches() -> None:
+    from backend.services.tools.web_actions import research_observe_contacts
+
+    marketplace = PageSnapshot(
+        url="https://downtobid.com/contractors/hvac/dallas",
+        real=True,
+        status_code=200,
+        title="15 Best Commercial HVAC Contractors Dallas, TX",
+        text_preview="Find and invite the best commercial HVAC contractors in Dallas. Access our contractor database.",
+        body_preview="Browse contractors and submit bid requests.",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.observe_contacts",
+        input={
+            "prospects": [
+                {
+                    "company": "15 Best Commercial HVAC Contractors Dallas, TX",
+                    "domain": "downtobid.com",
+                    "url": marketplace.url,
+                }
+            ],
+            "requested_quantity": 1,
+            "binding_required": True,
+        },
+    )
+    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=marketplace):
+        result = research_observe_contacts(invocation, _context())
+
+    page = result.output["pages"][0]
+    assert page["identity_status"] == "unverified"
+    assert page["source_reliability"] == "directory_or_third_party"
+    assert result.output["verified_prospect_candidates"] == []
+
+
+def test_observe_contacts_normalizes_company_name_when_domain_proves_identity() -> None:
+    from backend.services.tools.web_actions import research_observe_contacts
+
+    official = PageSnapshot(
+        url="https://tomscommercial.com/areas-we-serve/dallas",
+        real=True,
+        status_code=200,
+        title="Commercial HVAC Services in Dallas, TX",
+        text_preview="Tom's Commercial, Inc. provides commercial heating and air conditioning services in Dallas, Texas.",
+        body_preview="",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.observe_contacts",
+        input={
+            "prospects": [
+                {
+                    "company": "Commercial HVAC Services in Dallas, TX",
+                    "domain": "tomscommercial.com",
+                    "url": official.url,
+                }
+            ],
+            "requested_quantity": 1,
+            "binding_required": True,
+        },
+    )
+    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=official):
+        result = research_observe_contacts(invocation, _context())
+
+    assert result.output["pages"][0]["identity_status"] == "verified"
+    assert result.output["verified_prospect_candidates"][0]["identity_status"] == "verified"

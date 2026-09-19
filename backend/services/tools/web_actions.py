@@ -53,6 +53,26 @@ _DIRECTORY_HOST_MARKERS = (
     "linkedin.",
     "instagram.",
     "maps.",
+    "angi.",
+    "bestpickreports.",
+    "downtobid.",
+    "ensun.",
+    "hvacservice.io",
+    "indeed.",
+    "myhomepros.",
+    "reddit.",
+)
+
+_DIRECTORY_PAGE_MARKERS = (
+    "contractor database",
+    "find and invite",
+    "find local pros",
+    "join as a pro",
+    "jobs, employment",
+    "browse contractors",
+    "search results",
+    "request a quote from",
+    "top 10 best",
 )
 
 
@@ -61,11 +81,27 @@ def _is_directory_or_third_party_host(host: str) -> bool:
     return any(marker in normalized for marker in _DIRECTORY_HOST_MARKERS)
 
 
-def _host_identity_tokens(host: str) -> list[str]:
-    label = host.lower().removeprefix("www.").split(".", 1)[0]
+def _is_directory_or_third_party_page(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text.lower())
+    return any(marker in normalized for marker in _DIRECTORY_PAGE_MARKERS)
+
+
+def _identity_tokens(value: str) -> list[str]:
     return [
         token
-        for token in re.findall(r"[a-z0-9]{4,}", re.sub(r"([a-z])([A-Z])", r"\1 \2", label))
+        for token in re.findall(r"[a-z0-9]{3,}", value.lower().replace("'", ""))
+        if token not in {"the", "and", "inc", "llc", "company", "companies", "services", "service"}
+    ]
+
+
+def _host_identity_tokens(host: str) -> list[str]:
+    label = host.lower().removeprefix("www.").split(".", 1)[0]
+    tokens = re.findall(r"[a-z0-9]{4,}", re.sub(r"([a-z])([A-Z])", r"\1 \2", label))
+    if len(label) >= 4:
+        tokens.append(label[:4])
+    return [
+        token
+        for token in tokens
         if token not in {"company", "companies", "heating", "cooling", "plumbing", "services", "service"}
     ]
 
@@ -398,9 +434,13 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             and (actual_host == expected_host or actual_host.endswith(f".{expected_host}"))
         )
         directory_host = _is_directory_or_third_party_host(actual_host)
-        company_matches = bool(company_tokens) and any(token in page_text for token in company_tokens)
+        directory_page = directory_host or _is_directory_or_third_party_page(page_text)
+        company_matches = bool(company_tokens) and any(
+            token in _identity_tokens(page_text) for token in company_tokens if len(token) >= 4
+        )
         host_tokens = _host_identity_tokens(actual_host)
-        host_identity_matches = bool(host_tokens) and any(token in page_text for token in host_tokens)
+        page_tokens = _identity_tokens(page_text)
+        host_identity_matches = bool(host_tokens) and any(token in page_tokens for token in host_tokens)
         industry_evidence = any(
             marker in page_text for marker in ("hvac", "heating", "cooling", "air conditioning", "furnace")
         )
@@ -408,7 +448,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         identity_status = (
             "verified"
             if host_matches
-            and not directory_host
+            and not directory_page
             and industry_evidence
             and locality_evidence
             and (company_matches or host_identity_matches or len(company_tokens) <= 1)
@@ -416,7 +456,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         )
         page_record["identity_status"] = identity_status
         page_record["source_reliability"] = (
-            "official" if host_matches and not directory_host else "directory_or_third_party"
+            "official" if host_matches and not directory_page else "directory_or_third_party"
         )
         page_record["identity_evidence_urls"] = [snapshot.url] if identity_status == "verified" else []
         pages.append(page_record)
