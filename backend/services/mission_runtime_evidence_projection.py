@@ -49,6 +49,8 @@ class MissionRuntimeEvidenceProjection(BaseModel):
     schema_version: Literal[1] = 1
     mission_id: UUID
     tenant_id: str
+    mission_status: str | None = None
+    acceptance: dict[str, Any] = Field(default_factory=dict)
     read_only: Literal[True] = True
     grants_execution_authority: Literal[False] = False
     nodes: list[RuntimeEvidenceNode]
@@ -114,6 +116,7 @@ def build_mission_runtime_evidence_projection(
     lineage: list[LineageRecord],
     evidence: list[EvidenceRecord],
     audit_events: list[AuditEvent] | None = None,
+    mission_status: str | None = None,
 ) -> MissionRuntimeEvidenceProjection:
     """Join persisted mission/runtime facts into a diagnostic GRAFT artifact."""
 
@@ -454,6 +457,8 @@ def build_mission_runtime_evidence_projection(
     return MissionRuntimeEvidenceProjection(
         mission_id=mission_id,
         tenant_id=tenant_id,
+        mission_status=mission_status,
+        acceptance=_metadata(mission_metadata, "acceptance"),
         nodes=nodes,
         edges=edges,
         available_nodes=available_nodes,

@@ -228,6 +228,30 @@ def test_projection_reads_node_key_from_materialization_selection_reference() ->
     assert projection.task_flows[0]["node_key"] == "ability-web-research"
 
 
+def test_projection_exposes_mission_acceptance_facts_without_adjudicating_them() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        mission_status="failed",
+        mission_metadata={
+            "acceptance": {
+                "status": "partially_met",
+                "reasons": ["required three drafts, produced two"],
+            }
+        },
+        tasks=[],
+        leases=[],
+        lineage=[],
+        evidence=[],
+    )
+
+    assert projection.mission_status == "failed"
+    assert projection.acceptance["status"] == "partially_met"
+    assert projection.acceptance["reasons"] == ["required three drafts, produced two"]
+
+
 def test_projection_exposes_record_lineage_and_ordered_audit_facts() -> None:
     mission_id = uuid4()
     tenant_id = str(uuid4())

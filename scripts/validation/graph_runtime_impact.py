@@ -114,6 +114,8 @@ def build_runtime_impact_artifact(
         "runtime": {
             "mission_id": runtime_projection.get("mission_id"),
             "tenant_id": runtime_projection.get("tenant_id"),
+            "mission_status": runtime_projection.get("mission_status"),
+            "acceptance": runtime_projection.get("acceptance") or {},
             "observed_nodes": runtime_nodes,
             "selected_unobserved_nodes": runtime_unobserved,
             "task_flow_count": len(task_flows),
@@ -128,6 +130,8 @@ def build_runtime_impact_artifact(
             "contradictions": contradictions,
             "missing_evidence": missing,
             "unknowns": sorted(set(unknowns)),
+            "mission_status": runtime_projection.get("mission_status"),
+            "acceptance": runtime_projection.get("acceptance") or {},
         },
         "provenance": {
             "static_source": "graph_impact_analysis",

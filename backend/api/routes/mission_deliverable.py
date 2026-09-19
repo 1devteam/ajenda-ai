@@ -138,6 +138,7 @@ def read_mission_runtime_evidence(
     return build_mission_runtime_evidence_projection(
         mission_id=mission_id,
         tenant_id=tenant_scope,
+        mission_status=mission.status,
         mission_metadata=mission.metadata_json if isinstance(mission.metadata_json, dict) else {},
         tasks=tasks,
         leases=leases,
