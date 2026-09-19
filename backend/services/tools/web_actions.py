@@ -75,6 +75,21 @@ _DIRECTORY_PAGE_MARKERS = (
     "top 10 best",
 )
 
+_GENERIC_INDUSTRY_WORDS = {"company", "companies", "contractor", "contractors", "services", "service"}
+
+
+def _industry_evidence_markers(industry: object) -> tuple[str, ...]:
+    """Return bounded page markers for the declared mission industry."""
+
+    raw = str(industry or "").lower()
+    markers = {token for token in re.findall(r"[a-z0-9]+", raw) if len(token) >= 4}
+    markers.difference_update(_GENERIC_INDUSTRY_WORDS)
+    if "roof" in raw or "roofing" in raw:
+        markers.update({"roof", "roofing"})
+    if "hvac" in raw or "heating" in raw or "cooling" in raw:
+        markers.update({"hvac", "heating", "cooling", "air conditioning", "furnace"})
+    return tuple(sorted(markers, key=lambda item: (-len(item), item)))
+
 
 def _is_directory_or_third_party_host(host: str) -> bool:
     normalized = host.lower().removeprefix("www.").rstrip(".")
@@ -441,9 +456,13 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         company_matches = bool(company_tokens) and any(token in page_tokens for token in company_tokens)
         host_tokens = _host_identity_tokens(actual_host)
         host_identity_matches = bool(host_tokens) and any(token in page_tokens for token in host_tokens)
-        industry_evidence = any(
-            marker in page_text for marker in ("hvac", "heating", "cooling", "air conditioning", "furnace")
+        industry_markers = _industry_evidence_markers(
+            payload.context.get("industry")
+            or prospect.get("industry")
+            or prospect.get("research_summary")
+            or prospect.get("company")
         )
+        industry_evidence = any(marker in page_text for marker in industry_markers)
         locality_evidence = any(marker in page_text for marker in ("dallas", "dfw", "texas", " tx "))
         identity_status = (
             "verified"
@@ -527,9 +546,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                 host_tokens = _host_identity_tokens(linked_actual_host)
                 identity_text_match = bool(tokens) and any(token in linked_text for token in tokens)
                 host_text_match = bool(host_tokens) and any(token in linked_text for token in host_tokens)
-                industry_text_match = any(
-                    marker in linked_text for marker in ("hvac", "heating", "cooling", "air conditioning", "furnace")
-                )
+                industry_text_match = any(marker in linked_text for marker in industry_markers)
                 locality_text_match = any(marker in linked_text for marker in ("dallas", "dfw", "texas", " tx "))
                 if (
                     not linked_snapshot.real

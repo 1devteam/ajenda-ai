@@ -357,3 +357,36 @@ def test_observe_contacts_normalizes_company_name_when_domain_proves_identity() 
 
     assert result.output["pages"][0]["identity_status"] == "verified"
     assert result.output["verified_prospect_candidates"][0]["identity_status"] == "verified"
+
+
+def test_observe_contacts_uses_declared_industry_for_non_hvac_research() -> None:
+    from backend.services.tools.web_actions import research_observe_contacts
+
+    page = PageSnapshot(
+        url="https://roof.example/",
+        real=True,
+        status_code=200,
+        title="Dallas Commercial Roofing",
+        text_preview="Roof Example provides commercial roofing services in Dallas, Texas.",
+        body_preview="",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.observe_contacts",
+        input={
+            "prospects": [
+                {
+                    "company": "Roof Example",
+                    "industry": "commercial roofing",
+                    "domain": "roof.example",
+                    "url": page.url,
+                }
+            ],
+            "requested_quantity": 1,
+            "context": {"industry": "commercial roofing", "location": "Dallas"},
+        },
+    )
+    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=page):
+        result = research_observe_contacts(invocation, _context())
+
+    assert result.output["verified_prospect_candidates"][0]["identity_status"] == "verified"
