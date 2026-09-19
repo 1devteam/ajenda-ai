@@ -198,6 +198,36 @@ def test_projection_exposes_available_selected_and_observed_task_flow() -> None:
     assert flow["observed_output_keys"] == ["verified_prospect_candidates"]
 
 
+def test_projection_reads_node_key_from_materialization_selection_reference() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status="completed",
+        metadata={
+            "task_type": "tool.invoke",
+            "materialization_selection_reference": {"node_key": "ability-web-research"},
+            "handler_result": {"output": {"research_report": [{"summary": "observed"}]}},
+        },
+    )
+
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        mission_metadata={
+            "runtime_task_materialization": {"created_execution_task_ids": [str(task.id)]},
+            "runtime_queue_admission": {"admitted_execution_task_ids": [str(task.id)]},
+        },
+        tasks=[task],
+        leases=[],
+        lineage=[],
+        evidence=[],
+    )
+
+    assert projection.task_flows[0]["node_key"] == "ability-web-research"
+
+
 def test_projection_exposes_record_lineage_and_ordered_audit_facts() -> None:
     mission_id = uuid4()
     tenant_id = str(uuid4())

@@ -87,6 +87,23 @@ def _task_artifact_ids(task: ExecutionTask) -> list[str]:
     return [str(item.get("artifact_id")) for item in raw if isinstance(item, dict) and item.get("artifact_id")]
 
 
+def _task_node_key(metadata: dict[str, Any]) -> str | None:
+    """Read the canonical materialized node identity from task metadata."""
+
+    for key in ("node_key", "step_key", "job_key"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value:
+            return value
+    for key in ("materialization_selection_reference", "graph_node_reference"):
+        reference = metadata.get(key)
+        if not isinstance(reference, dict):
+            continue
+        value = reference.get("node_key") or reference.get("key")
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
 def build_mission_runtime_evidence_projection(
     *,
     mission_id: UUID,
@@ -378,7 +395,7 @@ def build_mission_runtime_evidence_projection(
         task_flows.append(
             {
                 "task_id": task_id,
-                "node_key": metadata.get("node_key") or metadata.get("step_key") or metadata.get("job_key"),
+                "node_key": _task_node_key(metadata),
                 "task_type": metadata.get("task_type"),
                 "status": task.status,
                 "input_bindings": [dict(item) for item in input_bindings if isinstance(item, dict)]
