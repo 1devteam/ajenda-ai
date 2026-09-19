@@ -98,7 +98,7 @@ def _host_identity_tokens(host: str) -> list[str]:
     label = host.lower().removeprefix("www.").split(".", 1)[0]
     tokens = re.findall(r"[a-z0-9]{3,}", re.sub(r"([a-z])([A-Z])", r"\1 \2", label))
     if len(label) >= 3:
-        tokens.extend((label[:3], label[:4]))
+        tokens.extend(label[:size] for size in (3, 4, 5, 6) if len(label) >= size)
     return [
         token
         for token in tokens
