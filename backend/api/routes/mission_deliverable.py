@@ -14,6 +14,7 @@ from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_ses
 from backend.auth.permissions import Permission
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
+from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.lineage_record_repository import LineageRecordRepository
@@ -130,6 +131,10 @@ def read_mission_runtime_evidence(
         tenant_id=tenant_scope,
     )
     evidence = EvidenceRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_scope)
+    audit_events = AuditEventRepository(db).list_for_mission_for_tenant(
+        mission_id=mission_id,
+        tenant_id=tenant_scope,
+    )
     return build_mission_runtime_evidence_projection(
         mission_id=mission_id,
         tenant_id=tenant_scope,
@@ -138,4 +143,5 @@ def read_mission_runtime_evidence(
         leases=leases,
         lineage=lineage,
         evidence=evidence,
+        audit_events=audit_events,
     )

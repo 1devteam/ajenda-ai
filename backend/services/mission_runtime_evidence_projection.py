@@ -12,6 +12,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.domain.audit_event import AuditEvent
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
@@ -57,6 +58,8 @@ class MissionRuntimeEvidenceProjection(BaseModel):
     available_nodes: list[dict[str, Any]] = Field(default_factory=list)
     selected_nodes: list[dict[str, Any]] = Field(default_factory=list)
     task_flows: list[dict[str, Any]] = Field(default_factory=list)
+    record_flows: list[dict[str, Any]] = Field(default_factory=list)
+    execution_events: list[dict[str, Any]] = Field(default_factory=list)
     contradictions: list[str] = Field(default_factory=list)
     missing_evidence: list[str] = Field(default_factory=list)
     first_divergence: str | None = None
@@ -93,6 +96,7 @@ def build_mission_runtime_evidence_projection(
     leases: list[WorkerLease],
     lineage: list[LineageRecord],
     evidence: list[EvidenceRecord],
+    audit_events: list[AuditEvent] | None = None,
 ) -> MissionRuntimeEvidenceProjection:
     """Join persisted mission/runtime facts into a diagnostic GRAFT artifact."""
 
@@ -120,6 +124,7 @@ def build_mission_runtime_evidence_projection(
     ]
     edges: list[RuntimeEvidenceEdge] = []
     task_flows: list[dict[str, Any]] = []
+    record_flows: list[dict[str, Any]] = []
     contradictions: list[str] = []
     missing: list[str] = []
 
@@ -314,6 +319,32 @@ def build_mission_runtime_evidence_projection(
             missing.append(f"task:{task_id}:artifact:{expected_artifact}")
             contradictions.append(f"task:{task_id}:completed_without_artifact:{expected_artifact}")
 
+        for artifact_key, raw_records in task_output.items():
+            if not isinstance(raw_records, list):
+                continue
+            for record_index, raw_record in enumerate(raw_records):
+                if not isinstance(raw_record, dict):
+                    continue
+                record_flows.append(
+                    {
+                        "task_id": task_id,
+                        "artifact_key": str(artifact_key),
+                        "record_index": record_index,
+                        "record_id": raw_record.get("prospect_id")
+                        or raw_record.get("artifact_id")
+                        or raw_record.get("url")
+                        or raw_record.get("website"),
+                        "company": raw_record.get("company"),
+                        "website": raw_record.get("website"),
+                        "url": raw_record.get("url"),
+                        "identity_status": raw_record.get("identity_status"),
+                        "source_reliability": raw_record.get("source_reliability"),
+                        "reason": raw_record.get("reason"),
+                        "source": raw_record.get("source"),
+                        "source_keys": sorted(str(key) for key in raw_record),
+                    }
+                )
+
         for artifact_id in _task_artifact_ids(task):
             artifact_node = f"artifact:{artifact_id}"
             nodes.append(
@@ -389,6 +420,20 @@ def build_mission_runtime_evidence_projection(
             first_divergence = candidate
             break
 
+    execution_events = [
+        {
+            "event_id": str(event.id),
+            "created_at": event.created_at.isoformat() if event.created_at else None,
+            "category": event.category,
+            "action": event.action,
+            "actor": event.actor,
+            "details": event.details,
+            "payload": event.payload_json,
+        }
+        for event in sorted(audit_events or [], key=lambda item: item.created_at)
+        if event.tenant_id == tenant_id and (event.mission_id is None or event.mission_id == mission_id)
+    ]
+
     return MissionRuntimeEvidenceProjection(
         mission_id=mission_id,
         tenant_id=tenant_id,
@@ -397,6 +442,8 @@ def build_mission_runtime_evidence_projection(
         available_nodes=available_nodes,
         selected_nodes=selected_nodes,
         task_flows=task_flows,
+        record_flows=record_flows,
+        execution_events=execution_events,
         contradictions=sorted(set(contradictions)),
         missing_evidence=sorted(set(missing)),
         first_divergence=first_divergence,

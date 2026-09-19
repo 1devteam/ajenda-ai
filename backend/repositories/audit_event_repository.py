@@ -23,3 +23,10 @@ class AuditEventRepository:
     def list_for_mission(self, mission_id: uuid.UUID) -> list[AuditEvent]:
         stmt = select(AuditEvent).where(AuditEvent.mission_id == mission_id)
         return list(self._session.scalars(stmt))
+
+    def list_for_mission_for_tenant(self, *, mission_id: uuid.UUID, tenant_id: str) -> list[AuditEvent]:
+        stmt = select(AuditEvent).where(
+            AuditEvent.mission_id == mission_id,
+            AuditEvent.tenant_id == tenant_id,
+        )
+        return list(self._session.scalars(stmt))

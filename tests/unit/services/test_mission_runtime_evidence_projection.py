@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -195,3 +196,77 @@ def test_projection_exposes_available_selected_and_observed_task_flow() -> None:
     assert flow["node_key"] == "research"
     assert flow["input_bindings"][0]["from_step"] == "compose"
     assert flow["observed_output_keys"] == ["verified_prospect_candidates"]
+
+
+def test_projection_exposes_record_lineage_and_ordered_audit_facts() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status="completed",
+        metadata={
+            "task_type": "tool.invoke",
+            "handler_result": {
+                "output": {
+                    "pages": [
+                        {
+                            "company": "Directory HVAC",
+                            "url": "https://directory.example/hvac",
+                            "identity_status": "unverified",
+                            "source_reliability": "directory_or_third_party",
+                        }
+                    ],
+                    "verified_prospect_candidates": [
+                        {
+                            "company": "Acme HVAC",
+                            "website": "https://acme.example",
+                            "identity_status": "verified",
+                        }
+                    ],
+                }
+            },
+        },
+    )
+    first = SimpleNamespace(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        category="runtime",
+        action="task.claim",
+        actor="worker-1",
+        details="claimed",
+        payload_json={"task_id": str(task.id)},
+    )
+    second = SimpleNamespace(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        created_at=datetime(2026, 1, 2, tzinfo=UTC),
+        category="runtime",
+        action="task.complete",
+        actor="worker-1",
+        details="completed",
+        payload_json={"task_id": str(task.id)},
+    )
+
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        mission_metadata={},
+        tasks=[task],
+        leases=[],
+        lineage=[],
+        evidence=[],
+        audit_events=[second, first],
+    )
+
+    assert [item["action"] for item in projection.execution_events] == ["task.claim", "task.complete"]
+    assert {item["artifact_key"] for item in projection.record_flows} == {
+        "pages",
+        "verified_prospect_candidates",
+    }
+    directory = next(item for item in projection.record_flows if item["artifact_key"] == "pages")
+    assert directory["identity_status"] == "unverified"
+    assert directory["source_reliability"] == "directory_or_third_party"
