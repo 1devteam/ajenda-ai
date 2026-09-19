@@ -185,6 +185,12 @@ def main() -> int:
     task_state = deliverable.get("task_state") or {}
     completion = deliverable.get("completion") or {}
     prospects = deliverable.get("prospects")
+    mission_status = (lifecycle or {}).get("mission", {}).get("status")
+    if mission_status != "completed":
+        raise ProofFailure(
+            "mission did not complete acceptance: "
+            f"status={mission_status!r} acceptance={(lifecycle or {}).get('mission', {}).get('acceptance')}"
+        )
     if task_state.get("all_succeeded") is not True:
         raise ProofFailure(f"mission tasks did not all succeed: {task_state}")
     if completion.get("artifact_complete") is not True or completion.get("complete") is not True:
@@ -213,7 +219,7 @@ def main() -> int:
                 "task_ids": [str(item) for item in queued_task_ids],
                 "prospect_count": len(prospects),
                 "evidence_count": len(deliverable.get("evidence_references") or []),
-                "mission_status": (lifecycle or {}).get("mission", {}).get("status"),
+                "mission_status": mission_status,
                 "runtime_evidence_first_divergence": (runtime_evidence or {}).get("first_divergence"),
                 "runtime_evidence_contradictions": (runtime_evidence or {}).get("contradictions", []),
                 "runtime_evidence_output": RUNTIME_EVIDENCE_OUTPUT,

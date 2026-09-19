@@ -140,6 +140,7 @@ def test_operator_mission_proof_uses_public_api_and_never_direct_runtime_handler
     ):
         assert path in script
     assert '"verification_code"' in script
+    assert "mission did not complete acceptance" in script
     assert '"tenant_id", "signup"' not in script
     assert "tool_invoke_handler" not in script
     assert "ExecutionCoordinator" not in script
