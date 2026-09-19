@@ -557,6 +557,35 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         extracted = extract_observed_contacts(text=haystack, source_url=snapshot.url)
         if not extracted:
             if identity_status == "verified":
+                # Identity verification is independent of contact extraction.
+                # A real official company page remains a verified prospect even
+                # when its contact details are absent or rendered by JavaScript.
+                research_summary = prospect.get("research_summary")
+                if not isinstance(research_summary, str) or not research_summary.strip():
+                    raw_signals = prospect.get("signals")
+                    signals = (
+                        [str(signal).strip() for signal in raw_signals if isinstance(signal, str) and signal.strip()]
+                        if isinstance(raw_signals, list)
+                        else []
+                    )
+                    research_summary = " ".join(signals)
+                product_description = prospect.get("product_description")
+                if not isinstance(product_description, str):
+                    product_description = ""
+                website = str(prospect.get("website") or prospect.get("url") or snapshot.url or "").strip()
+                verified_prospect_candidates.append(
+                    {
+                        **prospect,
+                        "website": website[:500],
+                        "real": True,
+                        "identity_status": "verified",
+                        "identity_evidence_urls": page_record["identity_evidence_urls"],
+                        "sources": sources,
+                        "research_summary": research_summary.strip()[:1000],
+                        "product_description": product_description.strip()[:1000],
+                        "observed_contacts": [],
+                    }
+                )
                 observed_contacts.append(
                     {
                         "kind": None,

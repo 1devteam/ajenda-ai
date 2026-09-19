@@ -152,3 +152,46 @@ def test_projection_accepts_declared_intermediate_output_even_when_read_model_fi
 
     assert f"task:{task.id}:artifact:prospect_candidates" not in projection.missing_evidence
     assert f"task:{task.id}:completed_without_artifact:prospect_candidates" not in projection.contradictions
+
+
+def test_projection_exposes_available_selected_and_observed_task_flow() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status="completed",
+        metadata={
+            "node_key": "research",
+            "task_type": "tool.invoke",
+            "input_bindings": [{"from_step": "compose", "output_path": "prospect_candidates"}],
+            "expected_output_contract": {"artifact": "verified_prospect_candidates"},
+            "handler_result": {"output": {"verified_prospect_candidates": [{"company": "Acme HVAC"}]}},
+        },
+    )
+
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        mission_metadata={
+            "mission_task_graph": {
+                "nodes": [{"key": "research", "output_contract": {"artifact": "verified_prospect_candidates"}}],
+                "edges": [],
+            },
+            "runtime_admission": {"selected_nodes": [{"node_key": "research"}]},
+            "runtime_task_materialization": {"created_execution_task_ids": [str(task.id)]},
+            "runtime_queue_admission": {"admitted_execution_task_ids": [str(task.id)]},
+        },
+        tasks=[task],
+        leases=[],
+        lineage=[],
+        evidence=[],
+    )
+
+    assert projection.available_nodes[0]["key"] == "research"
+    assert projection.available_nodes[0]["selected_for_runtime"] is True
+    assert projection.selected_nodes == [{"node_key": "research"}]
+    flow = projection.task_flows[0]
+    assert flow["node_key"] == "research"
+    assert flow["input_bindings"][0]["from_step"] == "compose"
+    assert flow["observed_output_keys"] == ["verified_prospect_candidates"]

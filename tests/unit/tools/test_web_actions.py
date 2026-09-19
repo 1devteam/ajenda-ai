@@ -169,6 +169,58 @@ def test_observe_contacts_promotes_external_directory_links_after_verification()
     assert result.output["observed_contacts"][0]["website"] == official.url
 
 
+def test_observe_contacts_keeps_verified_company_without_contact_details() -> None:
+    from backend.services.tools.web_actions import research_observe_contacts
+
+    official = PageSnapshot(
+        url="https://quiet-hvac.example/",
+        real=True,
+        status_code=200,
+        title="Quiet HVAC",
+        text_preview="Quiet HVAC provides heating and cooling services in Dallas.",
+        body_preview="",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.observe_contacts",
+        input={
+            "prospects": [
+                {
+                    "company": "Quiet HVAC",
+                    "domain": "quiet-hvac.example",
+                    "url": official.url,
+                    "website": official.url,
+                    "research_summary": "Heating and cooling services in Dallas.",
+                }
+            ],
+            "requested_quantity": 1,
+            "binding_required": True,
+        },
+    )
+    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=official):
+        result = research_observe_contacts(invocation, _context())
+
+    assert len(result.output["verified_prospect_candidates"]) == 1
+    assert result.output["verified_prospect_candidates"][0]["identity_status"] == "verified"
+    assert result.output["observed_contacts"] == [
+        {
+            "kind": None,
+            "value": None,
+            "source_url": official.url,
+            "real": True,
+            "company": "Quiet HVAC",
+            "domain": "quiet-hvac.example",
+            "website": official.url,
+            "product_description": "",
+            "research_summary": "Heating and cooling services in Dallas.",
+            "sources": [official.url],
+            "prospect_id": None,
+            "identity_status": "verified",
+            "identity_evidence_urls": [official.url],
+        }
+    ]
+
+
 def test_observe_contacts_does_not_treat_known_listing_host_as_official() -> None:
     from backend.services.tools.web_actions import research_observe_contacts
 

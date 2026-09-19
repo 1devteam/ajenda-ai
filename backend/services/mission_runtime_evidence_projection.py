@@ -52,6 +52,11 @@ class MissionRuntimeEvidenceProjection(BaseModel):
     grants_execution_authority: Literal[False] = False
     nodes: list[RuntimeEvidenceNode]
     edges: list[RuntimeEvidenceEdge]
+    # These sections preserve the planner/runtime boundary for review. They
+    # are snapshots of persisted declarations and observations, not judgments.
+    available_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    selected_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    task_flows: list[dict[str, Any]] = Field(default_factory=list)
     contradictions: list[str] = Field(default_factory=list)
     missing_evidence: list[str] = Field(default_factory=list)
     first_divergence: str | None = None
@@ -114,8 +119,22 @@ def build_mission_runtime_evidence_projection(
         )
     ]
     edges: list[RuntimeEvidenceEdge] = []
+    task_flows: list[dict[str, Any]] = []
     contradictions: list[str] = []
     missing: list[str] = []
+
+    graph = _metadata(mission_metadata, "mission_task_graph")
+    raw_graph_nodes = graph.get("nodes")
+    available_nodes = (
+        [dict(node) for node in raw_graph_nodes if isinstance(node, dict)] if isinstance(raw_graph_nodes, list) else []
+    )
+    admission = _metadata(mission_metadata, "runtime_admission")
+    raw_selected_nodes = admission.get("selected_nodes")
+    selected_nodes = (
+        [dict(node) for node in raw_selected_nodes if isinstance(node, dict)]
+        if isinstance(raw_selected_nodes, list)
+        else []
+    )
 
     task_by_id = {str(task.id): task for task in tasks if task.tenant_id == tenant_id and task.mission_id == mission_id}
     leases_by_task: dict[str, list[WorkerLease]] = {}
@@ -134,6 +153,14 @@ def build_mission_runtime_evidence_projection(
     queue = _metadata(mission_metadata, "runtime_queue_admission")
     admitted_ids = _ids(queue, "admitted_execution_task_ids", "queued_execution_task_ids")
     materialized_ids = _ids(_metadata(mission_metadata, "runtime_task_materialization"), "created_execution_task_ids")
+    selected_keys = {
+        str(node.get("node_key") or node.get("key"))
+        for node in selected_nodes
+        if node.get("node_key") or node.get("key")
+    }
+    for node in available_nodes:
+        node_key = str(node.get("node_key") or node.get("key") or "")
+        node["selected_for_runtime"] = node_key in selected_keys
 
     mission_node = f"mission:{mission_id}"
     for task_id, task in task_by_id.items():
@@ -309,6 +336,42 @@ def build_mission_runtime_evidence_projection(
                 )
             )
 
+        metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        declared_contract = metadata.get("expected_output_contract")
+        if not isinstance(declared_contract, dict):
+            declared_contract = metadata.get("output_contract")
+        if not isinstance(declared_contract, dict):
+            declared_contract = {}
+        input_bindings = metadata.get("input_bindings")
+        observed_output_keys = sorted(str(key) for key in task_output)
+        task_flows.append(
+            {
+                "task_id": task_id,
+                "node_key": metadata.get("node_key") or metadata.get("step_key") or metadata.get("job_key"),
+                "task_type": metadata.get("task_type"),
+                "status": task.status,
+                "input_bindings": [dict(item) for item in input_bindings if isinstance(item, dict)]
+                if isinstance(input_bindings, list)
+                else [],
+                "declared_output_contract": dict(declared_contract),
+                "observed_output_keys": observed_output_keys,
+                "queue_admitted": task_id in admitted_ids
+                or task.status
+                in {
+                    "queued",
+                    "claimed",
+                    "running",
+                    "completed",
+                    "failed",
+                    "dead_lettered",
+                },
+                "lease_ids": [str(item.id) for item in leases_by_task.get(task_id, [])],
+                "lineage_ids": [str(item.id) for item in lineage_by_task.get(task_id, [])],
+                "evidence_ids": [str(item.id) for item in evidence_by_task.get(task_id, [])],
+                "artifact_ids": _task_artifact_ids(task),
+            }
+        )
+
     if not tasks:
         missing.append("mission:execution_tasks")
     if tasks and not admitted_ids:
@@ -331,6 +394,9 @@ def build_mission_runtime_evidence_projection(
         tenant_id=tenant_id,
         nodes=nodes,
         edges=edges,
+        available_nodes=available_nodes,
+        selected_nodes=selected_nodes,
+        task_flows=task_flows,
         contradictions=sorted(set(contradictions)),
         missing_evidence=sorted(set(missing)),
         first_divergence=first_divergence,
