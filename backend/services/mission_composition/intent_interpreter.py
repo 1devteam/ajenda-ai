@@ -337,6 +337,12 @@ _WORD_COUNTS = {
     "five": 5,
     "ten": 10,
 }
+
+_QUALIFICATION_COUNT_PATTERN = re.compile(
+    r"\b(?:qualif(?:y|ied|ication)|strongest|top|best|pick|choose|select)\b"
+    r"[^.!?]{0,40}?(\d+|three|two|four|five|ten)\b",
+    re.IGNORECASE,
+)
 _MONTH_NAME = (
     r"january|february|march|april|may|june|july|august|september|october|november|december|"
     r"jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec"
@@ -509,6 +515,17 @@ def _extract_count(text: str) -> int | None:
             return None
         return value
     return _WORD_COUNTS.get(raw)
+
+
+def _extract_qualification_count(text: str) -> int | None:
+    """Extract the requested count for a qualification/ranking stage."""
+
+    match = _QUALIFICATION_COUNT_PATTERN.search(_DATE_SPAN.sub(" ", text))
+    if match is None:
+        return None
+    raw = match.group(1).lower()
+    value = int(raw) if raw.isdigit() else _WORD_COUNTS.get(raw)
+    return value if value is not None and 1 <= value <= 50 else None
 
 
 def _trim_location(location: str) -> str:
@@ -1577,6 +1594,7 @@ def interpret_instruction(
         send_policy = SendPolicy(mode="unknown", condition="none", source="unresolved", confidence=0.0)
 
     count = _extract_count(text)
+    qualification_count = _extract_qualification_count(text)
     if count is not None:
         quantity: int | None = count
         quantity_provenance = "explicit"
@@ -1971,6 +1989,7 @@ def interpret_instruction(
         requested_outcomes=list(outcomes),
         requested_quantity=quantity,
         quantity_provenance=quantity_provenance,  # type: ignore[arg-type]
+        qualification_quantity=qualification_count,
         send_policy=send_policy,
         target_entities=entities,
         constraints=constraints,

@@ -473,8 +473,14 @@ def _assemble_prospects(
     records: dict[str, dict[str, Any]] = {}
     companies: dict[str, set[str]] = defaultdict(set)
 
-    for artifact_key in ("prospect_candidates", "verified_prospect_candidates"):
-        for row in _artifact_rows(artifacts, artifact_key):
+    verified_rows = _artifact_rows(artifacts, "verified_prospect_candidates")
+    candidate_sources = (
+        (("verified_prospect_candidates", verified_rows),)
+        if verified_rows
+        else (("prospect_candidates", _artifact_rows(artifacts, "prospect_candidates")),)
+    )
+    for artifact_key, rows in candidate_sources:
+        for row in rows:
             record = _record_for_row(
                 row,
                 records=records,

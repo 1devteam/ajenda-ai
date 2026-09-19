@@ -62,6 +62,15 @@ def test_local_fixture_constraint_lowers_qualification_threshold() -> None:
     assert payload["context"]["qualification_threshold_10"] == 5
 
 
+def test_observed_public_research_uses_ranked_qualification_contract() -> None:
+    intent = interpret_instruction(
+        "Find 10 HVAC companies in Dallas, qualify the strongest three, and draft introductions. Do not send."
+    )
+    payload = build_action_input(action_name="sales.qualify", intent=intent)
+    assert payload["context"]["requested_quantity"] == 3
+    assert payload["context"]["qualification_threshold_10"] == 5
+
+
 def test_local_fixture_constraint_propagates_to_contact_observation() -> None:
     intent = interpret_instruction(
         "Find five software companies in Austin and collect contacts using local fixture data only."

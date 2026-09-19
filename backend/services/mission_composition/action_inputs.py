@@ -754,6 +754,14 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
         }
     if action_name in {"sales.qualify", "sales.score_lead", "sales.recommend_next_action"}:
         local_fixture_only = _local_fixture_only(intent)
+        qualification_quantity = intent.qualification_quantity or limit
+        qualification_threshold = (
+            5
+            if local_fixture_only
+            or intent.qualification_quantity is not None
+            or "observe_contacts" in intent.requested_outcomes
+            else 7
+        )
         return {
             "lead": lead,
             "prospects": [],
@@ -763,9 +771,9 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 "objective": intent.objective[:300],
                 "binding_required": True,
                 "binding_source": "upstream_prospect_candidates",
-                "requested_quantity": limit,
+                "requested_quantity": qualification_quantity,
                 "mission_specific_scoring": True,
-                "qualification_threshold_10": 5 if local_fixture_only else 7,
+                "qualification_threshold_10": qualification_threshold,
             },
         }
     if action_name == "gtm.lead_enrich":

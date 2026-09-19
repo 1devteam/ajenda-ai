@@ -58,6 +58,14 @@ def test_raw_and_normalized_preserved() -> None:
     assert intent.normalized_instruction != ""  # normalized form stored separately
 
 
+def test_stage_quantity_keeps_research_count_separate_from_qualification_count() -> None:
+    intent = interpret_instruction(
+        "Find 10 HVAC companies in Dallas, qualify the strongest three, and draft introductions. Do not send."
+    )
+    assert intent.requested_quantity == 10
+    assert intent.qualification_quantity == 3
+
+
 def test_typed_dependencies_compile_to_graph_edges() -> None:
     from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
     from backend.services.mission_composition.plan_compiler import compile_planned_steps, compile_task_graph_preview

@@ -175,6 +175,46 @@ def test_sales_qualify_joins_observed_contacts_to_prospects() -> None:
     assert result.output["qualified_prospects"][0]["email"] == "founder@austin-studio.example"
 
 
+def test_sales_qualify_applies_mission_scope_to_every_bound_prospect() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="sales.qualify",
+            input={
+                "prospects": [
+                    {
+                        "prospect_id": "p1",
+                        "company": "One HVAC",
+                        "identity_status": "verified",
+                        "url": "https://one.example",
+                    },
+                    {
+                        "prospect_id": "p2",
+                        "company": "Two HVAC",
+                        "identity_status": "verified",
+                        "url": "https://two.example",
+                    },
+                ],
+                "context": {
+                    "industry": "HVAC",
+                    "location": "Dallas",
+                    "requested_quantity": 1,
+                    "qualification_threshold_10": 5,
+                    "mission_specific_scoring": True,
+                    "observed_contacts": [
+                        {"prospect_id": "p1", "kind": "phone", "value": "214-555-0100", "real": True},
+                        {"prospect_id": "p2", "kind": "phone", "value": "214-555-0101", "real": True},
+                    ],
+                },
+            },
+        ),
+        _context(),
+    )
+    assert len(result.output["scored_prospects"]) == 2
+    assert len(result.output["qualified_prospects"]) == 1
+    assert result.output["qualified_prospects"][0]["score_10"] == 5
+
+
 def test_sales_qualify_exposes_mission_dimensions_and_rejects_unverified_identity() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(

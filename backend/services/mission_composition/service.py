@@ -701,10 +701,10 @@ class MissionCompositionService:
                         "candidate_min": record.intent.requested_quantity
                         if "research_prospects" in record.intent.requested_outcomes
                         else 0,
-                        "qualified_min": record.intent.requested_quantity
+                        "qualified_min": record.intent.qualification_quantity or record.intent.requested_quantity
                         if "qualify_prospects" in record.intent.requested_outcomes
                         else 0,
-                        "draft_min": record.intent.requested_quantity
+                        "draft_min": record.intent.qualification_quantity or record.intent.requested_quantity
                         if "prepare_outreach" in record.intent.requested_outcomes
                         else 0,
                         "research_report_required": "synthesize_research_report" in record.intent.requested_outcomes,
@@ -718,7 +718,12 @@ class MissionCompositionService:
                         if "persist_internal_crm" in record.intent.requested_outcomes
                         else 0,
                         "internal_crm_readback_required": "persist_internal_crm" in record.intent.requested_outcomes,
-                        "score_threshold_10": 7,
+                        "score_threshold_10": (
+                            5
+                            if record.intent.qualification_quantity is not None
+                            or "observe_contacts" in record.intent.requested_outcomes
+                            else 7
+                        ),
                         # Public research is not complete until the observation
                         # stage promotes verified identities. Qualification may
                         # add stricter scoring, but it must not be the first
@@ -1046,10 +1051,10 @@ class MissionCompositionService:
                     "candidate_min": record.intent.requested_quantity
                     if "research_prospects" in record.intent.requested_outcomes
                     else 0,
-                    "qualified_min": record.intent.requested_quantity
+                    "qualified_min": record.intent.qualification_quantity or record.intent.requested_quantity
                     if "qualify_prospects" in record.intent.requested_outcomes
                     else 0,
-                    "draft_min": record.intent.requested_quantity
+                    "draft_min": record.intent.qualification_quantity or record.intent.requested_quantity
                     if "prepare_outreach" in record.intent.requested_outcomes
                     else 0,
                     "research_report_required": "synthesize_research_report" in record.intent.requested_outcomes,
@@ -1063,7 +1068,12 @@ class MissionCompositionService:
                     if "persist_internal_crm" in record.intent.requested_outcomes
                     else 0,
                     "internal_crm_readback_required": "persist_internal_crm" in record.intent.requested_outcomes,
-                    "score_threshold_10": 7,
+                    "score_threshold_10": (
+                        5
+                        if record.intent.qualification_quantity is not None
+                        or "observe_contacts" in record.intent.requested_outcomes
+                        else 7
+                    ),
                     "require_verified_identity": "research_prospects" in record.intent.requested_outcomes,
                 },
                 **(

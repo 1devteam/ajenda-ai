@@ -401,6 +401,7 @@ class MissionIntent(BaseModel):
     unsupported_outcomes: list[str] = Field(default_factory=list, max_length=20)
     requested_quantity: int | None = Field(default=None, ge=1, le=100)
     quantity_provenance: ProvenanceSource | None = None
+    qualification_quantity: int | None = Field(default=None, ge=1, le=100)
     send_policy: SendPolicy = Field(default_factory=SendPolicy)
     contact_policy: StructuredPolicy = Field(default_factory=StructuredPolicy)
     publish_policy: StructuredPolicy = Field(default_factory=StructuredPolicy)

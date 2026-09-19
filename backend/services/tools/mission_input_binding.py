@@ -240,6 +240,13 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
             specs.append(
                 {
                     "from_step": dep,
+                    "output_path": "$.verified_prospect_candidates",
+                    "input_path": "$.input.prospects",
+                }
+            )
+            specs.append(
+                {
+                    "from_step": dep,
                     "output_path": "$.observed_contacts",
                     "input_path": "$.input.context.observed_contacts",
                 }
@@ -252,7 +259,11 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                     "input_path": "$.input.prospects",
                 }
             )
-        elif action_name in {"sales.qualify", "sales.score_lead"} and "web-research" in dep:
+        elif (
+            action_name in {"sales.qualify", "sales.score_lead"}
+            and "web-research" in dep
+            and not any("observe" in dependency for dependency in dependency_keys)
+        ):
             specs.append(
                 {
                     "from_step": dep,
@@ -280,13 +291,14 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                     }
                 )
             elif "web-research" in dep:
-                specs.append(
-                    {
-                        "from_step": dep,
-                        "output_path": "$.prospect_candidates",
-                        "input_path": "$.input.prospects",
-                    }
-                )
+                if not any("qualif" in dependency or "enrich" in dependency for dependency in dependency_keys):
+                    specs.append(
+                        {
+                            "from_step": dep,
+                            "output_path": "$.prospect_candidates",
+                            "input_path": "$.input.prospects",
+                        }
+                    )
         elif action_name in {"sales.research", "crm.research"} and (
             "discover" in dep or "research" in dep or "web" in dep
         ):

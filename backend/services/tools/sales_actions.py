@@ -779,6 +779,11 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
     scored_prospects: list[dict[str, Any]] = []
     for index, prospect in enumerate(prospects_in):
         lead = _normalize_observed_lead(dict(prospect))
+        # Mission-scoped industry/location are evidence constraints for every
+        # bound prospect, not just the first seed lead.
+        for field in ("industry", "location", "intent", "automation_opportunity"):
+            if field not in lead and payload.context.get(field):
+                lead[field] = payload.context[field]
         if payload.lead and index == 0:
             # Merge seed lead fields without overwriting bound prospect identity.
             for key, value in payload.lead.items():
@@ -825,6 +830,13 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         if result["qualified"]:
             qualified_prospects.append(entry)
 
+    # Qualification is a ranked stage. Preserve every score for evidence, but
+    # pass only the requested strongest rows to downstream enrichment/drafting.
+    qualified_prospects.sort(key=lambda item: (-int(item.get("score_10") or 0), str(item.get("prospect_id") or "")))
+    requested_quantity = int(payload.context.get("requested_quantity") or len(qualified_prospects) or 0)
+    if requested_quantity > 0:
+        qualified_prospects = qualified_prospects[:requested_quantity]
+
     primary = (
         qualified_prospects[0]
         if qualified_prospects
@@ -843,6 +855,7 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         "reasons": primary.get("reasons") or ["insufficient local qualification signals"],
         "qualified_prospects": qualified_prospects,
         "prospect_count": len(qualified_prospects),
+        "scored_prospects": scored_prospects,
     }
     summary = f"Qualified {len(qualified_prospects)} prospect(s); primary score={score}, qualified={qualified}."
     return ActionResult(

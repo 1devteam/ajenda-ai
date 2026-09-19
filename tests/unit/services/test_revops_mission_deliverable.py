@@ -246,6 +246,53 @@ def test_assembler_projects_company_name_from_research_candidates() -> None:
     assert report.prospects[0].company_name == "Research Only HVAC"
 
 
+def test_verified_candidates_replace_raw_discovery_rows_in_deliverable() -> None:
+    mission = _mission("Return company name and website.")
+    raw = _task(
+        task_id=12,
+        artifact="prospect_candidates",
+        payload=[
+            {
+                "prospect_id": "raw-1",
+                "company": "Directory Listing",
+                "website": "https://directory.example",
+                "product_description": "HVAC directory listing.",
+                "research_summary": "Raw listing.",
+                "sources": ["https://directory.example"],
+            },
+            {
+                "prospect_id": "raw-2",
+                "company": "Raw Company",
+                "website": "https://raw.example",
+                "product_description": "HVAC service.",
+                "research_summary": "Raw company.",
+                "sources": ["https://raw.example"],
+            },
+        ],
+    )
+    verified = _task(
+        task_id=13,
+        artifact="verified_prospect_candidates",
+        payload=[
+            {
+                "prospect_id": "verified-1",
+                "company": "Verified HVAC",
+                "website": "https://verified.example",
+                "source": "public_search",
+                "identity_status": "verified",
+                "real": True,
+                "sources": ["https://verified.example"],
+                "research_summary": "Verified HVAC serves Dallas.",
+                "product_description": "HVAC service.",
+            }
+        ],
+    )
+
+    report = assemble_revops_mission_deliverable(mission=mission, tasks=[raw, verified])
+
+    assert [item.prospect_id for item in report.prospects] == ["verified-1"]
+
+
 def test_task_success_does_not_make_partial_or_unproven_deliverable_complete() -> None:
     mission = _mission("Return company name, drafts, assumptions, and limitations.")
     qualified = _artifact_tasks()[2]

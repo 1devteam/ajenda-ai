@@ -100,10 +100,16 @@ def _dependency_output_name(*, dependency: BusinessJob, downstream_action: str) 
     if dependency.job_key == "research.observe_sources" and downstream_action in {
         "sales.qualify",
         "sales.score_lead",
+    }:
+        # Observation is the terminal public-research boundary. Downstream
+        # qualification must consume verified identities, while contacts are
+        # supplementary evidence and must not stand in for companies.
+        return "verified_prospect_candidates"
+    if dependency.job_key == "research.observe_sources" and downstream_action in {
         "record.write",
         "gtm.crm_upsert",
     }:
-        return "observed_contacts"
+        return "verified_prospect_candidates"
     return dependency.produced_outputs[0] if dependency.produced_outputs else "result"
 
 
@@ -131,6 +137,26 @@ def compile_planned_steps(
                     continue
                 depends_on.append(dep_step.step_key)
                 dep_job_spec = BUSINESS_JOBS_BY_KEY.get(dep_job)
+                if (
+                    dep_job == "research.discover_prospects"
+                    and selection.action_name in {"sales.qualify", "sales.score_lead"}
+                    and "research.observe_sources" in selected_keys
+                ):
+                    # Raw discovery is an intermediate artifact. Once the
+                    # observer is in the graph, bind only its verified terminal
+                    # artifact so qualification cannot score unresolved hits.
+                    continue
+                if (
+                    dep_job == "research.discover_prospects"
+                    and selection.action_name in {"gtm.email_draft", "sales.draft_followup"}
+                    and any(
+                        key in selected_keys
+                        for key in {"sales.qualify_prospects", "gtm.lead_enrich", "research.observe_sources"}
+                    )
+                ):
+                    # Drafts consume the qualified/enriched terminal world-state;
+                    # raw discovery is retained only as intermediate evidence.
+                    continue
                 output_name = (
                     _dependency_output_name(dependency=dep_job_spec, downstream_action=selection.action_name)
                     if dep_job_spec
@@ -147,6 +173,18 @@ def compile_planned_steps(
                         "input_path": input_path,
                     }
                 )
+                if dep_job == "research.observe_sources" and selection.action_name in {
+                    "sales.qualify",
+                    "sales.score_lead",
+                }:
+                    input_bindings.append(
+                        {
+                            "from_step": dep_step.step_key,
+                            "output_path": "$.observed_contacts",
+                            "to_step": f"ability-{_slug(selection.action_name)}",
+                            "input_path": "$.input.context.observed_contacts",
+                        }
+                    )
 
         tool_input: dict[str, Any] = {}
         compile_gap: str | None = None
