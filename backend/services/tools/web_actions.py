@@ -96,9 +96,9 @@ def _identity_tokens(value: str) -> list[str]:
 
 def _host_identity_tokens(host: str) -> list[str]:
     label = host.lower().removeprefix("www.").split(".", 1)[0]
-    tokens = re.findall(r"[a-z0-9]{4,}", re.sub(r"([a-z])([A-Z])", r"\1 \2", label))
-    if len(label) >= 4:
-        tokens.append(label[:4])
+    tokens = re.findall(r"[a-z0-9]{3,}", re.sub(r"([a-z])([A-Z])", r"\1 \2", label))
+    if len(label) >= 3:
+        tokens.extend((label[:3], label[:4]))
     return [
         token
         for token in tokens
@@ -435,11 +435,9 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         )
         directory_host = _is_directory_or_third_party_host(actual_host)
         directory_page = directory_host or _is_directory_or_third_party_page(page_text)
-        company_matches = bool(company_tokens) and any(
-            token in _identity_tokens(page_text) for token in company_tokens if len(token) >= 4
-        )
-        host_tokens = _host_identity_tokens(actual_host)
         page_tokens = _identity_tokens(page_text)
+        company_matches = bool(company_tokens) and any(token in page_tokens for token in company_tokens)
+        host_tokens = _host_identity_tokens(actual_host)
         host_identity_matches = bool(host_tokens) and any(token in page_tokens for token in host_tokens)
         industry_evidence = any(
             marker in page_text for marker in ("hvac", "heating", "cooling", "air conditioning", "furnace")
