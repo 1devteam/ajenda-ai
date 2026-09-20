@@ -121,6 +121,8 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     assert "graph_impact_analysis.py" in script
     assert "graph_runtime_impact.py" in script
     assert "AJENDA_PROOF_GRAFT_RUNTIME_IMPACT" in script
+    assert "proof_status=0" in script
+    assert "joined GRAFT artifact preserved" in script
     assert "ExecutionCoordinator" not in script
     assert "tool_invoke_handler" not in script
     assert "AJENDA_OPERATOR_PROOF_RUNTIME_EVIDENCE_OUTPUT" in script

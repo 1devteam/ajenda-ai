@@ -185,12 +185,17 @@ def main() -> int:
     task_state = deliverable.get("task_state") or {}
     completion = deliverable.get("completion") or {}
     prospects = deliverable.get("prospects")
-    mission_status = (lifecycle or {}).get("mission", {}).get("status")
+    if RUNTIME_EVIDENCE_OUTPUT:
+        output = Path(RUNTIME_EVIDENCE_OUTPUT)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(runtime_evidence or {}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    mission_status = (lifecycle or {}).get("mission", {}).get("status") or (runtime_evidence or {}).get(
+        "mission_status"
+    )
+    acceptance = (lifecycle or {}).get("mission", {}).get("acceptance") or (runtime_evidence or {}).get("acceptance")
     if mission_status != "completed":
-        raise ProofFailure(
-            "mission did not complete acceptance: "
-            f"status={mission_status!r} acceptance={(lifecycle or {}).get('mission', {}).get('acceptance')}"
-        )
+        raise ProofFailure(f"mission did not complete acceptance: status={mission_status!r} acceptance={acceptance}")
     if task_state.get("all_succeeded") is not True:
         raise ProofFailure(f"mission tasks did not all succeed: {task_state}")
     if completion.get("artifact_complete") is not True or completion.get("complete") is not True:
@@ -202,11 +207,6 @@ def main() -> int:
         )
     if any(not isinstance(row, dict) or not row.get("company_name") or not row.get("website") for row in prospects):
         raise ProofFailure("one or more prospects lacks a company name or website")
-
-    if RUNTIME_EVIDENCE_OUTPUT:
-        output = Path(RUNTIME_EVIDENCE_OUTPUT)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(runtime_evidence or {}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     print(
         json.dumps(

@@ -156,16 +156,25 @@ if [[ "${AJENDA_OPERATOR_MISSION_PROOF:-0}" != "1" ]]; then
 fi
 
 log "running operator mission proof through frontend and public APIs"
+proof_status=0
 AJENDA_OPERATOR_PROOF_API_BASE_URL="$API_BASE_URL" \
   AJENDA_OPERATOR_PROOF_FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:8080}" \
   AJENDA_OPERATOR_PROOF_RUNTIME_EVIDENCE_OUTPUT="$GRAFT_RUNTIME_EVIDENCE" \
-  python deploy/scripts/operator-mission-proof.py
+  python deploy/scripts/operator-mission-proof.py || proof_status=$?
 
 log "joining static GRAFT impact with runtime mission evidence"
-python scripts/validation/graph_runtime_impact.py \
-  --impact-report "$GRAFT_IMPACT_REPORT" \
-  --runtime-evidence "$GRAFT_RUNTIME_EVIDENCE" \
-  --output "$GRAFT_RUNTIME_IMPACT"
+if [[ -f "$GRAFT_RUNTIME_EVIDENCE" ]]; then
+  python scripts/validation/graph_runtime_impact.py \
+    --impact-report "$GRAFT_IMPACT_REPORT" \
+    --runtime-evidence "$GRAFT_RUNTIME_EVIDENCE" \
+    --output "$GRAFT_RUNTIME_IMPACT"
+else
+  fail "operator mission proof did not produce runtime evidence"
+fi
+
+if (( proof_status != 0 )); then
+  fail "operator mission proof failed; joined GRAFT artifact preserved at $GRAFT_RUNTIME_IMPACT"
+fi
 
 log "checking live observability metrics"
 metrics_body="$(curl_body "$API_BASE_URL/v1/observability/metrics")"
