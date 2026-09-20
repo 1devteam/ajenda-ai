@@ -26,6 +26,9 @@ def test_portfolio_is_structured_and_marks_unproven_families_explicitly() -> Non
     assert any(
         item["observed_gap_codes"] for item in payload["missions"] if item["verification_state"] == "contract_pending"
     )
+    assert any(
+        item["static_gap_codes"] for item in payload["missions"] if item["verification_state"] == "contract_pending"
+    )
 
 
 def test_portfolio_rejects_allowed_forbidden_action_overlap() -> None:

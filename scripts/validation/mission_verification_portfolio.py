@@ -12,6 +12,7 @@ REQUIRED_MISSION_FIELDS = (
     "id",
     "verification_state",
     "observed_gap_codes",
+    "static_gap_codes",
     "request",
     "intent",
     "expected_nodes",
@@ -62,6 +63,9 @@ def validate_portfolio(payload: dict[str, Any]) -> list[str]:
         gaps = mission.get("observed_gap_codes")
         if not isinstance(gaps, list) or not all(isinstance(item, str) and item for item in gaps):
             errors.append(f"{prefix}.observed_gap_codes must be a list of non-empty strings")
+        static_gaps = mission.get("static_gap_codes")
+        if not isinstance(static_gaps, list) or not all(isinstance(item, str) and item for item in static_gaps):
+            errors.append(f"{prefix}.static_gap_codes must be a list of non-empty strings")
         overlap = set(mission.get("allowed_actions") or []) & set(mission.get("forbidden_actions") or [])
         if overlap:
             errors.append(f"{prefix} action appears in both allowed and forbidden: {sorted(overlap)}")
