@@ -22,20 +22,28 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
 
     reasons: list[str] = []
 
-    def unique_records(key: str) -> list[dict[str, Any]]:
+    def unique_records(key: str, *aliases: str) -> list[dict[str, Any]]:
         records: dict[str, dict[str, Any]] = {}
         for output in outputs:
-            for item in output.get(key, []):
-                if not isinstance(item, dict):
+            for output_key in (key, *aliases):
+                raw_items = output.get(output_key, [])
+                if isinstance(raw_items, dict):
+                    raw_items = [raw_items]
+                if not isinstance(raw_items, list):
                     continue
-                identity = str(
-                    item.get("prospect_id")
-                    or item.get("company")
-                    or item.get("domain")
-                    or item.get("artifact_id")
-                    or len(records)
-                )
-                records[identity] = item
+                for item in raw_items:
+                    if not isinstance(item, dict):
+                        continue
+                    identity = str(
+                        item.get("prospect_id")
+                        or item.get("record_id")
+                        or item.get("id")
+                        or item.get("company")
+                        or item.get("domain")
+                        or item.get("artifact_id")
+                        or len(records)
+                    )
+                    records[identity] = item
         return list(records.values())
 
     candidates = unique_records("prospect_candidates")
@@ -52,6 +60,13 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
             candidates.append(item)
     qualified = unique_records("qualified_prospects")
     drafts = unique_records("introduction_drafts")
+    if contract.get("require_bound_drafts"):
+        drafts = [
+            item
+            for item in drafts
+            if str(item.get("company") or item.get("prospect_id") or "").strip()
+            and not str(item.get("company") or "").startswith("pending.binding")
+        ]
 
     reports: list[dict[str, Any]] = []
     for output in outputs:
@@ -124,7 +139,7 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
                 f"produced {len(opportunities)}"
             )
 
-    crm_records = unique_records("internal_crm_records")
+    crm_records = unique_records("internal_crm_records", "crm_records", "records", "internal_records")
     crm_min = int(contract.get("internal_crm_records_min", 0) or 0)
     if len(crm_records) < crm_min:
         reasons.append(f"required at least {crm_min} persisted internal CRM records, produced {len(crm_records)}")

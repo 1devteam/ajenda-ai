@@ -699,15 +699,31 @@ class MissionCompositionService:
                         else {}
                     ),
                     "acceptance_contract": {
-                        "candidate_min": record.intent.requested_quantity
-                        if "research_prospects" in record.intent.requested_outcomes
-                        else 0,
+                        # Public research must yield at least one usable
+                        # candidate even when the operator omitted a count.
+                        # An empty search is a visible failure, never success.
+                        "candidate_min": (
+                            record.intent.requested_quantity or 1
+                            if "research_prospects" in record.intent.requested_outcomes
+                            else 0
+                        ),
                         "qualified_min": record.intent.qualification_quantity or record.intent.requested_quantity
                         if "qualify_prospects" in record.intent.requested_outcomes
                         else 0,
                         "draft_min": record.intent.qualification_quantity or record.intent.requested_quantity
                         if "prepare_outreach" in record.intent.requested_outcomes
                         else 0,
+                        "require_bound_drafts": (
+                            "prepare_outreach" in record.intent.requested_outcomes
+                            and bool(
+                                {
+                                    "research_prospects",
+                                    "qualify_prospects",
+                                    "enrich_contacts",
+                                }
+                                & set(record.intent.requested_outcomes)
+                            )
+                        ),
                         "research_report_required": "synthesize_research_report" in record.intent.requested_outcomes,
                         "market_opportunities_min": 3
                         if "synthesize_research_report" in record.intent.requested_outcomes
@@ -1055,15 +1071,28 @@ class MissionCompositionService:
                 "missing_connections": list(record.missing_connections),
                 "composition_provenance": record.composition_provenance.model_dump(mode="json"),
                 "acceptance_contract": {
-                    "candidate_min": record.intent.requested_quantity
-                    if "research_prospects" in record.intent.requested_outcomes
-                    else 0,
+                    "candidate_min": (
+                        record.intent.requested_quantity or 1
+                        if "research_prospects" in record.intent.requested_outcomes
+                        else 0
+                    ),
                     "qualified_min": record.intent.qualification_quantity or record.intent.requested_quantity
                     if "qualify_prospects" in record.intent.requested_outcomes
                     else 0,
                     "draft_min": record.intent.qualification_quantity or record.intent.requested_quantity
                     if "prepare_outreach" in record.intent.requested_outcomes
                     else 0,
+                    "require_bound_drafts": (
+                        "prepare_outreach" in record.intent.requested_outcomes
+                        and bool(
+                            {
+                                "research_prospects",
+                                "qualify_prospects",
+                                "enrich_contacts",
+                            }
+                            & set(record.intent.requested_outcomes)
+                        )
+                    ),
                     "research_report_required": "synthesize_research_report" in record.intent.requested_outcomes,
                     "market_opportunities_min": 3
                     if "synthesize_research_report" in record.intent.requested_outcomes

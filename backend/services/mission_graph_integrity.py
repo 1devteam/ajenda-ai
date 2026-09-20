@@ -12,7 +12,12 @@ from sqlalchemy.orm import Session
 from backend.repositories.provider_runtime_credential_repository import ProviderRuntimeCredentialRepository
 from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
 
-REPORT_RE = re.compile(r"\b(?:comparison\s+table|compare\b|report\b|highlight\b|evidence\s+gap)", re.I)
+# ``compare`` is an ordinary qualification operation and does not by itself
+# request a report artifact. Require an explicit report/comparison deliverable
+# so runtime admission does not reject CRM ranking missions that compare facts.
+REPORT_RE = re.compile(
+    r"\b(?:comparison\s+table|comparison\s+report|research\s+report|report\b|highlight\b|evidence\s+gap)", re.I
+)
 REPORT_ARTIFACTS = frozenset({"comparison_report", "mission_report", "research_report"})
 CONTACTS_RE = re.compile(
     r"\bgoogle\s+contacts?\b|\b(?:check|read|list|show|fetch|get)\s+(?:my\s+|the\s+)?contacts?\b", re.I

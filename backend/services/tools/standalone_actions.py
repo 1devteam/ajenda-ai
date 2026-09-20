@@ -219,6 +219,11 @@ def _prospect_from_record(record: dict[str, Any], *, source: str, query: str) ->
         f"{source}:{record_id}" if record_id else None,
     )
     return {
+        # Preserve the durable record identity for downstream bindings.  The
+        # observation stage uses this key to resolve tenant-scoped contacts;
+        # ``prospect_id`` is an artifact identity and is not a substitute for
+        # the source record id when a prospect crosses the action boundary.
+        "id": record_id,
         "prospect_id": str(record.get("id") or f"{source}:{name}")[:80],
         "company": name[:160],
         "domain": domain_str[:160] if domain_str else None,

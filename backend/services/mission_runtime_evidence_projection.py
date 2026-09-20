@@ -7,6 +7,8 @@ it never queues, claims, starts, retries, or authorizes work.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Literal
 from uuid import UUID
 
@@ -104,6 +106,41 @@ def _task_node_key(metadata: dict[str, Any]) -> str | None:
         if isinstance(value, str) and value:
             return value
     return None
+
+
+def _output_summary(value: Any) -> dict[str, Any]:
+    """Describe an observed handler value without treating it as valid output."""
+
+    if isinstance(value, list):
+        shape = "list"
+        count = len(value)
+        item_types = sorted({type(item).__name__ for item in value})
+        keys = sorted({str(key) for item in value if isinstance(item, dict) for key in item})
+    elif isinstance(value, dict):
+        shape = "dict"
+        count = 1
+        item_types = []
+        keys = sorted(str(key) for key in value)
+    elif value is None:
+        shape = "null"
+        count = 0
+        item_types = []
+        keys = []
+    else:
+        shape = type(value).__name__
+        count = 1
+        item_types = []
+        keys = []
+    digest = hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+    return {
+        "shape": shape,
+        "count": count,
+        "item_types": item_types,
+        "keys": keys,
+        "sha256": f"sha256:{digest}",
+    }
 
 
 def build_mission_runtime_evidence_projection(
@@ -340,9 +377,28 @@ def build_mission_runtime_evidence_projection(
             contradictions.append(f"task:{task_id}:completed_without_artifact:{expected_artifact}")
 
         for artifact_key, raw_records in task_output.items():
-            if not isinstance(raw_records, list):
-                continue
-            for record_index, raw_record in enumerate(raw_records):
+            if isinstance(raw_records, list):
+                records: list[tuple[int | None, Any]] = list(enumerate(raw_records))
+            else:
+                # Reports and other typed artifacts are commonly dict-shaped.
+                # Preserve their existence and shape instead of silently dropping
+                # them from the evidence graph.
+                records = [(None, raw_records)]
+            for record_index, raw_record in records:
+                if record_index is None and not isinstance(raw_record, dict):
+                    record_flows.append(
+                        {
+                            "task_id": task_id,
+                            "artifact_key": str(artifact_key),
+                            "record_index": None,
+                            "record_id": None,
+                            "value_shape": _output_summary(raw_record)["shape"],
+                            "value_count": _output_summary(raw_record)["count"],
+                            "source_keys": [],
+                            "output_summary": _output_summary(raw_record),
+                        }
+                    )
+                    continue
                 if not isinstance(raw_record, dict):
                     continue
                 record_flows.append(
@@ -361,7 +417,10 @@ def build_mission_runtime_evidence_projection(
                         "source_reliability": raw_record.get("source_reliability"),
                         "reason": raw_record.get("reason"),
                         "source": raw_record.get("source"),
+                        "value_shape": "dict",
+                        "value_count": 1,
                         "source_keys": sorted(str(key) for key in raw_record),
+                        "output_summary": _output_summary(raw_record),
                     }
                 )
 
@@ -407,6 +466,7 @@ def build_mission_runtime_evidence_projection(
             declared_contract = {}
         input_bindings = metadata.get("input_bindings")
         observed_output_keys = sorted(str(key) for key in task_output)
+        output_summaries = {str(key): _output_summary(value) for key, value in task_output.items()}
         task_flows.append(
             {
                 "task_id": task_id,
@@ -418,6 +478,7 @@ def build_mission_runtime_evidence_projection(
                 else [],
                 "declared_output_contract": dict(declared_contract),
                 "observed_output_keys": observed_output_keys,
+                "output_summaries": output_summaries,
                 "failure": failure,
                 "queue_admitted": task_id in admitted_ids
                 or task.status

@@ -45,6 +45,18 @@ class TenantInternalRecordRepository:
                     TenantInternalRecord.record_id.ilike(pattern),
                 )
             )
+        # Apply exact filters before the bounded SQL window.  Applying them
+        # only after ``limit((limit + offset) * 3)`` can hide a valid related
+        # record when newer rows belong to other parents (for example, a
+        # contact lookup by account_id).  Keep the Python check below as a
+        # defensive parity check for values that are not representable in the
+        # JSON text expression.
+        for key, value in (filters or {}).items():
+            field_expr = TenantInternalRecord.data_json[key].astext
+            if value is None:
+                stmt = stmt.where(field_expr.is_(None))
+            else:
+                stmt = stmt.where(field_expr == str(value))
         rows = list(
             self._session.scalars(
                 stmt.order_by(TenantInternalRecord.updated_at.desc()).limit((limit + offset) * 3)

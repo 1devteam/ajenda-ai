@@ -572,6 +572,13 @@ def test_send_after_approval_is_conditional_not_immediate_send_job() -> None:
     assert "email.deliver_outreach" not in {job.job_key for job in jobs}
 
 
+def test_forbid_email_sending_is_not_parsed_as_send_authority() -> None:
+    intent = interpret_instruction("Review the approved business profile and forbid email sending and CRM updates.")
+    assert intent.send_policy.mode == "forbid"
+    assert "send_outreach" not in intent.requested_outcomes
+    assert "gtm.email_send" in intent.forbidden_actions
+
+
 def test_publish_content_is_runtime_bound_not_stranded() -> None:
     intent = interpret_instruction(
         "Research three roofing companies in Austin, qualify them, draft emails, "
@@ -680,6 +687,25 @@ def test_internal_crm_gtm_review_binds_read_before_observe_qualify_and_draft() -
     }
     assert "gtm.crm_upsert" in intent.forbidden_outcomes
     assert "gtm.email_send" in intent.forbidden_outcomes
+
+
+def test_internal_crm_source_never_becomes_a_write_or_unbound_branch() -> None:
+    intent = interpret_instruction(
+        "Use Ajenda internal CRM records, qualify the strongest three, and draft introductions. Do not send."
+    )
+    assert "persist_internal_crm" not in intent.requested_outcomes
+    jobs = route_jobs_for_intent(intent)
+    assert "research.discover_prospects" not in {job.job_key for job in jobs}
+    selections, missing = resolve_jobs(jobs, intent=intent)
+    assert missing == []
+    steps = compile_planned_steps(selections, intent=intent)
+    assert [step.action_name for step in steps] == ["record.search", "sales.qualify", "gtm.email_draft"]
+    assert all("ability-record-search" in step.depends_on or step.action_name == "record.search" for step in steps)
+    assert any(
+        binding["from_step"] == "ability-record-search" and binding["output_path"] == "$.crm_records"
+        for step in steps[1:]
+        for binding in step.input_bindings
+    )
 
 
 def test_qualification_scores_and_reasons_are_a_supported_deliverable() -> None:

@@ -79,3 +79,23 @@ def test_admission_preflight_blocks_wrong_runtime_key() -> None:
 
     assert report["status"] == "blocked"
     assert [item["code"] for item in report["findings"]] == ["mission_credential.not_decryptable"]
+
+
+def test_compare_qualification_facts_does_not_require_report_artifact() -> None:
+    session = MagicMock()
+    report = evaluate_admission_integrity(
+        session=session,
+        tenant_id="tenant-1",
+        instruction="Compare qualification evidence and rank the strongest CRM records.",
+        task_graph={
+            "nodes": [
+                {
+                    "key": "qualify",
+                    "metadata": {"job_key": "sales.qualify_prospects"},
+                    "output_contract": {"artifact": "qualified_prospects"},
+                }
+            ]
+        },
+    )
+    assert report["status"] == "clear"
+    assert not any(item["code"] == "mission_deliverable.report_not_materialized" for item in report["findings"])

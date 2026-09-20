@@ -111,7 +111,14 @@ def _dependency_output_name(*, dependency: BusinessJob, downstream_action: str) 
         return "verified_prospect_candidates"
     if dependency.job_key == "research.observe_sources" and downstream_action == "record.write":
         return "observed_contacts"
-    if dependency.job_key == "crm.read_records" and downstream_action == "research.observe_contacts":
+    if dependency.job_key == "crm.read_records" and downstream_action in {
+        "research.observe_contacts",
+        "sales.qualify",
+        "sales.score_lead",
+        "gtm.lead_enrich",
+        "gtm.email_draft",
+        "sales.draft_followup",
+    }:
         return "crm_records"
     return dependency.produced_outputs[0] if dependency.produced_outputs else "result"
 
@@ -128,7 +135,13 @@ def _dependency_jobs_for_selection(
     if (
         intent is not None
         and "internal_crm_source" in {str(item) for item in intent.context_requirements}
-        and job.job_key == "research.observe_sources"
+        and job.job_key
+        in {
+            "research.observe_sources",
+            "sales.qualify_prospects",
+            "gtm.enrich_contacts",
+            "email.prepare_outreach",
+        }
         and "crm.read_records" in selected_keys
     ):
         dependencies = ["crm.read_records", *dependencies]

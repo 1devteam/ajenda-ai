@@ -54,6 +54,7 @@ _NO_SEND_PATTERNS = (
     r"prepare drafts",
     r"no send",
     r"nothing should be sent",
+    r"\b(?:forbid|forbids|forbidden|prohibit|prohibits|prohibited)\b[^.!?]{0,80}\bsend(?:ing)?\b",
     # Covers coordinated prohibitions such as “Do not browse, contact anyone,
     # send email, or perform any external action.” Clause splitting must not
     # turn the later list items into authorized actions.
@@ -485,7 +486,11 @@ def _contains_unnegated_send(text: str) -> bool:
         full_sentence = text[sentence_start + 1 : sentence_end]
         if _contains_any(full_sentence, _PROMPT_INJECTION_PATTERNS):
             continue
-        if re.search(r"\b(?:do not|don't|dont|never|without)\b", sentence, flags=re.IGNORECASE):
+        if re.search(
+            r"\b(?:do not|don't|dont|never|without|forbid|forbids|forbidden|prohibit|prohibits|prohibited)\b",
+            sentence,
+            flags=re.IGNORECASE,
+        ):
             continue
         return True
     return False
@@ -1480,6 +1485,14 @@ def interpret_instruction(
     medium_fuzzy: list[str] = []
     for fuzzy_hit in fuzzy_hits:
         if fuzzy_hit.outcome == "read_crm" and (no_crm or not wants_crm_read):
+            continue
+        # Mentioning internal CRM records as a read source must not be
+        # promoted by fuzzy vocabulary into a CRM write outcome.
+        if (
+            fuzzy_hit.outcome in {"update_crm", "persist_internal_crm"}
+            and internal_crm_read
+            and not crm_write_requested
+        ):
             continue
         if fuzzy_hit.outcome == "send_outreach" and (no_send or conditional_send):
             continue

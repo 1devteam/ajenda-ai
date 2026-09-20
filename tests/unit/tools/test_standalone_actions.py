@@ -109,6 +109,62 @@ def test_web_research_matches_market_tokens_on_tenant_accounts(monkeypatch) -> N
     assert result.output["prospect_candidates"][0]["company"] == "Dallas Comfort HVAC"
 
 
+def test_local_fixture_research_preserves_source_ids_for_all_contacts(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    accounts = [
+        {
+            "id": f"fixture-{index}",
+            "name": f"Austin Software {index}",
+            "industry": "software development",
+            "location": "Austin",
+            "website": f"https://software-{index}.example",
+            "source": "local_fixture",
+        }
+        for index in range(1, 6)
+    ]
+    contacts = {
+        account["id"]: {
+            "id": f"{account['id']}-contact",
+            "account_id": account["id"],
+            "name": f"{account['name']} Contact",
+            "role": "Founder",
+            "email": f"contact{account['id'].rsplit('-', 1)[-1]}@example.test",
+        }
+        for account in accounts
+    }
+
+    class _Store:
+        def search_records(self, **kwargs):  # type: ignore[no-untyped-def]
+            record_type = kwargs.get("record_type")
+            if record_type == "account":
+                return accounts
+            if record_type == "contact":
+                account_id = (kwargs.get("filters") or {}).get("account_id")
+                contact = contacts.get(account_id)
+                return [contact] if contact else []
+            return []
+
+    monkeypatch.setattr(standalone_actions, "resolve_record_store", lambda _ctx: _Store())
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="web.research",
+            input={
+                "query": "software development companies in Austin",
+                "include_public_search": False,
+                "local_fixture_only": True,
+                "limit": 5,
+            },
+        ),
+        _context(),
+    )
+
+    candidates = result.output["prospect_candidates"]
+    assert len(candidates) == 5
+    assert all(candidate["id"] == candidate["prospect_id"] for candidate in candidates)
+    assert all(candidate.get("email") for candidate in candidates)
+
+
 def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> None:
     """Open research about a third party must not report tenant profile as company/domain."""
     from backend.services.business_context_resolver import BusinessContext

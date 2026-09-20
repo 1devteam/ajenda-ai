@@ -51,6 +51,24 @@ def test_acceptance_counts_drafts_across_fanout_output() -> None:
     assert reasons == []
 
 
+def test_acceptance_rejects_placeholder_drafts_when_bound_drafts_required() -> None:
+    met, reasons = evaluate_mission_acceptance(
+        tasks=[_task({"introduction_drafts": [{"recipient": "pending.binding@invalid.local"}]})],
+        contract={"draft_min": 1, "require_bound_drafts": True},
+    )
+    assert met is False
+    assert "outreach drafts" in " ".join(reasons)
+
+
+def test_acceptance_accepts_record_search_crm_alias() -> None:
+    met, reasons = evaluate_mission_acceptance(
+        tasks=[_task({"crm_records": [{"id": "contact-1", "company": "Acme"}]})],
+        contract={"internal_crm_records_min": 1},
+    )
+    assert met is True
+    assert reasons == []
+
+
 def test_acceptance_counts_verified_directory_resolutions() -> None:
     met, reasons = evaluate_mission_acceptance(
         tasks=[

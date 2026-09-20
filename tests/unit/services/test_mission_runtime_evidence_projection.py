@@ -377,3 +377,35 @@ def test_projection_exposes_record_lineage_and_ordered_audit_facts() -> None:
     directory = next(item for item in projection.record_flows if item["artifact_key"] == "pages")
     assert directory["identity_status"] == "unverified"
     assert directory["source_reliability"] == "directory_or_third_party"
+
+
+def test_projection_preserves_dict_artifact_shape_and_digest() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status="completed",
+        metadata={
+            "task_type": "tool.invoke",
+            "expected_output_contract": {"artifact": "research_report"},
+            "handler_result": {"output": {"research_report": {"market_opportunities": [{"title": "one"}]}}},
+        },
+    )
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        mission_metadata={
+            "runtime_task_materialization": {"created_execution_task_ids": [str(task.id)]},
+            "runtime_queue_admission": {"admitted_execution_task_ids": [str(task.id)]},
+        },
+        tasks=[task],
+        leases=[],
+        lineage=[],
+        evidence=[],
+    )
+    flow = projection.task_flows[0]
+    assert flow["output_summaries"]["research_report"]["shape"] == "dict"
+    report_flow = next(item for item in projection.record_flows if item["artifact_key"] == "research_report")
+    assert report_flow["value_shape"] == "dict"
+    assert report_flow["output_summary"]["sha256"].startswith("sha256:")

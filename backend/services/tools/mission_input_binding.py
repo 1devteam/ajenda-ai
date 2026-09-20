@@ -253,6 +253,14 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                     "input_path": "$.input.context.observed_contacts",
                 }
             )
+        if action_name in {"sales.qualify", "sales.score_lead"} and "record-search" in dep:
+            specs.append(
+                {
+                    "from_step": dep,
+                    "output_path": "$.crm_records",
+                    "input_path": "$.input.prospects",
+                }
+            )
         if action_name == "research.observe_contacts" and "web-research" in dep:
             specs.append(
                 {
@@ -552,18 +560,12 @@ def apply_input_bindings(
         else:
             prospects = bound.get("prospects")
             if not isinstance(prospects, list) or not prospects:
-                # Draft actions can still produce a non-deliverable market-context
-                # draft. Qualification, enrichment, observation, and synthesis
-                # require a concrete upstream artifact; allowing them through with
-                # only industry/location seeds defers a binding failure into the
-                # handler and obscures the real dependency gap.
-                market_context_draft = action_name in {"gtm.email_draft", "sales.draft_followup"} and (
-                    context.get("industry") or context.get("location") or bound.get("company")
+                # A draft is still a product artifact and must identify the
+                # upstream prospect it represents. Industry/location seeds are
+                # planning context, not permission to emit a placeholder row.
+                raise InputBindingError(
+                    f"binding_required but no upstream prospects were available for {action_name or 'ability'}"
                 )
-                if not market_context_draft:
-                    raise InputBindingError(
-                        f"binding_required but no upstream prospects were available for {action_name or 'ability'}"
-                    )
             audit["primary_prospect"] = _primary_prospect(bound)
 
     return bound, audit
