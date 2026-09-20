@@ -72,6 +72,42 @@ def test_projection_flags_completed_task_without_evidence() -> None:
     assert f"task:{task.id}:completed_without_evidence" in projection.contradictions
 
 
+def test_projection_exposes_terminal_failure_as_first_runtime_divergence() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status="failed",
+        metadata={
+            "task_type": "tool.invoke",
+            "failure": {
+                "code": "HANDLER_FAILED",
+                "message": "qualified_prospects contained no acceptable rows",
+                "failed_at": "2026-09-20T02:08:25Z",
+            },
+        },
+    )
+
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        mission_metadata={
+            "runtime_task_materialization": {"created_execution_task_ids": [str(task.id)]},
+            "runtime_queue_admission": {"admitted_execution_task_ids": [str(task.id)]},
+        },
+        tasks=[task],
+        leases=[],
+        lineage=[],
+        evidence=[],
+    )
+
+    assert projection.first_divergence == "task:execution"
+    flow = projection.task_flows[0]
+    assert flow["failure"]["code"] == "HANDLER_FAILED"
+    assert f"task:{task.id}:failure:HANDLER_FAILED" in projection.contradictions
+
+
 def test_projection_names_declared_artifact_when_completed_output_is_missing() -> None:
     mission_id = uuid4()
     tenant_id = str(uuid4())
@@ -250,6 +286,23 @@ def test_projection_exposes_mission_acceptance_facts_without_adjudicating_them()
     assert projection.mission_status == "failed"
     assert projection.acceptance["status"] == "partially_met"
     assert projection.acceptance["reasons"] == ["required three drafts, produced two"]
+
+
+def test_projection_marks_terminal_acceptance_gap_when_tasks_completed() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        mission_status="failed",
+        mission_metadata={"acceptance": {"status": "partially_met", "reasons": ["required ten rows, produced eight"]}},
+        tasks=[],
+        leases=[],
+        lineage=[],
+        evidence=[],
+    )
+
+    assert projection.first_divergence == "mission:acceptance"
 
 
 def test_projection_exposes_record_lineage_and_ordered_audit_facts() -> None:

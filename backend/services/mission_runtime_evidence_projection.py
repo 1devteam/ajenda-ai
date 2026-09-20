@@ -388,6 +388,18 @@ def build_mission_runtime_evidence_projection(
             )
 
         metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        raw_failure = metadata.get("failure")
+        failure = dict(raw_failure) if isinstance(raw_failure, dict) else {}
+        if task.status == "failed":
+            # A terminal failure is a runtime fact in its own right. Preserve
+            # the durable dispatcher code/message so the evaluator can locate
+            # the first broken edge without inferring it from an empty output.
+            failure_code = str(failure.get("code") or "unknown").strip()
+            failure_message = str(failure.get("message") or "").strip()
+            marker = f"task:{task_id}:failure:{failure_code}"
+            contradictions.append(marker)
+            if failure_message:
+                contradictions.append(f"{marker}:{failure_message[:240]}")
         declared_contract = metadata.get("expected_output_contract")
         if not isinstance(declared_contract, dict):
             declared_contract = metadata.get("output_contract")
@@ -406,6 +418,7 @@ def build_mission_runtime_evidence_projection(
                 else [],
                 "declared_output_contract": dict(declared_contract),
                 "observed_output_keys": observed_output_keys,
+                "failure": failure,
                 "queue_admitted": task_id in admitted_ids
                 or task.status
                 in {
@@ -429,14 +442,27 @@ def build_mission_runtime_evidence_projection(
         missing.append("mission:queue_admission")
 
     first_divergence = None
+    acceptance_status = str(_metadata(mission_metadata, "acceptance").get("status") or "").strip().lower()
+    if mission_status in {"failed", "blocked"} and acceptance_status in {"failed", "partially_met"}:
+        # A mission may have every task reach a terminal state and still fail
+        # its declared minimum-row/schema acceptance. Preserve that boundary
+        # as a fact when no earlier task execution failure explains it.
+        first_divergence = "mission:acceptance"
     for candidate, marker in (
         ("mission:execution_tasks", "mission:execution_tasks"),
         ("mission:queue_admission", "mission:queue_admission"),
+        ("task:execution", ":failure:"),
         ("task:worker_lease", ":worker_lease"),
         ("task:evidence", ":evidence"),
         ("task:artifact", ":artifact"),
     ):
-        if any(item == marker or item.endswith(marker) or f"{marker}:" in item for item in missing):
+        if first_divergence is not None and candidate != "task:execution":
+            continue
+        if candidate == "task:execution":
+            if any(marker in item for item in contradictions):
+                first_divergence = candidate
+                break
+        elif any(item == marker or item.endswith(marker) or f"{marker}:" in item for item in missing):
             first_divergence = candidate
             break
 
