@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0",
+  "scope": "real-world-mission-verification",
+  "purpose": "Exercise Ajenda through user missions and compare intent, graph, runtime evidence, acceptance, and deliverable quality.",
+  "review_rule": "A completed task chain is not sufficient; semantic acceptance and evidence quality must also be met.",
+  "dimensions": {
+    "data_sources": ["user_input", "tenant_records", "public_research", "mixed"],
+    "effect_classes": ["read_only", "planning", "governed_internal_write", "external_side_effect"],
+    "failure_classes": ["missing_input", "weak_evidence", "partial_result", "policy_block", "worker_failure", "acceptance_failure"]
+  },
+  "missions": [
+    {
+      "id": "prospecting.revops_chain",
+      "verification_state": "runtime_proven",
+      "request": "Find 10 commercial companies in a location, qualify the strongest three, and draft introductions. Do not send.",
+      "intent": "Produce verified, ranked prospects and reviewable drafts without external communication.",
+      "expected_nodes": ["ability-web-research", "ability-research-observe_contacts", "ability-sales-qualify", "ability-gtm-lead_enrich", "ability-gtm-email_draft"],
+      "expected_artifacts": ["verified_prospect_candidates", "qualified_prospects", "introduction_drafts"],
+      "allowed_actions": ["web.research", "research.observe_contacts", "sales.qualify", "gtm.lead_enrich", "gtm.email_draft"],
+      "forbidden_actions": ["gtm.email_send", "gtm.crm_upsert"],
+      "evidence_requirements": ["identity evidence", "source URLs", "qualification rationale", "draft lineage"],
+      "acceptance": ["requested verified quantity met", "strongest-three quantity met", "draft quantity met", "send absent"]
+    },
+    {
+      "id": "advisory.business_review",
+      "verification_state": "contract_pending",
+      "request": "Review my business and suggest possible ways to increase income.",
+      "intent": "Diagnose revenue opportunities from supplied business facts without inventing financial results.",
+      "expected_nodes": ["business.profile_read", "business.revenue_diagnosis", "research.synthesize_report"],
+      "expected_artifacts": ["business_review_report"],
+      "allowed_actions": ["business.profile_read", "research.synthesize_report"],
+      "forbidden_actions": ["external_write", "purchase", "send"],
+      "evidence_requirements": ["source facts", "assumptions", "evidence gaps", "opportunity rationale"],
+      "acceptance": ["facts separated from estimates", "at least two opportunities", "risks and next actions present"]
+    },
+    {
+      "id": "advisory.startup_technology",
+      "verification_state": "contract_pending",
+      "request": "I want to start a business. What technology areas are promising for me?",
+      "intent": "Rank feasible technology directions against the user's stated skills, market, and constraints.",
+      "expected_nodes": ["business.profile_read", "research.public_market", "decision.rank_options"],
+      "expected_artifacts": ["opportunity_options_report"],
+      "allowed_actions": ["research.public_market", "research.synthesize_report"],
+      "forbidden_actions": ["external_write", "purchase", "send"],
+      "evidence_requirements": ["market sources", "fit assumptions", "uncertainty", "validation steps"],
+      "acceptance": ["multiple options compared", "ranking rationale present", "unknowns explicit"]
+    },
+    {
+      "id": "advisory.capital_constrained_startup",
+      "verification_state": "contract_pending",
+      "request": "I have a fixed amount of capital and want to start a business. What is the best use for it?",
+      "intent": "Provide staged capital-allocation scenarios with downside analysis, not an irreversible directive.",
+      "expected_nodes": ["business.constraint_read", "decision.scenario_model", "research.synthesize_report"],
+      "expected_artifacts": ["capital_allocation_report"],
+      "allowed_actions": ["research.public_market", "research.synthesize_report"],
+      "forbidden_actions": ["purchase", "transfer_funds", "external_write"],
+      "evidence_requirements": ["capital and horizon inputs", "assumptions", "sensitivity", "downside risks"],
+      "acceptance": ["at least two scenarios", "staged commitments", "no fabricated returns", "decision unknowns present"]
+    },
+    {
+      "id": "research.competitive_landscape",
+      "verification_state": "contract_pending",
+      "request": "Compare leading competitors and identify market gaps.",
+      "intent": "Produce a source-backed comparison and distinguish observed gaps from hypotheses.",
+      "expected_nodes": ["research.public_market", "research.synthesize_report"],
+      "expected_artifacts": ["competitive_landscape_report"],
+      "allowed_actions": ["research.public_market", "research.synthesize_report"],
+      "forbidden_actions": ["external_write", "send"],
+      "evidence_requirements": ["source URLs", "comparison dimensions", "evidence gaps", "hypothesis labels"],
+      "acceptance": ["comparison complete", "gaps tied to evidence", "uncertainty explicit"]
+    },
+    {
+      "id": "planning.service_launch",
+      "verification_state": "contract_pending",
+      "request": "Create a 30-day launch plan for my new service business.",
+      "intent": "Create an executable plan with dependencies and measurable checkpoints without taking action.",
+      "expected_nodes": ["business.profile_read", "planning.sequence_work", "planning.risk_review"],
+      "expected_artifacts": ["service_launch_plan"],
+      "allowed_actions": ["business.profile_read", "planning.sequence_work"],
+      "forbidden_actions": ["external_write", "send", "purchase"],
+      "evidence_requirements": ["prerequisites", "owners", "risks", "completion criteria"],
+      "acceptance": ["ordered steps", "dependencies present", "risks present", "no unintended CRM or research tasks"]
+    }
+  ]
+}

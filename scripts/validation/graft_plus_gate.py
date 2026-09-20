@@ -51,6 +51,7 @@ def main() -> int:
                     "tests/unit/validation/test_graph_completeness_audit.py",
                     "tests/unit/validation/test_graph_architecture_decision.py",
                     "tests/unit/validation/test_graph_runtime_impact.py",
+                    "tests/unit/validation/test_mission_verification_portfolio.py",
                 ],
             )
         )

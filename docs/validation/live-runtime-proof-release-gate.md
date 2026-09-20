@@ -131,6 +131,13 @@ with the static impact snapshot using
 `graph_runtime_impact.py`. The joined artifact is diagnostic evidence only; it
 does not grant execution authority or decide whether a repair is authorized.
 
+The broader mission portfolio is defined in
+`docs/validation/mission-verification-portfolio.v1.json`. It marks which
+mission families are runtime-proven and which still have contract-pending
+coverage. New everyday use cases must enter that portfolio with expected
+nodes, artifacts, evidence, forbidden actions, and acceptance criteria before
+they are treated as product proof.
+
 ---
 
 ## CI workflow behavior (`main` push)
