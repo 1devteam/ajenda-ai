@@ -99,6 +99,31 @@ def test_decision_recommend_without_options_gathers_evidence() -> None:
     assert "options_absent" in result.output["uncertainty"]
 
 
+def test_business_income_review_returns_bounded_opportunities_from_profile() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="decision.recommend_next_action",
+            input={
+                "goal": "Review my business and suggest possible ways to increase income.",
+                "context": {
+                    "review_kind": "business_income",
+                    "business_profile_facts": {
+                        "profile_id": "profile-1",
+                        "approved_facts": {"products_services": ["managed services"]},
+                    },
+                },
+            },
+        ),
+        _context(),
+    )
+    report = result.output["business_review_report"]
+    assert len(report["income_opportunities"]) == 3
+    assert report["status"] == "evidence_limited"
+    assert report["evidence"]["profile_id"] == "profile-1"
+    assert result.side_effect_class.value == "none"
+
+
 def test_decision_recommend_respects_forbid_constraint() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(

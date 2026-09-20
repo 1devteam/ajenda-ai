@@ -100,6 +100,26 @@ def test_acceptance_requires_research_report_opportunities() -> None:
     assert reasons == []
 
 
+def test_acceptance_requires_business_review_opportunities() -> None:
+    incomplete = _task({"business_review_report": {"income_opportunities": []}})
+    met, reasons = evaluate_mission_acceptance(
+        tasks=[incomplete],
+        contract={"business_review_required": True, "business_opportunities_min": 3},
+    )
+    assert met is False
+    assert "income opportunities" in " ".join(reasons)
+
+    complete = _task(
+        {"business_review_report": {"income_opportunities": [{"title": "one"}, {"title": "two"}, {"title": "three"}]}}
+    )
+    met, reasons = evaluate_mission_acceptance(
+        tasks=[complete],
+        contract={"business_review_required": True, "business_opportunities_min": 3},
+    )
+    assert met is True
+    assert reasons == []
+
+
 def test_acceptance_requires_internal_crm_readback_evidence() -> None:
     persisted_only = _task({"internal_crm_records": [{"id": "contact-1", "company": "Acme"}]})
     met, reasons = evaluate_mission_acceptance(

@@ -63,6 +63,8 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
     if action_name in {"vertical.finance.prepare_reconciliation", "vertical.finance.prepare_invoice_drafts"}:
         return "$.input.revenue_records"
     if action_name == "decision.recommend_next_action":
+        if output_name == "business_profile_facts":
+            return "$.input.context.business_profile_facts"
         if output_name == "observed_contacts":
             return "$.input.context.observed_contacts"
         if output_name == "retrieved_knowledge":

@@ -135,12 +135,35 @@ REVENUE_RECORDS_SCHEMA = CompositionArtifactSchema(
     ),
 )
 
+BUSINESS_REVIEW_REPORT_SCHEMA = CompositionArtifactSchema(
+    artifact_key="business_review_report",
+    producer_job="business.review_income",
+    fields=(
+        ArtifactFieldProjection(
+            deliverable_field="research_summary",
+            json_path="$.income_opportunities",
+            scope="whole_artifact",
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="assumptions",
+            json_path="$.assumptions",
+            scope="whole_artifact",
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="limitations",
+            json_path="$.evidence_gaps",
+            scope="whole_artifact",
+        ),
+    ),
+)
+
 ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     PROSPECT_CANDIDATES_SCHEMA.artifact_key: PROSPECT_CANDIDATES_SCHEMA,
     OBSERVED_CONTACTS_SCHEMA.artifact_key: OBSERVED_CONTACTS_SCHEMA,
     VERIFIED_PROSPECT_CANDIDATES_SCHEMA.artifact_key: VERIFIED_PROSPECT_CANDIDATES_SCHEMA,
     QUALIFIED_PROSPECTS_SCHEMA.artifact_key: QUALIFIED_PROSPECTS_SCHEMA,
     REVENUE_RECORDS_SCHEMA.artifact_key: REVENUE_RECORDS_SCHEMA,
+    BUSINESS_REVIEW_REPORT_SCHEMA.artifact_key: BUSINESS_REVIEW_REPORT_SCHEMA,
 }
 
 

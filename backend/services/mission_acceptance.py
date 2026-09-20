@@ -59,6 +59,12 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
         if isinstance(report, dict):
             reports.append(report)
 
+    business_reviews: list[dict[str, Any]] = []
+    for output in outputs:
+        review = output.get("business_review_report")
+        if isinstance(review, dict):
+            business_reviews.append(review)
+
     candidate_min = int(contract.get("candidate_min", 0) or 0)
     if contract.get("require_verified_identity"):
         # A public discovery row is only an input to identity observation. It
@@ -99,6 +105,22 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
         if len(opportunities) < opportunity_min:
             reasons.append(
                 f"required at least {opportunity_min} market opportunities in research_report, produced {len(opportunities)}"
+            )
+
+    if contract.get("business_review_required"):
+        opportunities = [
+            item
+            for review in business_reviews
+            for item in review.get("income_opportunities", [])
+            if isinstance(item, dict) and str(item.get("title") or "").strip()
+        ]
+        if not business_reviews:
+            reasons.append("required a business_review_report artifact, produced 0")
+        elif len(opportunities) < int(contract.get("business_opportunities_min", 1) or 1):
+            reasons.append(
+                "required at least "
+                f"{int(contract.get('business_opportunities_min', 1) or 1)} income opportunities in business_review_report, "
+                f"produced {len(opportunities)}"
             )
 
     crm_records = unique_records("internal_crm_records")

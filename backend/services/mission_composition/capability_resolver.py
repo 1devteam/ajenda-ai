@@ -38,6 +38,7 @@ _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "operations.verify_runtime_controls": ("runtime.verify_controls",),
     "intelligence.retrieve_knowledge": ("knowledge.retrieve_current",),
     "intelligence.retrieve_business_profile": ("retrieval.hybrid_search",),
+    "business.review_income": ("decision.recommend_next_action",),
     "intelligence.advise_next": ("decision.recommend_next_action",),
     "sales.research_context": ("sales.research", "crm.research"),
     "sales.qualify_prospects": ("sales.qualify", "sales.score_lead"),

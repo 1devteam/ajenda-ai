@@ -226,6 +226,8 @@ def _feasibility(option_id: str, constraints: list[str], facts: list[EvidenceFac
 def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     decided_at = datetime.now(UTC)
     payload = DecisionRecommendInput.model_validate(invocation.input)
+    if payload.context.get("review_kind") == "business_income":
+        return _review_business_income(payload, context)
     facts = _normalize_facts(list(payload.evidence))
     criteria = list(payload.criteria)
     options = list(payload.options)
@@ -364,6 +366,90 @@ def decision_recommend_next_action(invocation: ToolInvocation, context: ActionRu
         ],
         summary=summary,
         confidence=confidence,
+    )
+
+
+def _review_business_income(payload: DecisionRecommendInput, context: ActionRuntimeContext) -> ActionResult:
+    """Produce bounded income hypotheses from the upstream approved profile.
+
+    This deliberately does not claim that an opportunity will increase revenue.
+    It returns testable hypotheses, the profile facts used, and missing evidence
+    needed before an operator should act.
+    """
+
+    profile = payload.context.get("business_profile_facts")
+    if not isinstance(profile, dict):
+        raise ValueError("business income review requires bound approved business profile facts")
+    approved_facts = profile.get("approved_facts")
+    if not isinstance(approved_facts, dict):
+        approved_facts = {}
+    profile_id = str(profile.get("profile_id") or "").strip() or None
+    fact_keys = sorted(str(key) for key in approved_facts if str(key).strip())
+    source_ref = f"business-profile:{profile_id}" if profile_id else "approved_business_profile"
+    gaps = [
+        "historical revenue by product or service",
+        "gross margin and delivery capacity",
+        "customer acquisition and retention rates",
+        "validated willingness to pay",
+    ]
+    opportunities = [
+        {
+            "opportunity_id": "income:offer-expansion",
+            "title": "Test an adjacent offer for existing customers",
+            "hypothesis": "An adjacent offer could increase revenue per existing customer if demand and delivery capacity are confirmed.",
+            "validation_step": "Interview existing customers and price a small paid pilot before building or promoting it.",
+            "evidence_ids": [source_ref],
+        },
+        {
+            "opportunity_id": "income:conversion-improvement",
+            "title": "Improve conversion in the current sales path",
+            "hypothesis": "Improving qualification, follow-up, or proposal conversion may increase revenue without adding a new offer.",
+            "validation_step": "Measure the current funnel by stage, then run one controlled change against a defined baseline.",
+            "evidence_ids": [source_ref],
+        },
+        {
+            "opportunity_id": "income:retention-expansion",
+            "title": "Test retention or recurring-revenue improvements",
+            "hypothesis": "A retention or recurring service option may improve revenue stability if customers have an ongoing need.",
+            "validation_step": "Review renewal and repeat-purchase evidence before offering a measured pilot to existing customers.",
+            "evidence_ids": [source_ref],
+        },
+    ]
+    report = {
+        "schema_version": 1,
+        "status": "evidence_limited",
+        "objective": payload.goal,
+        "income_opportunities": opportunities,
+        "evidence": {
+            "profile_id": profile_id,
+            "source": "approved_business_profile",
+            "approved_fact_keys": fact_keys,
+        },
+        "assumptions": [
+            "These are testable hypotheses, not predictions or financial advice.",
+            "No revenue, demand, margin, or customer result was inferred from missing facts.",
+        ],
+        "evidence_gaps": gaps,
+        "next_step": "Supply the missing commercial evidence and run a bounded pilot decision.",
+    }
+    summary = "Business income review produced three evidence-limited opportunities from the approved profile."
+    return ActionResult(
+        action="decision.recommend_next_action",
+        provider="ajenda_decision",
+        side_effect_class=SideEffectClass.NONE,
+        output={"business_review_report": report, "recommendation": "gather_more_evidence"},
+        evidence=[
+            _evidence(
+                context=context,
+                action="decision.recommend_next_action",
+                provider="ajenda_decision",
+                summary=summary,
+                payload=report,
+                confidence=0.55,
+            )
+        ],
+        summary=summary,
+        confidence=0.55,
     )
 
 

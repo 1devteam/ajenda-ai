@@ -711,6 +711,10 @@ class MissionCompositionService:
                         "market_opportunities_min": 3
                         if "synthesize_research_report" in record.intent.requested_outcomes
                         else 0,
+                        "business_review_required": "review_business_income" in record.intent.requested_outcomes,
+                        "business_opportunities_min": 3
+                        if "review_business_income" in record.intent.requested_outcomes
+                        else 0,
                         "internal_crm_records_min": record.intent.requested_quantity
                         if "persist_internal_crm" in record.intent.requested_outcomes
                         else 0,
@@ -1060,6 +1064,10 @@ class MissionCompositionService:
                     "research_report_required": "synthesize_research_report" in record.intent.requested_outcomes,
                     "market_opportunities_min": 3
                     if "synthesize_research_report" in record.intent.requested_outcomes
+                    else 0,
+                    "business_review_required": "review_business_income" in record.intent.requested_outcomes,
+                    "business_opportunities_min": 3
+                    if "review_business_income" in record.intent.requested_outcomes
                     else 0,
                     "internal_crm_records_min": record.intent.requested_quantity
                     if "persist_internal_crm" in record.intent.requested_outcomes

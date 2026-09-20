@@ -236,6 +236,10 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
     )
     if profile_memory is not None:
         output["business_profile"] = profile_memory["content"]
+        # Mission composition names this governed upstream product
+        # ``business_profile_facts`` so downstream review jobs can bind it
+        # without guessing which retrieval field is authoritative.
+        output["business_profile_facts"] = profile_memory["content"]
     inspected = [str(item.get("id")) for item in memories if isinstance(item, dict) and item.get("id")]
     summary = (
         f"Hybrid retrieval found {len(memories)} governed memory hit(s) across {', '.join(provenance['search_modes'])}."

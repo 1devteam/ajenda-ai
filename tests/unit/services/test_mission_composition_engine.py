@@ -56,6 +56,26 @@ def test_interpreter_roofing_forbids_send_and_targets_austin() -> None:
     assert "identify" not in intent.target_entities[0].location.lower()
 
 
+def test_business_income_review_compiles_profile_dependency_and_report() -> None:
+    intent = interpret_instruction("Review my business and suggest possible ways to increase income.")
+    assert intent.interpretation_ready
+    assert intent.requested_outcomes == ["review_business_income"]
+
+    jobs = route_jobs_for_intent(intent)
+    assert [job.job_key for job in jobs] == [
+        "intelligence.retrieve_business_profile",
+        "business.review_income",
+    ]
+    selections, missing = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    assert missing == []
+    planned = compile_planned_steps(selections, intent=intent)
+    review = planned[-1]
+    assert review.output_contract == "business_review_report"
+    assert review.input_bindings[0]["output_path"] == "$.business_profile_facts"
+    assert review.input_bindings[0]["input_path"] == "$.input.context.business_profile_facts"
+    assert planned[0].tool_input["query"].startswith("Ajenda products services")
+
+
 def test_interpreter_preserves_software_rnd_target_and_profile_context() -> None:
     instruction = (
         "Use 1DevTeam's approved business profile to research software and R&D developer companies in Austin, "

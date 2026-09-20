@@ -98,6 +98,8 @@ ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
 # Regex patterns that map a clause/window to a canonical outcome (deterministic).
 OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
     (r"\b(?:audit|verify|review)\b.{0,80}\b(?:outbound|egress|runtime)\b", "verify_runtime_controls"),
+    (r"\breview\s+my\s+business\b.{0,120}\b(?:increase|grow|improve)\s+(?:my\s+)?income\b", "review_business_income"),
+    (r"\b(?:increase|grow|improve)\s+(?:my\s+)?income\b.{0,80}\bmy\s+business\b", "review_business_income"),
     (r"\b(?:prepare|create|produce)\b[^.!?]{0,48}\binvoice\s+drafts?\b", "prepare_invoice_drafts"),
     (r"\b(?:read|check|show|list|fetch)\b[^.!?]{0,48}\b(?:stripe|revenue|invoices?)\b", "read_revenue"),
     (r"\b(?:prepare|create|produce)\b[^.!?]{0,48}\b(?:revenue\s+)?reconciliation\b", "prepare_reconciliation"),

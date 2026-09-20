@@ -756,6 +756,13 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "review_business_income" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="A business_review_report lists evidence-backed income opportunities, assumptions, and evidence gaps",
+                measurable=True,
+            )
+        )
     if "verify_runtime_controls" in outcomes:
         success.append(
             SuccessCriterion(

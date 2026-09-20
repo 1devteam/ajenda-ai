@@ -643,6 +643,23 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
             }
         }
     if action_name == "decision.recommend_next_action":
+        if "review_business_income" in intent.requested_outcomes:
+            return {
+                "goal": intent.objective[:1000],
+                "options": [],
+                "criteria": [],
+                "evidence": [],
+                "constraints": [
+                    "Use only approved business profile facts.",
+                    "Do not invent revenue, costs, demand, or customer results.",
+                    "Do not execute external actions.",
+                ],
+                "context": {
+                    "review_kind": "business_income",
+                    "binding_required": True,
+                    "binding_source": "upstream_business_profile_facts",
+                },
+            }
         return {
             "goal": (intent.objective or "Recommend next research or outreach step")[:1000],
             "options": [
@@ -882,7 +899,9 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 ),
             },
         }
-    if action_name == "retrieval.hybrid_search" and "read_business_profile" in intent.requested_outcomes:
+    if action_name == "retrieval.hybrid_search" and (
+        "read_business_profile" in intent.requested_outcomes or "review_business_income" in intent.requested_outcomes
+    ):
         return {
             "query": "Ajenda products services target customers differentiators approved business profile",
             "limit": min(max(limit, 5), 20),
