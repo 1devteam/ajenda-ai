@@ -461,6 +461,12 @@ _REPORT_SYNTHESIS_REQUEST = re.compile(
     r"\b(?:comparison\s+table|research\s+report|evidence\s+gaps?|highlight\b.*opportunit)",
     re.IGNORECASE,
 )
+_BUSINESS_REVIEW_CLAUSE = re.compile(
+    r"^(?:use\s+only\s+the\s+approved\s+business\s+profile|"
+    r"identify\b.*\b(?:income|revenue|opportunit)|"
+    r"list\b.*\bevidence\s+gaps?)",
+    re.IGNORECASE,
+)
 
 
 def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
@@ -945,10 +951,13 @@ def _classify_clause(
     *,
     profile_mission: bool = False,
     external_action_forbidden: bool = False,
+    business_income_review: bool = False,
 ) -> tuple[list[CanonicalOutcome], bool, bool]:
     """Return (outcomes, material, recognized)."""
 
     lower = clause.lower()
+    if business_income_review and _BUSINESS_REVIEW_CLAUSE.match(clause.strip()):
+        return ["review_business_income"], True, True
     # A detailed multi-field deliverable list is not represented by the
     # canonical outcome contract. Do not let field names such as "research"
     # or "drafts" silently authorize a partial interpretation.
@@ -1132,6 +1141,12 @@ def interpret_instruction(
 
     profile_context = profile_context or {}
     lower = text.lower()
+    business_income_review_requested = bool(
+        re.search(
+            r"\breview\s+my\s+business\b.{0,120}\b(?:increase|grow|improve)\s+(?:my\s+)?income\b",
+            lower,
+        )
+    )
     evidence: list[InterpretationEvidence] = []
     clarifications: list[Clarification] = []
     context_requirements: list[str] = []
@@ -1204,7 +1219,7 @@ def interpret_instruction(
         and (not direct_crm_record_read or explicit_research_verb)
         and (not connector_read or explicit_prospect_research or hubspot_as_research_source)
     )
-    wants_research_report = _REPORT_SYNTHESIS_REQUEST.search(text) is not None
+    wants_research_report = _REPORT_SYNTHESIS_REQUEST.search(text) is not None and not business_income_review_requested
     # "Research companies in X from HubSpot" is market discovery using CRM as a source,
     # not a pure HubSpot record-read mission.
     if wants_research and hubspot_as_research_source and explicit_prospect_research:
@@ -1711,6 +1726,7 @@ def interpret_instruction(
             clause_text,
             profile_mission=wants_business_profile,
             external_action_forbidden=_contains_any(lower, _NO_EXTERNAL_ACTION_PATTERNS),
+            business_income_review=business_income_review_requested,
         )
         if "verify_runtime_controls" in outcomes and re.search(
             r"\b(?:check|verify|evidence|runtime|network|secure|private|retry|audit|local)\b",

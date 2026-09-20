@@ -76,6 +76,17 @@ def test_business_income_review_compiles_profile_dependency_and_report() -> None
     assert planned[0].tool_input["query"].startswith("Ajenda products services")
 
 
+def test_business_income_review_accepts_explicit_evidence_clauses() -> None:
+    intent = interpret_instruction(
+        "Review my business and suggest possible ways to increase income. "
+        "Use only the approved business profile; identify three evidence-limited opportunities; "
+        "list the evidence gaps."
+    )
+    assert intent.interpretation_ready
+    assert intent.requested_outcomes == ["review_business_income"]
+    assert intent.unmatched_material_clauses == []
+
+
 def test_interpreter_preserves_software_rnd_target_and_profile_context() -> None:
     instruction = (
         "Use 1DevTeam's approved business profile to research software and R&D developer companies in Austin, "
