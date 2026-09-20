@@ -699,6 +699,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 "binding_source": "upstream_prospect_candidates",
                 "objective": intent.objective,
                 "requested_quantity": limit,
+                "source": "internal_crm" if _ajenda_internal_crm_only(intent) else "local_fixture",
             },
         }
     if action_name == "web.page_read":

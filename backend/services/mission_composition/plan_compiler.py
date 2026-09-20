@@ -107,12 +107,71 @@ def _dependency_output_name(*, dependency: BusinessJob, downstream_action: str) 
         # qualification must consume verified identities, while contacts are
         # supplementary evidence and must not stand in for companies.
         return "verified_prospect_candidates"
-    if dependency.job_key == "research.observe_sources" and downstream_action in {
-        "record.write",
-        "gtm.crm_upsert",
-    }:
+    if dependency.job_key == "research.observe_sources" and downstream_action == "gtm.crm_upsert":
         return "verified_prospect_candidates"
+    if dependency.job_key == "research.observe_sources" and downstream_action == "record.write":
+        return "observed_contacts"
+    if dependency.job_key == "crm.read_records" and downstream_action == "research.observe_contacts":
+        return "crm_records"
     return dependency.produced_outputs[0] if dependency.produced_outputs else "result"
+
+
+def _dependency_jobs_for_selection(
+    *,
+    job: BusinessJob,
+    selected_keys: set[str],
+    intent: MissionIntent | None,
+) -> list[str]:
+    """Resolve catalog dependencies plus the internal CRM source edge."""
+
+    dependencies = _resolved_dependency_job_keys(job, selected_keys=selected_keys)
+    if (
+        intent is not None
+        and "internal_crm_source" in {str(item) for item in intent.context_requirements}
+        and job.job_key == "research.observe_sources"
+        and "crm.read_records" in selected_keys
+    ):
+        dependencies = ["crm.read_records", *dependencies]
+    return list(dict.fromkeys(dependencies))
+
+
+def _order_selected_jobs(
+    *,
+    ready: list[AbilitySelection],
+    selected_keys: set[str],
+    intent: MissionIntent | None,
+) -> list[AbilitySelection]:
+    """Topologically order selected jobs so bindings never point downstream."""
+
+    by_key = {selection.job_key: selection for selection in ready}
+    ordered: list[AbilitySelection] = []
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(job_key: str) -> None:
+        if job_key in visited:
+            return
+        if job_key in visiting:
+            raise ValueError(f"mission composition job dependency cycle at {job_key}")
+        selection = by_key.get(job_key)
+        if selection is None:
+            return
+        visiting.add(job_key)
+        job = BUSINESS_JOBS_BY_KEY.get(job_key)
+        if job is not None:
+            for dependency in _dependency_jobs_for_selection(
+                job=job,
+                selected_keys=selected_keys,
+                intent=intent,
+            ):
+                visit(dependency)
+        visiting.remove(job_key)
+        visited.add(job_key)
+        ordered.append(selection)
+
+    for selection in ready:
+        visit(selection.job_key)
+    return ordered
 
 
 def compile_planned_steps(
@@ -124,6 +183,7 @@ def compile_planned_steps(
 
     ready = [item for item in selections if item.selection_status == "selected" and item.readiness == "ready"]
     selected_keys = {item.job_key for item in ready}
+    ready = _order_selected_jobs(ready=ready, selected_keys=selected_keys, intent=intent)
     step_by_job: dict[str, PlannedStepPreview] = {}
     steps: list[PlannedStepPreview] = []
 
@@ -133,7 +193,7 @@ def compile_planned_steps(
         depends_on: list[str] = []
         input_bindings: list[dict[str, str]] = []
         if job is not None:
-            for dep_job in _resolved_dependency_job_keys(job, selected_keys=selected_keys):
+            for dep_job in _dependency_jobs_for_selection(job=job, selected_keys=selected_keys, intent=intent):
                 dep_step = step_by_job.get(dep_job)
                 if dep_step is None:
                     continue

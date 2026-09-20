@@ -332,6 +332,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             break
         url = prospect_source_url(prospect)
         if payload.local_fixture_only:
+            internal_crm_source = payload.context.get("source") == "internal_crm"
             fixture_contacts: list[dict[str, object]] = []
             for key, kind in (
                 ("email", "email"),
@@ -350,6 +351,39 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                             "via": "local_fixture",
                         }
                     )
+            if not fixture_contacts and internal_crm_source:
+                # Tenant-owned CRM identity is already authoritative.  A
+                # missing phone/email is an evidence gap for qualification,
+                # not a reason to discard the company itself.
+                company = prospect.get("company") or prospect.get("name")
+                source_url = f"crm://{prospect.get('prospect_id') or prospect.get('id') or company}"
+                pages.append(
+                    {
+                        "url": source_url,
+                        "real": True,
+                        "status_code": None,
+                        "title": company,
+                        "error": None,
+                        "company": company,
+                        "domain": prospect.get("domain"),
+                        "identity_status": "verified",
+                        "source_reliability": "tenant_internal_crm",
+                        "identity_evidence_urls": [],
+                    }
+                )
+                verified_prospect_candidates.append(
+                    {
+                        **prospect,
+                        "company": company,
+                        "real": True,
+                        "source": "internal_crm",
+                        "identity_status": "verified",
+                        "identity_evidence_urls": [],
+                        "sources": [],
+                        "observed_contacts": [],
+                    }
+                )
+                continue
             if not fixture_contacts:
                 unobserved.append(
                     {

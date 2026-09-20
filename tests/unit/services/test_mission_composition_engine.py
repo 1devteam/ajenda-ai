@@ -654,6 +654,34 @@ def test_internal_crm_review_with_negated_updates_stays_local() -> None:
     assert local_read.action_name == "record.search"
 
 
+def test_internal_crm_gtm_review_binds_read_before_observe_qualify_and_draft() -> None:
+    instruction = (
+        "Review the five Austin software companies already saved in Ajenda's internal CRM, "
+        "rank them by qualification evidence, recommend the next step for each, and prepare "
+        "draft introduction emails for the top three for my review. Do not modify CRM records "
+        "or send messages."
+    )
+    intent = interpret_instruction(instruction)
+    jobs = route_jobs_for_intent(intent)
+    selections, missing = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    assert missing == []
+
+    steps = compile_planned_steps(selections, intent=intent)
+    assert [step.action_name for step in steps] == [
+        "record.search",
+        "research.observe_contacts",
+        "sales.qualify",
+        "gtm.email_draft",
+    ]
+    observe = steps[1]
+    assert observe.depends_on == ["ability-record-search"]
+    assert {(binding["output_path"], binding["input_path"]) for binding in observe.input_bindings} == {
+        ("$.crm_records", "$.input.prospects")
+    }
+    assert "gtm.crm_upsert" in intent.forbidden_outcomes
+    assert "gtm.email_send" in intent.forbidden_outcomes
+
+
 def test_qualification_scores_and_reasons_are_a_supported_deliverable() -> None:
     intent = interpret_instruction(
         "Qualify five software development companies in Austin. Return qualification scores and reasons. "

@@ -96,7 +96,14 @@ def record_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         limit=payload.limit,
     )
     inspected = [str(record["id"]) for record in records if "id" in record]
-    output = {"record_type": payload.record_type, "records": records, "count": len(records)}
+    output = {
+        "record_type": payload.record_type,
+        "records": records,
+        # Canonical mission artifact alias for the internal CRM → GTM path.
+        # Keep ``records`` for existing callers and evidence consumers.
+        "crm_records": records,
+        "count": len(records),
+    }
     summary = f"Found {len(records)} {payload.record_type} record(s)."
     return ActionResult(
         action="record.search",

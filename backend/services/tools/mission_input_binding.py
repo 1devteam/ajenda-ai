@@ -191,6 +191,7 @@ def collect_upstream_world_state(mission_tasks: list[ExecutionTask]) -> dict[str
         "qualified_prospects": [],
         "enriched_prospects": [],
         "observed_contacts": [],
+        "crm_records": [],
         "introduction_drafts": [],
         "by_node": {},
     }
@@ -209,6 +210,7 @@ def collect_upstream_world_state(mission_tasks: list[ExecutionTask]) -> dict[str
             "qualified_prospects",
             "enriched_prospects",
             "observed_contacts",
+            "crm_records",
             "introduction_drafts",
         ):
             items = output.get(list_key)
@@ -259,6 +261,14 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                     "input_path": "$.input.prospects",
                 }
             )
+        elif action_name == "research.observe_contacts" and "record-search" in dep:
+            specs.append(
+                {
+                    "from_step": dep,
+                    "output_path": "$.crm_records",
+                    "input_path": "$.input.prospects",
+                }
+            )
         elif (
             action_name in {"sales.qualify", "sales.score_lead"}
             and "web-research" in dep
@@ -269,6 +279,14 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                     "from_step": dep,
                     "output_path": "$.prospect_candidates",
                     "input_path": "$.input.prospects",
+                }
+            )
+        elif action_name == "decision.recommend_next_action" and "retrieve" in dep:
+            specs.append(
+                {
+                    "from_step": dep,
+                    "output_path": "$.business_profile_facts",
+                    "input_path": "$.input.context.business_profile_facts",
                 }
             )
         elif action_name == "decision.recommend_next_action" and (
