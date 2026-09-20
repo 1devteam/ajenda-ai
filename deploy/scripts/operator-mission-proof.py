@@ -172,6 +172,14 @@ def main() -> int:
             if statuses.get("queued") or statuses.get("running") or not task_state.get("all_terminal"):
                 time.sleep(POLL_SECONDS)
                 continue
+            # Deliverable projection and mission lifecycle are persisted by
+            # separate runtime updates.  A terminal task can briefly precede
+            # the mission status transition, so do not treat this snapshot as
+            # proof until the freshly-read lifecycle is terminal too.
+            mission_state = (lifecycle.get("mission") or {}).get("status") if lifecycle else None
+            if mission_state != "completed":
+                time.sleep(POLL_SECONDS)
+                continue
             deliverable = candidate
             break
         time.sleep(POLL_SECONDS)
