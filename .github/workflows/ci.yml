@@ -291,6 +291,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # live-runtime-proof.sh compares HEAD with HEAD^ for its static
+          # GRAFT impact artifact; the default shallow checkout has no parent.
+          fetch-depth: 0
 
       - name: Write prod-like Compose environment
         run: |

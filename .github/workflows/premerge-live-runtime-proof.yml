@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Verify proof script syntax
         run: bash -n deploy/scripts/live-runtime-proof.sh
