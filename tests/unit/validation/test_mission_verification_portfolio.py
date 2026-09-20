@@ -23,6 +23,9 @@ def test_portfolio_is_structured_and_marks_unproven_families_explicitly() -> Non
     assert len(payload["missions"]) >= 6
     assert any(item["verification_state"] == "runtime_proven" for item in payload["missions"])
     assert any(item["verification_state"] == "contract_pending" for item in payload["missions"])
+    assert any(
+        item["observed_gap_codes"] for item in payload["missions"] if item["verification_state"] == "contract_pending"
+    )
 
 
 def test_portfolio_rejects_allowed_forbidden_action_overlap() -> None:

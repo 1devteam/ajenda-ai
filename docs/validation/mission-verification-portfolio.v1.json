@@ -12,6 +12,7 @@
     {
       "id": "prospecting.revops_chain",
       "verification_state": "runtime_proven",
+      "observed_gap_codes": [],
       "request": "Find 10 commercial companies in a location, qualify the strongest three, and draft introductions. Do not send.",
       "intent": "Produce verified, ranked prospects and reviewable drafts without external communication.",
       "expected_nodes": ["ability-web-research", "ability-research-observe_contacts", "ability-sales-qualify", "ability-gtm-lead_enrich", "ability-gtm-email_draft"],
@@ -24,6 +25,7 @@
     {
       "id": "advisory.business_review",
       "verification_state": "contract_pending",
+      "observed_gap_codes": ["no_named_outcome", "no_named_jobs", "no_planned_steps"],
       "request": "Review my business and suggest possible ways to increase income.",
       "intent": "Diagnose revenue opportunities from supplied business facts without inventing financial results.",
       "expected_nodes": ["business.profile_read", "business.revenue_diagnosis", "research.synthesize_report"],
@@ -36,6 +38,7 @@
     {
       "id": "advisory.startup_technology",
       "verification_state": "contract_pending",
+      "observed_gap_codes": ["no_named_outcome", "no_named_jobs", "no_planned_steps"],
       "request": "I want to start a business. What technology areas are promising for me?",
       "intent": "Rank feasible technology directions against the user's stated skills, market, and constraints.",
       "expected_nodes": ["business.profile_read", "research.public_market", "decision.rank_options"],
@@ -48,6 +51,7 @@
     {
       "id": "advisory.capital_constrained_startup",
       "verification_state": "contract_pending",
+      "observed_gap_codes": ["no_named_outcome", "unmatched_material_clause", "no_named_jobs", "no_planned_steps"],
       "request": "I have a fixed amount of capital and want to start a business. What is the best use for it?",
       "intent": "Provide staged capital-allocation scenarios with downside analysis, not an irreversible directive.",
       "expected_nodes": ["business.constraint_read", "decision.scenario_model", "research.synthesize_report"],
@@ -60,6 +64,7 @@
     {
       "id": "research.competitive_landscape",
       "verification_state": "contract_pending",
+      "observed_gap_codes": ["no_named_outcome", "no_named_jobs", "no_planned_steps"],
       "request": "Compare leading competitors and identify market gaps.",
       "intent": "Produce a source-backed comparison and distinguish observed gaps from hypotheses.",
       "expected_nodes": ["research.public_market", "research.synthesize_report"],
@@ -72,6 +77,7 @@
     {
       "id": "planning.service_launch",
       "verification_state": "contract_pending",
+      "observed_gap_codes": ["no_named_outcome", "no_named_jobs", "no_planned_steps"],
       "request": "Create a 30-day launch plan for my new service business.",
       "intent": "Create an executable plan with dependencies and measurable checkpoints without taking action.",
       "expected_nodes": ["business.profile_read", "planning.sequence_work", "planning.risk_review"],
