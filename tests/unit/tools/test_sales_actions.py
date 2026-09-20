@@ -215,6 +215,35 @@ def test_sales_qualify_applies_mission_scope_to_every_bound_prospect() -> None:
     assert result.output["qualified_prospects"][0]["score_10"] == 5
 
 
+def test_sales_ranking_accepts_verified_identity_without_contact() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="sales.qualify",
+            input={
+                "prospects": [
+                    {
+                        "company": "Verified HVAC",
+                        "identity_status": "verified",
+                        "url": "https://verified-hvac.example",
+                        "source": "public_search",
+                    }
+                ],
+                "context": {
+                    "mission_specific_scoring": True,
+                    "ranking_only": True,
+                    "qualification_threshold_10": 7,
+                },
+            },
+        ),
+        _context(),
+    )
+
+    assert len(result.output["qualified_prospects"]) == 1
+    assert result.output["qualified_prospects"][0]["qualified"] is True
+    assert result.output["qualified_prospects"][0]["identity_status"] == "verified"
+
+
 def test_sales_qualify_exposes_mission_dimensions_and_rejects_unverified_identity() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(

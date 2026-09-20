@@ -74,6 +74,16 @@ def test_acceptance_counts_verified_directory_resolutions() -> None:
     assert reasons == []
 
 
+def test_acceptance_preserves_zero_ranking_threshold() -> None:
+    met, reasons = evaluate_mission_acceptance(
+        tasks=[_task({"qualified_prospects": [{"company": "Verified", "score_10": 5}]})],
+        contract={"qualified_min": 1, "score_threshold_10": 0},
+    )
+
+    assert met is True
+    assert reasons == []
+
+
 def test_acceptance_requires_research_report_opportunities() -> None:
     task = _task({"research_report": {"comparison": [], "market_opportunities": [{"title": "one"}]}})
     met, reasons = evaluate_mission_acceptance(

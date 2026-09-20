@@ -41,6 +41,7 @@ from backend.services.mission_composition.contracts import (
     CompositionProvenance,
     MissionCompositionRecord,
     MissionIntent,
+    is_ranking_only_instruction,
 )
 from backend.services.mission_composition.deliverable_contract import (
     DeliverableFieldRequirement,
@@ -723,7 +724,9 @@ class MissionCompositionService:
                         else 0,
                         "internal_crm_readback_required": "persist_internal_crm" in record.intent.requested_outcomes,
                         "score_threshold_10": (
-                            5
+                            0
+                            if is_ranking_only_instruction(record.intent.objective)
+                            else 5
                             if record.intent.qualification_quantity is not None
                             or "observe_contacts" in record.intent.requested_outcomes
                             else 7
@@ -1077,7 +1080,9 @@ class MissionCompositionService:
                     else 0,
                     "internal_crm_readback_required": "persist_internal_crm" in record.intent.requested_outcomes,
                     "score_threshold_10": (
-                        5
+                        0
+                        if is_ranking_only_instruction(record.intent.objective)
+                        else 5
                         if record.intent.qualification_quantity is not None
                         or "observe_contacts" in record.intent.requested_outcomes
                         else 7

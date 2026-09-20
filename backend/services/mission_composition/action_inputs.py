@@ -6,7 +6,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from backend.services.mission_composition.contracts import MissionIntent
+from backend.services.mission_composition.contracts import MissionIntent, is_ranking_only_instruction
 
 _DEFAULT_PROSPECT_COUNT = 3
 _MONTHS = {
@@ -772,6 +772,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
     if action_name in {"sales.qualify", "sales.score_lead", "sales.recommend_next_action"}:
         local_fixture_only = _local_fixture_only(intent)
         qualification_quantity = intent.qualification_quantity or limit
+        ranking_only = is_ranking_only_instruction(intent.objective)
         qualification_threshold = (
             5
             if local_fixture_only
@@ -791,6 +792,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 "requested_quantity": qualification_quantity,
                 "mission_specific_scoring": True,
                 "qualification_threshold_10": qualification_threshold,
+                "ranking_only": ranking_only,
             },
         }
     if action_name == "gtm.lead_enrich":

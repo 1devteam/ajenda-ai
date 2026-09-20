@@ -6,6 +6,7 @@ runtime execution authority, queue work, claim leases, or invoke tools.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -19,6 +20,16 @@ COMPOSITION_SCHEMA_VERSION = 7
 JOB_CATALOG_VERSION = "11"
 INTERPRETER_VERSION = "14"
 CAPABILITY_RESOLVER_VERSION = "10"
+
+
+def is_ranking_only_instruction(objective: str) -> bool:
+    """Identify evidence ranking without a qualification or outreach request."""
+
+    text = objective.lower()
+    return bool(re.search(r"\b(?:rank|rate|grade)\b", text)) and not bool(
+        re.search(r"\b(?:qualify|score|pick|strongest|best|top)\b", text)
+    )
+
 
 ProposalStatus = Literal[
     "interpretation_failed",

@@ -80,7 +80,8 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
         reasons.append(f"required at least {candidate_min} prospect candidates, produced {len(candidates)}")
 
     qualified_min = int(contract.get("qualified_min", 0) or 0)
-    threshold = int(contract.get("score_threshold_10", 7) or 7)
+    raw_threshold = contract.get("score_threshold_10")
+    threshold = int(raw_threshold) if raw_threshold is not None else 7
     thresholded = [item for item in qualified if int(item.get("score_10", 0) or 0) >= threshold]
     if len(thresholded) < qualified_min:
         reasons.append(

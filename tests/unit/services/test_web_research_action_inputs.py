@@ -71,6 +71,15 @@ def test_observed_public_research_uses_ranked_qualification_contract() -> None:
     assert payload["context"]["qualification_threshold_10"] == 5
 
 
+def test_evidence_ranking_does_not_require_contact_qualification() -> None:
+    intent = interpret_instruction(
+        "Find 10 HVAC companies in Dallas and rank them by evidence quality. Do not contact anyone."
+    )
+    payload = build_action_input(action_name="sales.qualify", intent=intent)
+
+    assert payload["context"]["ranking_only"] is True
+
+
 def test_local_fixture_constraint_propagates_to_contact_observation() -> None:
     intent = interpret_instruction(
         "Find five software companies in Austin and collect contacts using local fixture data only."

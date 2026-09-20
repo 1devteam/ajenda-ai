@@ -750,10 +750,25 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
     score_10 = round(sum(dimensions.values()) / len(dimensions))
     mission_scoring = bool(context.get("mission_specific_scoring")) or "qualification_threshold_10" in context
     threshold_10 = int(context.get("qualification_threshold_10", 7) or 7)
-    qualified = _has_real_contact(lead) and (
-        not mission_scoring or (score_10 >= threshold_10 and lead.get("identity_status") != "unverified")
+    contactable = _has_real_contact(lead)
+    identity_verified = (
+        lead.get("identity_status") == "verified" or lead.get("source") == "internal_record" or bool(account_id)
     )
-    if not qualified:
+    # A composed qualification/ranking stage evaluates the persisted research
+    # artifact. Public identity and evidence are sufficient to rank a prospect;
+    # contactability is required later by enrichment/send authority. Isolated
+    # sales.qualify calls retain the stricter contact gate.
+    ranking_only = bool(context.get("ranking_only"))
+    qualified = (
+        identity_verified
+        if ranking_only
+        else (
+            score_10 >= threshold_10 and identity_verified
+            if mission_scoring
+            else contactable and lead.get("identity_status") != "unverified"
+        )
+    )
+    if not qualified and (not contactable or lead.get("identity_status") == "unverified"):
         reasons.append("not qualified without an observed or supplied contact")
     if lead.get("identity_status") == "unverified":
         reasons.append("identity is unverified")
