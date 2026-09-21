@@ -48,6 +48,7 @@ class DeliverableProjection(BaseModel):
     bindings: tuple[DeliverableFieldBinding, ...] = Field(default=(), max_length=30)
     request_unresolved_items: tuple[str, ...] = Field(default=(), max_length=30)
     minimum_rows: int = Field(default=0, ge=0, le=1000)
+    minimum_rows_by_artifact: dict[str, int] = Field(default_factory=dict)
     grants_execution_authority: Literal[False] = False
 
     @property
@@ -182,6 +183,7 @@ def project_deliverable_request(
     *,
     know_how: VerticalKnowHowContract = REVOPS_V1_KNOW_HOW,
     minimum_rows: int = 0,
+    minimum_rows_by_artifact: dict[str, int] | None = None,
 ) -> DeliverableProjection:
     """Describe artifact support for a typed request without claiming execution readiness."""
 
@@ -191,4 +193,5 @@ def project_deliverable_request(
         bindings=bindings,
         request_unresolved_items=request.unresolved_items,
         minimum_rows=minimum_rows,
+        minimum_rows_by_artifact={key: value for key, value in (minimum_rows_by_artifact or {}).items() if value > 0},
     )

@@ -37,6 +37,7 @@ def build_deliverable_runtime_state(
     request: DeliverableRequest | None,
     *,
     minimum_rows: int = 0,
+    minimum_rows_by_artifact: dict[str, int] | None = None,
 ) -> dict[str, object] | None:
     """Build JSON-safe durable state from the canonical interpreted request."""
 
@@ -44,7 +45,11 @@ def build_deliverable_runtime_state(
         return None
     state = DeliverableRuntimeState(
         request=request,
-        projection=project_deliverable_request(request, minimum_rows=minimum_rows),
+        projection=project_deliverable_request(
+            request,
+            minimum_rows=minimum_rows,
+            minimum_rows_by_artifact=minimum_rows_by_artifact,
+        ),
     )
     return state.model_dump(mode="json")
 

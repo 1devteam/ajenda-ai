@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 from backend.domain.enums import ExecutionTaskState, MissionState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
+from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
+from backend.services.mission_composition.deliverable_runtime_state import build_deliverable_runtime_state
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
 
@@ -198,3 +200,49 @@ def test_rollup_completes_when_observe_accept_met() -> None:
     assert mission.status == MissionState.COMPLETED.value
     assert mission.metadata_json["acceptance"]["status"] == "met"
     assert mission.metadata_json["acceptance"]["reasons"] == []
+
+
+def test_rollup_fails_when_tasks_succeed_but_deliverable_is_incomplete() -> None:
+    tenant_id = "tenant-deliverable"
+    mission_id = uuid.uuid4()
+    request = extract_deliverable_request("Return company name and website.")
+    assert request is not None
+    runtime_state = build_deliverable_runtime_state(request)
+    assert runtime_state is not None
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="Produce a durable report",
+        status=MissionState.RUNNING.value,
+        metadata_json={
+            "mission_intake": {
+                "context": {
+                    "composition": {
+                        "deliverable_runtime_state": {
+                            **runtime_state,
+                            "completion": {"complete": False},
+                        }
+                    }
+                }
+            }
+        },
+    )
+    mission.id = mission_id
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.COMPLETED.value,
+    )
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task])  # type: ignore[method-assign]
+    service._audit.append = MagicMock()  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch(
+        "backend.services.worker_runtime_service.MissionRepository",
+        return_value=repo,
+    ):
+        service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
+
+    assert mission.status == MissionState.FAILED.value
+    assert mission.metadata_json["acceptance"]["status"] == "partially_met"
+    assert "durable deliverable is incomplete" in mission.metadata_json["acceptance"]["reasons"]

@@ -565,6 +565,25 @@ class WorkerRuntimeService:
                 if reason not in acceptance_reasons:
                     acceptance_reasons.append(reason)
             acceptance_met = contract_met and not acceptance_reasons
+            # A terminal task graph is not a successful product result when a
+            # mission declared a durable deliverable whose read model is still
+            # incomplete.  The refresh above records this independently of task
+            # acceptance; fold that persisted fact into the mission outcome so
+            # callers cannot mistake raw terminal output for a usable artifact.
+            raw_intake = (
+                mission.metadata_json.get("mission_intake") if isinstance(mission.metadata_json, dict) else None
+            )
+            raw_context = raw_intake.get("context") if isinstance(raw_intake, dict) else None
+            raw_composition = raw_context.get("composition") if isinstance(raw_context, dict) else None
+            raw_runtime_state = (
+                raw_composition.get("deliverable_runtime_state") if isinstance(raw_composition, dict) else None
+            )
+            raw_completion = raw_runtime_state.get("completion") if isinstance(raw_runtime_state, dict) else None
+            if isinstance(raw_runtime_state, dict) and not (
+                isinstance(raw_completion, dict) and raw_completion.get("complete") is True
+            ):
+                acceptance_reasons.append("durable deliverable is incomplete")
+                acceptance_met = False
             acceptance_status = "met" if acceptance_met else "partially_met"
             mission.metadata_json = {
                 **(mission.metadata_json if isinstance(mission.metadata_json, dict) else {}),

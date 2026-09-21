@@ -106,6 +106,7 @@ def test_optional_hubspot_services_do_not_block_kernel_boot() -> None:
 
 def test_live_runtime_proof_starts_core_proof_services() -> None:
     script = _read(LIVE_RUNTIME_PROOF)
+    operator_script = _read(OPERATOR_MISSION_PROOF)
 
     expected_command = "compose up -d --build " + " ".join(LIVE_PROOF_STARTED_SERVICES)
 
@@ -126,6 +127,7 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     assert "ExecutionCoordinator" not in script
     assert "tool_invoke_handler" not in script
     assert "AJENDA_OPERATOR_PROOF_RUNTIME_EVIDENCE_OUTPUT" in script
+    assert "mission reached terminal failure before deliverable" in operator_script
     assert "brain-capstone-runtime-proof.py" not in script
     assert "gtm.lead_enrich" not in script
 

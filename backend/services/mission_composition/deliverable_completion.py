@@ -147,6 +147,13 @@ def evaluate_deliverable_completion(
     field_results: list[DeliverableFieldCompletion] = []
 
     for binding in projection.bindings:
+        required_rows = max(
+            (
+                projection.minimum_rows_by_artifact.get(artifact_key, projection.minimum_rows)
+                for artifact_key in binding.artifact_keys
+            ),
+            default=projection.minimum_rows,
+        )
         if binding.status != "bound":
             status: FieldCompletionStatus = "unproven"
         elif binding.basis == "whole_artifact_identity":
@@ -163,12 +170,12 @@ def evaluate_deliverable_completion(
             elif any(not validations[artifact.artifact_key].valid for artifact in present):
                 status = "invalid_artifact"
             elif (
-                projection.minimum_rows
+                required_rows
                 and max(
                     (len(artifact.payload) for artifact in present if isinstance(artifact.payload, list)),
                     default=0,
                 )
-                < projection.minimum_rows
+                < required_rows
             ):
                 status = "insufficient_rows"
             elif any(_typed_field_has_value(artifact=artifact, field_key=binding.field_key) for artifact in present):
@@ -189,7 +196,7 @@ def evaluate_deliverable_completion(
                 )
                 if binding.basis == "typed_artifact_field"
                 else 0,
-                required_rows=projection.minimum_rows,
+                required_rows=(required_rows),
             )
         )
 

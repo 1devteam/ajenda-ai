@@ -182,3 +182,48 @@ def test_unknown_requested_item_keeps_completion_false() -> None:
     assert completion.fields[0].status == "satisfied"
     assert completion.unresolved_request_items == ("lunar risk index",)
     assert completion.complete is False
+
+
+def test_downstream_artifacts_use_their_own_requested_row_quantity() -> None:
+    request = extract_deliverable_request("Return website, qualification score, and drafts.")
+    assert request is not None
+    projection = project_deliverable_request(
+        request,
+        minimum_rows=4,
+        minimum_rows_by_artifact={
+            "qualified_prospects": 2,
+            "introduction_drafts": 2,
+        },
+    )
+    completion = evaluate_deliverable_completion(
+        projection,
+        [
+            MaterializedArtifact(
+                artifact_key="prospect_candidates",
+                payload=[
+                    {
+                        "website": f"https://acme-{index}.example",
+                        "product_description": "HVAC services.",
+                        "research_summary": "A verified company.",
+                        "sources": [f"https://acme-{index}.example"],
+                    }
+                    for index in range(4)
+                ],
+            ),
+            MaterializedArtifact(
+                artifact_key="qualified_prospects",
+                payload=[_qualified_row(), {**_qualified_row(), "company": "Beta HVAC"}],
+            ),
+            MaterializedArtifact(
+                artifact_key="introduction_drafts",
+                payload=[{"company": "Acme HVAC"}, {"company": "Beta HVAC"}],
+            ),
+        ],
+    )
+
+    assert completion.complete is True
+    assert {field.field_key: field.required_rows for field in completion.fields} == {
+        "website": 4,
+        "qualification_score": 2,
+        "drafts": 2,
+    }
