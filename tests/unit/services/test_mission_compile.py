@@ -168,6 +168,7 @@ def test_compile_persists_graph_and_refreshes_allowed_actions() -> None:
             "website",
             "research_summary",
             "sources",
+            "drafts",
         ]
 
 
