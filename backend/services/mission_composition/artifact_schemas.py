@@ -157,6 +157,35 @@ BUSINESS_REVIEW_REPORT_SCHEMA = CompositionArtifactSchema(
     ),
 )
 
+WEB_PAGE_OBSERVATION_SCHEMA = CompositionArtifactSchema(
+    artifact_key="web_page_observation",
+    producer_job="research.observe_web_page",
+    fields=(
+        ArtifactFieldProjection(deliverable_field="source_url", json_path="$.source_url", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="final_url", json_path="$.final_url", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="title", json_path="$.title", scope="whole_artifact"),
+        ArtifactFieldProjection(
+            deliverable_field="extracted_observations",
+            json_path="$.extracted_observations",
+            scope="whole_artifact",
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="observation_timestamp",
+            json_path="$.observation_timestamp",
+            scope="whole_artifact",
+        ),
+        ArtifactFieldProjection(deliverable_field="browser_trace", json_path="$.browser_trace", scope="whole_artifact"),
+        ArtifactFieldProjection(
+            deliverable_field="blocked_requests", json_path="$.blocked_requests", scope="whole_artifact"
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="observation_satisfied",
+            json_path="$.observation_satisfied",
+            scope="whole_artifact",
+        ),
+    ),
+)
+
 ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     PROSPECT_CANDIDATES_SCHEMA.artifact_key: PROSPECT_CANDIDATES_SCHEMA,
     OBSERVED_CONTACTS_SCHEMA.artifact_key: OBSERVED_CONTACTS_SCHEMA,
@@ -164,6 +193,7 @@ ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     QUALIFIED_PROSPECTS_SCHEMA.artifact_key: QUALIFIED_PROSPECTS_SCHEMA,
     REVENUE_RECORDS_SCHEMA.artifact_key: REVENUE_RECORDS_SCHEMA,
     BUSINESS_REVIEW_REPORT_SCHEMA.artifact_key: BUSINESS_REVIEW_REPORT_SCHEMA,
+    WEB_PAGE_OBSERVATION_SCHEMA.artifact_key: WEB_PAGE_OBSERVATION_SCHEMA,
 }
 
 
@@ -196,6 +226,25 @@ def validate_artifact_payload(schema: CompositionArtifactSchema, payload: Any) -
     """Validate one emitted artifact payload against its declared structural schema."""
 
     errors: list[str] = []
+    whole_fields = [field for field in schema.fields if field.scope == "whole_artifact"]
+    if whole_fields:
+        if not isinstance(payload, dict):
+            return ("typed whole-artifact payload must be an object",)
+        if schema.artifact_key == "web_page_observation" and payload.get("observation_satisfied") is not True:
+            errors.append("web page observation requirements were not satisfied")
+        for field in whole_fields:
+            if not field.json_path.startswith("$."):
+                errors.append(f"unsupported artifact schema path: {field.json_path}")
+                continue
+            path_field = field.json_path[2:].strip()
+            if not path_field:
+                errors.append(f"unsupported artifact schema path: {field.json_path}")
+                continue
+            if field.required_when_item_exists and (
+                path_field not in payload or payload[path_field] is None or payload[path_field] == ""
+            ):
+                errors.append(f"artifact missing required field: {path_field}")
+
     per_item_fields = [field for field in schema.fields if field.scope == "per_item"]
     if per_item_fields:
         if not isinstance(payload, list):
@@ -210,12 +259,12 @@ def validate_artifact_payload(schema: CompositionArtifactSchema, payload: Any) -
             if schema.artifact_key == "verified_prospect_candidates" and not str(item.get("company") or "").strip():
                 errors.append(f"item {index} missing required field: company")
             for field in per_item_fields:
-                path_field = _path_field(field.json_path)
-                if path_field is None:
+                item_path_field = _path_field(field.json_path)
+                if item_path_field is None:
                     errors.append(f"unsupported artifact schema path: {field.json_path}")
                     continue
-                if field.required_when_item_exists and (path_field not in item or item[path_field] is None):
-                    errors.append(f"item {index} missing required field: {path_field}")
+                if field.required_when_item_exists and (item_path_field not in item or item[item_path_field] is None):
+                    errors.append(f"item {index} missing required field: {item_path_field}")
     return tuple(errors)
 
 

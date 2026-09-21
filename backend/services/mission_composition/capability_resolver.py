@@ -34,6 +34,7 @@ from backend.services.tools.schemas import SideEffectClass
 _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "research.discover_prospects": ("web.research", "sales.research", "web.search", "web.page_read", "crm.research"),
     "research.observe_sources": ("research.observe_contacts",),
+    "research.observe_web_page": ("web.browser_session",),
     "research.synthesize_report": ("research.synthesize_report",),
     "operations.verify_runtime_controls": ("runtime.verify_controls",),
     "intelligence.retrieve_knowledge": ("knowledge.retrieve_current",),
@@ -179,6 +180,13 @@ def _intent_input_sources(intent: MissionIntent) -> set[str]:
         if entity.domain or entity.url:
             sources.add("explicit_company")
             sources.add("named_company")
+            sources.add("target_url")
+        attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+        if any(isinstance(value := attrs.get(key), str) and value.strip() for key in ("domain", "website", "url")):
+            sources.add("target_url")
+            # The browser observation compiler supplies a typed title/body
+            # requirement when the operator does not provide a narrower one.
+            sources.add("observation_requirements")
     if intent.requested_quantity is not None:
         sources.add("quantity")
     if extract_github_owner_repo(intent) is not None:
@@ -528,6 +536,22 @@ def resolve_jobs(
                         "selection_reason": (
                             "Job requires a usable target scope (industry, location, named company, "
                             "or competitor set); refusing a placeholder query."
+                        ),
+                    }
+                )
+                if candidate.readiness == "ready" and candidate.selection_status == "selected"
+                else candidate
+                for candidate in evaluated
+            ]
+
+        if job.job_key == "research.observe_web_page" and "target_url" not in available_inputs:
+            evaluated = [
+                candidate.model_copy(
+                    update={
+                        "selection_status": "rejected",
+                        "readiness": "unavailable",
+                        "selection_reason": (
+                            "Web observation requires an explicit target URL; refusing to invent a page or use search as a substitute."
                         ),
                     }
                 )

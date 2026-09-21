@@ -61,6 +61,10 @@ ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "segment accounts": "qualify_prospects",
     "prepare sequence": "prepare_outreach",
     "vertical research": "research_prospects",
+    "observe web page": "observe_web_page",
+    "observe webpage": "observe_web_page",
+    "inspect web page": "observe_web_page",
+    "inspect webpage": "observe_web_page",
     # Connector reads
     "check gmail": "read_email",
     "check my inbox": "read_email",
@@ -97,6 +101,7 @@ ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
 
 # Regex patterns that map a clause/window to a canonical outcome (deterministic).
 OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
+    (r"\b(?:observe|inspect|open|read)\b.{0,32}\b(?:web\s*page|web\s*site|website|url)\b", "observe_web_page"),
     (r"\b(?:audit|verify|review)\b.{0,80}\b(?:outbound|egress|runtime)\b", "verify_runtime_controls"),
     (r"\breview\s+my\s+business\b.{0,120}\b(?:increase|grow|improve)\s+(?:my\s+)?income\b", "review_business_income"),
     (r"\b(?:increase|grow|improve)\s+(?:my\s+)?income\b.{0,80}\bmy\s+business\b", "review_business_income"),

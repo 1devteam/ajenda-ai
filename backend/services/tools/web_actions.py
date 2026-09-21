@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
+from typing import Any
 
 from backend.services.internet import InternetAccessMode, fetch_public_page
 from backend.services.internet.browser_session import browser_session_as_dict, run_browser_session
@@ -190,10 +191,25 @@ def web_browser_session(invocation: ToolInvocation, context: ActionRuntimeContex
         timeout_seconds=payload.timeout_seconds,
         wait_until=payload.wait_until,
         extract_text=payload.extract_text,
+        allowed_origins=payload.allowed_origins,
+        commands=[command.model_dump(exclude_none=True) for command in payload.commands],
+        observation_requirements=[item.model_dump(exclude_none=True) for item in payload.observation_requirements],
     )
     output = browser_session_as_dict(snapshot)
     real = bool(output.get("real"))
     title = output.get("title") or ""
+    raw_extraction: object = output.get("extraction")
+    extraction: dict[str, Any] = raw_extraction if isinstance(raw_extraction, dict) else {}
+    output["web_page_observation"] = {
+        "source_url": payload.url,
+        "final_url": output.get("url") if real else None,
+        "title": title or None,
+        "extracted_observations": extraction.get("observation_requirements") or [],
+        "observation_timestamp": extraction.get("observation_timestamp"),
+        "browser_trace": extraction.get("steps") or [],
+        "blocked_requests": extraction.get("blocked_samples") or [],
+        "observation_satisfied": extraction.get("observation_satisfied") is True,
+    }
     summary = (
         f"Browser session {output.get('url')} (status={output.get('status_code')}, title={title[:80]!r}, real={real})."
         if real
@@ -216,13 +232,17 @@ def web_browser_session(invocation: ToolInvocation, context: ActionRuntimeContex
             "access_mode": InternetAccessMode.BROWSER_SESSION.value,
             "ephemeral": True,
             "browser_ready": output.get("browser_ready"),
+            "observation_requirements": extraction.get("observation_requirements", []),
+            "observation_satisfied": extraction.get("observation_satisfied", False),
+            "browser_trace": extraction.get("steps", []),
+            "blocked_requests": extraction.get("blocked_samples", []),
         },
         confidence=0.85 if real else 0.35,
         limitations=[
             "requires AJENDA_BROWSER_SESSION_ENABLED=true",
             "ephemeral Playwright context destroyed after each call",
             "URL vetted by NetworkEgressAuthority before navigation",
-            "not a multi-step agent loop — single navigate extract",
+            "bounded read-only browser contract; no authentication or external writes",
         ],
         provenance={
             "runtime_path": "TaskDispatcher -> tool.invoke -> ToolRuntimeAuthority -> ActionRegistry",

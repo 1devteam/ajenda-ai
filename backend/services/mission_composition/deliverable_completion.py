@@ -119,10 +119,20 @@ def validate_materialized_artifact(artifact: MaterializedArtifact) -> ArtifactVa
 
 def _typed_field_has_value(*, artifact: MaterializedArtifact, field_key: DeliverableFieldKey) -> bool:
     schema = ARTIFACT_SCHEMAS_BY_KEY.get(artifact.artifact_key)
-    if schema is None or not isinstance(artifact.payload, list) or not artifact.payload:
+    if schema is None:
         return False
     matching = [field for field in schema.fields if field.deliverable_field == field_key]
     if not matching:
+        return False
+    whole = [field for field in matching if field.scope == "whole_artifact"]
+    if whole:
+        if not isinstance(artifact.payload, dict):
+            return False
+        return all(
+            field.json_path.startswith("$.") and bool(artifact.payload.get(field.json_path[2:].strip()))
+            for field in whole
+        )
+    if not isinstance(artifact.payload, list) or not artifact.payload:
         return False
     for field in matching:
         path_field = _path_field(field.json_path)

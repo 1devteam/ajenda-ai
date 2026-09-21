@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from backend.services.mission_composition.action_inputs import build_action_input
+from backend.services.mission_composition.contracts import MissionIntent, TargetEntity
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
+
+
+def test_observe_web_page_is_a_distinct_browser_outcome() -> None:
+    intent = interpret_instruction("Observe this web page https://example.com and extract its title")
+    assert "observe_web_page" in intent.requested_outcomes
 
 
 def test_scrape_company_site_builds_compact_query_and_company() -> None:
@@ -99,3 +105,20 @@ def test_ajenda_internal_crm_source_uses_fixture_qualification_threshold() -> No
     intent = interpret_instruction("Qualify five software companies in Austin using Ajenda internal CRM records.")
     payload = build_action_input(action_name="sales.qualify", intent=intent)
     assert payload["context"]["qualification_threshold_10"] == 5
+
+
+def test_browser_session_input_requires_explicit_target_url() -> None:
+    intent = MissionIntent(
+        objective="Read the target website",
+        target_entities=[TargetEntity(type="company", url="https://example.com")],
+    )
+
+    payload = build_action_input(action_name="web.browser_session", intent=intent)
+
+    assert payload == {
+        "url": "https://example.com",
+        "timeout_seconds": 15.0,
+        "allowed_origins": ["https://example.com"],
+        "commands": [{"action": "observe"}],
+        "observation_requirements": [{"kind": "title"}, {"kind": "body"}],
+    }

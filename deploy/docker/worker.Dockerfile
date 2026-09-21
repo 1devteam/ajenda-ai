@@ -23,18 +23,22 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HOME=/home/ajenda \
-    PATH="/usr/local/bin:${PATH}"
+    PATH="/usr/local/bin:${PATH}" \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
+
+COPY --from=builder /install /usr/local
 
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends libpq5 curl \
-    && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1000 ajenda \
-    && useradd --uid 1000 --gid 1000 --create-home --home-dir /home/ajenda --shell /usr/sbin/nologin ajenda
+    && useradd --uid 1000 --gid 1000 --create-home --home-dir /home/ajenda --shell /usr/sbin/nologin ajenda \
+    && playwright install --with-deps chromium \
+    && chown -R ajenda:ajenda /ms-playwright \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /install /usr/local
 COPY pyproject.toml README.md /app/
 COPY backend /app/backend
 COPY alembic.ini /app/

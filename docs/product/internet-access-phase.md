@@ -18,7 +18,7 @@ Give Ajenda real public-internet leverage on the governed runtime spine.
 | `public_search` | `web.search`, `web.research` | always | Provider chain: Brave → SerpAPI → ddgs → DDG Instant Answer |
 | `page_read` | `web.page_read` | always | Single HTTPS GET + HTML extract |
 | `http_request` | `http.request` | always | Governed HTTP; writes need side-effect auth |
-| `browser_session` | `web.browser_session` | `AJENDA_BROWSER_SESSION_ENABLED` | Ephemeral Playwright Chromium; destroy after call |
+| `browser_session` | `web.browser_session` | `AJENDA_BROWSER_SESSION_ENABLED` | Ephemeral Playwright Chromium; bounded read-only steps; destroy after call |
 | `open_write` | `web.open_write` | `AJENDA_OPEN_WRITE_ENABLED` | POST/PUT/PATCH + idempotency + hourly rate limit |
 
 ## Env
@@ -37,10 +37,11 @@ AJENDA_OPEN_WRITE_MAX_PER_HOUR=20
 
 ## Browser isolation rule
 
-1. Vet URL with `NetworkEgressAuthority.vet_https_url` before Chromium starts.
+1. Vet the start URL and every requested origin with `NetworkEgressAuthority.vet_https_url` before Chromium starts.
 2. Launch browser + **new context** for this call only.
-3. Navigate / extract.
-4. Close context and browser in `finally` — never reuse across tenants or leases.
+3. Execute at most 12 declared read-only steps (`navigate`, `observe`, `extract`); no authentication or external writes.
+4. Re-vet redirects, frames, and subresources against the origin allow-list.
+5. Close context and browser in `finally` — never reuse across tenants or leases.
 
 ## Open write
 
@@ -60,8 +61,14 @@ AJENDA_OPEN_WRITE_ENABLED=true python scripts/validation/internet_live_proof.py 
 
 Exit 0 requires at least one of search / page_read with `real: true` when network is available.
 
+## Runtime support
+
+The project pins Playwright in `pyproject.toml`. The worker image installs the matching Chromium binary under
+`/ms-playwright`; a worker image without that dependency must fail the browser readiness proof rather than silently
+claiming browser capability.
+
 ## Non-goals
 
-- Multi-step autonomous browser agent loop (single navigate extract only for now)
+- Autonomous browser agent loop or unbounded browser planning
 - Sharing Chromium across workers/tenants
 - Using public internet as a substitute for connector OAuth

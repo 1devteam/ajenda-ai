@@ -17,9 +17,9 @@ from backend.services.mission_composition.deliverable_contract import (
 )
 
 COMPOSITION_SCHEMA_VERSION = 7
-JOB_CATALOG_VERSION = "11"
+JOB_CATALOG_VERSION = "12"
 INTERPRETER_VERSION = "14"
-CAPABILITY_RESOLVER_VERSION = "10"
+CAPABILITY_RESOLVER_VERSION = "11"
 
 
 def is_ranking_only_instruction(objective: str) -> bool:
@@ -74,6 +74,7 @@ SelectionStatus = Literal["selected", "alternative", "rejected"]
 # Canonical business outcomes owned by the interpreter → job catalog boundary.
 CanonicalOutcome = Literal[
     "research_prospects",
+    "observe_web_page",
     "observe_contacts",
     "qualify_prospects",
     "enrich_contacts",
@@ -101,6 +102,7 @@ CanonicalOutcome = Literal[
 CANONICAL_OUTCOMES: frozenset[str] = frozenset(
     {
         "research_prospects",
+        "observe_web_page",
         "observe_contacts",
         "qualify_prospects",
         "enrich_contacts",
@@ -135,6 +137,10 @@ LEGACY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "invoice drafts": "prepare_invoice_drafts",
     "prepare invoice drafts": "prepare_invoice_drafts",
     "discover companies": "research_prospects",
+    "observe web page": "observe_web_page",
+    "observe webpage": "observe_web_page",
+    "inspect web page": "observe_web_page",
+    "inspect webpage": "observe_web_page",
     "find leads": "research_prospects",
     "prospect discovery": "research_prospects",
     "market research": "research_prospects",

@@ -3,6 +3,7 @@ from backend.services.mission_composition.artifact_schemas import (
     OBSERVED_CONTACTS_SCHEMA,
     PROSPECT_CANDIDATES_SCHEMA,
     QUALIFIED_PROSPECTS_SCHEMA,
+    WEB_PAGE_OBSERVATION_SCHEMA,
     validate_artifact_payload,
     validate_artifact_schema_catalog,
 )
@@ -74,6 +75,7 @@ def test_artifact_schema_catalog_matches_job_outputs() -> None:
         "qualified_prospects",
         "revenue_records",
         "business_review_report",
+        "web_page_observation",
     )
 
 
@@ -139,4 +141,28 @@ def test_artifact_payload_validation_reports_all_structural_errors() -> None:
         "item 1 missing required field: product_description",
         "item 1 missing required field: research_summary",
         "item 1 missing required field: sources",
+    )
+
+
+def test_web_page_observation_requires_typed_observation_fields() -> None:
+    payload = {
+        "source_url": "https://example.com",
+        "final_url": "https://example.com/",
+        "title": "Example Domain",
+        "extracted_observations": [{"kind": "title", "satisfied": True}],
+        "observation_timestamp": "2026-09-21T00:00:00Z",
+        "browser_trace": [{"action": "navigate", "status_code": 200}],
+        "blocked_requests": [],
+        "observation_satisfied": True,
+    }
+    assert validate_artifact_payload(WEB_PAGE_OBSERVATION_SCHEMA, payload) == ()
+    assert validate_artifact_payload(WEB_PAGE_OBSERVATION_SCHEMA, {"source_url": payload["source_url"]}) == (
+        "web page observation requirements were not satisfied",
+        "artifact missing required field: final_url",
+        "artifact missing required field: title",
+        "artifact missing required field: extracted_observations",
+        "artifact missing required field: observation_timestamp",
+        "artifact missing required field: browser_trace",
+        "artifact missing required field: blocked_requests",
+        "artifact missing required field: observation_satisfied",
     )
