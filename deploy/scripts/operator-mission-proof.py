@@ -192,6 +192,17 @@ def main() -> int:
     while time.monotonic() < deadline:
         lifecycle = request("GET", API_BASE, f"/v1/missions/{mission_id}/lifecycle", headers=headers)
         runtime_evidence = request("GET", API_BASE, f"/v1/missions/{mission_id}/runtime-evidence", headers=headers)
+        mission_state = (lifecycle.get("mission") or {}).get("status")
+        if mission_state in {"failed", "blocked", "cancelled", "dead_lettered"}:
+            if RUNTIME_EVIDENCE_OUTPUT:
+                output = Path(RUNTIME_EVIDENCE_OUTPUT)
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text(json.dumps(runtime_evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            raise ProofFailure(
+                "mission reached terminal failure before deliverable: "
+                f"status={mission_state} lifecycle={json.dumps(lifecycle, sort_keys=True)} "
+                f"runtime_evidence={json.dumps(runtime_evidence, sort_keys=True)}"
+            )
         try:
             candidate = request("GET", API_BASE, f"/v1/missions/{mission_id}/deliverable", headers=headers)
         except ProofFailure as exc:

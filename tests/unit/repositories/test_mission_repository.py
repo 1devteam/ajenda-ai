@@ -27,6 +27,28 @@ def test_get_for_tenant_uses_tenant_scoped_query() -> None:
     assert tenant_id in compiled
 
 
+def test_get_for_tenant_pauses_review_hold_without_active_tasks() -> None:
+    tenant_id = str(uuid.uuid4())
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="Review-held mission",
+        status="running",
+        metadata_json={},
+    )
+    mission.id = uuid.uuid4()
+    mission.updated_at = datetime.now(UTC)
+    session = MagicMock()
+    session.scalar.return_value = mission
+    session.execute.return_value.all.return_value = [(mission.id, "pending_review", 1), (mission.id, "completed", 3)]
+
+    result = MissionRepository(session).get_for_tenant(mission_id=mission.id, tenant_id=tenant_id)
+
+    assert result is mission
+    assert mission.status == "paused"
+    assert mission.metadata_json["runtime_reconciliation"]["reason"] == "review_hold_without_active_tasks"
+    session.flush.assert_called_once_with()
+
+
 def test_lock_for_tenant_uses_tenant_scoped_for_update_query() -> None:
     mission_id = uuid.uuid4()
     tenant_id = str(uuid.uuid4())

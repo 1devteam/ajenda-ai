@@ -16,6 +16,7 @@ from backend.services.mission_composition.plan_compiler import (
 from backend.services.mission_composition.proposal_store import clear_proposals_for_tests
 from backend.services.mission_composition.service import (
     MissionCompositionService,
+    _acceptance_score_threshold,
     _profile_context,
     _runtime_deliverable_request,
 )
@@ -673,6 +674,15 @@ def test_internal_crm_qualify_and_draft_uses_local_records_and_forbids_send() ->
         "qualification_evidence",
         "drafts",
     ]
+
+
+def test_internal_crm_acceptance_uses_same_threshold_as_qualification() -> None:
+    intent = interpret_instruction(
+        "Review the three HVAC companies already saved in Ajenda internal CRM, "
+        "qualify them, and draft introductions without sending."
+    )
+
+    assert _acceptance_score_threshold(intent) == 5
 
 
 def test_internal_crm_review_with_negated_updates_stays_local() -> None:

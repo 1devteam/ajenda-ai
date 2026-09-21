@@ -36,7 +36,10 @@ class MissionRepository:
 
     def get_for_tenant(self, *, mission_id: uuid.UUID, tenant_id: str) -> Mission | None:
         stmt = select(Mission).where(Mission.id == mission_id, Mission.tenant_id == tenant_id)
-        return self._session.scalar(stmt)
+        mission = self._session.scalar(stmt)
+        if mission is not None:
+            self._reconcile_review_holds(missions=[mission], tenant_id=tenant_id)
+        return mission
 
     def lock_for_tenant(self, *, mission_id: uuid.UUID, tenant_id: str) -> Mission | None:
         """Return a tenant-owned mission while holding a row lock for mutation serialization."""

@@ -175,6 +175,20 @@ def _profile_context(profile: Any) -> dict[str, Any]:
     return context
 
 
+def _acceptance_score_threshold(intent: MissionIntent) -> int:
+    """Keep mission acceptance aligned with the qualification action contract."""
+
+    if is_ranking_only_instruction(intent.objective):
+        return 0
+    if (
+        intent.qualification_quantity is not None
+        or "observe_contacts" in intent.requested_outcomes
+        or "internal_crm_source" in set(intent.context_requirements)
+    ):
+        return 5
+    return 7
+
+
 def _integrations_for_credential(record: object) -> set[str]:
     """Map persisted credential rows to integration tokens used by the resolver."""
 
@@ -690,6 +704,10 @@ class MissionCompositionService:
         deliverable_runtime_state = build_deliverable_runtime_state(
             _runtime_deliverable_request(record.intent),
             minimum_rows=record.intent.requested_quantity or 0,
+            minimum_rows_by_artifact={
+                "qualified_prospects": record.intent.qualification_quantity or record.intent.requested_quantity or 0,
+                "introduction_drafts": record.intent.qualification_quantity or record.intent.requested_quantity or 0,
+            },
         )
         intake = build_mission_intake_metadata(
             success_criteria=success_criteria,
@@ -758,14 +776,7 @@ class MissionCompositionService:
                         if "persist_internal_crm" in record.intent.requested_outcomes
                         else 0,
                         "internal_crm_readback_required": "persist_internal_crm" in record.intent.requested_outcomes,
-                        "score_threshold_10": (
-                            0
-                            if is_ranking_only_instruction(record.intent.objective)
-                            else 5
-                            if record.intent.qualification_quantity is not None
-                            or "observe_contacts" in record.intent.requested_outcomes
-                            else 7
-                        ),
+                        "score_threshold_10": _acceptance_score_threshold(record.intent),
                         # Public research is not complete until the observation
                         # stage promotes verified identities. Qualification may
                         # add stricter scoring, but it must not be the first
@@ -1065,6 +1076,14 @@ class MissionCompositionService:
             deliverable_runtime_state = build_deliverable_runtime_state(
                 _runtime_deliverable_request(record.intent),
                 minimum_rows=record.intent.requested_quantity or 0,
+                minimum_rows_by_artifact={
+                    "qualified_prospects": record.intent.qualification_quantity
+                    or record.intent.requested_quantity
+                    or 0,
+                    "introduction_drafts": record.intent.qualification_quantity
+                    or record.intent.requested_quantity
+                    or 0,
+                },
             )
             context["composition"] = {
                 "proposal_id": record.proposal_id,
@@ -1127,14 +1146,7 @@ class MissionCompositionService:
                     if "persist_internal_crm" in record.intent.requested_outcomes
                     else 0,
                     "internal_crm_readback_required": "persist_internal_crm" in record.intent.requested_outcomes,
-                    "score_threshold_10": (
-                        0
-                        if is_ranking_only_instruction(record.intent.objective)
-                        else 5
-                        if record.intent.qualification_quantity is not None
-                        or "observe_contacts" in record.intent.requested_outcomes
-                        else 7
-                    ),
+                    "score_threshold_10": _acceptance_score_threshold(record.intent),
                     "require_verified_identity": "research_prospects" in record.intent.requested_outcomes,
                 },
                 **(
