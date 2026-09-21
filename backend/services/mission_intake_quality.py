@@ -271,6 +271,7 @@ _SCOPE_SIGNAL_MARKERS = frozenset(
         "pipeline",
         "prospects",
         "quarter",
+        "records",
         "region",
         "segment",
         "territory",

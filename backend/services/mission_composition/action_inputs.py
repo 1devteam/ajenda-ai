@@ -912,7 +912,12 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
     if action_name == "record.search":
         return {
             "record_type": "account",
-            "query": _compact_research_query(intent)[:240],
+            # Internal CRM missions request a bounded record set. Matching the
+            # full natural-language instruction against stored record text can
+            # hide every valid account before qualification starts.
+            "query": ""
+            if "internal_crm_source" in intent.context_requirements
+            else _compact_research_query(intent)[:240],
             "limit": limit,
         }
     if action_name in {"document.search", "retrieval.hybrid_search"}:

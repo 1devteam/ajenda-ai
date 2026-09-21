@@ -96,13 +96,24 @@ def record_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         limit=payload.limit,
     )
     inspected = [str(record["id"]) for record in records if "id" in record]
+    # Preserve raw rows for auditability and expose a normalized alias for
+    # composed qualification/drafting. Tenant-scoped internal rows are already
+    # identity-bearing; they must not be treated like unverified public hits.
+    crm_records: list[dict[str, Any]] = []
+    for record in records:
+        normalized = dict(record)
+        normalized.setdefault("prospect_id", str(record.get("id") or ""))
+        normalized.setdefault("company", record.get("name") or record.get("title"))
+        normalized.setdefault("source", "internal_record")
+        normalized.setdefault("identity_status", "verified")
+        crm_records.append(normalized)
     output = {
         "record_type": payload.record_type,
         "records": records,
         # Canonical mission artifact alias for the internal CRM → GTM path.
         # Keep ``records`` for existing callers and evidence consumers.
-        "crm_records": records,
-        "count": len(records),
+        "crm_records": crm_records,
+        "count": len(crm_records),
     }
     summary = f"Found {len(records)} {payload.record_type} record(s)."
     return ActionResult(

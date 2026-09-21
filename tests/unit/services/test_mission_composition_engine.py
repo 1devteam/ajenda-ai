@@ -17,6 +17,7 @@ from backend.services.mission_composition.proposal_store import clear_proposals_
 from backend.services.mission_composition.service import (
     MissionCompositionService,
     _profile_context,
+    _runtime_deliverable_request,
 )
 from backend.services.mission_composition.structured_planner import (
     PlannerBudgetProposal,
@@ -640,7 +641,38 @@ def test_internal_crm_review_routes_to_local_records_before_qualification() -> N
 
     payload = build_action_input(action_name="record.search", intent=intent)
     assert payload["record_type"] == "account"
+    assert payload["query"] == ""
     assert payload["limit"] == 5
+
+
+def test_internal_crm_qualify_and_draft_uses_local_records_and_forbids_send() -> None:
+    intent = interpret_instruction(
+        "Use Ajenda internal CRM records, qualify the strongest three, and draft introductions. Do not send."
+    )
+
+    assert intent.requested_outcomes == ["qualify_prospects", "read_crm", "prepare_outreach"]
+    assert "internal_crm_source" in intent.context_requirements
+    assert "gtm.email_send" in intent.forbidden_actions
+    assert all("HubSpot" not in criterion.description for criterion in intent.success_criteria)
+
+    jobs = route_jobs_for_intent(intent)
+    selections, missing = resolve_jobs(jobs, intent=intent)
+    assert missing == []
+    assert {item.job_key for item in selections} == {
+        "sales.qualify_prospects",
+        "crm.read_records",
+        "email.prepare_outreach",
+    }
+
+    deliverable = _runtime_deliverable_request(intent)
+    assert deliverable is not None
+    assert [field.field_key for field in deliverable.fields] == [
+        "company_name",
+        "qualification_score",
+        "qualification_reasons",
+        "qualification_evidence",
+        "drafts",
+    ]
 
 
 def test_internal_crm_review_with_negated_updates_stays_local() -> None:

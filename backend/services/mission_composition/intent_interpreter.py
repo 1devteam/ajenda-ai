@@ -847,7 +847,7 @@ def _success_for_outcomes(
     if "read_crm" in outcomes:
         success.append(
             SuccessCriterion(
-                description="Requested HubSpot CRM records are returned with provider evidence",
+                description="Requested CRM records are returned with source evidence",
                 measurable=True,
             )
         )

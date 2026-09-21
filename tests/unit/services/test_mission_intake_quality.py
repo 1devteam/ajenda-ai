@@ -36,6 +36,25 @@ def test_validate_accepts_concrete_mission_prompt() -> None:
     )
 
 
+def test_validate_accepts_bounded_internal_crm_records_mission() -> None:
+    validate_mission_intake_prompt(
+        objective=(
+            "Use Ajenda internal CRM records, qualify the strongest three, and draft introductions. Do not send."
+        ),
+        success_criteria=[
+            {
+                "description": "3 prospects contain company and qualification evidence for CRM records",
+                "evidence": ["qualified_prospects artifact"],
+            },
+            {
+                "description": "3 personalized introduction drafts are ready for review",
+                "evidence": ["introduction_drafts artifact"],
+            },
+        ],
+        allowed_actions=["record.search", "sales.qualify", "gtm.email_draft"],
+    )
+
+
 def test_validate_denies_placeholder_objective() -> None:
     with pytest.raises(MissionIntakeQualityDeniedError) as exc_info:
         validate_mission_intake_prompt(

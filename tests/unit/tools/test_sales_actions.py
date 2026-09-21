@@ -40,6 +40,32 @@ def test_sales_and_record_actions_return_evidence_shaped_output() -> None:
     assert "profile-account-primary" in result.evidence[0].records_inspected
 
 
+def test_record_search_exposes_verified_internal_crm_prospects() -> None:
+    context = _context()
+    default_local_record_provider().seed_tenant(
+        context.tenant_id,
+        {
+            "account": {
+                "acct-1": {
+                    "id": "acct-1",
+                    "name": "Example HVAC",
+                    "website": "https://example-hvac.test",
+                }
+            }
+        },
+    )
+
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(action="record.search", input={"record_type": "account", "query": ""}), context
+    )
+
+    normalized = next(item for item in result.output["crm_records"] if item.get("id") == "acct-1")
+    assert normalized["company"] == "Example HVAC"
+    assert normalized["source"] == "internal_record"
+    assert normalized["identity_status"] == "verified"
+    assert result.output["records"] != result.output["crm_records"]
+
+
 def test_record_read_emits_typed_source_condition_semantics() -> None:
     context = _context()
     observed_at = "2026-08-13T00:00:00+00:00"

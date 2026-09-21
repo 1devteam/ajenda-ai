@@ -78,6 +78,36 @@ def require_string(payload: dict[str, Any], key: str, context: str) -> str:
     return value.strip()
 
 
+def seed_internal_crm_fixture(*, api_base: str, headers: dict[str, str]) -> None:
+    """Create proof-owned CRM rows through the public CRM API.
+
+    The operator proof must exercise the same tenant-scoped write boundary as
+    a real operator. It must not insert rows directly into Postgres.
+    """
+
+    for index in range(1, 4):
+        company = f"Operator Proof HVAC {index}"
+        request(
+            "PUT",
+            api_base,
+            f"/v1/crm/records/account/operator-proof-hvac-{index}",
+            body={
+                "data": {
+                    "name": company,
+                    "company": company,
+                    "website": f"https://operator-proof-hvac-{index}.example.com",
+                    "domain": f"operator-proof-hvac-{index}.example.com",
+                    "industry": "HVAC",
+                    "location": "Dallas",
+                    "description": "Commercial HVAC maintenance and installation",
+                    "automation_opportunity": "Automated lead intake and service follow-up",
+                    "intent": "Evaluating workflow automation",
+                }
+            },
+            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        )
+
+
 def main() -> int:
     frontend = urllib.request.urlopen(f"{FRONTEND_BASE}/", timeout=30).read().decode("utf-8")
     if 'id="root"' not in frontend:
@@ -115,6 +145,9 @@ def main() -> int:
     )
     api_key = require_string(promoted, "api_key", "bootstrap promotion")
     headers = auth(tenant_id, api_key)
+
+    if "internal crm" in INSTRUCTION.lower():
+        seed_internal_crm_fixture(api_base=API_BASE, headers=headers)
 
     proposal = request(
         "POST",

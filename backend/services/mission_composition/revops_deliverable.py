@@ -566,6 +566,9 @@ def _assemble_prospects(
         score = raw_score if isinstance(raw_score, int) and not isinstance(raw_score, bool) else None
         values = {
             "company_name": _nonempty_text(row.get("company")),
+            "website": _nonempty_text(row.get("website") or row.get("url")),
+            "product_description": _nonempty_text(row.get("product_description") or row.get("description")),
+            "research_summary": _nonempty_text(row.get("research_summary")),
             "qualification_evidence": dict(row["qualification_evidence"])
             if isinstance(row.get("qualification_evidence"), dict)
             else None,
@@ -581,6 +584,9 @@ def _assemble_prospects(
                 identity=identity,
                 assembly_errors=assembly_errors,
             )
+        for source in _string_tuple(row.get("sources")):
+            if source not in record["sources"]:
+                record["sources"].append(source)
 
     for row in _artifact_rows(artifacts, "introduction_drafts"):
         record = _record_for_row(

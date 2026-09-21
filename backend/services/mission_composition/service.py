@@ -110,15 +110,34 @@ def _runtime_deliverable_request(intent: MissionIntent) -> DeliverableRequest | 
 
     if intent.deliverable_request is not None:
         return intent.deliverable_request
-    if "research_prospects" not in intent.requested_outcomes:
+    outcomes = set(intent.requested_outcomes)
+    if not outcomes.intersection({"research_prospects", "read_crm", "qualify_prospects", "prepare_outreach"}):
         return None
+
+    fields: list[DeliverableFieldRequirement] = []
+    if "research_prospects" in outcomes:
+        fields.extend(
+            (
+                DeliverableFieldRequirement(field_key="website", source_text="website"),
+                DeliverableFieldRequirement(field_key="research_summary", source_text="research summary"),
+                DeliverableFieldRequirement(field_key="sources", source_text="sources"),
+            )
+        )
+    if "read_crm" in outcomes or "qualify_prospects" in outcomes:
+        fields.extend(
+            (
+                DeliverableFieldRequirement(field_key="company_name", source_text="company name"),
+                DeliverableFieldRequirement(field_key="qualification_score", source_text="qualification score"),
+                DeliverableFieldRequirement(field_key="qualification_reasons", source_text="qualification reasons"),
+                DeliverableFieldRequirement(field_key="qualification_evidence", source_text="qualification evidence"),
+            )
+        )
+    if "prepare_outreach" in outcomes:
+        fields.append(DeliverableFieldRequirement(field_key="drafts", source_text="introduction drafts"))
+
     return DeliverableRequest(
         scope="per_prospect",
-        fields=(
-            DeliverableFieldRequirement(field_key="website", source_text="website"),
-            DeliverableFieldRequirement(field_key="research_summary", source_text="research summary"),
-            DeliverableFieldRequirement(field_key="sources", source_text="sources"),
-        ),
+        fields=tuple(dict((field.field_key, field) for field in fields).values()),
     )
 
 
