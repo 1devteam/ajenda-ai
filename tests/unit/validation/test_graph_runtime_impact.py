@@ -58,7 +58,7 @@ def test_join_names_missing_snapshots_as_unknown_without_adjudicating() -> None:
     assert report["facts"]["runtime_observed_nodes"] == []
 
 
-def test_join_exposes_artifact_identity_gap_and_stale_admission_summary() -> None:
+def test_join_exposes_explicit_artifact_identity_gap_and_admission_contradiction() -> None:
     report = MODULE.build_runtime_impact_artifact(
         impact_report={"graph_sha256": "graph-hash"},
         runtime_projection={
@@ -74,8 +74,8 @@ def test_join_exposes_artifact_identity_gap_and_stale_admission_summary() -> Non
                     "task_id": "task-1",
                     "status": "completed",
                     "queue_admitted": True,
-                    "declared_output_contract": {"artifact": "web_page_observation"},
-                    "observed_output_keys": ["web_page_observation"],
+                    "declared_output_contract": {"artifact": "document_artifact", "artifact_id_required": True},
+                    "observed_output_keys": ["document_artifact"],
                     "artifact_ids": [],
                 }
             ],
@@ -83,6 +83,27 @@ def test_join_exposes_artifact_identity_gap_and_stale_admission_summary() -> Non
     )
 
     assert report["facts"]["artifact_linkage_gaps"] == [
-        "task:task-1:output_without_artifact_identity:web_page_observation"
+        "task:task-1:output_without_artifact_identity:document_artifact"
     ]
     assert report["facts"]["contradictions"] == ["runtime_admission_summary_conflicts_with_observed_queue_execution"]
+
+
+def test_join_does_not_require_document_ids_for_typed_whole_artifacts() -> None:
+    report = MODULE.build_runtime_impact_artifact(
+        impact_report={"graph_sha256": "graph-hash"},
+        runtime_projection={
+            "task_flows": [
+                {
+                    "task_id": "task-1",
+                    "status": "completed",
+                    "queue_admitted": True,
+                    "declared_output_contract": {"artifact": "web_page_observation"},
+                    "observed_output_keys": ["web_page_observation"],
+                    "artifact_ids": [],
+                }
+            ]
+        },
+    )
+
+    assert report["facts"]["artifact_linkage_gaps"] == []
+    assert report["facts"]["contradictions"] == []
