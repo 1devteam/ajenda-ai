@@ -56,7 +56,21 @@ def _runtime_consistency_facts(
         declared = flow.get("declared_output_contract")
         contract_key = declared.get("artifact") if isinstance(declared, dict) else None
         observed = flow.get("observed_output_keys")
-        if contract_key and isinstance(observed, list) and contract_key in observed and not flow.get("artifact_ids"):
+        # Typed whole-artifact outputs (for example web_page_observation) are
+        # identified by their declared artifact key and validated payload. A
+        # document-table artifact_id is required only when the server-owned
+        # output contract explicitly says so; otherwise treating an empty
+        # artifact_ids list as a gap creates a false contradiction.
+        artifact_id_required = isinstance(declared, dict) and (
+            declared.get("artifact_id_required") is True or declared.get("artifact_identity_required") is True
+        )
+        if (
+            artifact_id_required
+            and contract_key
+            and isinstance(observed, list)
+            and contract_key in observed
+            and not flow.get("artifact_ids")
+        ):
             artifact_linkage_gaps.add(f"task:{task_id}:output_without_artifact_identity:{contract_key}")
 
     queue_admitted = any(

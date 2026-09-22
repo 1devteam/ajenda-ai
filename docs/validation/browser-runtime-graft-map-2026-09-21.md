@@ -17,9 +17,9 @@ python scripts/validation/graft_plus_gate.py --base-ref origin/main --head-ref H
 Result: the original planning run passed 6/6 steps. The corrected implementation
 was subsequently reconciled by the full 7-step GRAFT+ gate.
 
-The corrected canonical graph contains 1,521 nodes and 4,422 edges. It now
+The corrected canonical graph contains 1,522 nodes and 4,423 edges. It now
 includes deployment/runtime support nodes for the browser dependency, worker
-image, startup guard, Chromium binary, and feature flag.
+image, Compose configuration, startup guard, Chromium binary, and feature flag.
 
 Scenario impact (the proposed browser change surface, not a current diff):
 
@@ -30,8 +30,10 @@ Scenario impact (the proposed browser change surface, not a current diff):
 - 222 impacted tests
 - 10 relevant invariants
 - risk domains: external-egress and action-contract
-- deployment support is represented by six nodes and eight source-backed edges;
-  the deployment inventory reports zero unresolved browser support findings
+- deployment support is represented by seven nodes and nine source-backed edges;
+  the deployment inventory reports zero blocking browser support findings and
+  one explicit unknown: the enabled/disabled flag value is externalized through
+  the local env file
 - relevant existing invariant statuses include `governed-egress=known_violation` and `tenant-isolation=known_violation`; the browser work must not expand either
 
 ## Proven current implementation
