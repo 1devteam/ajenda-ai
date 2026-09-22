@@ -107,6 +107,23 @@ def test_validate_denies_objective_without_scope_signal() -> None:
     assert "objective_lacks_scope_signal" in codes
 
 
+def test_validate_allows_explicit_url_as_web_observation_scope() -> None:
+    validate_mission_intake_prompt(
+        objective=(
+            "Observe https://example.com using a read-only browser session and extract the page title and visible body text."
+        ),
+        success_criteria=[
+            {
+                "description": (
+                    "A web_page_observation artifact records the requested URL, final URL, title, visible body text, "
+                    "and browser step evidence"
+                ),
+                "evidence": ["web page observation artifact and browser step trace"],
+            }
+        ],
+    )
+
+
 def test_validate_denies_duplicate_success_criteria() -> None:
     criterion = _valid_criterion()
     with pytest.raises(MissionIntakeQualityDeniedError) as exc_info:

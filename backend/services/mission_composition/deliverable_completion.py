@@ -128,6 +128,11 @@ def _typed_field_has_value(*, artifact: MaterializedArtifact, field_key: Deliver
     if whole:
         if not isinstance(artifact.payload, dict):
             return False
+        if field_key == "blocked_requests":
+            # An empty list is a meaningful observation: the browser completed
+            # with no blocked requests. Treat absence as unproven, but do not
+            # confuse a clean network result with a missing artifact.
+            return "blocked_requests" in artifact.payload and isinstance(artifact.payload["blocked_requests"], list)
         return all(
             field.json_path.startswith("$.") and bool(artifact.payload.get(field.json_path[2:].strip()))
             for field in whole

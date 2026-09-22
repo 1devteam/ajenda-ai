@@ -75,6 +75,7 @@ from backend.services.mission_composition.structured_planner import (
     validate_planner_proposal,
 )
 from backend.services.mission_composition.vertical_know_how import (
+    REVOPS_V1_KNOW_HOW,
     select_vertical_know_how,
     validate_know_how_runtime_references,
 )
@@ -111,7 +112,9 @@ def _runtime_deliverable_request(intent: MissionIntent) -> DeliverableRequest | 
     if intent.deliverable_request is not None:
         return intent.deliverable_request
     outcomes = set(intent.requested_outcomes)
-    if not outcomes.intersection({"research_prospects", "read_crm", "qualify_prospects", "prepare_outreach"}):
+    if not outcomes.intersection(
+        {"research_prospects", "read_crm", "qualify_prospects", "prepare_outreach", "observe_web_page"}
+    ):
         return None
 
     fields: list[DeliverableFieldRequirement] = []
@@ -134,9 +137,22 @@ def _runtime_deliverable_request(intent: MissionIntent) -> DeliverableRequest | 
         )
     if "prepare_outreach" in outcomes:
         fields.append(DeliverableFieldRequirement(field_key="drafts", source_text="introduction drafts"))
+    if "observe_web_page" in outcomes:
+        fields.extend(
+            (
+                DeliverableFieldRequirement(field_key="source_url", source_text="source URL"),
+                DeliverableFieldRequirement(field_key="final_url", source_text="final URL"),
+                DeliverableFieldRequirement(field_key="title", source_text="page title"),
+                DeliverableFieldRequirement(field_key="extracted_observations", source_text="observed page content"),
+                DeliverableFieldRequirement(field_key="observation_timestamp", source_text="observation timestamp"),
+                DeliverableFieldRequirement(field_key="browser_trace", source_text="browser step trace"),
+                DeliverableFieldRequirement(field_key="blocked_requests", source_text="blocked requests"),
+                DeliverableFieldRequirement(field_key="observation_satisfied", source_text="observation completion"),
+            )
+        )
 
     return DeliverableRequest(
-        scope="per_prospect",
+        scope="mission" if "observe_web_page" in outcomes else "per_prospect",
         fields=tuple(dict((field.field_key, field) for field in fields).values()),
     )
 
@@ -703,6 +719,7 @@ class MissionCompositionService:
 
         deliverable_runtime_state = build_deliverable_runtime_state(
             _runtime_deliverable_request(record.intent),
+            know_how=select_vertical_know_how(record.intent.requested_outcomes) or REVOPS_V1_KNOW_HOW,
             minimum_rows=record.intent.requested_quantity or 0,
             minimum_rows_by_artifact={
                 "qualified_prospects": record.intent.qualification_quantity or record.intent.requested_quantity or 0,
@@ -1075,6 +1092,7 @@ class MissionCompositionService:
             )
             deliverable_runtime_state = build_deliverable_runtime_state(
                 _runtime_deliverable_request(record.intent),
+                know_how=select_vertical_know_how(record.intent.requested_outcomes) or REVOPS_V1_KNOW_HOW,
                 minimum_rows=record.intent.requested_quantity or 0,
                 minimum_rows_by_artifact={
                     "qualified_prospects": record.intent.qualification_quantity

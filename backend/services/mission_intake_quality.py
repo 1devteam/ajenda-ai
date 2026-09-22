@@ -423,6 +423,11 @@ def _is_repeated_character_spam(text: str) -> bool:
 
 def _has_scope_signal(text: str) -> bool:
     lowered = text.lower()
+    # A concrete HTTPS URL is the complete scope for a governed web-page
+    # observation.  It must satisfy intake quality without being forced into
+    # a market/location vocabulary intended for prospect research.
+    if re.search(r"\bhttps?://[^\s<>()]+", lowered):
+        return True
     if any(char.isdigit() for char in text):
         return True
     return any(marker in lowered for marker in _SCOPE_SIGNAL_MARKERS)

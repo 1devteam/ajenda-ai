@@ -3,8 +3,13 @@ from backend.services.mission_composition.deliverable_completion import (
     evaluate_deliverable_completion,
     validate_materialized_artifact,
 )
-from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
+from backend.services.mission_composition.deliverable_contract import (
+    DeliverableFieldRequirement,
+    DeliverableRequest,
+    extract_deliverable_request,
+)
 from backend.services.mission_composition.deliverable_projection import project_deliverable_request
+from backend.services.mission_composition.vertical_know_how import REVOPS_V2_KNOW_HOW
 
 
 def _projection(text: str):
@@ -165,6 +170,32 @@ def test_empty_explicit_field_remains_incomplete_without_invalidating_artifact_s
     assert validation.valid is True
     assert completion.fields[0].status == "invalid_artifact"
     assert completion.complete is False
+
+
+def test_empty_blocked_requests_is_a_satisfied_clean_browser_observation() -> None:
+    request = DeliverableRequest(
+        scope="mission",
+        fields=(DeliverableFieldRequirement(field_key="blocked_requests", source_text="blocked requests"),),
+    )
+    projection = project_deliverable_request(request, know_how=REVOPS_V2_KNOW_HOW)
+    artifact = MaterializedArtifact(
+        artifact_key="web_page_observation",
+        payload={
+            "source_url": "https://example.com",
+            "final_url": "https://example.com/",
+            "title": "Example Domain",
+            "extracted_observations": [{"kind": "title", "value": "Example Domain", "satisfied": True}],
+            "observation_timestamp": "2026-09-21T00:00:00Z",
+            "browser_trace": [{"action": "navigate", "status_code": 200}],
+            "blocked_requests": [],
+            "observation_satisfied": True,
+        },
+    )
+
+    completion = evaluate_deliverable_completion(projection, [artifact])
+
+    assert completion.complete is True
+    assert completion.fields[0].status == "satisfied"
 
 
 def test_unknown_requested_item_keeps_completion_false() -> None:
