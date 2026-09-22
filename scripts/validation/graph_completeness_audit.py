@@ -29,6 +29,8 @@ def architectural_boundary(node: dict[str, Any]) -> str:
         "migration": "database-migration",
         "network_egress_sink": "external-egress",
         "state_resource": "state-authority",
+        "runtime_support": "runtime-support",
+        "deployment_surface": "deployment",
     }
     if node_type in explicit:
         return explicit[node_type]
