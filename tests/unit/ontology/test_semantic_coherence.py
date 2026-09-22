@@ -896,7 +896,9 @@ def test_owner_artifacts_flow_through_recommendation_evidence_snapshot_feedback_
     signal = feedback.learning_signal
     assert snapshot.intervention_key == "sales.schedule_discovery"
     assert snapshot.goal_semantic_signature == goal_semantic_signature(goal, [kpi])
-    assert snapshot.evidence_lineages[0].artifact_evidence_id == str(evidence_records[0].id)
+    snapshot_lineage_ids = {lineage.artifact_evidence_id for lineage in snapshot.evidence_lineages}
+    assert str(evidence_records[0].id) in snapshot_lineage_ids
+    assert "fact-fit" in snapshot_lineage_ids
     assert snapshot.algorithm_name == "weighted_criterion_evidence_v1"
     assert snapshot.algorithm_version == "1"
     assert signal.intervention_key == snapshot.intervention_key

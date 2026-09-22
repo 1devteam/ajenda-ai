@@ -468,6 +468,7 @@ _BUSINESS_REVIEW_CLAUSE = re.compile(
     r"list\b.*\bevidence\s+gaps?)",
     re.IGNORECASE,
 )
+_EXPLICIT_WEB_URL = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
 
 
 def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
@@ -649,6 +650,20 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
     """Retain explicit research / connector targets (competitors, market, CRM company)."""
 
     entities: list[TargetEntity] = []
+    # A browser observation is only executable when its URL becomes typed
+    # intent data.  Keep the URL as a web_page entity so the resolver can
+    # provide target_url without scraping the raw instruction downstream.
+    url_match = _EXPLICIT_WEB_URL.search(text)
+    if url_match is not None:
+        url = url_match.group(0).rstrip(".,;:!?)]}")
+        entities.append(
+            TargetEntity(
+                type="web_page",
+                url=url,
+                provenance="explicit",
+                confidence=0.99,
+            )
+        )
     entities.extend(_extract_competitors_of(text))
     entities.extend(_extract_industry_location_entities(text))
     # Connector company targets (HubSpot for Acme) — only when no market target already.
@@ -785,6 +800,16 @@ def _success_for_outcomes(
         success.append(
             SuccessCriterion(
                 description=f"{n} prospects include observed phone or email from a fetched page",
+                measurable=True,
+            )
+        )
+    if "observe_web_page" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description=(
+                    "A web_page_observation artifact records the requested URL, final URL, title, visible body text, "
+                    "and browser step evidence with satisfied observation requirements"
+                ),
                 measurable=True,
             )
         )

@@ -17,6 +17,11 @@ def test_observe_explicit_url_without_web_noun_is_a_browser_outcome() -> None:
         "Observe https://example.com using a read-only browser session and extract the page title and visible body text."
     )
     assert intent.requested_outcomes == ["observe_web_page"]
+    assert intent.interpretation_ready is True
+    assert intent.target_entities[0].type == "web_page"
+    assert intent.target_entities[0].url == "https://example.com"
+    assert all(item.measurable for item in intent.success_criteria)
+    assert intent.unmatched_material_clauses == []
 
 
 def test_scrape_company_site_builds_compact_query_and_company() -> None:
