@@ -28,6 +28,7 @@ from graph_runtime_action_selection_inventory import (
     collect_runtime_action_selection_inventory,
 )
 from graph_runtime_contract_inventory import JOB_CATALOG_PATH, collect_runtime_contract_inventory
+from graph_runtime_support_inventory import collect_runtime_support_inventory
 from graph_semantic_inventory import collect_semantic_inventory
 
 OVERLAY_PATH = REPO_ROOT / "docs/contracts/dependency-graph.overlay.v1.json"
@@ -352,6 +353,7 @@ def build_graph() -> dict[str, Any]:
     semantic_inventory = collect_semantic_inventory(REPO_ROOT, overlay)
     runtime_contract_inventory = collect_runtime_contract_inventory(REPO_ROOT)
     runtime_action_selection_inventory = collect_runtime_action_selection_inventory(REPO_ROOT)
+    runtime_support_inventory = collect_runtime_support_inventory(REPO_ROOT)
 
     nodes: list[dict[str, Any]] = [
         {"id": node.id, "type": node.type, "source": node.source}
@@ -363,6 +365,7 @@ def build_graph() -> dict[str, Any]:
     nodes.extend(runtime_contract_inventory["nodes"])
     nodes.extend(runtime_action_selection_inventory["action_nodes"])
     nodes.extend(runtime_action_selection_inventory["nodes"])
+    nodes.extend(runtime_support_inventory["nodes"])
 
     edges: list[dict[str, Any]] = [
         {"from": edge.source, "to": edge.target, "type": edge.type, "evidence": edge.evidence}
@@ -374,6 +377,7 @@ def build_graph() -> dict[str, Any]:
     edges.extend(semantic_inventory["edges"])
     edges.extend(runtime_contract_inventory["edges"])
     edges.extend(runtime_action_selection_inventory["edges"])
+    edges.extend(runtime_support_inventory["edges"])
 
     node_ids_seen = [str(node["id"]) for node in nodes]
     duplicates = sorted(node_id for node_id, count in Counter(node_ids_seen).items() if count > 1)
@@ -417,11 +421,13 @@ def build_graph() -> dict[str, Any]:
                 *semantic_inventory["findings"],
                 *runtime_contract_inventory["findings"],
                 *runtime_action_selection_inventory["findings"],
+                *runtime_support_inventory["findings"],
             ],
             key=lambda item: str(item["id"]),
         ),
         "runtime_contract_metrics": runtime_contract_inventory["metrics"],
         "runtime_action_selection_metrics": runtime_action_selection_inventory["metrics"],
+        "runtime_support_metrics": runtime_support_inventory["metrics"],
         "metrics": _metrics(node_ids, edges),
     }
 
