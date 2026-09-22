@@ -2642,7 +2642,9 @@ def admit_mission_graph_to_runtime(
         selected_nodes=selected_nodes,
         validation_result={
             "validation_status": "valid",
-            "summary": "Runtime admission metadata validated; no runtime work was queued or dispatched.",
+            "summary": (
+                "Runtime admission metadata validated; queue admission and worker dispatch are recorded separately."
+            ),
             "validated_at": now,
             "checks": validation_checks,
             "gaps": validation_notes,

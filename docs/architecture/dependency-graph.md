@@ -28,6 +28,13 @@ Semantic input:
 
 - `docs/contracts/dependency-graph.overlay.v1.json` — runtime, authority, security, state-ownership, external-system, reviewed exception/classification, acknowledgement, and invariant relationships that cannot be inferred safely from imports alone.
 
+The generator also performs a source-backed deployment inventory for governed
+browser execution. It maps the browser action to its declared Playwright
+dependency, worker image installation, Chromium binary support, startup
+readiness guard, and feature flag. Missing source markers are emitted as
+deployment support findings; they are not inferred from prose or from a local
+developer installation.
+
 The generated JSON remains a build artifact rather than committed source. The durable source of truth is the generator, semantic inventory logic, and overlay.
 
 ## Graph model
@@ -177,6 +184,8 @@ The joined artifact exposes, with source provenance:
 - runtime-observed task nodes;
 - selected runtime nodes with no observed task flow;
 - runtime contradictions and missing evidence;
+- artifact-linkage gaps and contradictions between admission summaries and
+  observed queue/task execution;
 - unknowns caused by an absent snapshot.
 
 It is read-only and grants no execution authority. It does not produce

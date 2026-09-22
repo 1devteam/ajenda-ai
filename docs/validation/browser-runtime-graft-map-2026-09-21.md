@@ -14,9 +14,12 @@ Command:
 python scripts/validation/graft_plus_gate.py --base-ref origin/main --head-ref HEAD --output /tmp/graft-browser-plan.json --skip-graph-tests
 ```
 
-Result: 6/6 steps passed.
+Result: the original planning run passed 6/6 steps. The corrected implementation
+was subsequently reconciled by the full 7-step GRAFT+ gate.
 
-Canonical graph: 1,485 nodes and 4,353 edges.
+The corrected canonical graph contains 1,522 nodes and 4,423 edges. It now
+includes deployment/runtime support nodes for the browser dependency, worker
+image, Compose configuration, startup guard, Chromium binary, and feature flag.
 
 Scenario impact (the proposed browser change surface, not a current diff):
 
@@ -27,7 +30,10 @@ Scenario impact (the proposed browser change surface, not a current diff):
 - 222 impacted tests
 - 10 relevant invariants
 - risk domains: external-egress and action-contract
-- 5 candidate deployment/config files are currently unmapped by the graph: `pyproject.toml`, both API/worker Dockerfiles, and both start scripts
+- deployment support is represented by seven nodes and nine source-backed edges;
+  the deployment inventory reports zero blocking browser support findings and
+  one explicit unknown: the enabled/disabled flag value is externalized through
+  the local env file
 - relevant existing invariant statuses include `governed-egress=known_violation` and `tenant-isolation=known_violation`; the browser work must not expand either
 
 ## Proven current implementation
@@ -43,13 +49,23 @@ Scenario impact (the proposed browser change surface, not a current diff):
 9. The current shell has Playwright installed outside the project dependency declaration. `pyproject.toml` does not declare Playwright, and the API/worker Dockerfiles do not install browser binaries.
 10. `backend/services/mission_composition/job_catalog.py` does not list `web.browser_session` as a candidate action. The resolver therefore cannot select it for a composed job today.
 
-## GRAFT gap discovered
+## GRAFT gap discovered and corrected
 
-The canonical graph contains `action:web.page_read`, `action:web.search`, and `action:web.research`, but does not contain `action:web.browser_session`, even though the action is registered and exposed in the ability catalog and API allow-list.
+The earlier canonical graph contained `action:web.page_read`, `action:web.search`, and `action:web.research`, but omitted `action:web.browser_session`, even though the action was registered and exposed in the ability catalog and API allow-list.
 
 The current runtime-contract inventory derives action topology from the mission job catalog. That means an action can be executable and policy-declared yet remain absent from the canonical GRAFT action graph when no BusinessJob lists it. This is a graph-observability gap and must be corrected before claiming the browser path is fully mapped.
 
-The graph also reports the candidate deployment/config files above as unmapped. A browser capability cannot be considered deployment-complete while dependency and container nodes are invisible to impact analysis.
+The graph now inventories registered manifest actions independently of job
+selection and adds a deployment inventory for dependency/container/startup
+support. The browser action is represented through its explicit observation job,
+and deployment completeness is reported from source markers rather than inferred
+from documentation.
+
+The runtime impact join also exposes evidence contradictions instead of hiding
+them: a completed task whose output has no durable artifact identity is reported
+as an artifact-linkage gap, and an admission summary claiming no dispatch while
+queue/task evidence shows execution is reported as a contradiction. These are
+facts for evaluator review, not automatic repair decisions.
 
 ## Required implementation order
 
@@ -125,7 +141,7 @@ Join static GRAFT impact with the mission runtime evidence projection and inspec
 
 The current working tree completed Slice A, Slice B/C, and the narrow business-contract portion of Slice D:
 
-- GRAFT now includes manifest/registry actions even when no BusinessJob selects them. After the new job was added, the browser action is represented by `selection:research.observe_web_page:web.browser_session` and the prior `manifest-action-unselected:web.browser_session` finding is absent for a legitimate catalog reason.
+- GRAFT now includes manifest/registry actions even when no BusinessJob selects them. The browser action is represented by `selection:research.observe_web_page:web.browser_session` and the prior `manifest-action-unselected:web.browser_session` finding is absent for a legitimate catalog reason.
 - `web.browser_session` accepts a bounded read-only command list (`navigate`, `observe`, `extract`) with exact HTTPS origin allow-listing and a step trace.
 - The worker dependency declares Playwright 1.58.0 and installs Chromium with dependencies; worker startup fails closed when browser mode is enabled but Chromium cannot launch.
 - Browser action input compilation accepts explicit target URLs only.
