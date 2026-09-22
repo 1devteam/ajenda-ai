@@ -155,8 +155,10 @@ OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
     (r"\b(?:my|the)\s+linkedin\s+profile\b", "read_linkedin"),
     (r"\b(?:check|read|show|fetch|get)\b.{0,40}\bgithub\b.{0,32}\b(?:repo|repository)\b", "read_github"),
     (r"\bgithub\b.{0,24}\b(?:repo|repository)\b", "read_github"),
-    (r"\b(?:check|read|list|show|fetch)\b.{0,40}\b(?:google\s+)?contacts?\b", "read_contacts"),
-    (r"\b(?:my|the)\s+(?:google\s+)?contacts?\b", "read_contacts"),
+    (r"\b(?:check|read|list|show|fetch)\b.{0,40}\b(?:google\s+)?contacts\b", "read_contacts"),
+    # Require the collection noun to be plural here.  ``the contact info``
+    # belongs to web contact observation and must not route to Google Contacts.
+    (r"\b(?:my|the)\s+(?:google\s+)?contacts\b", "read_contacts"),
 )
 
 

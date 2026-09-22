@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from backend.services.mission_composition import deliverable_contract
+from backend.services.mission_composition.intent_interpreter import interpret_instruction
 
 
 def test_extracts_live_saas_deliverable_fields_and_score_range() -> None:
@@ -69,3 +70,27 @@ def test_descriptive_conjunctions_are_not_misread_as_deliverables() -> None:
     )
 
     assert request is None
+
+
+def test_browser_observation_fields_do_not_become_prospect_website() -> None:
+    request = deliverable_contract.extract_deliverable_request(
+        "Open https://www.iana.org/domains/example and return the final URL, page title, visible text, and browser step trace."
+    )
+
+    assert request is not None
+    assert [field.field_key for field in request.fields] == [
+        "final_url",
+        "title",
+        "extracted_observations",
+        "browser_trace",
+    ]
+    assert request.unresolved_items == ()
+    assert request.fully_understood
+
+
+def test_browser_observation_does_not_fuzzy_match_contact_observation() -> None:
+    intent = interpret_instruction(
+        "Open https://www.iana.org/domains/example, follow its Domains link, and return the final URL, page title, visible text, and browser step trace."
+    )
+
+    assert intent.requested_outcomes == ["observe_web_page"]

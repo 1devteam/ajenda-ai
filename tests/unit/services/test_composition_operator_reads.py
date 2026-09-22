@@ -182,6 +182,12 @@ def test_add_to_contacts_still_update_crm_not_contacts_read() -> None:
     assert "read_contacts" not in intent.requested_outcomes
 
 
+def test_return_contact_info_does_not_select_google_contacts() -> None:
+    intent = interpret_instruction("Open https://example.com and return the contact info")
+    assert "observe_contacts" in intent.requested_outcomes
+    assert "read_contacts" not in intent.requested_outcomes
+
+
 def test_negated_contact_anyone_does_not_select_google_contacts() -> None:
     intent = interpret_instruction(
         "Research five competitors using public sources only. Do not contact anyone or modify external systems."

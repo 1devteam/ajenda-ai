@@ -85,6 +85,15 @@ _TRAILING_PURPOSE = re.compile(r"\s+for\s+(?:review|approval|the\s+user)\s*$", r
 
 _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
     ("company_name", (r"\bcompany\s+name\b", r"\bprospect\s+name\b")),
+    # Browser observation fields must precede the broad prospect ``url`` rule.
+    # Otherwise "final URL" is misclassified as a prospect website.
+    ("final_url", (r"\bfinal\s+url\b", r"\bredirected\s+url\b")),
+    ("title", (r"\bpage\s+title\b", r"\btitle\s+of\s+the\s+page\b")),
+    (
+        "extracted_observations",
+        (r"\bvisible\s+(?:page\s+)?text\b", r"\bobserved\s+page\s+content\b"),
+    ),
+    ("browser_trace", (r"\bbrowser\s+(?:step\s+)?trace\b", r"\bnavigation\s+trace\b")),
     ("website", (r"\bwebsite\b", r"\bcompany\s+url\b", r"\burl\b")),
     (
         "product_description",

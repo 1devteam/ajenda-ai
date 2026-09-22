@@ -182,10 +182,10 @@ _GITHUB_READ_PATTERNS = (
     r"\bgithub\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\b",
 )
 _CONTACTS_READ_PATTERNS = (
-    r"\b(?:check|read|list|show|fetch|get)\b.{0,40}\bgoogle\s+contacts?\b",
-    r"\bgoogle\s+contacts?\b",
-    r"\b(?:check|read|list|show)\b.{0,24}\b(?:my\s+)?contacts?\b",
-    r"\b(?:my|the)\s+(?:google\s+)?contacts?\b",
+    r"\b(?:check|read|list|show|fetch|get)\b.{0,40}\bgoogle\s+contacts\b",
+    r"\bgoogle\s+contacts\b",
+    r"\b(?:check|read|list|show)\b.{0,24}\b(?:my\s+)?contacts\b",
+    r"\b(?:my|the)\s+(?:google\s+)?contacts\b",
 )
 
 _HUBSPOT_COMPANY_AFTER = re.compile(
@@ -1520,6 +1520,16 @@ def interpret_instruction(
         ):
             continue
         if fuzzy_hit.outcome == "send_outreach" and (no_send or conditional_send):
+            continue
+        # Browser deliverable language such as "return the final URL" can
+        # score falsely against the legacy "return the contact info" alias.
+        # Once an explicit web observation is present, require actual contact
+        # wording before admitting observe_contacts from fuzzy matching.
+        if (
+            fuzzy_hit.outcome == "observe_contacts"
+            and "observe_web_page" in outcomes
+            and not _contains_any(lower, _OBSERVE_CONTACT_PATTERNS)
+        ):
             continue
         fuzzy_connector_guards = {
             "read_email": wants_email_read,

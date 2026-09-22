@@ -89,6 +89,31 @@ function deliverableFromTaskStatus(task: AbilityTaskStatusResponse): MissionDeli
     return null;
   }
   const payload = output as Record<string, unknown>;
+  const browserObservation = payload.web_page_observation;
+  if (browserObservation && typeof browserObservation === "object") {
+    return {
+      schema_version: 1,
+      kind: "task_output_fallback",
+      mission_id: task.mission_id ?? "",
+      objective: task.description ?? "",
+      artifacts: { web_page_observation: browserObservation },
+      prospects: [],
+      limitations: ["Rendered from persisted task output because the assembled deliverable read model is unavailable."],
+      task_state: {
+        task_count: 1,
+        statuses: { [task.status]: 1 },
+        all_terminal: ["completed", "failed", "blocked", "cancelled"].includes(task.status),
+        all_succeeded: task.status === "completed",
+      },
+      completion: {
+        artifact_complete: task.status === "completed",
+        complete: task.status === "completed",
+        missing_fields: [],
+        invalid_fields: [],
+        assembly_errors: [],
+      },
+    };
+  }
   const rawRows = payload.prospect_candidates;
   if (!Array.isArray(rawRows)) {
     return null;
@@ -699,10 +724,18 @@ export default function MissionDispatchPage() {
 
       {deliverable ? (
         <section className="panel" aria-label="Mission deliverable">
+          {(() => {
+            const observation = deliverable.artifacts?.web_page_observation;
+            const isWebObservation = Boolean(observation && typeof observation === "object");
+            const observationRecord = isWebObservation
+              ? (observation as Record<string, unknown>)
+              : null;
+            return (
+              <>
           <div className="panel-heading-row">
             <div>
               <p className="cc-section-kicker">Durable output</p>
-              <h2>Prospect candidates</h2>
+              <h2>{isWebObservation ? "Web page observation" : "Prospect candidates"}</h2>
             </div>
             <span
               className={`status-pill status-${
@@ -718,7 +751,15 @@ export default function MissionDispatchPage() {
               successful.
             </p>
           ) : null}
-          {deliverable.prospects.length > 0 ? (
+          {observationRecord ? (
+            <div className="code-block">
+              <p><strong>Source URL:</strong> {String(observationRecord.source_url ?? "—")}</p>
+              <p><strong>Final URL:</strong> {String(observationRecord.final_url ?? "—")}</p>
+              <p><strong>Title:</strong> {String(observationRecord.title ?? "—")}</p>
+              <p><strong>Observation satisfied:</strong> {observationRecord.observation_satisfied === true ? "yes" : "no"}</p>
+              <pre>{pretty(observationRecord.extracted_observations ?? observationRecord)}</pre>
+            </div>
+          ) : deliverable.prospects.length > 0 ? (
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
@@ -759,6 +800,9 @@ export default function MissionDispatchPage() {
               ))}
             </ul>
           ) : null}
+              </>
+            );
+          })()}
         </section>
       ) : null}
 
