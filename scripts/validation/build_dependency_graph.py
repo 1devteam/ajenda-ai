@@ -20,6 +20,7 @@ if str(VALIDATION_DIR) not in sys.path:
 
 # ruff: noqa: E402
 
+from graph_deployment_inventory import collect_deployment_inventory
 from graph_function_inventory import collect_function_graph, collect_function_test_edges
 from graph_runtime_action_selection_inventory import (
     RESOLVER_PATH as ACTION_RESOLVER_PATH,
@@ -354,6 +355,7 @@ def build_graph() -> dict[str, Any]:
     runtime_contract_inventory = collect_runtime_contract_inventory(REPO_ROOT)
     runtime_action_selection_inventory = collect_runtime_action_selection_inventory(REPO_ROOT)
     runtime_support_inventory = collect_runtime_support_inventory(REPO_ROOT)
+    deployment_inventory = collect_deployment_inventory(REPO_ROOT)
 
     nodes: list[dict[str, Any]] = [
         {"id": node.id, "type": node.type, "source": node.source}
@@ -366,6 +368,7 @@ def build_graph() -> dict[str, Any]:
     nodes.extend(runtime_action_selection_inventory["action_nodes"])
     nodes.extend(runtime_action_selection_inventory["nodes"])
     nodes.extend(runtime_support_inventory["nodes"])
+    nodes.extend(deployment_inventory["nodes"])
 
     edges: list[dict[str, Any]] = [
         {"from": edge.source, "to": edge.target, "type": edge.type, "evidence": edge.evidence}
@@ -378,6 +381,7 @@ def build_graph() -> dict[str, Any]:
     edges.extend(runtime_contract_inventory["edges"])
     edges.extend(runtime_action_selection_inventory["edges"])
     edges.extend(runtime_support_inventory["edges"])
+    edges.extend(deployment_inventory["edges"])
 
     node_ids_seen = [str(node["id"]) for node in nodes]
     duplicates = sorted(node_id for node_id, count in Counter(node_ids_seen).items() if count > 1)
@@ -422,12 +426,15 @@ def build_graph() -> dict[str, Any]:
                 *runtime_contract_inventory["findings"],
                 *runtime_action_selection_inventory["findings"],
                 *runtime_support_inventory["findings"],
+                *deployment_inventory["findings"],
             ],
             key=lambda item: str(item["id"]),
         ),
         "runtime_contract_metrics": runtime_contract_inventory["metrics"],
         "runtime_action_selection_metrics": runtime_action_selection_inventory["metrics"],
         "runtime_support_metrics": runtime_support_inventory["metrics"],
+        "deployment_runtime_metrics": deployment_inventory["metrics"],
+        "deployment_runtime_unknowns": deployment_inventory["unknowns"],
         "metrics": _metrics(node_ids, edges),
     }
 

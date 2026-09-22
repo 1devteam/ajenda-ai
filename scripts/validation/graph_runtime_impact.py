@@ -24,6 +24,60 @@ def _node_key(item: dict[str, Any]) -> str | None:
     return str(value) if value else None
 
 
+def _nested_strings(value: Any) -> list[str]:
+    """Collect strings from a runtime snapshot without interpreting them."""
+
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        result: list[str] = []
+        for item in value.values():
+            result.extend(_nested_strings(item))
+        return result
+    if isinstance(value, list):
+        result = []
+        for item in value:
+            result.extend(_nested_strings(item))
+        return result
+    return []
+
+
+def _runtime_consistency_facts(
+    runtime_projection: dict[str, Any], task_flows: list[dict[str, Any]]
+) -> tuple[list[str], list[str]]:
+    """Expose contradictions and unproven artifact links in a runtime snapshot."""
+
+    contradictions: set[str] = set()
+    artifact_linkage_gaps: set[str] = set()
+    for flow in task_flows:
+        task_id = str(flow.get("task_id") or flow.get("node_key") or "unknown")
+        if flow.get("status") != "completed":
+            continue
+        declared = flow.get("declared_output_contract")
+        contract_key = declared.get("artifact") if isinstance(declared, dict) else None
+        observed = flow.get("observed_output_keys")
+        if contract_key and isinstance(observed, list) and contract_key in observed and not flow.get("artifact_ids"):
+            artifact_linkage_gaps.add(f"task:{task_id}:output_without_artifact_identity:{contract_key}")
+
+    queue_admitted = any(
+        isinstance(flow.get("queue_admitted"), bool) and flow.get("queue_admitted") for flow in task_flows
+    )
+    stale_admission_text = any(
+        "no runtime work was queued or dispatched" in text.lower() for text in _nested_strings(runtime_projection)
+    )
+    if queue_admitted and stale_admission_text:
+        contradictions.add("runtime_admission_summary_conflicts_with_observed_queue_execution")
+
+    mission_status = str(runtime_projection.get("mission_status") or "").lower()
+    acceptance = runtime_projection.get("acceptance")
+    acceptance_status = str(acceptance.get("status") or "").lower() if isinstance(acceptance, dict) else ""
+    if mission_status == "completed" and acceptance_status not in {"", "met", "satisfied", "complete", "completed"}:
+        contradictions.add("mission_completed_with_nonterminal_acceptance_status")
+    if mission_status in {"failed", "blocked"} and acceptance_status in {"met", "satisfied", "complete", "completed"}:
+        contradictions.add("mission_failed_with_satisfied_acceptance_status")
+    return sorted(contradictions), sorted(artifact_linkage_gaps)
+
+
 def _static_nodes(impact: dict[str, Any]) -> list[dict[str, Any]]:
     nodes: list[dict[str, Any]] = []
     for section, relation in (
@@ -85,6 +139,8 @@ def build_runtime_impact_artifact(
     ]
     contradictions = sorted(str(item) for item in runtime_projection.get("contradictions", []) if item)
     missing = sorted(str(item) for item in runtime_projection.get("missing_evidence", []) if item)
+    consistency_contradictions, artifact_linkage_gaps = _runtime_consistency_facts(runtime_projection, task_flows)
+    contradictions = sorted(set(contradictions) | set(consistency_contradictions))
 
     # These are evidence gaps, not judgments.  They identify facts the
     # supplied snapshots cannot establish.
@@ -120,6 +176,7 @@ def build_runtime_impact_artifact(
             "selected_unobserved_nodes": runtime_unobserved,
             "task_flow_count": len(task_flows),
             "contradictions": contradictions,
+            "artifact_linkage_gaps": artifact_linkage_gaps,
             "missing_evidence": missing,
             "first_divergence": runtime_projection.get("first_divergence"),
         },
@@ -128,6 +185,7 @@ def build_runtime_impact_artifact(
             "runtime_observed_nodes": runtime_nodes,
             "runtime_unobserved_selected_nodes": runtime_unobserved,
             "contradictions": contradictions,
+            "artifact_linkage_gaps": artifact_linkage_gaps,
             "missing_evidence": missing,
             "unknowns": sorted(set(unknowns)),
             "mission_status": runtime_projection.get("mission_status"),

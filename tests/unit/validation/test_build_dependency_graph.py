@@ -31,6 +31,24 @@ def test_graph_contains_static_semantic_and_test_layers() -> None:
     assert "runtime-secret-boundary" in invariant_ids
 
 
+def test_graph_contains_browser_deployment_support_edges() -> None:
+    graph = MODULE.build_graph()
+    node_ids = {node["id"] for node in graph["nodes"]}
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
+
+    assert {"dependency:playwright", "runtime-binary:chromium", "deployment-browser:worker-image"} <= node_ids
+    assert (
+        "action:web.browser_session",
+        "dependency:playwright",
+        "requires_runtime_dependency",
+    ) in edges
+    assert (
+        "runtime-binary:chromium",
+        "deployment-browser:worker-image",
+        "installed_in",
+    ) in edges
+
+
 def test_mission_composition_has_selective_function_layer() -> None:
     graph = MODULE.build_graph()
     nodes = {node["id"]: node for node in graph["nodes"]}
