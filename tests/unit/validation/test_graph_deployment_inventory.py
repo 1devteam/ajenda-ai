@@ -22,6 +22,8 @@ def test_browser_deployment_inventory_exposes_dependency_image_and_startup_edges
         "installed_in",
     ) in edge_pairs
     assert inventory["findings"] == []
+    assert inventory["metrics"]["deployment_unknown_count"] == 1
+    assert inventory["unknowns"][0]["id"] == "deployment-browser:flag-value-externalized"
 
 
 def test_browser_deployment_inventory_fails_closed_when_support_is_missing(tmp_path: Path) -> None:

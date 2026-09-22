@@ -47,6 +47,8 @@ def test_graph_contains_browser_deployment_support_edges() -> None:
         "deployment-browser:worker-image",
         "installed_in",
     ) in edges
+    assert graph["deployment_runtime_metrics"]["deployment_unknown_count"] == 1
+    assert graph["deployment_runtime_unknowns"][0]["id"] == "deployment-browser:flag-value-externalized"
 
 
 def test_mission_composition_has_selective_function_layer() -> None:
