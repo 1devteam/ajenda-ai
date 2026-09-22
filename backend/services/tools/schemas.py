@@ -609,7 +609,7 @@ class WebBrowserStep(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["navigate", "observe", "extract"]
+    action: Literal["navigate", "observe", "click", "extract"]
     url: str | None = Field(default=None, min_length=3, max_length=2048)
     selector: str | None = Field(default=None, min_length=1, max_length=512)
     text_limit: int = Field(default=4_000, ge=1, le=8_000)
@@ -622,6 +622,14 @@ class WebBrowserStep(BaseModel):
         from backend.services.internet.url_safety import reject_credentialed_url
 
         return reject_credentialed_url(value, action_name="web.browser_session")
+
+    @model_validator(mode="after")
+    def validate_step_target(self) -> WebBrowserStep:
+        if self.action in {"click", "extract"} and not self.selector:
+            raise ValueError(f"{self.action} step requires selector")
+        if self.action not in {"click", "extract"} and self.selector is not None:
+            raise ValueError("selector is only valid for click/extract steps")
+        return self
 
 
 class WebObservationRequirement(BaseModel):

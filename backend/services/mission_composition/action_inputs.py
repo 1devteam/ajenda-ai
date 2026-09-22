@@ -744,6 +744,18 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
             if not requirements:
                 requirements = [{"kind": "title"}, {"kind": "body"}]
             commands: list[dict[str, Any]] = []
+            source = _instruction_text(intent)
+            follow_match = re.search(
+                r"\bfollow\b[^.!?]{0,100}\blink\b",
+                source,
+                flags=re.IGNORECASE,
+            )
+            quoted_link = re.search(r"[\"“](.+?)[\"”]", source)
+            if follow_match and quoted_link:
+                link_text = quoted_link.group(1).strip().rstrip("…").rstrip(".").strip()
+                if link_text:
+                    # Match a stable text prefix across typographic/ASCII punctuation.
+                    commands.append({"action": "click", "selector": f'a:text-is("{link_text}")'})
             for requirement in requirements:
                 if requirement["kind"] in {"title", "body"}:
                     if not any(command.get("action") == "observe" for command in commands):

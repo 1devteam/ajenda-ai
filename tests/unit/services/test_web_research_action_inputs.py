@@ -134,3 +134,16 @@ def test_browser_session_input_requires_explicit_target_url() -> None:
         "commands": [{"action": "observe"}],
         "observation_requirements": [{"kind": "title"}, {"kind": "body"}],
     }
+
+
+def test_browser_session_compiles_follow_link_as_bounded_click() -> None:
+    intent = interpret_instruction(
+        'Open https://example.com, follow its “More information…” link, and return the final URL, page title, visible text, and browser step trace.'
+    )
+    payload = build_action_input(action_name="web.browser_session", intent=intent)
+    assert intent.interpretation_ready is True
+    assert intent.unmatched_material_clauses == []
+    assert payload["commands"] == [
+        {"action": "click", "selector": 'a:text-is("More information")'},
+        {"action": "observe"},
+    ]

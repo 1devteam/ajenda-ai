@@ -223,6 +223,33 @@ def run_browser_session(
                                     "text_preview": observed_text,
                                 }
                             )
+                        elif action == "click":
+                            selector = str(command.get("selector") or "").strip()
+                            if not selector:
+                                raise ValueError("click step requires selector")
+                            page.locator(selector).click(timeout=timeout_ms)
+                            try:
+                                page.wait_for_load_state(wait_until, timeout=min(timeout_ms, 10_000))
+                            except Exception:
+                                # A same-document click need not produce a load event.
+                                pass
+                            final_url = (page.url or final_url).strip() or final_url
+                            title = (page.title() or "").strip()[:240] or title
+                            try:
+                                body_text = page.inner_text("body", timeout=min(timeout_ms, 10_000))
+                                text_preview = " ".join((body_text or "").split())[:DEFAULT_TEXT_LIMIT] or text_preview
+                            except Exception:
+                                pass
+                            steps.append(
+                                {
+                                    "index": index,
+                                    "action": action,
+                                    "selector": selector,
+                                    "url": page.url,
+                                    "final_url": final_url,
+                                    "title": title,
+                                }
+                            )
                         elif action == "extract":
                             selector = str(command.get("selector") or "body").strip()
                             extracted = _step_text(page, selector, int(command.get("text_limit") or 4_000), timeout_ms)

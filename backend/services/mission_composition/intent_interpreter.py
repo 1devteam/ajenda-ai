@@ -1773,6 +1773,17 @@ def interpret_instruction(
         ):
             recognized = True
             material = True
+        if "observe_web_page" in outcomes and re.search(
+            r"\b(?:observe|inspect|open|follow|click|extract|return|browser|link|title|visible|final\s+url)\b",
+            clause_text,
+            flags=re.IGNORECASE,
+        ):
+            # Browser observation owns its bounded navigation/extraction clauses;
+            # do not reject a valid step as an unrelated business clause.
+            recognized = True
+            material = True
+            if "observe_web_page" not in mapped:
+                mapped.append("observe_web_page")
         # Non-material filler: short politeness without risk keywords.
         if not material and len(clause_text.split()) <= 3:
             status = "non_material"

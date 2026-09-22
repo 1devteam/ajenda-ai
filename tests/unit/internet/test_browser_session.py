@@ -14,6 +14,7 @@ class _FakeResponse:
 class _FakePage:
     def __init__(self) -> None:
         self.url = "https://example.com/"
+        self.clicked: list[str] = []
 
     def goto(self, url: str, **_kwargs):
         self.url = url
@@ -27,6 +28,12 @@ class _FakePage:
 
     def locator(self, _selector: str):
         return self
+
+    def click(self, **_kwargs) -> None:
+        self.clicked.append("clicked")
+
+    def wait_for_load_state(self, _state: str, **_kwargs) -> None:
+        return None
 
 
 class _FakeContext:
@@ -137,10 +144,16 @@ def test_browser_session_runs_bounded_read_only_steps(monkeypatch) -> None:
             commands=(
                 {"action": "observe"},
                 {"action": "extract", "selector": "body", "text_limit": 200},
+                {"action": "click", "selector": "text=More information"},
             ),
         )
 
     assert snapshot.real is True
     assert snapshot.browser_ready is True
     assert snapshot.extraction["allowed_hosts"] == ["example.com"]
-    assert [step["action"] for step in snapshot.extraction["steps"]] == ["navigate", "observe", "extract"]
+    assert [step["action"] for step in snapshot.extraction["steps"]] == [
+        "navigate",
+        "observe",
+        "extract",
+        "click",
+    ]
