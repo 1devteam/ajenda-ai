@@ -50,6 +50,14 @@ Major semantic node classes include:
 - `external_service`
 - `state_resource`
 
+Runtime action visibility has two independent sources of truth. Business-job
+candidate actions describe what mission composition may select; ability manifests
+describe actions that are registered and policy-declared even when no job selects
+them yet. The graph emits both. A manifest-only action is intentionally visible
+with a nonblocking `manifest_action_without_job_selection` finding so an
+executable capability cannot disappear from GRAFT while its composition contract
+is still unfinished.
+
 Every edge has `from`, `to`, `type`, and `evidence`. Edge types are not interchangeable. Examples include `imports`, `tests`, `calls`, `credential_authority`, `egress_authority`, `governed_http`, `direct_network_egress`, `tenant_data_boundary`, `rls_enforced`, `claims_once`, `consumes_once`, and `reserves_capacity`.
 
 Canonical direction is `consumer -> dependency`. Reverse traversal answers what a change can affect; forward traversal answers what the changed component relies on.

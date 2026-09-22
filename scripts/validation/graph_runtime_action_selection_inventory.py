@@ -20,6 +20,8 @@ from typing import Any
 
 RESOLVER_PATH = Path("backend/services/mission_composition/capability_resolver.py")
 JOB_CATALOG_PATH = Path("backend/services/mission_composition/job_catalog.py")
+ABILITY_CATALOG_PATH = Path("backend/services/abilities/catalog.py")
+TOOLS_ROOT = Path("backend/services/tools")
 
 
 def _parse(path: Path) -> ast.Module:
@@ -87,6 +89,42 @@ def _job_records(tree: ast.Module) -> dict[str, dict[str, Any]]:
             "credential_policy": _literal_string(_keyword(node, "credential_policy")),
         }
     return records
+
+
+def _manifest_actions(tree: ast.Module) -> set[str]:
+    """Read registered ability action names independently of job selection."""
+
+    actions: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or _constructor_name(node) != "AbilityManifest":
+            continue
+        action = _literal_string(_keyword(node, "action_name"))
+        if action:
+            actions.add(action)
+    return actions
+
+
+def _implementation_sources(repo_root: Path, actions: set[str]) -> dict[str, tuple[str, ...]]:
+    """Find source-backed handler modules without treating literals as execution authority."""
+
+    matches: dict[str, set[str]] = {action: set() for action in actions}
+    root = repo_root / TOOLS_ROOT
+    if not root.exists():
+        return {action: () for action in sorted(actions)}
+    for path in sorted(root.rglob("*.py")):
+        try:
+            tree = _parse(path)
+        except (OSError, SyntaxError):
+            continue
+        literals = {
+            item.value
+            for item in ast.walk(tree)
+            if isinstance(item, ast.Constant) and isinstance(item.value, str) and item.value in actions
+        }
+        rel = str(path.relative_to(repo_root)).replace("\\", "/")
+        for action in literals:
+            matches[action].add(rel)
+    return {action: tuple(sorted(matches[action])) for action in sorted(actions)}
 
 
 def _preferences(tree: ast.Module) -> dict[str, tuple[str, ...]]:
@@ -245,9 +283,11 @@ def collect_runtime_action_selection_inventory(repo_root: Path) -> dict[str, Any
 
     resolver_path = repo_root / RESOLVER_PATH
     catalog_path = repo_root / JOB_CATALOG_PATH
+    ability_catalog_path = repo_root / ABILITY_CATALOG_PATH
     resolver_tree = _parse(resolver_path)
     catalog_tree = _parse(catalog_path)
     jobs = _job_records(catalog_tree)
+    manifest_actions = _manifest_actions(_parse(ability_catalog_path)) if ability_catalog_path.exists() else set()
     preferences = _preferences(resolver_tree)
     action_hints = _action_hint_map(resolver_tree, "_CONNECTION_HINTS")
     job_hints = _job_action_hint_map(resolver_tree, "_JOB_CONNECTION_HINTS")
@@ -257,6 +297,7 @@ def collect_runtime_action_selection_inventory(repo_root: Path) -> dict[str, Any
 
     resolver_source = str(RESOLVER_PATH).replace("\\", "/")
     catalog_source = str(JOB_CATALOG_PATH).replace("\\", "/")
+    ability_catalog_source = str(ABILITY_CATALOG_PATH).replace("\\", "/")
     global_catalog_actions = {
         action
         for job in jobs.values()
@@ -270,6 +311,7 @@ def collect_runtime_action_selection_inventory(repo_root: Path) -> dict[str, Any
     findings: list[dict[str, Any]] = []
     resolver_actions: set[str] = set()
     resolver_only_pairs: list[tuple[str, str]] = []
+    implementation_sources = _implementation_sources(repo_root, manifest_actions)
 
     override_by_job: dict[str, list[dict[str, Any]]] = {}
     for override in overrides:
@@ -409,6 +451,58 @@ def collect_runtime_action_selection_inventory(repo_root: Path) -> dict[str, Any
             }
         )
 
+    # The ability catalog is an independent authority from mission selection.
+    # Keep manifest-only actions visible so an executable action cannot disappear
+    # from GRAFT merely because no BusinessJob currently selects it.
+    for action in sorted(manifest_actions - global_catalog_actions - resolver_actions):
+        action_id = f"action:{action}"
+        action_nodes.append(
+            {
+                "id": action_id,
+                "type": "runtime_action",
+                "source": ability_catalog_source,
+                "label": action,
+                "declared_in": ability_catalog_source,
+                "implementation_sources": list(implementation_sources.get(action, ())),
+                "manifest_only": True,
+            }
+        )
+        edges.append(
+            {
+                "from": action_id,
+                "to": f"py:{ABILITY_CATALOG_PATH.with_suffix('').as_posix().replace('/', '.')}",
+                "type": "declared_in",
+                "evidence": ability_catalog_source,
+            }
+        )
+        for source in implementation_sources.get(action, ()):
+            module = source[:-3].replace("/", ".")
+            if module.endswith(".__init__"):
+                module = module[: -len(".__init__")]
+            edges.append(
+                {
+                    "from": action_id,
+                    "to": f"py:{module}",
+                    "type": "implemented_in",
+                    "evidence": source,
+                }
+            )
+        findings.append(
+            {
+                "id": f"manifest-action-unselected:{action}",
+                "category": "runtime-action-selection",
+                "severity": "medium",
+                "summary": (
+                    f"Registered ability {action} is executable and policy-declared but is not currently "
+                    "a candidate in the mission job catalog or resolver."
+                ),
+                "evidence": [ability_catalog_source, catalog_source, resolver_source],
+                "related_nodes": [action_id],
+                "blocking": False,
+                "classification": "manifest_action_without_job_selection",
+            }
+        )
+
     return {
         "action_nodes": action_nodes,
         "nodes": sorted(nodes, key=lambda item: str(item["id"])),
@@ -424,6 +518,8 @@ def collect_runtime_action_selection_inventory(repo_root: Path) -> dict[str, Any
             "fallback_count": sum(1 for node in nodes if node.get("normal_role") == "fallback"),
             "resolver_only_pair_count": len(resolver_only_pairs),
             "resolver_only_global_action_count": len(resolver_actions - global_catalog_actions),
+            "manifest_action_count": len(manifest_actions),
+            "manifest_only_action_count": len(manifest_actions - global_catalog_actions - resolver_actions),
             "connection_constrained_selection_count": sum(1 for node in nodes if node.get("connection_hint")),
             "source_override_count": len(overrides),
             "readiness_state_count": len(readiness_states),

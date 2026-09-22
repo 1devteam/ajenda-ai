@@ -702,7 +702,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 "source": "internal_crm" if _ajenda_internal_crm_only(intent) else "local_fixture",
             },
         }
-    if action_name == "web.page_read":
+    if action_name in {"web.page_read", "web.browser_session"}:
         # Prefer domain-like attributes on target entities when present.
         # Never invent example.com — missing URL fails closed at composition.
         url: str | None = None
@@ -725,9 +725,38 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 url = raw_host if "://" in raw_host else f"https://{raw_host.removeprefix('www.')}"
         if not url:
             raise ValueError(
-                "web.page_read requires a target URL (entity attributes domain, website, or url); "
+                f"{action_name} requires a target URL (entity attributes domain, website, or url); "
                 "refusing to synthesize example.com"
             )
+        if action_name == "web.browser_session":
+            attrs = primary_entity.attributes if primary_entity and isinstance(primary_entity.attributes, dict) else {}
+            raw_requirements = attrs.get("observation_requirements")
+            requirements: list[dict[str, Any]] = []
+            if isinstance(raw_requirements, list):
+                for item in raw_requirements:
+                    if isinstance(item, dict) and isinstance(item.get("kind"), str):
+                        requirement = {"kind": item["kind"]}
+                        if isinstance(item.get("selector"), str):
+                            requirement["selector"] = item["selector"]
+                        if isinstance(item.get("min_length"), int):
+                            requirement["min_length"] = item["min_length"]
+                        requirements.append(requirement)
+            if not requirements:
+                requirements = [{"kind": "title"}, {"kind": "body"}]
+            commands: list[dict[str, Any]] = []
+            for requirement in requirements:
+                if requirement["kind"] in {"title", "body"}:
+                    if not any(command.get("action") == "observe" for command in commands):
+                        commands.append({"action": "observe"})
+                elif requirement["kind"] == "selector_text":
+                    commands.append({"action": "extract", "selector": requirement["selector"]})
+            return {
+                "url": url,
+                "timeout_seconds": 15.0,
+                "allowed_origins": [url],
+                "commands": commands,
+                "observation_requirements": requirements,
+            }
         return {"url": url, "timeout_seconds": 8.0}
     if action_name == "http.request":
         return {"method": "GET", "url": "https://example.com", "timeout_seconds": 5.0}

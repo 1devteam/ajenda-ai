@@ -604,8 +604,46 @@ class WebPageReadInput(BaseModel):
         return reject_credentialed_url(value, action_name="web.page_read")
 
 
+class WebBrowserStep(BaseModel):
+    """One bounded, read-only browser operation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["navigate", "observe", "extract"]
+    url: str | None = Field(default=None, min_length=3, max_length=2048)
+    selector: str | None = Field(default=None, min_length=1, max_length=512)
+    text_limit: int = Field(default=4_000, ge=1, le=8_000)
+
+    @field_validator("url")
+    @classmethod
+    def reject_credentialed_step_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        from backend.services.internet.url_safety import reject_credentialed_url
+
+        return reject_credentialed_url(value, action_name="web.browser_session")
+
+
+class WebObservationRequirement(BaseModel):
+    """One typed fact a browser observation must return."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["title", "body", "selector_text"]
+    selector: str | None = Field(default=None, min_length=1, max_length=512)
+    min_length: int = Field(default=1, ge=1, le=8_000)
+
+    @model_validator(mode="after")
+    def validate_selector_requirement(self) -> WebObservationRequirement:
+        if self.kind == "selector_text" and not self.selector:
+            raise ValueError("selector_text observation requirement needs selector")
+        if self.kind != "selector_text" and self.selector is not None:
+            raise ValueError("selector is only valid for selector_text observation requirements")
+        return self
+
+
 class WebBrowserSessionInput(BaseModel):
-    """Ephemeral Playwright session — one navigate, then destroy context."""
+    """Bounded ephemeral Playwright session with read-only command steps."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -613,6 +651,9 @@ class WebBrowserSessionInput(BaseModel):
     timeout_seconds: float = Field(default=15.0, ge=1.0, le=60.0)
     wait_until: Literal["domcontentloaded", "load", "networkidle"] = "domcontentloaded"
     extract_text: bool = True
+    allowed_origins: list[str] = Field(default_factory=list, max_length=10)
+    commands: list[WebBrowserStep] = Field(default_factory=list, max_length=12)
+    observation_requirements: list[WebObservationRequirement] = Field(default_factory=list, max_length=8)
 
     @field_validator("url")
     @classmethod
@@ -620,6 +661,13 @@ class WebBrowserSessionInput(BaseModel):
         from backend.services.internet.url_safety import reject_credentialed_url
 
         return reject_credentialed_url(value, action_name="web.browser_session")
+
+    @field_validator("allowed_origins")
+    @classmethod
+    def validate_allowed_origins(cls, values: list[str]) -> list[str]:
+        from backend.services.internet.url_safety import reject_credentialed_url
+
+        return [reject_credentialed_url(value, action_name="web.browser_session") for value in values]
 
 
 class WebOpenWriteInput(BaseModel):

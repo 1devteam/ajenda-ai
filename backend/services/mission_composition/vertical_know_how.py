@@ -247,13 +247,19 @@ REVOPS_V2_KNOW_HOW = VerticalKnowHowContract(
     # Owner-approved promotion: V2 combines research synthesis with the
     # existing GTM qualification, drafting, and internal CRM stages.
     promotion_status="eligible",
-    supported_outcomes=(*REVOPS_V1_KNOW_HOW.supported_outcomes, "synthesize_research_report"),
+    supported_outcomes=(*REVOPS_V1_KNOW_HOW.supported_outcomes, "synthesize_research_report", "observe_web_page"),
     stages=(
         *REVOPS_V1_KNOW_HOW.stages,
         KnowHowStage(
             stage_key="research_report",
             job_keys=("research.synthesize_report",),
             depends_on=("research",),
+        ),
+        KnowHowStage(
+            stage_key="web_observation",
+            job_keys=("research.observe_web_page",),
+            depends_on=(),
+            optional=True,
         ),
     ),
     deliverable_fields=(
@@ -295,7 +301,8 @@ def select_vertical_know_how(outcomes: list[str]) -> VerticalKnowHowContract | N
 
     requested = set(outcomes)
     v2_supported = {str(item) for item in REVOPS_V2_KNOW_HOW.supported_outcomes}
-    if "synthesize_research_report" in requested and requested <= v2_supported:
+    v2_only = v2_supported - {str(item) for item in REVOPS_V1_KNOW_HOW.supported_outcomes}
+    if requested & v2_only and requested <= v2_supported:
         return REVOPS_V2_KNOW_HOW
     supported = {str(item) for item in REVOPS_V1_KNOW_HOW.supported_outcomes}
     if requested and requested <= supported:

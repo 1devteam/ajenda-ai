@@ -97,6 +97,15 @@ def test_worker_service_waits_for_queue_database_and_migrations() -> None:
     assert "hubspot-crm-ingress:" not in worker_block
 
 
+def test_worker_image_declares_browser_runtime_support() -> None:
+    dockerfile = Path("deploy/docker/worker.Dockerfile").read_text(encoding="utf-8")
+    startup = Path("deploy/scripts/start-worker.sh").read_text(encoding="utf-8")
+
+    assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
+    assert "playwright install --with-deps chromium" in dockerfile
+    assert "assert_browser_runtime_ready" in startup
+
+
 def test_optional_hubspot_services_do_not_block_kernel_boot() -> None:
     compose = _read(COMPOSE_FILE)
 

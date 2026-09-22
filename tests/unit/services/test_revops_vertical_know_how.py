@@ -79,6 +79,8 @@ def test_composition_provenance_rejects_partial_know_how_reference() -> None:
 def test_know_how_selection_is_bounded_to_revops_outcomes() -> None:
     assert select_vertical_know_how(["research_prospects", "prepare_outreach"]) is REVOPS_V1_KNOW_HOW
     assert select_vertical_know_how(["research_prospects", "synthesize_research_report"]) is REVOPS_V2_KNOW_HOW
+    assert select_vertical_know_how(["observe_web_page"]) is REVOPS_V2_KNOW_HOW
+    assert select_vertical_know_how(["research_prospects", "observe_web_page"]) is REVOPS_V2_KNOW_HOW
     assert select_vertical_know_how(["publish_content"]) is None
     assert select_vertical_know_how(["research_prospects", "publish_content"]) is None
 

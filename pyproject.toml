@@ -33,6 +33,8 @@ dependencies = [
   "email-validator>=2.0,<3.0",
   # Public search discovery (web.research / ddgs chain)
   "ddgs>=9.0,<10.0",
+  # Governed browser execution; the worker image installs the pinned Chromium binary.
+  "playwright==1.58.0",
   # Security floor: GHSA-6v7p-g79w-8964 is fixed in msgpack 1.2.1.
   "msgpack>=1.2.1,<2.0",
 

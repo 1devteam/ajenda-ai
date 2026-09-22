@@ -11,6 +11,8 @@ from backend.services.mission_composition.contracts import (
     CAPABILITY_RESOLVER_VERSION,
     INTERPRETER_VERSION,
     JOB_CATALOG_VERSION,
+    MissionIntent,
+    TargetEntity,
 )
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.mission_composition.job_catalog import get_business_job
@@ -18,9 +20,41 @@ from backend.services.operating_charter import default_operating_charter
 
 
 def test_versions_bumped_for_wave_a() -> None:
-    assert JOB_CATALOG_VERSION == "11"
+    assert JOB_CATALOG_VERSION == "12"
     assert INTERPRETER_VERSION == "14"
-    assert CAPABILITY_RESOLVER_VERSION == "10"
+    assert CAPABILITY_RESOLVER_VERSION == "11"
+
+
+def test_web_page_observation_selects_browser_only_for_explicit_url() -> None:
+    intent = MissionIntent(
+        objective="Observe the target web page",
+        requested_outcomes=["observe_web_page"],
+        target_entities=[TargetEntity(type="web_page", url="https://example.com")],
+    )
+    jobs = route_jobs_for_intent(intent)
+    assert {job.job_key for job in jobs} == {"research.observe_web_page"}
+    selections, missing = resolve_jobs(
+        jobs,
+        intent=intent,
+        charter=default_operating_charter(),
+        connected_integrations=set(),
+    )
+    assert not missing
+    assert selections[0].action_name == "web.browser_session"
+    assert selections[0].readiness == "ready"
+
+
+def test_web_page_observation_rejects_missing_url() -> None:
+    intent = MissionIntent(objective="Observe a web page", requested_outcomes=["observe_web_page"])
+    jobs = route_jobs_for_intent(intent)
+    selections, _ = resolve_jobs(
+        jobs,
+        intent=intent,
+        charter=default_operating_charter(),
+        connected_integrations=set(),
+    )
+    assert selections[0].readiness == "unavailable"
+    assert "explicit target URL" in selections[0].selection_reason
 
 
 def test_linkedin_profile_read_composes_to_connection_required() -> None:

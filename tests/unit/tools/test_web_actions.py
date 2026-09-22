@@ -51,6 +51,43 @@ def test_web_browser_session_and_open_write_registered() -> None:
     assert registry.get("web.open_write").side_effect_class.value == "external_write"
 
 
+def test_web_browser_session_emits_typed_page_observation_artifact() -> None:
+    snapshot = PageSnapshot(
+        url="https://example.com/",
+        real=True,
+        status_code=200,
+        title="Example Domain",
+        text_preview="Example Domain content",
+        body_preview="Example Domain content",
+        access_mode=InternetAccessMode.BROWSER_SESSION,
+        browser_ready=True,
+        extraction={
+            "steps": [{"action": "navigate", "status_code": 200}],
+            "observation_requirements": [{"kind": "title", "satisfied": True}],
+            "observation_timestamp": "2026-09-21T00:00:00Z",
+            "observation_satisfied": True,
+            "blocked_samples": [],
+        },
+    )
+    with patch("backend.services.tools.web_actions.run_browser_session", return_value=snapshot):
+        registry = get_default_action_registry(rebuild=True)
+        result = registry.invoke(
+            ToolInvocation(
+                action="web.browser_session",
+                input={
+                    "url": "https://example.com",
+                    "observation_requirements": [{"kind": "title"}],
+                },
+            ),
+            _context(),
+        )
+    artifact = result.output["web_page_observation"]
+    assert artifact["source_url"] == "https://example.com"
+    assert artifact["final_url"] == "https://example.com/"
+    assert artifact["observation_satisfied"] is True
+    assert artifact["browser_trace"]
+
+
 def test_web_page_read_failure_is_not_fake_success() -> None:
     snapshot = PageSnapshot(
         url="https://blocked.invalid/",

@@ -75,6 +75,17 @@ def test_inventory_preserves_resolver_readiness_surface() -> None:
     }
 
 
+def test_inventory_reconciles_manifest_action_with_job_selection() -> None:
+    inventory = _inventory()
+    nodes = {node["id"]: node for node in inventory["nodes"]}
+    findings = {finding["id"]: finding for finding in inventory["findings"]}
+
+    browser = nodes["selection:research.observe_web_page:web.browser_session"]
+    assert browser["catalog_declared"] is True
+    assert browser["normal_role"] == "primary"
+    assert "manifest-action-unselected:web.browser_session" not in findings
+
+
 def test_synthetic_resolver_only_action_is_reproducibly_detected(tmp_path: Path) -> None:
     catalog = tmp_path / MODULE.JOB_CATALOG_PATH
     resolver = tmp_path / MODULE.RESOLVER_PATH

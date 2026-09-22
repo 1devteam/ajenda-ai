@@ -14,6 +14,10 @@ settings = get_settings()
 configure_logging(settings)
 settings.validate_runtime_contract()
 
+from backend.services.internet.browser_session import assert_browser_runtime_ready
+
+assert_browser_runtime_ready()
+
 queue_adapter = build_queue_adapter(settings)
 if not queue_adapter.ping():
     raise SystemExit(f"queue adapter {settings.queue_adapter} failed startup ping")
