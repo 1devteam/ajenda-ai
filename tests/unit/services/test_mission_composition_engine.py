@@ -528,6 +528,7 @@ def test_fragment_answer_does_not_become_executable_mission() -> None:
     assert "restate the complete mission" in text
     assert "what concrete deliverables" not in text
     assert "what business outcomes" not in text
+    assert "business outcome could not" not in text
 
     service = MissionCompositionService(db=None)
     record = service.compose(

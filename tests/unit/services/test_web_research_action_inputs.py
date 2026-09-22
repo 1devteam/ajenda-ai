@@ -12,6 +12,13 @@ def test_observe_web_page_is_a_distinct_browser_outcome() -> None:
     assert "observe_web_page" in intent.requested_outcomes
 
 
+def test_observe_explicit_url_without_web_noun_is_a_browser_outcome() -> None:
+    intent = interpret_instruction(
+        "Observe https://example.com using a read-only browser session and extract the page title and visible body text."
+    )
+    assert intent.requested_outcomes == ["observe_web_page"]
+
+
 def test_scrape_company_site_builds_compact_query_and_company() -> None:
     intent = interpret_instruction(
         "scrape absolute janitorial web site to find the contact information "

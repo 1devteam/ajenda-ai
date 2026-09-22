@@ -460,7 +460,7 @@ def validate_mission_intake_prompt(
             MissionIntakeQualityViolation(
                 field="objective",
                 code="objective_placeholder",
-                reason="Objective reads like a placeholder or test prompt, not a business outcome.",
+                reason="Objective reads like a placeholder or test prompt, not a concrete executable objective.",
             )
         )
     elif len(normalized_objective) < _OBJECTIVE_MIN_CHARS:
@@ -494,7 +494,7 @@ def validate_mission_intake_prompt(
             MissionIntakeQualityViolation(
                 field="objective",
                 code="objective_repeated_character_spam",
-                reason="Objective looks like keyboard noise or filler characters, not a business outcome.",
+                reason="Objective looks like keyboard noise or filler characters, not a concrete executable objective.",
             )
         )
     elif not _has_scope_signal(normalized_objective):

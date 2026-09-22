@@ -1816,13 +1816,13 @@ def interpret_instruction(
                 _restatement(
                     field="requested_outcomes",
                     understood=None,
-                    missing="a business outcome could not be determined",
+                    missing="an executable outcome could not be determined",
                     include_instruction=(
                         "what Ajenda should produce "
                         "(for example research prospects, qualify leads, prepare outreach, "
                         "send email only after approval, or calendar briefing)"
                     ),
-                    reason="Could not map the instruction to a canonical business outcome.",
+                    reason="Could not map the instruction to a canonical executable outcome.",
                 )
             )
     elif not success:
@@ -1862,7 +1862,7 @@ def interpret_instruction(
                     f"({'; '.join(medium_fuzzy[:3])}); outcomes must be clearer"
                 ),
                 include_instruction=(
-                    "explicit business outcomes using plain language "
+                    "explicit executable outcomes using plain language "
                     "(research, qualify, prepare outreach, send after approval, calendar)"
                 ),
                 reason="Medium-confidence fuzzy matches must not authorize outcomes.",
