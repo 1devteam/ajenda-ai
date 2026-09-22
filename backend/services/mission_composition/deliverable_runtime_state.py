@@ -17,6 +17,10 @@ from backend.services.mission_composition.deliverable_projection import (
     DeliverableProjection,
     project_deliverable_request,
 )
+from backend.services.mission_composition.vertical_know_how import (
+    REVOPS_V1_KNOW_HOW,
+    VerticalKnowHowContract,
+)
 
 DELIVERABLE_RUNTIME_STATE_METADATA_KEY = "deliverable_runtime_state"
 
@@ -36,6 +40,7 @@ class DeliverableRuntimeState(BaseModel):
 def build_deliverable_runtime_state(
     request: DeliverableRequest | None,
     *,
+    know_how: VerticalKnowHowContract = REVOPS_V1_KNOW_HOW,
     minimum_rows: int = 0,
     minimum_rows_by_artifact: dict[str, int] | None = None,
 ) -> dict[str, object] | None:
@@ -47,6 +52,7 @@ def build_deliverable_runtime_state(
         request=request,
         projection=project_deliverable_request(
             request,
+            know_how=know_how,
             minimum_rows=minimum_rows,
             minimum_rows_by_artifact=minimum_rows_by_artifact,
         ),

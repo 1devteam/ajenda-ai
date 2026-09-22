@@ -686,6 +686,25 @@ def test_internal_crm_acceptance_uses_same_threshold_as_qualification() -> None:
     assert _acceptance_score_threshold(intent) == 5
 
 
+def test_web_observation_persists_a_typed_runtime_deliverable_request() -> None:
+    intent = interpret_instruction(
+        "Observe https://example.com using a read-only browser session and extract the page title and visible body text."
+    )
+
+    deliverable = _runtime_deliverable_request(intent)
+    assert deliverable is not None
+    assert [field.field_key for field in deliverable.fields] == [
+        "source_url",
+        "final_url",
+        "title",
+        "extracted_observations",
+        "observation_timestamp",
+        "browser_trace",
+        "blocked_requests",
+        "observation_satisfied",
+    ]
+
+
 def test_internal_crm_review_with_negated_updates_stays_local() -> None:
     intent = interpret_instruction(
         "Review the five software development companies already saved in Ajenda\u2019s internal CRM. "

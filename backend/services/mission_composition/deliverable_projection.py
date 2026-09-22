@@ -72,6 +72,14 @@ class DeliverableProjection(BaseModel):
 # "drafts" is currently equivalent to a declared artifact as a whole.
 _WHOLE_ARTIFACT_BINDINGS: dict[DeliverableFieldKey, tuple[str, ...]] = {
     "drafts": ("introduction_drafts",),
+    "source_url": ("web_page_observation",),
+    "final_url": ("web_page_observation",),
+    "title": ("web_page_observation",),
+    "extracted_observations": ("web_page_observation",),
+    "observation_timestamp": ("web_page_observation",),
+    "browser_trace": ("web_page_observation",),
+    "blocked_requests": ("web_page_observation",),
+    "observation_satisfied": ("web_page_observation",),
 }
 
 # Candidate artifacts indicate where a later typed artifact schema may prove a

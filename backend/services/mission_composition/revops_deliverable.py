@@ -209,6 +209,10 @@ class RevOpsMissionDeliverableRead(BaseModel):
     kind: Literal["revops_report"] = "revops_report"
     mission_id: uuid.UUID
     objective: str
+    # Preserve typed non-prospect artifacts (for example web_page_observation)
+    # in the durable read model so a completed mission is inspectable without
+    # forcing every job into the prospect-shaped projection.
+    artifacts: dict[str, Any] = Field(default_factory=dict)
     prospects: tuple[RevOpsProspectRead, ...] = ()
     assumptions: tuple[str, ...] = ()
     limitations: tuple[str, ...] = ()
@@ -912,6 +916,7 @@ def assemble_revops_mission_deliverable(
     return RevOpsMissionDeliverableRead(
         mission_id=mission.id,
         objective=mission.objective,
+        artifacts={artifact_key: artifact.payload for artifact_key, artifact in artifacts.items()},
         prospects=prospects,
         assumptions=(),
         limitations=limitations,
