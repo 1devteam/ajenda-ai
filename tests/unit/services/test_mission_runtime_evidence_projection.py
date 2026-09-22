@@ -106,6 +106,8 @@ def test_projection_exposes_terminal_failure_as_first_runtime_divergence() -> No
     flow = projection.task_flows[0]
     assert flow["failure"]["code"] == "HANDLER_FAILED"
     assert f"task:{task.id}:failure:HANDLER_FAILED" in projection.contradictions
+    assert f"task:{task.id}:evidence" in projection.missing_evidence
+    assert f"task:{task.id}:failed_without_evidence" in projection.contradictions
 
 
 def test_projection_names_declared_artifact_when_completed_output_is_missing() -> None:

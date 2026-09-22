@@ -361,9 +361,12 @@ def build_mission_runtime_evidence_projection(
                     evidence=[str(evidence_record.id)],
                 )
             )
-        if task.status == "completed" and not task_evidence:
+        if task.status in {"completed", "failed", "dead_lettered"} and not task_evidence:
             missing.append(f"task:{task_id}:evidence")
-            contradictions.append(f"task:{task_id}:completed_without_evidence")
+            if task.status == "completed":
+                contradictions.append(f"task:{task_id}:completed_without_evidence")
+            else:
+                contradictions.append(f"task:{task_id}:{task.status}_without_evidence")
 
         expected_artifact = declared_artifact_key(task)
         # Intermediate discovery rows can be intentionally filtered from the
