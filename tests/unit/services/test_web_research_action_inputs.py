@@ -147,3 +147,21 @@ def test_browser_session_compiles_follow_link_as_bounded_click() -> None:
         {"action": "click", "selector": 'a:text-is("More information")'},
         {"action": "observe"},
     ]
+
+
+def test_public_identity_compiles_explicit_labeled_expectations() -> None:
+    intent = interpret_instruction(
+        "Verify the public identity of Acme HVAC at https://acmehvac.example. "
+        "Expected company: Acme HVAC. Industry: HVAC. Location: Dallas. "
+        "Return identity status and identity evidence URLs."
+    )
+
+    payload = build_action_input(action_name="research.verify_public_identity", intent=intent)
+
+    assert payload == {
+        "url": "https://acmehvac.example",
+        "expected_company": "Acme HVAC",
+        "industry": "HVAC",
+        "location": "Dallas",
+        "timeout_seconds": 15.0,
+    }

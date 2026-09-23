@@ -705,15 +705,23 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
     if action_name == "research.verify_public_identity":
         primary = intent.target_entities[0] if intent.target_entities else None
         attrs = primary.attributes if primary and isinstance(primary.attributes, dict) else {}
+        source = _instruction_text(intent)
+
+        def _labeled_value(label: str) -> str:
+            match = re.search(rf"\b{label}\s*:\s*([^.;,\n]+)", source, flags=re.IGNORECASE)
+            return match.group(1).strip() if match else ""
+
         candidate_url = str(attrs.get("url") or attrs.get("website") or attrs.get("domain") or "").strip()
         if not candidate_url:
-            match = re.search(r"https?://[^\s<>()]+", _instruction_text(intent), flags=re.IGNORECASE)
-            candidate_url = match.group(0) if match else ""
+            match = re.search(r"https?://[^\s<>()]+", source, flags=re.IGNORECASE)
+            candidate_url = match.group(0).rstrip(".,;:") if match else ""
         if candidate_url and "://" not in candidate_url:
             candidate_url = f"https://{candidate_url.lstrip('.')}"
-        expected_company = str(attrs.get("expected_company") or attrs.get("company") or attrs.get("name") or "").strip()
-        industry = str(attrs.get("industry") or "").strip()
-        location = str(attrs.get("location") or "").strip()
+        expected_company = str(
+            attrs.get("expected_company") or attrs.get("company") or attrs.get("name") or ""
+        ).strip() or _labeled_value("expected company")
+        industry = str(attrs.get("industry") or "").strip() or _labeled_value("industry")
+        location = str(attrs.get("location") or "").strip() or _labeled_value("location")
         if not candidate_url or not expected_company or not industry or not location:
             raise ValueError(
                 "research.verify_public_identity requires target URL, expected company, industry, and location"
