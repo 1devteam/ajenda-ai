@@ -756,8 +756,14 @@ export default function MissionDispatchPage() {
               <p><strong>Source URL:</strong> {String(observationRecord.source_url ?? "—")}</p>
               <p><strong>Final URL:</strong> {String(observationRecord.final_url ?? "—")}</p>
               <p><strong>Title:</strong> {String(observationRecord.title ?? "—")}</p>
+              <p><strong>Observed at:</strong> {String(observationRecord.observation_timestamp ?? "—")}</p>
               <p><strong>Observation satisfied:</strong> {observationRecord.observation_satisfied === true ? "yes" : "no"}</p>
-              <pre>{pretty(observationRecord.extracted_observations ?? observationRecord)}</pre>
+              <h3>Extracted observations</h3>
+              <pre>{pretty(observationRecord.extracted_observations ?? [])}</pre>
+              <h3>Browser step trace</h3>
+              <pre>{pretty(observationRecord.browser_trace ?? [])}</pre>
+              <h3>Blocked requests</h3>
+              <pre>{pretty(observationRecord.blocked_requests ?? [])}</pre>
             </div>
           ) : deliverable.prospects.length > 0 ? (
             <div className="table-wrap">
