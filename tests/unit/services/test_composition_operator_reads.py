@@ -71,6 +71,35 @@ def test_web_page_observation_rejects_missing_url() -> None:
     assert "explicit target URL" in selections[0].selection_reason
 
 
+def test_public_identity_verification_selects_governed_read_action() -> None:
+    intent = MissionIntent(
+        objective="Verify the public identity of Acme HVAC",
+        requested_outcomes=["verify_public_identity"],
+        target_entities=[
+            TargetEntity(
+                type="company",
+                attributes={
+                    "url": "https://acmehvac.example",
+                    "expected_company": "Acme HVAC",
+                    "industry": "HVAC",
+                    "location": "Dallas",
+                },
+            )
+        ],
+    )
+    jobs = route_jobs_for_intent(intent)
+    assert {job.job_key for job in jobs} == {"research.verify_public_identity"}
+    selections, missing = resolve_jobs(
+        jobs,
+        intent=intent,
+        charter=default_operating_charter(),
+        connected_integrations=set(),
+    )
+    assert not missing
+    assert selections[0].action_name == "research.verify_public_identity"
+    assert selections[0].readiness == "ready"
+
+
 def test_linkedin_profile_read_composes_to_connection_required() -> None:
     intent = interpret_instruction("Read my LinkedIn profile")
     assert intent.requested_outcomes == ["read_linkedin"]
