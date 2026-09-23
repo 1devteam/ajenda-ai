@@ -288,7 +288,9 @@ def research_verify_public_identity(invocation: ToolInvocation, context: ActionR
     location_markers = _identity_tokens(payload.location)
     location_match = bool(location_markers) and any(token in observed for token in location_markers)
     directory = _is_directory_or_third_party_host(host) or _is_directory_or_third_party_page(observed)
-    verified = bool(snapshot.real and not directory and (company_match or host_match) and industry_match and location_match)
+    verified = bool(
+        snapshot.real and not directory and (company_match or host_match) and industry_match and location_match
+    )
     gaps = []
     if not snapshot.real:
         gaps.append(snapshot.error or "page_not_observed")
@@ -322,9 +324,7 @@ def research_verify_public_identity(invocation: ToolInvocation, context: ActionR
         "browser_trace": snapshot.extraction.get("steps", []) if snapshot.extraction else [],
         "blocked_requests": snapshot.extraction.get("blocked_samples", []) if snapshot.extraction else [],
     }
-    summary = (
-        f"Public identity {'verified' if verified else 'unverified'} for {payload.expected_company}."
-    )
+    summary = f"Public identity {'verified' if verified else 'unverified'} for {payload.expected_company}."
     evidence = EvidenceItem(
         evidence_type="action_result",
         evidence_source="tool.invoke.research.verify_public_identity",

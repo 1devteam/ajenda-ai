@@ -97,12 +97,24 @@ PUBLIC_IDENTITY_OBSERVATION_SCHEMA = CompositionArtifactSchema(
     artifact_key="public_identity_observation",
     producer_job="research.verify_public_identity",
     fields=(
-        ArtifactFieldProjection(deliverable_field="expected_company", json_path="$.expected_company", scope="whole_artifact"),
-        ArtifactFieldProjection(deliverable_field="expected_industry", json_path="$.expected_industry", scope="whole_artifact"),
-        ArtifactFieldProjection(deliverable_field="expected_location", json_path="$.expected_location", scope="whole_artifact"),
-        ArtifactFieldProjection(deliverable_field="identity_status", json_path="$.identity_status", scope="whole_artifact"),
-        ArtifactFieldProjection(deliverable_field="identity_evidence_urls", json_path="$.identity_evidence_urls", scope="whole_artifact"),
-        ArtifactFieldProjection(deliverable_field="identity_match_reasons", json_path="$.identity_match_reasons", scope="whole_artifact"),
+        ArtifactFieldProjection(
+            deliverable_field="expected_company", json_path="$.expected_company", scope="whole_artifact"
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="expected_industry", json_path="$.expected_industry", scope="whole_artifact"
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="expected_location", json_path="$.expected_location", scope="whole_artifact"
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="identity_status", json_path="$.identity_status", scope="whole_artifact"
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="identity_evidence_urls", json_path="$.identity_evidence_urls", scope="whole_artifact"
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="identity_match_reasons", json_path="$.identity_match_reasons", scope="whole_artifact"
+        ),
         ArtifactFieldProjection(deliverable_field="identity_gaps", json_path="$.identity_gaps", scope="whole_artifact"),
         ArtifactFieldProjection(deliverable_field="source_url", json_path="$.source_url", scope="whole_artifact"),
     ),
