@@ -88,6 +88,79 @@ def test_web_browser_session_emits_typed_page_observation_artifact() -> None:
     assert artifact["browser_trace"]
 
 
+def test_public_identity_verification_requires_company_industry_and_location_evidence() -> None:
+    snapshot = PageSnapshot(
+        url="https://acmehvac.example/",
+        real=True,
+        status_code=200,
+        title="Acme HVAC",
+        text_preview="Acme HVAC provides HVAC heating and cooling services in Dallas, Texas.",
+        body_preview="",
+        access_mode=InternetAccessMode.BROWSER_SESSION,
+        browser_ready=True,
+        extraction={
+            "steps": [{"action": "navigate", "status_code": 200}],
+            "observation_requirements": [
+                {"kind": "title", "value": "Acme HVAC", "satisfied": True},
+                {
+                    "kind": "body",
+                    "value": "Acme HVAC provides HVAC heating and cooling services in Dallas, Texas.",
+                    "satisfied": True,
+                },
+            ],
+            "observation_timestamp": "2026-09-23T00:00:00Z",
+            "blocked_samples": [],
+        },
+    )
+    with patch("backend.services.tools.web_actions.run_browser_session", return_value=snapshot):
+        registry = get_default_action_registry(rebuild=True)
+        result = registry.invoke(
+            ToolInvocation(
+                action="research.verify_public_identity",
+                input={
+                    "url": "https://acmehvac.example",
+                    "expected_company": "Acme HVAC",
+                    "industry": "HVAC",
+                    "location": "Dallas",
+                },
+            ),
+            _context(),
+        )
+    artifact = result.output["public_identity_observation"]
+    assert artifact["identity_status"] == "verified"
+    assert artifact["identity_evidence_urls"] == ["https://acmehvac.example/"]
+
+
+def test_public_identity_verification_fails_closed_for_missing_evidence() -> None:
+    snapshot = PageSnapshot(
+        url="https://directory.example/",
+        real=True,
+        status_code=200,
+        title="Top HVAC Companies",
+        text_preview="Top HVAC companies in Dallas",
+        access_mode=InternetAccessMode.BROWSER_SESSION,
+        browser_ready=True,
+        extraction={"observation_requirements": [], "blocked_samples": []},
+    )
+    with patch("backend.services.tools.web_actions.run_browser_session", return_value=snapshot):
+        registry = get_default_action_registry(rebuild=True)
+        result = registry.invoke(
+            ToolInvocation(
+                action="research.verify_public_identity",
+                input={
+                    "url": "https://directory.example",
+                    "expected_company": "Acme HVAC",
+                    "industry": "HVAC",
+                    "location": "Dallas",
+                },
+            ),
+            _context(),
+        )
+    artifact = result.output["public_identity_observation"]
+    assert artifact["identity_status"] == "unverified"
+    assert "directory_or_third_party_page" in artifact["identity_gaps"]
+
+
 def test_web_page_read_failure_is_not_fake_success() -> None:
     snapshot = PageSnapshot(
         url="https://blocked.invalid/",

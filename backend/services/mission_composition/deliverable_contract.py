@@ -32,6 +32,13 @@ DeliverableFieldKey = Literal[
     "browser_trace",
     "blocked_requests",
     "observation_satisfied",
+    "expected_company",
+    "expected_industry",
+    "expected_location",
+    "identity_status",
+    "identity_evidence_urls",
+    "identity_match_reasons",
+    "identity_gaps",
     "revenue_amount",
     "revenue_currency",
     "revenue_source",
@@ -85,6 +92,13 @@ _TRAILING_PURPOSE = re.compile(r"\s+for\s+(?:review|approval|the\s+user)\s*$", r
 
 _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
     ("company_name", (r"\bcompany\s+name\b", r"\bprospect\s+name\b")),
+    ("expected_company", (r"\bexpected\s+company\b", r"\bcompany\s+being\s+verified\b")),
+    ("expected_industry", (r"\bexpected\s+industry\b", r"\bdeclared\s+industry\b")),
+    ("expected_location", (r"\bexpected\s+location\b", r"\bdeclared\s+location\b")),
+    ("identity_status", (r"\bidentity\s+status\b", r"\bverification\s+status\b")),
+    ("identity_evidence_urls", (r"\bidentity\s+evidence\s+(?:urls?|links?)\b", r"\bidentity\s+sources?\b")),
+    ("identity_match_reasons", (r"\bidentity\s+match\s+reasons?\b", r"\bidentity\s+evidence\s+reasons?\b")),
+    ("identity_gaps", (r"\bidentity\s+gaps?\b", r"\bverification\s+gaps?\b")),
     # Browser observation fields must precede the broad prospect ``url`` rule.
     # Otherwise "final URL" is misclassified as a prospect website.
     ("final_url", (r"\bfinal\s+url\b", r"\bredirected\s+url\b")),

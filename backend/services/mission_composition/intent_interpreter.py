@@ -813,6 +813,16 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "verify_public_identity" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description=(
+                    "A public_identity_observation artifact records the expected company, industry, location, "
+                    "identity status, and source-backed evidence or explicit gaps"
+                ),
+                measurable=True,
+            )
+        )
     if "enrich_contacts" in outcomes:
         success.append(
             SuccessCriterion(

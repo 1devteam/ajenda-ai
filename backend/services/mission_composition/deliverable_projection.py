@@ -80,6 +80,13 @@ _WHOLE_ARTIFACT_BINDINGS: dict[DeliverableFieldKey, tuple[str, ...]] = {
     "browser_trace": ("web_page_observation",),
     "blocked_requests": ("web_page_observation",),
     "observation_satisfied": ("web_page_observation",),
+    "expected_company": ("public_identity_observation",),
+    "expected_industry": ("public_identity_observation",),
+    "expected_location": ("public_identity_observation",),
+    "identity_status": ("public_identity_observation",),
+    "identity_evidence_urls": ("public_identity_observation",),
+    "identity_match_reasons": ("public_identity_observation",),
+    "identity_gaps": ("public_identity_observation",),
 }
 
 # Candidate artifacts indicate where a later typed artifact schema may prove a

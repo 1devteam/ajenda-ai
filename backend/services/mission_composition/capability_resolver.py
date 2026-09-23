@@ -35,6 +35,7 @@ _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "research.discover_prospects": ("web.research", "sales.research", "web.search", "web.page_read", "crm.research"),
     "research.observe_sources": ("research.observe_contacts",),
     "research.observe_web_page": ("web.browser_session",),
+    "research.verify_public_identity": ("research.verify_public_identity",),
     "research.synthesize_report": ("research.synthesize_report",),
     "operations.verify_runtime_controls": ("runtime.verify_controls",),
     "intelligence.retrieve_knowledge": ("knowledge.retrieve_current",),

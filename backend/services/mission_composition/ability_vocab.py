@@ -149,6 +149,8 @@ OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
     ),
     (r"\bcontact (?:info|information|details)\b", "observe_contacts"),
     (r"\b(?:emails?|phone numbers?)\s+for\b", "observe_contacts"),
+    (r"\bverify\s+(?:the\s+)?public\s+(?:company\s+)?identity\b", "verify_public_identity"),
+    (r"\bconfirm\s+(?:the\s+)?company(?:'s)?\s+(?:public\s+)?identity\b", "verify_public_identity"),
     # Wave A operator reads — read intent only (not publish / CRM write).
     (r"\b(?:check|read|show|fetch|get)\b.{0,40}\blinkedin\b.{0,24}\bprofile\b", "read_linkedin"),
     (r"\blinkedin\b.{0,24}\bprofile\b", "read_linkedin"),

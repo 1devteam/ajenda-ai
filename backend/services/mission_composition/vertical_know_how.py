@@ -247,7 +247,12 @@ REVOPS_V2_KNOW_HOW = VerticalKnowHowContract(
     # Owner-approved promotion: V2 combines research synthesis with the
     # existing GTM qualification, drafting, and internal CRM stages.
     promotion_status="eligible",
-    supported_outcomes=(*REVOPS_V1_KNOW_HOW.supported_outcomes, "synthesize_research_report", "observe_web_page"),
+    supported_outcomes=(
+        *REVOPS_V1_KNOW_HOW.supported_outcomes,
+        "synthesize_research_report",
+        "observe_web_page",
+        "verify_public_identity",
+    ),
     stages=(
         *REVOPS_V1_KNOW_HOW.stages,
         KnowHowStage(
@@ -257,7 +262,7 @@ REVOPS_V2_KNOW_HOW = VerticalKnowHowContract(
         ),
         KnowHowStage(
             stage_key="web_observation",
-            job_keys=("research.observe_web_page",),
+            job_keys=("research.observe_web_page", "research.verify_public_identity"),
             depends_on=(),
             optional=True,
         ),

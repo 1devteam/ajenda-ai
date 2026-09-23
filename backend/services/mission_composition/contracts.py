@@ -75,6 +75,7 @@ SelectionStatus = Literal["selected", "alternative", "rejected"]
 CanonicalOutcome = Literal[
     "research_prospects",
     "observe_web_page",
+    "verify_public_identity",
     "observe_contacts",
     "qualify_prospects",
     "enrich_contacts",
@@ -103,6 +104,7 @@ CANONICAL_OUTCOMES: frozenset[str] = frozenset(
     {
         "research_prospects",
         "observe_web_page",
+        "verify_public_identity",
         "observe_contacts",
         "qualify_prospects",
         "enrich_contacts",

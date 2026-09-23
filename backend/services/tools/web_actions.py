@@ -26,6 +26,7 @@ from backend.services.tools.schemas import (
     ActionRuntimeContext,
     EvidenceItem,
     ResearchObserveContactsInput,
+    ResearchVerifyPublicIdentityInput,
     SideEffectClass,
     ToolInvocation,
     WebBrowserSessionInput,
@@ -260,6 +261,93 @@ def web_browser_session(invocation: ToolInvocation, context: ActionRuntimeContex
         evidence=[evidence],
         summary=summary,
         confidence=0.85 if real else 0.35,
+    )
+
+
+def research_verify_public_identity(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    """Verify one official public page against explicit identity expectations."""
+
+    payload = ResearchVerifyPublicIdentityInput.model_validate(invocation.input)
+    snapshot = run_browser_session(
+        url_or_domain=payload.url,
+        timeout_seconds=payload.timeout_seconds,
+        allowed_origins=[payload.url],
+        observation_requirements=[{"kind": "title"}, {"kind": "body"}],
+    )
+    observed = " ".join(
+        str(item.get("value") or "")
+        for item in (snapshot.extraction.get("observation_requirements", []) if snapshot.extraction else [])
+        if isinstance(item, dict)
+    ).lower()
+    host = page_host(snapshot.url)
+    company_tokens = _identity_tokens(payload.expected_company)
+    host_tokens = _host_identity_tokens(host)
+    company_match = bool(company_tokens) and any(token in observed for token in company_tokens)
+    host_match = bool(host_tokens) and any(token in observed for token in host_tokens)
+    industry_match = any(marker in observed for marker in _industry_evidence_markers(payload.industry))
+    location_markers = _identity_tokens(payload.location)
+    location_match = bool(location_markers) and any(token in observed for token in location_markers)
+    directory = _is_directory_or_third_party_host(host) or _is_directory_or_third_party_page(observed)
+    verified = bool(snapshot.real and not directory and (company_match or host_match) and industry_match and location_match)
+    gaps = []
+    if not snapshot.real:
+        gaps.append(snapshot.error or "page_not_observed")
+    if directory:
+        gaps.append("directory_or_third_party_page")
+    if not (company_match or host_match):
+        gaps.append("company_identity_not_matched")
+    if not industry_match:
+        gaps.append("industry_not_observed")
+    if not location_match:
+        gaps.append("location_not_observed")
+    artifact = {
+        "source_url": payload.url,
+        "final_url": snapshot.url if snapshot.real else None,
+        "expected_company": payload.expected_company,
+        "expected_industry": payload.industry,
+        "expected_location": payload.location,
+        "identity_status": "verified" if verified else "unverified",
+        "identity_evidence_urls": [snapshot.url] if verified else [],
+        "identity_match_reasons": [
+            reason
+            for reason, matched in (
+                ("company_name_or_domain", company_match or host_match),
+                ("industry", industry_match),
+                ("location", location_match),
+            )
+            if matched
+        ],
+        "identity_gaps": gaps,
+        "observation_timestamp": snapshot.extraction.get("observation_timestamp") if snapshot.extraction else None,
+        "browser_trace": snapshot.extraction.get("steps", []) if snapshot.extraction else [],
+        "blocked_requests": snapshot.extraction.get("blocked_samples", []) if snapshot.extraction else [],
+    }
+    summary = (
+        f"Public identity {'verified' if verified else 'unverified'} for {payload.expected_company}."
+    )
+    evidence = EvidenceItem(
+        evidence_type="action_result",
+        evidence_source="tool.invoke.research.verify_public_identity",
+        action_name="research.verify_public_identity",
+        tool_provider="ajenda_internet",
+        tenant_id=context.tenant_id,
+        task_id=str(context.task_id),
+        mission_id=str(context.mission_id) if context.mission_id else None,
+        summary=summary,
+        structured_payload=artifact,
+        confidence=0.9 if verified else 0.35,
+        limitations=["official page evidence is required", "directory pages are never accepted as company identity"],
+        provenance={"runtime_path": "TaskDispatcher -> tool.invoke -> ToolRuntimeAuthority -> ActionRegistry"},
+        side_effect_class=SideEffectClass.EXTERNAL_READ,
+    )
+    return ActionResult(
+        action="research.verify_public_identity",
+        provider="ajenda_internet",
+        side_effect_class=SideEffectClass.EXTERNAL_READ,
+        output={"public_identity_observation": artifact},
+        evidence=[evidence],
+        summary=summary,
+        confidence=0.9 if verified else 0.35,
     )
 
 
@@ -947,6 +1035,15 @@ def register_web_actions(registry: ActionRegistry) -> None:
             handler=research_observe_contacts,
             provider="ajenda_internet",
             input_model=ResearchObserveContactsInput,
+            side_effect_class=SideEffectClass.EXTERNAL_READ,
+        )
+    )
+    registry.register(
+        ActionDefinition(
+            name="research.verify_public_identity",
+            handler=research_verify_public_identity,
+            provider="ajenda_internet",
+            input_model=ResearchVerifyPublicIdentityInput,
             side_effect_class=SideEffectClass.EXTERNAL_READ,
         )
     )

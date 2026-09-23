@@ -588,6 +588,25 @@ class ResearchObserveContactsInput(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
 
 
+class ResearchVerifyPublicIdentityInput(BaseModel):
+    """Verify one concrete public company URL against explicit expectations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=8, max_length=2048)
+    expected_company: str = Field(min_length=1, max_length=240)
+    industry: str = Field(min_length=1, max_length=160)
+    location: str = Field(min_length=1, max_length=160)
+    timeout_seconds: float = Field(default=15.0, ge=1.0, le=60.0)
+
+    @field_validator("url")
+    @classmethod
+    def reject_credentialed_identity_url(cls, value: str) -> str:
+        from backend.services.internet.url_safety import reject_credentialed_url
+
+        return reject_credentialed_url(value, action_name="research.verify_public_identity")
+
+
 class WebPageReadInput(BaseModel):
     """Public HTTPS page read (single GET + HTML extract). Not a browser session."""
 

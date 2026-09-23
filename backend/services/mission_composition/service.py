@@ -113,7 +113,14 @@ def _runtime_deliverable_request(intent: MissionIntent) -> DeliverableRequest | 
         return intent.deliverable_request
     outcomes = set(intent.requested_outcomes)
     if not outcomes.intersection(
-        {"research_prospects", "read_crm", "qualify_prospects", "prepare_outreach", "observe_web_page"}
+        {
+            "research_prospects",
+            "read_crm",
+            "qualify_prospects",
+            "prepare_outreach",
+            "observe_web_page",
+            "verify_public_identity",
+        }
     ):
         return None
 
@@ -150,9 +157,22 @@ def _runtime_deliverable_request(intent: MissionIntent) -> DeliverableRequest | 
                 DeliverableFieldRequirement(field_key="observation_satisfied", source_text="observation completion"),
             )
         )
+    if "verify_public_identity" in outcomes:
+        fields.extend(
+            (
+                DeliverableFieldRequirement(field_key="source_url", source_text="source URL"),
+                DeliverableFieldRequirement(field_key="expected_company", source_text="expected company"),
+                DeliverableFieldRequirement(field_key="expected_industry", source_text="expected industry"),
+                DeliverableFieldRequirement(field_key="expected_location", source_text="expected location"),
+                DeliverableFieldRequirement(field_key="identity_status", source_text="identity status"),
+                DeliverableFieldRequirement(field_key="identity_evidence_urls", source_text="identity evidence URLs"),
+                DeliverableFieldRequirement(field_key="identity_match_reasons", source_text="identity match reasons"),
+                DeliverableFieldRequirement(field_key="identity_gaps", source_text="identity gaps"),
+            )
+        )
 
     return DeliverableRequest(
-        scope="mission" if "observe_web_page" in outcomes else "per_prospect",
+        scope="mission" if {"observe_web_page", "verify_public_identity"}.intersection(outcomes) else "per_prospect",
         fields=tuple(dict((field.field_key, field) for field in fields).values()),
     )
 

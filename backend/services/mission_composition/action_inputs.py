@@ -702,6 +702,29 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 "source": "internal_crm" if _ajenda_internal_crm_only(intent) else "local_fixture",
             },
         }
+    if action_name == "research.verify_public_identity":
+        primary = intent.target_entities[0] if intent.target_entities else None
+        attrs = primary.attributes if primary and isinstance(primary.attributes, dict) else {}
+        candidate_url = str(attrs.get("url") or attrs.get("website") or attrs.get("domain") or "").strip()
+        if not candidate_url:
+            match = re.search(r"https?://[^\s<>()]+", _instruction_text(intent), flags=re.IGNORECASE)
+            candidate_url = match.group(0) if match else ""
+        if candidate_url and "://" not in candidate_url:
+            candidate_url = f"https://{candidate_url.lstrip('.')}"
+        expected_company = str(attrs.get("expected_company") or attrs.get("company") or attrs.get("name") or "").strip()
+        industry = str(attrs.get("industry") or "").strip()
+        location = str(attrs.get("location") or "").strip()
+        if not candidate_url or not expected_company or not industry or not location:
+            raise ValueError(
+                "research.verify_public_identity requires target URL, expected company, industry, and location"
+            )
+        return {
+            "url": candidate_url,
+            "expected_company": expected_company,
+            "industry": industry,
+            "location": location,
+            "timeout_seconds": 15.0,
+        }
     if action_name in {"web.page_read", "web.browser_session"}:
         # Prefer domain-like attributes on target entities when present.
         # Never invent example.com — missing URL fails closed at composition.

@@ -96,3 +96,18 @@ def test_browser_observation_does_not_fuzzy_match_contact_observation() -> None:
     )
 
     assert intent.requested_outcomes == ["observe_web_page"]
+
+
+def test_public_identity_fields_are_typed_deliverable_fields() -> None:
+    request = deliverable_contract.extract_deliverable_request(
+        "Verify https://acmehvac.example as Acme HVAC in Dallas HVAC and return the identity status, identity evidence URLs, identity match reasons, and identity gaps."
+    )
+
+    assert request is not None
+    assert [field.field_key for field in request.fields] == [
+        "identity_status",
+        "identity_evidence_urls",
+        "identity_match_reasons",
+        "identity_gaps",
+    ]
+    assert request.unresolved_items == ()

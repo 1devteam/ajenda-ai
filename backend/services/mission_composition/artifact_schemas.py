@@ -93,6 +93,21 @@ VERIFIED_PROSPECT_CANDIDATES_SCHEMA = CompositionArtifactSchema(
     ),
 )
 
+PUBLIC_IDENTITY_OBSERVATION_SCHEMA = CompositionArtifactSchema(
+    artifact_key="public_identity_observation",
+    producer_job="research.verify_public_identity",
+    fields=(
+        ArtifactFieldProjection(deliverable_field="expected_company", json_path="$.expected_company", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="expected_industry", json_path="$.expected_industry", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="expected_location", json_path="$.expected_location", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="identity_status", json_path="$.identity_status", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="identity_evidence_urls", json_path="$.identity_evidence_urls", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="identity_match_reasons", json_path="$.identity_match_reasons", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="identity_gaps", json_path="$.identity_gaps", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="source_url", json_path="$.source_url", scope="whole_artifact"),
+    ),
+)
+
 QUALIFIED_PROSPECTS_SCHEMA = CompositionArtifactSchema(
     artifact_key="qualified_prospects",
     producer_job="sales.qualify_prospects",
@@ -190,6 +205,7 @@ ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     PROSPECT_CANDIDATES_SCHEMA.artifact_key: PROSPECT_CANDIDATES_SCHEMA,
     OBSERVED_CONTACTS_SCHEMA.artifact_key: OBSERVED_CONTACTS_SCHEMA,
     VERIFIED_PROSPECT_CANDIDATES_SCHEMA.artifact_key: VERIFIED_PROSPECT_CANDIDATES_SCHEMA,
+    PUBLIC_IDENTITY_OBSERVATION_SCHEMA.artifact_key: PUBLIC_IDENTITY_OBSERVATION_SCHEMA,
     QUALIFIED_PROSPECTS_SCHEMA.artifact_key: QUALIFIED_PROSPECTS_SCHEMA,
     REVENUE_RECORDS_SCHEMA.artifact_key: REVENUE_RECORDS_SCHEMA,
     BUSINESS_REVIEW_REPORT_SCHEMA.artifact_key: BUSINESS_REVIEW_REPORT_SCHEMA,
