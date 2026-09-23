@@ -74,7 +74,7 @@ def test_descriptive_conjunctions_are_not_misread_as_deliverables() -> None:
 
 def test_browser_observation_fields_do_not_become_prospect_website() -> None:
     request = deliverable_contract.extract_deliverable_request(
-        "Open https://www.iana.org/domains/example and return the final URL, page title, visible text, and browser step trace."
+        "Open https://www.iana.org/domains/example and return the final URL, page title, visible text, observation timestamp, browser step trace, and blocked-request list."
     )
 
     assert request is not None
@@ -82,7 +82,9 @@ def test_browser_observation_fields_do_not_become_prospect_website() -> None:
         "final_url",
         "title",
         "extracted_observations",
+        "observation_timestamp",
         "browser_trace",
+        "blocked_requests",
     ]
     assert request.unresolved_items == ()
     assert request.fully_understood

@@ -93,7 +93,23 @@ _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
         "extracted_observations",
         (r"\bvisible\s+(?:page\s+)?text\b", r"\bobserved\s+page\s+content\b"),
     ),
+    (
+        "observation_timestamp",
+        (
+            r"\bobservation\s+timestamp\b",
+            r"\btime(?:stamp)?\s+of\s+observation\b",
+            r"\bobserved\s+at\b",
+        ),
+    ),
     ("browser_trace", (r"\bbrowser\s+(?:step\s+)?trace\b", r"\bnavigation\s+trace\b")),
+    (
+        "blocked_requests",
+        (
+            r"\bblocked[- ]requests?\b",
+            r"\bblocked\s+request\s+list\b",
+            r"\bnetwork\s+blocks?\b",
+        ),
+    ),
     ("website", (r"\bwebsite\b", r"\bcompany\s+url\b", r"\burl\b")),
     (
         "product_description",
