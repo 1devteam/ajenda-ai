@@ -75,6 +75,7 @@ export const PREPARE_ACTION_OPTIONS = [
   { action: "web.search", label: "Web search" },
   { action: "web.page_read", label: "Web page read" },
   { action: "research.observe_contacts", label: "Observe contacts from pages" },
+  { action: "research.verify_public_identity", label: "Verify public company identity" },
   { action: "research.synthesize_report", label: "Synthesize research report" },
   { action: "knowledge.retrieve_current", label: "Retrieve current knowledge" },
   { action: "decision.recommend_next_action", label: "Recommend next action" },
