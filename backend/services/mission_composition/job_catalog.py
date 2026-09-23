@@ -60,7 +60,18 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         risk_level="medium",
         maturity="runtime_bound",
         credential_policy="none",
-        evidence_requirements=("browser_step_trace", "source_url", "extracted_observations"),
+        # Keep the job contract aligned with every typed field persisted by
+        # ``web_page_observation``. These are proof requirements, not runtime
+        # authority or an instruction to fabricate values.
+        evidence_requirements=(
+            "browser_step_trace",
+            "source_url",
+            "final_url",
+            "extracted_observations",
+            "observation_timestamp",
+            "blocked_requests",
+            "observation_satisfied",
+        ),
     ),
     BusinessJob(
         job_key="research.synthesize_report",

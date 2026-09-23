@@ -44,6 +44,20 @@ def test_web_page_observation_selects_browser_only_for_explicit_url() -> None:
     assert selections[0].readiness == "ready"
 
 
+def test_web_page_observation_declares_complete_evidence_contract() -> None:
+    job = get_business_job("research.observe_web_page")
+
+    assert job.evidence_requirements == (
+        "browser_step_trace",
+        "source_url",
+        "final_url",
+        "extracted_observations",
+        "observation_timestamp",
+        "blocked_requests",
+        "observation_satisfied",
+    )
+
+
 def test_web_page_observation_rejects_missing_url() -> None:
     intent = MissionIntent(objective="Observe a web page", requested_outcomes=["observe_web_page"])
     jobs = route_jobs_for_intent(intent)
