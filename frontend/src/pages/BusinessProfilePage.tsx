@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { getBusinessProfile } from "../api/client";
+import { getBusinessProfile, upsertBusinessProfileFact } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
 import PageHeader from "../components/ui/PageHeader";
@@ -10,6 +10,18 @@ import {
   type BusinessProfileField,
 } from "../config/businessProfileFields";
 import type { BusinessProfileReadResponse } from "../types";
+import {
+  DEFAULT_OPERATING_CHARTER,
+  NEVER_DO_OPTIONS,
+  PERFORM_ACTION_OPTIONS,
+  PREPARE_ACTION_OPTIONS,
+  applyMayPerformToggle,
+  applyNeverDoToggle,
+  charterFromProfile,
+  charterToFact,
+  toggleActionList,
+  type OperatingCharter,
+} from "../config/operatingCharter";
 import {
   listToInput,
   readProfileList,
@@ -43,6 +55,7 @@ export default function BusinessProfilePage() {
   const { session } = useAuth();
   const [profile, setProfile] = useState<BusinessProfileReadResponse | null>(null);
   const [values, setValues] = useState<FormValues>(() => valuesFromProfile(null));
+  const [charter, setCharter] = useState<OperatingCharter>(DEFAULT_OPERATING_CHARTER);
   const [error, setError] = useState<unknown>(null);
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
@@ -67,6 +80,7 @@ export default function BusinessProfilePage() {
         if (!cancelled) {
           setProfile(response);
           setValues(valuesFromProfile(response));
+          setCharter(charterFromProfile(response.approved_facts ?? {}));
         }
       } catch (err) {
         if (!cancelled) {
@@ -116,12 +130,23 @@ export default function BusinessProfilePage() {
     setError(null);
     setSuccess("");
     try {
-      const latest = await saveBusinessProfileFacts(session, values, "business_profile_page");
+      let latest = await saveBusinessProfileFacts(session, values, "business_profile_page");
+      if (activeTab === "preferences") {
+        latest = await upsertBusinessProfileFact(session, "operating_charter", {
+          approved_fact: charterToFact(charter),
+          provenance_metadata: { source: "business_profile_preferences" },
+        });
+      }
       setProfile(latest);
       if (latest) {
         setValues(valuesFromProfile(latest));
+        setCharter(charterFromProfile(latest.approved_facts ?? {}));
       }
-      setSuccess("Business profile saved. Standalone missions will use these approved facts.");
+      setSuccess(
+        activeTab === "preferences"
+          ? "Preferences saved. Ajenda will use the approved charter for future missions."
+          : "Business profile saved. Standalone missions will use these approved facts.",
+      );
     } catch (err) {
       setError(err);
     } finally {
@@ -228,6 +253,73 @@ export default function BusinessProfilePage() {
                 </div>
               </fieldset>
             ))}
+
+            {activeTab === "preferences" ? (
+              <>
+                <fieldset className="standalone-fieldset">
+                  <legend>May prepare (read / draft)</legend>
+                  <div className="checkbox-grid">
+                    {PREPARE_ACTION_OPTIONS.map((option) => (
+                      <label key={option.action} className="checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={charter.may_prepare.includes(option.action)}
+                          onChange={(event) =>
+                            setCharter((current) => ({
+                              ...current,
+                              may_prepare: toggleActionList(
+                                current.may_prepare,
+                                option.action,
+                                event.target.checked,
+                              ),
+                            }))
+                          }
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <fieldset className="standalone-fieldset">
+                  <legend>May perform (internal / external writes)</legend>
+                  <div className="checkbox-grid">
+                    {PERFORM_ACTION_OPTIONS.map((option) => (
+                      <label key={option.action} className="checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={charter.may_perform.includes(option.action)}
+                          onChange={(event) =>
+                            setCharter((current) =>
+                              applyMayPerformToggle(current, option.action, event.target.checked),
+                            )
+                          }
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <fieldset className="standalone-fieldset">
+                  <legend>Never do</legend>
+                  <div className="checkbox-grid">
+                    {NEVER_DO_OPTIONS.map((option) => (
+                      <label key={option.action} className="checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={charter.never_do.includes(option.action)}
+                          onChange={(event) =>
+                            setCharter((current) =>
+                              applyNeverDoToggle(current, option.action, event.target.checked),
+                            )
+                          }
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              </>
+            ) : null}
 
             <div className="action-row">
               <button type="submit" disabled={saving || loading}>
