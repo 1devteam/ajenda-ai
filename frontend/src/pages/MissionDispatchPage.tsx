@@ -8,6 +8,7 @@ import {
   getMissionDispatchReadiness,
   getMissionDeliverable,
   getMissionLifecycle,
+  getMissionRuntimeEvidence,
   getMissionRuntimeReadiness,
   getTaskStatus,
   launchMission,
@@ -24,6 +25,7 @@ import type {
   RuntimeReadinessReadResponse,
   RuntimeTaskMaterializationReadResponse,
   MissionDeliverableResponse,
+  MissionRuntimeEvidenceProjection,
 } from "../types";
 import {
   buildMissionPlanPayload,
@@ -97,6 +99,31 @@ function deliverableFromTaskStatus(task: AbilityTaskStatusResponse): MissionDeli
       mission_id: task.mission_id ?? "",
       objective: task.description ?? "",
       artifacts: { web_page_observation: browserObservation },
+      prospects: [],
+      limitations: ["Rendered from persisted task output because the assembled deliverable read model is unavailable."],
+      task_state: {
+        task_count: 1,
+        statuses: { [task.status]: 1 },
+        all_terminal: ["completed", "failed", "blocked", "cancelled"].includes(task.status),
+        all_succeeded: task.status === "completed",
+      },
+      completion: {
+        artifact_complete: task.status === "completed",
+        complete: task.status === "completed",
+        missing_fields: [],
+        invalid_fields: [],
+        assembly_errors: [],
+      },
+    };
+  }
+  const identityObservation = payload.public_identity_observation;
+  if (identityObservation && typeof identityObservation === "object") {
+    return {
+      schema_version: 1,
+      kind: "task_output_fallback",
+      mission_id: task.mission_id ?? "",
+      objective: task.description ?? "",
+      artifacts: { public_identity_observation: identityObservation },
       prospects: [],
       limitations: ["Rendered from persisted task output because the assembled deliverable read model is unavailable."],
       task_state: {
@@ -230,6 +257,7 @@ export default function MissionDispatchPage() {
   const [monitoredTaskId, setMonitoredTaskId] = useState("");
   const [taskStatus, setTaskStatus] = useState<AbilityTaskStatusResponse | null>(null);
   const [deliverable, setDeliverable] = useState<MissionDeliverableResponse | null>(null);
+  const [runtimeEvidence, setRuntimeEvidence] = useState<MissionRuntimeEvidenceProjection | null>(null);
 
   const allowedActions = useMemo(() => intakeAllowedActions(lifecycle?.intake ?? null), [lifecycle?.intake]);
   const successCriteria = useMemo(() => intakeSuccessCriteria(lifecycle?.intake ?? null), [lifecycle?.intake]);
@@ -279,6 +307,20 @@ export default function MissionDispatchPage() {
     }
   }, [session, missionId]);
 
+  const refreshRuntimeEvidence = useCallback(async () => {
+    if (!session || !missionId) {
+      return;
+    }
+    try {
+      setRuntimeEvidence(await getMissionRuntimeEvidence(session, missionId));
+    } catch {
+      // Runtime evidence is a read-only diagnostic surface. A principal
+      // without runtime-view permission must not make the mission appear
+      // failed or change the deliverable state.
+      setRuntimeEvidence(null);
+    }
+  }, [session, missionId]);
+
   useEffect(() => {
     if (!session) {
       return;
@@ -292,6 +334,7 @@ export default function MissionDispatchPage() {
         }
         await refreshReadinessViews();
         await refreshDeliverable();
+        await refreshRuntimeEvidence();
       } catch (err) {
         if (!cancelled) {
           setError(err);
@@ -302,7 +345,7 @@ export default function MissionDispatchPage() {
     return () => {
       cancelled = true;
     };
-  }, [session, missionId, refreshReadinessViews, refreshDeliverable]);
+  }, [session, missionId, refreshReadinessViews, refreshDeliverable, refreshRuntimeEvidence]);
 
   useEffect(() => {
     if (!session || !monitoredTaskId) {
@@ -316,6 +359,7 @@ export default function MissionDispatchPage() {
           setTaskStatus(status);
         }
         await refreshDeliverable(status);
+        await refreshRuntimeEvidence();
       } catch (err) {
         if (!cancelled) {
           setError(err);
@@ -328,7 +372,7 @@ export default function MissionDispatchPage() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [session, monitoredTaskId, refreshDeliverable]);
+  }, [session, monitoredTaskId, refreshDeliverable, refreshRuntimeEvidence]);
 
   async function runStep(label: string, fn: () => Promise<void>) {
     setLoading(label);
@@ -727,15 +771,20 @@ export default function MissionDispatchPage() {
           {(() => {
             const observation = deliverable.artifacts?.web_page_observation;
             const isWebObservation = Boolean(observation && typeof observation === "object");
+            const identity = deliverable.artifacts?.public_identity_observation;
+            const isIdentityObservation = Boolean(identity && typeof identity === "object");
             const observationRecord = isWebObservation
               ? (observation as Record<string, unknown>)
               : null;
+            const identityRecord = isIdentityObservation ? (identity as Record<string, unknown>) : null;
             return (
               <>
           <div className="panel-heading-row">
             <div>
               <p className="cc-section-kicker">Durable output</p>
-              <h2>{isWebObservation ? "Web page observation" : "Prospect candidates"}</h2>
+              <h2>
+                {isWebObservation ? "Web page observation" : isIdentityObservation ? "Public identity observation" : "Prospect candidates"}
+              </h2>
             </div>
             <span
               className={`status-pill status-${
@@ -764,6 +813,19 @@ export default function MissionDispatchPage() {
               <pre>{pretty(observationRecord.browser_trace ?? [])}</pre>
               <h3>Blocked requests</h3>
               <pre>{pretty(observationRecord.blocked_requests ?? [])}</pre>
+            </div>
+          ) : identityRecord ? (
+            <div className="code-block">
+              <p><strong>Source URL:</strong> {String(identityRecord.source_url ?? "—")}</p>
+              <p><strong>Final URL:</strong> {String(identityRecord.final_url ?? "—")}</p>
+              <p><strong>Title:</strong> {String(identityRecord.title ?? "—")}</p>
+              <p><strong>Expected company:</strong> {String(identityRecord.expected_company ?? "—")}</p>
+              <p><strong>Identity status:</strong> {String(identityRecord.identity_status ?? "—")}</p>
+              <p><strong>Evidence URLs:</strong> {pretty(identityRecord.identity_evidence_urls ?? [])}</p>
+              <p><strong>Match reasons:</strong> {pretty(identityRecord.identity_match_reasons ?? [])}</p>
+              <p><strong>Match evidence:</strong></p>
+              <pre>{pretty(identityRecord.identity_match_evidence ?? [])}</pre>
+              <p><strong>Identity gaps:</strong> {pretty(identityRecord.identity_gaps ?? [])}</p>
             </div>
           ) : deliverable.prospects.length > 0 ? (
             <div className="table-wrap">
@@ -809,6 +871,43 @@ export default function MissionDispatchPage() {
               </>
             );
           })()}
+        </section>
+      ) : null}
+
+      {runtimeEvidence ? (
+        <section className="panel" aria-label="Mission runtime evidence">
+          <div className="panel-heading-row">
+            <div>
+              <p className="cc-section-kicker">Read-only GRAFT runtime evidence</p>
+              <h2>Observed execution flow</h2>
+            </div>
+            <span className="status-pill status-completed">no authority</span>
+          </div>
+          <p className="mission-card-meta">
+            First divergence: <strong>{runtimeEvidence.first_divergence ?? "none recorded"}</strong>
+          </p>
+          <p className="mission-card-meta">
+            {runtimeEvidence.task_flows.length} task flow(s) · {runtimeEvidence.execution_events.length} execution event(s) ·{" "}
+            {runtimeEvidence.record_flows.length} artifact record flow(s)
+          </p>
+          {runtimeEvidence.contradictions.length > 0 ? (
+            <>
+              <h3>Contradictions</h3>
+              <pre className="code-block">{pretty(runtimeEvidence.contradictions)}</pre>
+            </>
+          ) : null}
+          {runtimeEvidence.missing_evidence.length > 0 ? (
+            <>
+              <h3>Missing evidence</h3>
+              <pre className="code-block">{pretty(runtimeEvidence.missing_evidence)}</pre>
+            </>
+          ) : null}
+          <details>
+            <summary>Show observed task flows and execution events</summary>
+            <pre className="code-block">
+              {pretty({ task_flows: runtimeEvidence.task_flows, execution_events: runtimeEvidence.execution_events })}
+            </pre>
+          </details>
         </section>
       ) : null}
 

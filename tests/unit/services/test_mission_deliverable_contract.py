@@ -111,3 +111,32 @@ def test_public_identity_fields_are_typed_deliverable_fields() -> None:
         "identity_gaps",
     ]
     assert request.unresolved_items == ()
+
+
+def test_identity_match_evidence_is_explicitly_requestable() -> None:
+    request = deliverable_contract.extract_deliverable_request(
+        "Return identity match evidence and identity gaps."
+    )
+
+    assert request is not None
+    assert [field.field_key for field in request.fields] == ["identity_match_evidence", "identity_gaps"]
+    assert request.unresolved_items == ()
+
+
+def test_identity_url_fields_do_not_fall_back_to_prospect_fields() -> None:
+    request = deliverable_contract.extract_deliverable_request(
+        "Return source URL, final URL, page title, identity status, identity evidence URLs, identity match reasons, and identity gaps."
+    )
+
+    assert request is not None
+    assert [field.field_key for field in request.fields] == [
+        "source_url",
+        "final_url",
+        "title",
+        "identity_status",
+        "identity_evidence_urls",
+        "identity_match_reasons",
+        "identity_gaps",
+    ]
+    assert request.unresolved_items == ()
+    assert request.fully_understood

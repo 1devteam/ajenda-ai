@@ -198,6 +198,37 @@ def test_empty_blocked_requests_is_a_satisfied_clean_browser_observation() -> No
     assert completion.fields[0].status == "satisfied"
 
 
+def test_empty_identity_gaps_is_a_satisfied_verified_identity_observation() -> None:
+    request = DeliverableRequest(
+        scope="mission",
+        fields=(
+            DeliverableFieldRequirement(field_key="identity_status", source_text="identity status"),
+            DeliverableFieldRequirement(field_key="identity_gaps", source_text="identity gaps"),
+        ),
+    )
+    projection = project_deliverable_request(request, know_how=REVOPS_V2_KNOW_HOW)
+    artifact = MaterializedArtifact(
+        artifact_key="public_identity_observation",
+        payload={
+            "expected_company": "Acme HVAC",
+            "expected_industry": "HVAC",
+            "expected_location": "Dallas",
+            "identity_status": "verified",
+            "identity_evidence_urls": ["https://acme.example/"],
+            "identity_match_reasons": ["company_name_or_domain", "industry", "location"],
+            "identity_gaps": [],
+            "source_url": "https://acme.example/",
+            "final_url": "https://acme.example/",
+            "title": "Acme HVAC",
+        },
+    )
+
+    completion = evaluate_deliverable_completion(projection, [artifact])
+
+    assert completion.complete is True
+    assert all(field.status == "satisfied" for field in completion.fields)
+
+
 def test_unknown_requested_item_keeps_completion_false() -> None:
     projection = _projection("Return company name and lunar risk index.")
     completion = evaluate_deliverable_completion(

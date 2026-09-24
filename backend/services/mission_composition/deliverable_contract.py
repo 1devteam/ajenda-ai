@@ -38,6 +38,7 @@ DeliverableFieldKey = Literal[
     "identity_status",
     "identity_evidence_urls",
     "identity_match_reasons",
+    "identity_match_evidence",
     "identity_gaps",
     "revenue_amount",
     "revenue_currency",
@@ -98,7 +99,9 @@ _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
     ("identity_status", (r"\bidentity\s+status\b", r"\bverification\s+status\b")),
     ("identity_evidence_urls", (r"\bidentity\s+evidence\s+(?:urls?|links?)\b", r"\bidentity\s+sources?\b")),
     ("identity_match_reasons", (r"\bidentity\s+match\s+reasons?\b", r"\bidentity\s+evidence\s+reasons?\b")),
+    ("identity_match_evidence", (r"\bidentity\s+match\s+evidence\b", r"\bverification\s+evidence\s+details?\b")),
     ("identity_gaps", (r"\bidentity\s+gaps?\b", r"\bverification\s+gaps?\b")),
+    ("source_url", (r"\bsource\s+url\b", r"\bsource\s+page\s+url\b")),
     # Browser observation fields must precede the broad prospect ``url`` rule.
     # Otherwise "final URL" is misclassified as a prospect website.
     ("final_url", (r"\bfinal\s+url\b", r"\bredirected\s+url\b")),

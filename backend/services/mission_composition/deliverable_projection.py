@@ -72,9 +72,9 @@ class DeliverableProjection(BaseModel):
 # "drafts" is currently equivalent to a declared artifact as a whole.
 _WHOLE_ARTIFACT_BINDINGS: dict[DeliverableFieldKey, tuple[str, ...]] = {
     "drafts": ("introduction_drafts",),
-    "source_url": ("web_page_observation",),
-    "final_url": ("web_page_observation",),
-    "title": ("web_page_observation",),
+    "source_url": ("web_page_observation", "public_identity_observation"),
+    "final_url": ("web_page_observation", "public_identity_observation"),
+    "title": ("web_page_observation", "public_identity_observation"),
     "extracted_observations": ("web_page_observation",),
     "observation_timestamp": ("web_page_observation",),
     "browser_trace": ("web_page_observation",),
@@ -86,6 +86,7 @@ _WHOLE_ARTIFACT_BINDINGS: dict[DeliverableFieldKey, tuple[str, ...]] = {
     "identity_status": ("public_identity_observation",),
     "identity_evidence_urls": ("public_identity_observation",),
     "identity_match_reasons": ("public_identity_observation",),
+    "identity_match_evidence": ("public_identity_observation",),
     "identity_gaps": ("public_identity_observation",),
 }
 

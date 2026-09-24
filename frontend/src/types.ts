@@ -443,6 +443,26 @@ export interface MissionDeliverableResponse {
   };
 }
 
+export interface MissionRuntimeEvidenceProjection {
+  schema_version: number;
+  mission_id: string;
+  tenant_id: string;
+  mission_status?: string | null;
+  acceptance: Record<string, unknown>;
+  read_only: true;
+  grants_execution_authority: false;
+  nodes: Array<Record<string, unknown>>;
+  edges: Array<Record<string, unknown>>;
+  available_nodes: Array<Record<string, unknown>>;
+  selected_nodes: Array<Record<string, unknown>>;
+  task_flows: Array<Record<string, unknown>>;
+  record_flows: Array<Record<string, unknown>>;
+  execution_events: Array<Record<string, unknown>>;
+  contradictions: string[];
+  missing_evidence: string[];
+  first_divergence?: string | null;
+}
+
 export interface MissionIntakeQualityViolation {
   field: string;
   code: string;

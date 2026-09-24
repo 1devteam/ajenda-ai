@@ -123,6 +123,20 @@ def _host_identity_tokens(host: str) -> list[str]:
     ]
 
 
+def _identity_evidence_excerpt(observed: str, markers: tuple[str, ...], *, limit: int = 280) -> str | None:
+    """Return bounded observed text around a matched marker, never an inferred claim."""
+
+    normalized = re.sub(r"\s+", " ", observed).strip()
+    lowered = normalized.lower()
+    for marker in markers:
+        index = lowered.find(marker.lower())
+        if index < 0:
+            continue
+        start = max(0, index - 80)
+        return normalized[start : start + limit]
+    return None
+
+
 def web_page_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebPageReadInput.model_validate(invocation.input)
     snapshot = fetch_public_page(
@@ -279,6 +293,14 @@ def research_verify_public_identity(invocation: ToolInvocation, context: ActionR
         for item in (snapshot.extraction.get("observation_requirements", []) if snapshot.extraction else [])
         if isinstance(item, dict)
     ).lower()
+    title = next(
+        (
+            str(item.get("value") or "")
+            for item in (snapshot.extraction.get("observation_requirements", []) if snapshot.extraction else [])
+            if isinstance(item, dict) and item.get("kind") == "title"
+        ),
+        "",
+    )
     host = page_host(snapshot.url)
     company_tokens = _identity_tokens(payload.expected_company)
     host_tokens = _host_identity_tokens(host)
@@ -302,9 +324,34 @@ def research_verify_public_identity(invocation: ToolInvocation, context: ActionR
         gaps.append("industry_not_observed")
     if not location_match:
         gaps.append("location_not_observed")
+    company_markers = tuple(dict.fromkeys((*company_tokens, *host_tokens)))
+    identity_match_evidence = [
+        {
+            "criterion": "company_name_or_domain",
+            "matched": company_match or host_match,
+            "markers": list(company_markers),
+            "observed_excerpt": _identity_evidence_excerpt(observed, company_markers),
+            "source_url": snapshot.url if snapshot.real else None,
+        },
+        {
+            "criterion": "industry",
+            "matched": industry_match,
+            "markers": list(_industry_evidence_markers(payload.industry)),
+            "observed_excerpt": _identity_evidence_excerpt(observed, _industry_evidence_markers(payload.industry)),
+            "source_url": snapshot.url if snapshot.real else None,
+        },
+        {
+            "criterion": "location",
+            "matched": location_match,
+            "markers": list(location_markers),
+            "observed_excerpt": _identity_evidence_excerpt(observed, tuple(location_markers)),
+            "source_url": snapshot.url if snapshot.real else None,
+        },
+    ]
     artifact = {
         "source_url": payload.url,
         "final_url": snapshot.url if snapshot.real else None,
+        "title": title or None,
         "expected_company": payload.expected_company,
         "expected_industry": payload.industry,
         "expected_location": payload.location,
@@ -319,6 +366,7 @@ def research_verify_public_identity(invocation: ToolInvocation, context: ActionR
             )
             if matched
         ],
+        "identity_match_evidence": identity_match_evidence,
         "identity_gaps": gaps,
         "observation_timestamp": snapshot.extraction.get("observation_timestamp") if snapshot.extraction else None,
         "browser_trace": snapshot.extraction.get("steps", []) if snapshot.extraction else [],

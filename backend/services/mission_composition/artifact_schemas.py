@@ -115,8 +115,19 @@ PUBLIC_IDENTITY_OBSERVATION_SCHEMA = CompositionArtifactSchema(
         ArtifactFieldProjection(
             deliverable_field="identity_match_reasons", json_path="$.identity_match_reasons", scope="whole_artifact"
         ),
+        ArtifactFieldProjection(
+            deliverable_field="identity_match_evidence",
+            json_path="$.identity_match_evidence",
+            scope="whole_artifact",
+            # Added after the original artifact contract; old persisted
+            # observations remain structurally readable, while new missions
+            # requesting this field still fail closed when it is absent.
+            required_when_item_exists=False,
+        ),
         ArtifactFieldProjection(deliverable_field="identity_gaps", json_path="$.identity_gaps", scope="whole_artifact"),
         ArtifactFieldProjection(deliverable_field="source_url", json_path="$.source_url", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="final_url", json_path="$.final_url", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="title", json_path="$.title", scope="whole_artifact"),
     ),
 )
 

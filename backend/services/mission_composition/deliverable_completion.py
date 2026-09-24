@@ -133,6 +133,10 @@ def _typed_field_has_value(*, artifact: MaterializedArtifact, field_key: Deliver
             # with no blocked requests. Treat absence as unproven, but do not
             # confuse a clean network result with a missing artifact.
             return "blocked_requests" in artifact.payload and isinstance(artifact.payload["blocked_requests"], list)
+        if field_key == "identity_gaps":
+            # A verified identity has no gaps. Presence of an empty list is
+            # therefore a satisfied observation; omission remains unproven.
+            return "identity_gaps" in artifact.payload and isinstance(artifact.payload["identity_gaps"], list)
         return all(
             field.json_path.startswith("$.") and bool(artifact.payload.get(field.json_path[2:].strip()))
             for field in whole

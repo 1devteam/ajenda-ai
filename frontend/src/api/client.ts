@@ -38,6 +38,7 @@ import type {
   MissionCreateRequest,
   MissionLifecycleReadResponse,
   MissionDeliverableResponse,
+  MissionRuntimeEvidenceProjection,
   MissionLaunchResponse,
   MissionListResponse,
   MissionPlanCreateRequest,
@@ -822,6 +823,19 @@ export async function getMissionDeliverable(
   return withAuthedRuntime(caller, (config) =>
     request<MissionDeliverableResponse>(
       `/v1/missions/${encodeURIComponent(missionId)}/deliverable`,
+      {},
+      runtimeOptions(config),
+    ),
+  );
+}
+
+export async function getMissionRuntimeEvidence(
+  caller: AuthedCaller,
+  missionId: string,
+): Promise<MissionRuntimeEvidenceProjection> {
+  return withAuthedRuntime(caller, (config) =>
+    request<MissionRuntimeEvidenceProjection>(
+      `/v1/missions/${encodeURIComponent(missionId)}/runtime-evidence`,
       {},
       runtimeOptions(config),
     ),

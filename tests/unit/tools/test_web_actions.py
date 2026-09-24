@@ -129,6 +129,13 @@ def test_public_identity_verification_requires_company_industry_and_location_evi
     artifact = result.output["public_identity_observation"]
     assert artifact["identity_status"] == "verified"
     assert artifact["identity_evidence_urls"] == ["https://acmehvac.example/"]
+    assert artifact["final_url"] == "https://acmehvac.example/"
+    assert artifact["title"] == "Acme HVAC"
+    evidence_by_criterion = {item["criterion"]: item for item in artifact["identity_match_evidence"]}
+    assert evidence_by_criterion["company_name_or_domain"]["matched"] is True
+    assert evidence_by_criterion["company_name_or_domain"]["observed_excerpt"]
+    assert evidence_by_criterion["industry"]["observed_excerpt"]
+    assert evidence_by_criterion["location"]["observed_excerpt"]
 
 
 def test_public_identity_verification_fails_closed_for_missing_evidence() -> None:
