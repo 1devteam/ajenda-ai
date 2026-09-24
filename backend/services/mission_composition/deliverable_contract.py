@@ -17,6 +17,9 @@ DeliverableFieldKey = Literal[
     "product_description",
     "qualification_evidence",
     "qualification_reasons",
+    "qualification_dimensions",
+    "disqualifiers",
+    "recommended_next_action",
     "ajenda_relevance",
     "qualification_score",
     "research_summary",
@@ -158,6 +161,15 @@ _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
         ),
     ),
     (
+        "qualification_dimensions",
+        (r"\bqualification\s+dimensions?\b", r"\bscoring\s+dimensions?\b"),
+    ),
+    ("disqualifiers", (r"\bdisqualifiers?\b", r"\bdisqualification\s+reasons?\b")),
+    (
+        "recommended_next_action",
+        (r"\brecommended\s+next\s+actions?\b", r"\bnext\s+actions?\b"),
+    ),
+    (
         "ajenda_relevance",
         (
             r"\bwhy\s+ajenda(?:\s+ai)?\s+(?:may\s+be|is|could\s+be)\s+relevant\b",
@@ -165,7 +177,10 @@ _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
             r"\bwhy\s+ajenda(?:\s+ai)?\s+may\s+help\b",
         ),
     ),
-    ("qualification_score", (r"\bqualification\s+scores?\b", r"\bprospect\s+scores?\b")),
+    (
+        "qualification_score",
+        (r"\bqualification\s+scores?\b", r"\bprospect\s+scores?\b", r"\bscored\s+records?\b"),
+    ),
     ("research_summary", (r"\bthe\s+research\b", r"\bresearch\s+summary\b", r"^research$")),
     ("income_opportunities", (r"\b(?:income|revenue|business)?\s*opportunities?\b",)),
     ("supporting_evidence", (r"\bsupporting\s+evidence\b", r"\bevidence\s+used\b")),
@@ -223,6 +238,13 @@ def extract_deliverable_request(text: str) -> DeliverableRequest | None:
             continue
         seen.add(field_key)
         fields.append(DeliverableFieldRequirement(field_key=field_key, source_text=item[:500]))
+
+    # "scored records with ..." names the score and then additional fields in
+    # the same clause; preserve both typed requirements instead of letting the
+    # first matching phrase hide the score.
+    if "qualification_score" not in seen and re.search(r"\bscored\s+records?\b", body, flags=re.IGNORECASE):
+        seen.add("qualification_score")
+        fields.insert(0, DeliverableFieldRequirement(field_key="qualification_score", source_text="scored records"))
 
     score_min: int | None = None
     score_max: int | None = None

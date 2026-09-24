@@ -151,9 +151,27 @@ QUALIFIED_PROSPECTS_SCHEMA = CompositionArtifactSchema(
             scope="per_item",
         ),
         ArtifactFieldProjection(
+            deliverable_field="qualification_dimensions",
+            json_path="$[].qualification_dimensions",
+            scope="per_item",
+            required_when_item_exists=False,
+        ),
+        ArtifactFieldProjection(
             deliverable_field="qualification_evidence",
             json_path="$[].qualification_evidence",
             scope="per_item",
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="disqualifiers",
+            json_path="$[].disqualifiers",
+            scope="per_item",
+            required_when_item_exists=False,
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="recommended_next_action",
+            json_path="$[].recommended_next_action",
+            scope="per_item",
+            required_when_item_exists=False,
         ),
         ArtifactFieldProjection(
             deliverable_field="ajenda_relevance",

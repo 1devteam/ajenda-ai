@@ -92,6 +92,7 @@ _QUALIFY_PATTERNS = (
     r"\bscore(?:s|d|ing)?\s+the\b[^.!?]{0,60}\b(?:prospects?|leads?|competitors?)\b",
     r"\brank(?:s|ed|ing)?\s+(?:them|these|those|the\s+(?:strongest|best|prospects?|leads?|competitors?))\b",
     r"\brank(?:s|ed|ing)?\s+the\b[^.!?]{0,60}\b(?:prospects?|leads?|competitors?)\b",
+    r"\brank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:companies|accounts?|records?)\b",
     r"\brate(?:s|d|ing)?\s+(?:them|these|those|the\s+(?:prospects?|leads?|competitors?))\b",
     r"\brate(?:s|d|ing)?\s+the\b[^.!?]{0,60}\b(?:prospects?|leads?|competitors?)\b",
     r"\bgrade(?:s|d|ing)?\s+(?:them|these|those|the\s+(?:prospects?|leads?|competitors?))\b",
@@ -1259,6 +1260,7 @@ def interpret_instruction(
     )
     direct_crm_record_read = _DIRECT_CRM_RECORD_READ.search(lower) is not None
     explicit_qualification_request = bool(re.search(r"\b(?:qualify|score|rank|rate|grade)\b", lower))
+    crm_only_ranking = internal_crm_read and explicit_qualification_request and not explicit_research_verb
     if direct_crm_record_read and not explicit_qualification_request and not explicit_research_verb:
         wants_qualify = False
     # Direct CRM-record requests require the CRM authority as their source of
@@ -1274,6 +1276,11 @@ def interpret_instruction(
         and (not direct_crm_record_read or explicit_research_verb)
         and (not connector_read or explicit_prospect_research or hubspot_as_research_source)
     )
+    if crm_only_ranking:
+        # Ranking persisted CRM records is qualification over an internal
+        # source. The words "companies in ..." must not turn it into public
+        # discovery unless the operator explicitly asks to research/find them.
+        wants_research = False
     wants_research_report = _REPORT_SYNTHESIS_REQUEST.search(text) is not None and not business_income_review_requested
     # "Research companies in X from HubSpot" is market discovery using CRM as a source,
     # not a pure HubSpot record-read mission.

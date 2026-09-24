@@ -858,6 +858,12 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
             "qualification_threshold_10": result["qualification_threshold_10"],
             "qualified": result["qualified"],
             "reasons": result["reasons"],
+            "disqualifiers": [] if result["qualified"] else result["reasons"],
+            "recommended_next_action": (
+                "Proceed to the next governed stage using this qualified prospect."
+                if result["qualified"]
+                else "Gather the missing qualification evidence before advancing this prospect."
+            ),
         }
         scored_prospects.append(entry)
         if result["qualified"]:

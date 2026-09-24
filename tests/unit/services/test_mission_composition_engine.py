@@ -819,6 +819,24 @@ def test_scoped_crm_prospect_phrase_routes_to_qualification() -> None:
     assert "sales.qualify_prospects" in {job.job_key for job in jobs}
 
 
+def test_internal_crm_ranking_does_not_select_public_discovery() -> None:
+    intent = interpret_instruction(
+        "Using only Ajenda internal CRM records, rank exactly two software development companies in Austin "
+        "by evidence quality and business fit. Return both scored records with qualification dimensions, "
+        "supporting evidence, disqualifiers, and recommended next actions. Do not use public web search."
+    )
+    assert intent.requested_outcomes == ["qualify_prospects", "read_crm"]
+    assert intent.deliverable_request is not None
+    assert intent.deliverable_request.unresolved_items == ()
+    assert {field.field_key for field in intent.deliverable_request.fields} >= {
+        "qualification_score",
+        "qualification_dimensions",
+        "supporting_evidence",
+        "disqualifiers",
+        "recommended_next_action",
+    }
+
+
 def test_qualification_scores_and_reasons_are_a_supported_deliverable() -> None:
     intent = interpret_instruction(
         "Qualify five software development companies in Austin. Return qualification scores and reasons. "

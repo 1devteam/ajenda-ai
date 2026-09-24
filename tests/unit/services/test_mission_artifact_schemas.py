@@ -27,7 +27,11 @@ def test_prospect_candidates_schema_exposes_explicit_research_fields() -> None:
         "$[].sources",
     ]
     assert all(field.scope == "per_item" for field in schema.fields)
-    assert all(field.required_when_item_exists for field in schema.fields)
+    assert all(
+        field.required_when_item_exists
+        for field in schema.fields
+        if field.deliverable_field not in {"qualification_dimensions", "disqualifiers", "recommended_next_action"}
+    )
     assert schema.grants_execution_authority is False
 
 
@@ -50,18 +54,28 @@ def test_qualified_prospects_schema_exposes_qualification_deliverable_fields() -
         "company_name",
         "qualification_score",
         "qualification_reasons",
+        "qualification_dimensions",
         "qualification_evidence",
+        "disqualifiers",
+        "recommended_next_action",
         "ajenda_relevance",
     ]
     assert [field.json_path for field in schema.fields] == [
         "$[].company",
         "$[].score",
         "$[].reasons",
+        "$[].qualification_dimensions",
         "$[].qualification_evidence",
+        "$[].disqualifiers",
+        "$[].recommended_next_action",
         "$[].ajenda_relevance",
     ]
     assert all(field.scope == "per_item" for field in schema.fields)
-    assert all(field.required_when_item_exists for field in schema.fields)
+    assert all(
+        field.required_when_item_exists
+        for field in schema.fields
+        if field.deliverable_field not in {"qualification_dimensions", "disqualifiers", "recommended_next_action"}
+    )
     assert schema.grants_execution_authority is False
 
 
