@@ -124,6 +124,21 @@ def test_validate_allows_explicit_url_as_web_observation_scope() -> None:
     )
 
 
+def test_validate_allows_observe_page_artifact_without_market_language() -> None:
+    validate_mission_intake_prompt(
+        objective="Observe the web page at https://example.com and return its title and visible text.",
+        success_criteria=[
+            {
+                "description": (
+                    "A web_page_observation artifact records the requested URL, final URL, title, visible body text, "
+                    "and browser step evidence with satisfied observation requirements"
+                ),
+                "evidence": ["web_page_observation artifact"],
+            }
+        ],
+    )
+
+
 def test_validate_denies_duplicate_success_criteria() -> None:
     criterion = _valid_criterion()
     with pytest.raises(MissionIntakeQualityDeniedError) as exc_info:

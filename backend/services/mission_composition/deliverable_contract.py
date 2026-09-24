@@ -135,6 +135,14 @@ _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
             r"\bnetwork\s+blocks?\b",
         ),
     ),
+    (
+        "observation_satisfied",
+        (
+            r"\bobservation\s+(?:was\s+)?satisfied\b",
+            r"\bwhether\s+the\s+observation\s+(?:was\s+)?satisfied\b",
+            r"\bsatisfaction\s+of\s+the\s+observation\b",
+        ),
+    ),
     ("website", (r"\bwebsite\b", r"\bcompany\s+url\b", r"\burl\b")),
     (
         "product_description",

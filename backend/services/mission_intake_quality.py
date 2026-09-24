@@ -157,6 +157,7 @@ _OUTCOME_VERBS = frozenset(
         "map",
         "monitor",
         "notify",
+        "observe",
         "organize",
         "organise",
         "plan",
@@ -216,6 +217,10 @@ _MEASURABLE_MARKERS = frozenset(
         "verified",
         "within",
         "zero",
+        # Typed observation contracts are measurable by their named artifact
+        # and evidence surface even without a row count.
+        "artifact",
+        "evidence",
     }
 )
 

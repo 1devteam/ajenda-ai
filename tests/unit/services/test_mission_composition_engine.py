@@ -743,6 +743,15 @@ def test_web_observation_persists_a_typed_runtime_deliverable_request() -> None:
     ]
 
 
+def test_web_observation_accepts_explicit_satisfaction_wording() -> None:
+    intent = interpret_instruction("Observe https://example.com and return whether the observation was satisfied.")
+
+    deliverable = _runtime_deliverable_request(intent)
+    assert deliverable is not None
+    assert [field.field_key for field in deliverable.fields] == ["observation_satisfied"]
+    assert deliverable.unresolved_items == ()
+
+
 def test_internal_crm_review_with_negated_updates_stays_local() -> None:
     intent = interpret_instruction(
         "Review the five software development companies already saved in Ajenda\u2019s internal CRM. "
