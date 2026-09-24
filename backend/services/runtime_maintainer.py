@@ -148,7 +148,11 @@ class RuntimeMaintainer:
                         "tenant_id": task.tenant_id,
                         "task_status": original_task_status,
                         "lease_status": original_lease_status,
-                        "heartbeat_age_seconds": (datetime.now(UTC) - lease.heartbeat_at).total_seconds(),
+                        "heartbeat_age_seconds": (
+                            (datetime.now(UTC) - lease.heartbeat_at).total_seconds()
+                            if lease.heartbeat_at is not None
+                            else None
+                        ),
                     },
                 )
 

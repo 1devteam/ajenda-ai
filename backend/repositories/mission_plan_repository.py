@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
@@ -22,7 +22,7 @@ class MissionPlanRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def _active_plan_statement(self, *, mission_id: uuid.UUID, tenant_id: str) -> Select[tuple[MissionPlan]]:
+    def _active_plan_statement(self, *, mission_id: uuid.UUID, tenant_id: str) -> Select[Any]:
         return (
             select(MissionPlan)
             .where(
@@ -35,7 +35,10 @@ class MissionPlanRepository:
 
     def get_active_for_mission(self, *, mission_id: uuid.UUID, tenant_id: str) -> MissionPlan | None:
         """Return the active tenant-owned plan for a mission, if one exists."""
-        return self._session.scalar(self._active_plan_statement(mission_id=mission_id, tenant_id=tenant_id))
+        return cast(
+            MissionPlan | None,
+            self._session.scalar(self._active_plan_statement(mission_id=mission_id, tenant_id=tenant_id)),
+        )
 
     def get_for_mission(self, *, mission_id: uuid.UUID, tenant_id: str) -> MissionPlan | None:
         """Return the newest tenant-owned plan for a mission, preferring active plans."""
@@ -47,7 +50,7 @@ class MissionPlanRepository:
             .where(MissionPlan.mission_id == mission_id, MissionPlan.tenant_id == tenant_id)
             .order_by(MissionPlan.created_at.desc())
         )
-        return self._session.scalar(stmt)
+        return cast(MissionPlan | None, self._session.scalar(stmt))
 
     def create_or_get_active_for_mission(
         self,
