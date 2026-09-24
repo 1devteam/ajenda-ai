@@ -89,9 +89,13 @@ _QUALIFY_PATTERNS = (
     r"\bbest\b[^.!?]{0,40}\b(?:companies|businesses|services|options)\b",
     # Score/rank/rate only when aimed at prospects/leads/competitors (not reports/rates).
     r"\bscore(?:s|d|ing)?\s+(?:them|these|those|it|the\s+(?:prospects?|leads?|competitors?))\b",
+    r"\bscore(?:s|d|ing)?\s+the\b[^.!?]{0,60}\b(?:prospects?|leads?|competitors?)\b",
     r"\brank(?:s|ed|ing)?\s+(?:them|these|those|the\s+(?:strongest|best|prospects?|leads?|competitors?))\b",
+    r"\brank(?:s|ed|ing)?\s+the\b[^.!?]{0,60}\b(?:prospects?|leads?|competitors?)\b",
     r"\brate(?:s|d|ing)?\s+(?:them|these|those|the\s+(?:prospects?|leads?|competitors?))\b",
+    r"\brate(?:s|d|ing)?\s+the\b[^.!?]{0,60}\b(?:prospects?|leads?|competitors?)\b",
     r"\bgrade(?:s|d|ing)?\s+(?:them|these|those|the\s+(?:prospects?|leads?|competitors?))\b",
+    r"\bgrade(?:s|d|ing)?\s+the\b[^.!?]{0,60}\b(?:prospects?|leads?|competitors?)\b",
     r"\btop (?:leads?|prospects?)\b",
     r"\btop (?:three|five)\b",
     r"\bstrongest (?:leads?|prospects?|competitors?)\b",

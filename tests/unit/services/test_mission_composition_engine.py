@@ -808,6 +808,17 @@ def test_internal_crm_source_never_becomes_a_write_or_unbound_branch() -> None:
     )
 
 
+def test_scoped_crm_prospect_phrase_routes_to_qualification() -> None:
+    intent = interpret_instruction(
+        "Review the approved business profile and internal CRM records. Score the two Austin software studio prospects "
+        "for business fit, automation opportunity, evidence quality, urgency, and contactability."
+    )
+    assert "read_crm" in intent.requested_outcomes
+    assert "qualify_prospects" in intent.requested_outcomes
+    jobs = route_jobs_for_intent(intent)
+    assert "sales.qualify_prospects" in {job.job_key for job in jobs}
+
+
 def test_qualification_scores_and_reasons_are_a_supported_deliverable() -> None:
     intent = interpret_instruction(
         "Qualify five software development companies in Austin. Return qualification scores and reasons. "
