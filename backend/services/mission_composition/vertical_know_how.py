@@ -252,6 +252,8 @@ REVOPS_V2_KNOW_HOW = VerticalKnowHowContract(
         "synthesize_research_report",
         "observe_web_page",
         "verify_public_identity",
+        "review_business_income",
+        "read_business_profile",
     ),
     stages=(
         *REVOPS_V1_KNOW_HOW.stages,
@@ -266,12 +268,22 @@ REVOPS_V2_KNOW_HOW = VerticalKnowHowContract(
             depends_on=(),
             optional=True,
         ),
+        KnowHowStage(
+            stage_key="business_review",
+            job_keys=("business.review_income",),
+            depends_on=("crm_context",),
+            optional=True,
+        ),
     ),
     deliverable_fields=(
         *REVOPS_V1_KNOW_HOW.deliverable_fields,
         DeliverableField(
             field_key="research_report",
             produced_by_jobs=("research.synthesize_report",),
+        ),
+        DeliverableField(
+            field_key="business_review_report",
+            produced_by_jobs=("business.review_income",),
         ),
     ),
     connectors=REVOPS_V1_KNOW_HOW.connectors,

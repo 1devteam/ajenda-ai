@@ -6,6 +6,7 @@ import pytest
 
 from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
+from backend.services.mission_composition.deliverable_runtime_state import build_deliverable_runtime_state
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
 from backend.services.mission_composition.job_catalog import get_business_job, list_business_jobs
@@ -26,6 +27,7 @@ from backend.services.mission_composition.structured_planner import (
     PlannerResult,
     StructuredPlannerProposal,
 )
+from backend.services.mission_composition.vertical_know_how import select_vertical_know_how
 from backend.services.operating_charter import default_operating_charter
 
 ROOFING_INSTRUCTION = (
@@ -103,6 +105,26 @@ def test_business_income_review_routes_approved_profile_opportunity_request() ->
     jobs = route_jobs_for_intent(intent)
     assert "intelligence.retrieve_business_profile" in [job.job_key for job in jobs]
     assert "business.review_income" in [job.job_key for job in jobs]
+
+
+def test_business_income_review_uses_know_how_artifact_projection() -> None:
+    instruction = (
+        "Review the approved business profile and internal records. "
+        "Identify three evidence-backed opportunities to increase revenue. "
+        "For each opportunity, provide supporting evidence, estimated business impact, confidence, assumptions, "
+        "and missing information. Do not modify records, contact anyone, send anything, or publish anything."
+    )
+    intent = interpret_instruction(instruction)
+    runtime_request = _runtime_deliverable_request(intent)
+    assert runtime_request is not None
+    know_how = select_vertical_know_how(intent.requested_outcomes)
+    assert know_how is not None
+    state = build_deliverable_runtime_state(runtime_request, know_how=know_how)
+    assert state is not None
+    projection = state["projection"]
+    assert projection["request_unresolved_items"] == []
+    assert all(binding["status"] == "bound" for binding in projection["bindings"])
+    assert all("business_review_report" in binding["artifact_keys"] for binding in projection["bindings"])
 
 
 def test_interpreter_preserves_software_rnd_target_and_profile_context() -> None:

@@ -399,6 +399,9 @@ def _review_business_income(payload: DecisionRecommendInput, context: ActionRunt
             "hypothesis": "An adjacent offer could increase revenue per existing customer if demand and delivery capacity are confirmed.",
             "validation_step": "Interview existing customers and price a small paid pilot before building or promoting it.",
             "evidence_ids": [source_ref],
+            "estimated_business_impact": "Not estimated until demand, pricing, margin, and delivery capacity are measured.",
+            "confidence": 0.55,
+            "missing_information": gaps,
         },
         {
             "opportunity_id": "income:conversion-improvement",
@@ -406,6 +409,9 @@ def _review_business_income(payload: DecisionRecommendInput, context: ActionRunt
             "hypothesis": "Improving qualification, follow-up, or proposal conversion may increase revenue without adding a new offer.",
             "validation_step": "Measure the current funnel by stage, then run one controlled change against a defined baseline.",
             "evidence_ids": [source_ref],
+            "estimated_business_impact": "Not estimated until baseline conversion, volume, and margin data are available.",
+            "confidence": 0.55,
+            "missing_information": gaps,
         },
         {
             "opportunity_id": "income:retention-expansion",
@@ -413,6 +419,9 @@ def _review_business_income(payload: DecisionRecommendInput, context: ActionRunt
             "hypothesis": "A retention or recurring service option may improve revenue stability if customers have an ongoing need.",
             "validation_step": "Review renewal and repeat-purchase evidence before offering a measured pilot to existing customers.",
             "evidence_ids": [source_ref],
+            "estimated_business_impact": "Not estimated until retention, repeat-purchase, and service-capacity data are available.",
+            "confidence": 0.55,
+            "missing_information": gaps,
         },
     ]
     report = {
@@ -425,6 +434,10 @@ def _review_business_income(payload: DecisionRecommendInput, context: ActionRunt
             "source": "approved_business_profile",
             "approved_fact_keys": fact_keys,
         },
+        "supporting_evidence": [source_ref],
+        "estimated_business_impact": [item["estimated_business_impact"] for item in opportunities],
+        "confidence": 0.55,
+        "missing_information": gaps,
         "assumptions": [
             "These are testable hypotheses, not predictions or financial advice.",
             "No revenue, demand, margin, or customer result was inferred from missing facts.",

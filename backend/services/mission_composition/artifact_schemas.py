@@ -183,12 +183,37 @@ BUSINESS_REVIEW_REPORT_SCHEMA = CompositionArtifactSchema(
             scope="whole_artifact",
         ),
         ArtifactFieldProjection(
+            deliverable_field="income_opportunities",
+            json_path="$.income_opportunities",
+            scope="whole_artifact",
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="supporting_evidence",
+            json_path="$.supporting_evidence",
+            scope="whole_artifact",
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="estimated_business_impact",
+            json_path="$.estimated_business_impact",
+            scope="whole_artifact",
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="confidence",
+            json_path="$.confidence",
+            scope="whole_artifact",
+        ),
+        ArtifactFieldProjection(
             deliverable_field="assumptions",
             json_path="$.assumptions",
             scope="whole_artifact",
         ),
         ArtifactFieldProjection(
             deliverable_field="limitations",
+            json_path="$.evidence_gaps",
+            scope="whole_artifact",
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="missing_information",
             json_path="$.evidence_gaps",
             scope="whole_artifact",
         ),
