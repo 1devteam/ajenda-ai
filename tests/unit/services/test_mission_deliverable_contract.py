@@ -114,9 +114,7 @@ def test_public_identity_fields_are_typed_deliverable_fields() -> None:
 
 
 def test_identity_match_evidence_is_explicitly_requestable() -> None:
-    request = deliverable_contract.extract_deliverable_request(
-        "Return identity match evidence and identity gaps."
-    )
+    request = deliverable_contract.extract_deliverable_request("Return identity match evidence and identity gaps.")
 
     assert request is not None
     assert [field.field_key for field in request.fields] == ["identity_match_evidence", "identity_gaps"]
