@@ -89,6 +89,22 @@ def test_business_income_review_accepts_explicit_evidence_clauses() -> None:
     assert intent.unmatched_material_clauses == []
 
 
+def test_business_income_review_routes_approved_profile_opportunity_request() -> None:
+    instruction = (
+        "Review the approved business profile and internal records. "
+        "Identify three evidence-backed opportunities to increase revenue. "
+        "For each opportunity, provide supporting evidence, estimated business impact, confidence, assumptions, "
+        "and missing information. Do not modify records, contact anyone, send anything, or publish anything."
+    )
+    intent = interpret_instruction(instruction)
+
+    assert intent.interpretation_ready
+    assert "review_business_income" in intent.requested_outcomes
+    jobs = route_jobs_for_intent(intent)
+    assert "intelligence.retrieve_business_profile" in [job.job_key for job in jobs]
+    assert "business.review_income" in [job.job_key for job in jobs]
+
+
 def test_interpreter_preserves_software_rnd_target_and_profile_context() -> None:
     instruction = (
         "Use 1DevTeam's approved business profile to research software and R&D developer companies in Austin, "

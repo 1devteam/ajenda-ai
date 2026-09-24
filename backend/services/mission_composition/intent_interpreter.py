@@ -1181,11 +1181,22 @@ def interpret_instruction(
 
     profile_context = profile_context or {}
     lower = text.lower()
+    legacy_business_income_review = re.search(
+        r"\breview\s+my\s+business\b.{0,120}\b(?:increase|grow|improve)\s+(?:my\s+)?income\b",
+        lower,
+    )
+    profile_review_request = re.search(
+        r"\b(?:review|use|assess|analy[sz]e)\b[^.!?]{0,100}"
+        r"\b(?:the\s+)?(?:approved\s+)?business\s+profile\b",
+        lower,
+    )
+    opportunity_request = re.search(
+        r"\b(?:identify|find|suggest|recommend)\b[^.!?]{0,120}"
+        r"\b(?:income|revenue|opportunit(?:y|ies))\b",
+        lower,
+    )
     business_income_review_requested = bool(
-        re.search(
-            r"\breview\s+my\s+business\b.{0,120}\b(?:increase|grow|improve)\s+(?:my\s+)?income\b",
-            lower,
-        )
+        legacy_business_income_review or (profile_review_request and opportunity_request)
     )
     evidence: list[InterpretationEvidence] = []
     clarifications: list[Clarification] = []
@@ -1402,6 +1413,18 @@ def interpret_instruction(
                 normalized_value="read_crm",
                 confidence=0.95,
                 rule_id="connector.hubspot_read",
+            )
+        )
+    if business_income_review_requested and "review_business_income" not in outcomes:
+        outcomes.append("review_business_income")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.review_business_income",
+                source="inferred_deterministic",
+                source_text=text[:240],
+                normalized_value="review_business_income",
+                confidence=0.9,
+                rule_id="review.business_income",
             )
         )
     # HubSpot-as-source prospect research: one research_prospects outcome (not dual read_crm).

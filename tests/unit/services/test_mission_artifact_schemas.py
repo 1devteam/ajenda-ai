@@ -72,6 +72,7 @@ def test_artifact_schema_catalog_matches_job_outputs() -> None:
         "prospect_candidates",
         "observed_contacts",
         "verified_prospect_candidates",
+        "public_identity_observation",
         "qualified_prospects",
         "revenue_records",
         "business_review_report",
