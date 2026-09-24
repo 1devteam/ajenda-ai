@@ -114,8 +114,10 @@ def _identity_tokens(value: str) -> list[str]:
 def _host_identity_tokens(host: str) -> list[str]:
     label = host.lower().removeprefix("www.").split(".", 1)[0]
     tokens = re.findall(r"[a-z0-9]{3,}", re.sub(r"([a-z])([A-Z])", r"\1 \2", label))
-    if len(label) >= 3:
-        tokens.extend(label[:size] for size in (3, 4, 5, 6) if len(label) >= size)
+    if len(label) >= 4:
+        # Three-letter prefixes create accidental matches (for example,
+        # ``ian`` inside unrelated words). Keep only meaningful host labels.
+        tokens.extend(label[:size] for size in (4, 5, 6) if len(label) >= size)
     return [
         token
         for token in tokens
@@ -123,16 +125,34 @@ def _host_identity_tokens(host: str) -> list[str]:
     ]
 
 
+def _contains_identity_marker(observed: str, marker: str) -> bool:
+    """Match a criterion as a word/phrase, not an arbitrary substring."""
+
+    escaped = re.escape(marker.lower().strip())
+    if marker.lower().strip() == "global":
+        escaped = r"global(?:ly)?"
+    return re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", observed.lower()) is not None
+
+
+def _contains_any_identity_marker(observed: str, markers: tuple[str, ...] | list[str]) -> bool:
+    return any(_contains_identity_marker(observed, marker) for marker in markers if marker)
+
+
 def _identity_evidence_excerpt(observed: str, markers: tuple[str, ...], *, limit: int = 280) -> str | None:
     """Return bounded observed text around a matched marker, never an inferred claim."""
 
     normalized = re.sub(r"\s+", " ", observed).strip()
-    lowered = normalized.lower()
     for marker in markers:
-        index = lowered.find(marker.lower())
-        if index < 0:
+        pattern = re.escape(marker.lower().strip())
+        if marker.lower().strip() == "global":
+            pattern = r"global(?:ly)?"
+        match = re.search(
+            rf"(?<![a-z0-9]){pattern}(?![a-z0-9])",
+            normalized.lower(),
+        )
+        if match is None:
             continue
-        start = max(0, index - 80)
+        start = max(0, match.start() - 80)
         return normalized[start : start + limit]
     return None
 
@@ -304,11 +324,14 @@ def research_verify_public_identity(invocation: ToolInvocation, context: ActionR
     host = page_host(snapshot.url)
     company_tokens = _identity_tokens(payload.expected_company)
     host_tokens = _host_identity_tokens(host)
-    company_match = bool(company_tokens) and any(token in observed for token in company_tokens)
-    host_match = bool(host_tokens) and any(token in observed for token in host_tokens)
-    industry_match = any(marker in observed for marker in _industry_evidence_markers(payload.industry))
+    company_phrase = " ".join(company_tokens)
+    company_phrase_match = bool(company_phrase) and _contains_identity_marker(observed, company_phrase)
+    host_match = _contains_any_identity_marker(observed, tuple(token for token in host_tokens if len(token) >= 4))
+    company_match = company_phrase_match or host_match
+    industry_markers = _industry_evidence_markers(payload.industry)
+    industry_match = _contains_any_identity_marker(observed, industry_markers)
     location_markers = _identity_tokens(payload.location)
-    location_match = bool(location_markers) and any(token in observed for token in location_markers)
+    location_match = _contains_any_identity_marker(observed, location_markers)
     directory = _is_directory_or_third_party_host(host) or _is_directory_or_third_party_page(observed)
     verified = bool(
         snapshot.real and not directory and (company_match or host_match) and industry_match and location_match
@@ -324,11 +347,12 @@ def research_verify_public_identity(invocation: ToolInvocation, context: ActionR
         gaps.append("industry_not_observed")
     if not location_match:
         gaps.append("location_not_observed")
-    company_markers = tuple(dict.fromkeys((*company_tokens, *host_tokens)))
+    company_markers = tuple(dict.fromkeys((company_phrase, *host_tokens)))
     identity_match_evidence = [
         {
             "criterion": "company_name_or_domain",
             "matched": company_match or host_match,
+            "match_basis": "company_phrase" if company_phrase_match else "official_host_token" if host_match else None,
             "markers": list(company_markers),
             "observed_excerpt": _identity_evidence_excerpt(observed, company_markers),
             "source_url": snapshot.url if snapshot.real else None,
@@ -337,7 +361,7 @@ def research_verify_public_identity(invocation: ToolInvocation, context: ActionR
             "criterion": "industry",
             "matched": industry_match,
             "markers": list(_industry_evidence_markers(payload.industry)),
-            "observed_excerpt": _identity_evidence_excerpt(observed, _industry_evidence_markers(payload.industry)),
+            "observed_excerpt": _identity_evidence_excerpt(observed, industry_markers),
             "source_url": snapshot.url if snapshot.real else None,
         },
         {

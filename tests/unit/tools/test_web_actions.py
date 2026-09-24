@@ -133,6 +133,7 @@ def test_public_identity_verification_requires_company_industry_and_location_evi
     assert artifact["title"] == "Acme HVAC"
     evidence_by_criterion = {item["criterion"]: item for item in artifact["identity_match_evidence"]}
     assert evidence_by_criterion["company_name_or_domain"]["matched"] is True
+    assert evidence_by_criterion["company_name_or_domain"]["match_basis"] == "company_phrase"
     assert evidence_by_criterion["company_name_or_domain"]["observed_excerpt"]
     assert evidence_by_criterion["industry"]["observed_excerpt"]
     assert evidence_by_criterion["location"]["observed_excerpt"]
