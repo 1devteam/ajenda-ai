@@ -166,12 +166,27 @@ def evaluate_deliverable_completion(
     field_results: list[DeliverableFieldCompletion] = []
 
     for binding in projection.bindings:
-        required_rows = max(
-            (
-                projection.minimum_rows_by_artifact.get(artifact_key, projection.minimum_rows)
-                for artifact_key in binding.artifact_keys
-            ),
-            default=projection.minimum_rows,
+        # Quantities constrain row-oriented artifacts. A whole-artifact report
+        # can contain an internal list, but its requested fields are presence
+        # checks; applying the mission quantity to the enclosing object would
+        # incorrectly mark a valid report as insufficient_rows.
+        whole_artifact_binding = any(
+            field.deliverable_field == binding.field_key and field.scope == "whole_artifact"
+            for artifact_key in binding.artifact_keys
+            for field in (
+                ARTIFACT_SCHEMAS_BY_KEY[artifact_key].fields if artifact_key in ARTIFACT_SCHEMAS_BY_KEY else ()
+            )
+        )
+        required_rows = (
+            0
+            if whole_artifact_binding
+            else max(
+                (
+                    projection.minimum_rows_by_artifact.get(artifact_key, projection.minimum_rows)
+                    for artifact_key in binding.artifact_keys
+                ),
+                default=projection.minimum_rows,
+            )
         )
         if binding.status != "bound":
             status: FieldCompletionStatus = "unproven"

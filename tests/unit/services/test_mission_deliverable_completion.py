@@ -289,3 +289,32 @@ def test_downstream_artifacts_use_their_own_requested_row_quantity() -> None:
         "qualification_score": 2,
         "drafts": 2,
     }
+
+
+def test_whole_business_report_does_not_apply_quantity_as_row_count() -> None:
+    request = DeliverableRequest(
+        scope="mission",
+        fields=(
+            DeliverableFieldRequirement(field_key="assumptions", source_text="assumptions"),
+            DeliverableFieldRequirement(field_key="estimated_business_impact", source_text="estimated business impact"),
+        ),
+    )
+    projection = project_deliverable_request(request, know_how=REVOPS_V2_KNOW_HOW, minimum_rows=3)
+    artifact = MaterializedArtifact(
+        artifact_key="business_review_report",
+        payload={
+            "income_opportunities": [{"title": "one"}],
+            "supporting_evidence": ["profile"],
+            "assumptions": ["bounded"],
+            "estimated_business_impact": ["not estimated"],
+            "confidence": 0.55,
+            "evidence_gaps": ["revenue"],
+            "missing_information": ["revenue"],
+        },
+    )
+
+    completion = evaluate_deliverable_completion(projection, [artifact])
+
+    assert completion.complete is True
+    assert all(field.status == "satisfied" for field in completion.fields)
+    assert all(field.required_rows == 0 for field in completion.fields)
