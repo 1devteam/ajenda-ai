@@ -246,6 +246,33 @@ def test_unknown_requested_item_keeps_completion_false() -> None:
     assert completion.complete is False
 
 
+def test_crm_ranking_fields_accept_supporting_evidence_and_empty_disqualifiers() -> None:
+    projection = _projection(
+        "Return both scored records with qualification dimensions, supporting evidence, "
+        "disqualifiers, and recommended next actions."
+    )
+    row = {
+        **_qualified_row(),
+        "qualification_dimensions": {"business_fit": 10},
+        "disqualifiers": [],
+        "recommended_next_action": "Proceed to the next governed stage.",
+    }
+
+    completion = evaluate_deliverable_completion(
+        projection,
+        [MaterializedArtifact(artifact_key="qualified_prospects", payload=[row, row])],
+    )
+
+    assert completion.complete is True
+    assert {field.field_key: field.status for field in completion.fields} == {
+        "qualification_score": "satisfied",
+        "qualification_dimensions": "satisfied",
+        "supporting_evidence": "satisfied",
+        "disqualifiers": "satisfied",
+        "recommended_next_action": "satisfied",
+    }
+
+
 def test_downstream_artifacts_use_their_own_requested_row_quantity() -> None:
     request = extract_deliverable_request("Return website, qualification score, and drafts.")
     assert request is not None

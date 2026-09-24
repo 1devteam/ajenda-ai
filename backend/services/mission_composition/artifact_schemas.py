@@ -162,6 +162,13 @@ QUALIFIED_PROSPECTS_SCHEMA = CompositionArtifactSchema(
             scope="per_item",
         ),
         ArtifactFieldProjection(
+            # "Supporting evidence" is the operator-facing name for the
+            # typed qualification evidence emitted by the qualifier.
+            deliverable_field="supporting_evidence",
+            json_path="$[].qualification_evidence",
+            scope="per_item",
+        ),
+        ArtifactFieldProjection(
             deliverable_field="disqualifiers",
             json_path="$[].disqualifiers",
             scope="per_item",

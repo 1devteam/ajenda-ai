@@ -148,7 +148,14 @@ def _typed_field_has_value(*, artifact: MaterializedArtifact, field_key: Deliver
         if path_field is None:
             return False
         if not all(
-            isinstance(item, dict) and path_field in item and _artifact_has_value(item[path_field])
+            isinstance(item, dict)
+            and path_field in item
+            and (
+                _artifact_has_value(item[path_field])
+                # An empty disqualifier list is a positive result: it proves
+                # that no disqualifier was found for this prospect.
+                or (field_key == "disqualifiers" and isinstance(item[path_field], list))
+            )
             for item in artifact.payload
         ):
             return False
