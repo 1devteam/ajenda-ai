@@ -493,7 +493,7 @@ def test_fail_persists_rejected_failure_evidence_without_artifact() -> None:
 
     evidence = [call.args[0] for call in session.add.call_args_list if hasattr(call.args[0], "evidence_type")]
     assert len(evidence) == 1
-    assert evidence[0].evidence_type == "execution_failure"
+    assert evidence[0].evidence_type == "validation"
     assert evidence[0].collection_status == "rejected"
     assert evidence[0].execution_task_id == task.id
     assert evidence[0].artifact_references == []

@@ -96,7 +96,9 @@ def _failure_evidence_record(*, task: ExecutionTask, lease: WorkerLease, worker_
         task_graph_node_key=node_key if isinstance(node_key, str) else None,
         materialization_reference=graph_reference or None,
         execution_task_id=task.id,
-        evidence_type="execution_failure",
+        # ``validation`` is the schema-approved evidence type for a rejected
+        # runtime result; the structured payload carries the failure subtype.
+        evidence_type="validation",
         evidence_source="worker_runtime.fail",
         summary=summary,
         structured_payload={
