@@ -462,6 +462,9 @@ def test_observe_contacts_rejects_marketplace_page_even_when_host_matches() -> N
     assert page["identity_status"] == "unverified"
     assert page["source_reliability"] == "directory_or_third_party"
     assert result.output["verified_prospect_candidates"] == []
+    assert result.output["research_gap"] == (
+        "no verified candidates produced; public identity observation rejected all candidate sources"
+    )
 
 
 def test_observe_contacts_normalizes_company_name_when_domain_proves_identity() -> None:

@@ -1000,6 +1000,11 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         },
         "requested_quantity": limit,
         "accept_met": accept_met,
+        "research_gap": (
+            "no verified candidates produced; public identity observation rejected all candidate sources"
+            if not verified_prospect_candidates
+            else None
+        ),
         "real": bool(observed_contacts),
         "limitations": limitations,
         "condition_observations": [

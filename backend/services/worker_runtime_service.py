@@ -174,6 +174,9 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
         artifact_payload = raw_output[artifact_key]
         if isinstance(artifact_payload, dict) and isinstance(artifact_payload.get("error"), str):
             errors.insert(0, f"handler reported failure: {artifact_payload['error'][:500]}")
+        research_gap = raw_output.get("research_gap")
+        if isinstance(research_gap, str) and research_gap.strip():
+            errors.insert(0, f"research gap: {research_gap[:500]}")
         raise ValueError(f"declared artifact '{artifact_key}' failed schema validation: {'; '.join(errors)}")
 
 

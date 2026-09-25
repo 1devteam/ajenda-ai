@@ -302,6 +302,36 @@ def test_complete_rejects_empty_declared_prospect_candidates() -> None:
     queue.complete_task.assert_not_called()
 
 
+def test_complete_preserves_public_research_gap_when_identity_observation_is_empty() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    task.metadata_json["expected_output_contract"] = {"artifact": "verified_prospect_candidates"}
+
+    with pytest.raises(
+        ValueError,
+        match="research gap: no verified candidates produced; public identity observation rejected all candidate sources",
+    ):
+        service.complete(
+            tenant_id=tenant_id,
+            lease_id=lease.id,
+            worker_id=worker_id,
+            task_output={
+                "handler": "tool.invoke",
+                "status": "completed",
+                "output": {
+                    "verified_prospect_candidates": [],
+                    "research_gap": (
+                        "no verified candidates produced; public identity observation rejected all candidate sources"
+                    ),
+                },
+            },
+        )
+
+    assert task.status == ExecutionTaskState.RUNNING.value
+    queue.complete_task.assert_not_called()
+
+
 def test_complete_allows_explicit_intermediate_public_discovery_payload() -> None:
     service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
         status=ExecutionTaskState.RUNNING.value
