@@ -253,6 +253,45 @@ def extract_deliverable_request(text: str) -> DeliverableRequest | None:
         seen.add(field_key)
         fields.append(DeliverableFieldRequirement(field_key=field_key, source_text=item[:500]))
 
+    # Identity missions commonly shorten the final list to ``evidence URLs``
+    # and ``match reasons`` after already naming identity fields.  Resolve
+    # those unambiguous aliases only in that identity context; keep them
+    # unresolved for general research requests where ``evidence`` could mean
+    # a different artifact projection.
+    identity_context = bool(
+        seen.intersection(
+            {
+                "expected_company",
+                "expected_industry",
+                "expected_location",
+                "identity_status",
+                "identity_gaps",
+                "identity_match_evidence",
+            }
+        )
+    )
+    if identity_context and unresolved:
+        identity_aliases = {
+            "evidence urls": "identity_evidence_urls",
+            "evidence links": "identity_evidence_urls",
+            "match reasons": "identity_match_reasons",
+        }
+        remaining_unresolved: list[str] = []
+        for item in unresolved:
+            alias_key = identity_aliases.get(" ".join(item.lower().split()))
+            if alias_key is None or alias_key in seen:
+                remaining_unresolved.append(item)
+                continue
+            seen.add(alias_key)
+            fields.append(DeliverableFieldRequirement(field_key=alias_key, source_text=item[:500]))
+        unresolved = remaining_unresolved
+        requested_order = {
+            " ".join(item.lower().split()): index for index, item in enumerate(_split_requested_items(body))
+        }
+        fields.sort(
+            key=lambda field: requested_order.get(" ".join(field.source_text.lower().split()), len(requested_order))
+        )
+
     # "scored records with ..." names the score and then additional fields in
     # the same clause; preserve both typed requirements instead of letting the
     # first matching phrase hide the score.

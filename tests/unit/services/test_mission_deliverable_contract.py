@@ -150,3 +150,32 @@ def test_identity_url_fields_do_not_fall_back_to_prospect_fields() -> None:
     ]
     assert request.unresolved_items == ()
     assert request.fully_understood
+
+
+def test_identity_context_resolves_short_evidence_and_reason_aliases() -> None:
+    request = deliverable_contract.extract_deliverable_request(
+        "Verify the public identity of Internet Assigned Numbers Authority. "
+        "Return source URL, final URL, title, identity status, evidence URLs, identity match reasons, and identity gaps."
+    )
+
+    assert request is not None
+    assert [field.field_key for field in request.fields] == [
+        "source_url",
+        "final_url",
+        "title",
+        "identity_status",
+        "identity_evidence_urls",
+        "identity_match_reasons",
+        "identity_gaps",
+    ]
+    assert request.unresolved_items == ()
+    assert request.fully_understood
+
+
+def test_short_evidence_urls_remain_unresolved_without_identity_context() -> None:
+    request = deliverable_contract.extract_deliverable_request("Return evidence URLs and match reasons.")
+
+    assert request is not None
+    assert request.fields == ()
+    assert request.unresolved_items == ("evidence URLs", "match reasons")
+    assert not request.fully_understood
