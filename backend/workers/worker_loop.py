@@ -25,6 +25,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.db.tenant_session import activate_tenant_session
 from backend.queue.base import QueueAdapter
 from backend.runtime.claim_holders import worker_daemon_holder
+from backend.services.runtime_maintainer import RuntimeMaintainer
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
 from backend.workers.tenant_scheduler import FixedTenantClaimTarget, TenantClaimTarget
@@ -33,6 +34,7 @@ logger = logging.getLogger("ajenda.worker_loop")
 
 _LIVENESS_FILE = Path("/tmp/worker-alive")
 _LIVENESS_UPDATE_INTERVAL = 10.0  # seconds
+_RECOVERY_INTERVAL = 30.0  # seconds
 
 
 @dataclass(slots=True)
@@ -52,6 +54,7 @@ class WorkerLoop:
     poll_interval_seconds: float = 2.0
     heartbeat_interval_seconds: float = 15.0
     _last_liveness_update: float = field(default=0.0, init=False)
+    _last_recovery: float = field(default=0.0, init=False)
     _current_claim_tenant_id: str | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
@@ -59,6 +62,10 @@ class WorkerLoop:
             if self.tenant_id is None or not self.tenant_id.strip():
                 raise ValueError("WorkerLoop requires tenant_id or claim_target")
             object.__setattr__(self, "claim_target", FixedTenantClaimTarget(tenant_id=self.tenant_id))
+        # Recovery is deliberately periodic rather than part of every claim.
+        # The first poll remains latency-sensitive; stale leases are recovered
+        # on the next bounded maintenance interval.
+        object.__setattr__(self, "_last_recovery", time.monotonic())
 
     def _execution_tenant_id(self) -> str | None:
         if self._current_claim_tenant_id is not None:
@@ -88,6 +95,7 @@ class WorkerLoop:
             return None
 
         object.__setattr__(self, "_current_claim_tenant_id", tenant_id)
+        self._maybe_recover_expired_leases(tenant_id)
         session = self.session_factory()
         activate_tenant_session(session, tenant_id)
         lease_id: uuid.UUID | None = None
@@ -136,6 +144,41 @@ class WorkerLoop:
             if lease_id is not None and not started:
                 self._release_unstarted_claim_once(lease_id=lease_id, reason=str(exc))
             return None
+        finally:
+            session.close()
+
+    def _maybe_recover_expired_leases(self, tenant_id: str) -> None:
+        """Recover stale leases through the existing runtime maintainer.
+
+        The worker operates under one tenant session at a time, so recovery
+        remains tenant-scoped even when the claim target is multi-tenant. The
+        maintainer owns lease/task transitions and queue reconciliation; this
+        loop only schedules the bounded maintenance call.
+        """
+        now = time.monotonic()
+        if now - self._last_recovery < _RECOVERY_INTERVAL:
+            return
+        object.__setattr__(self, "_last_recovery", now)
+        session = self.session_factory()
+        try:
+            activate_tenant_session(session, tenant_id)
+            summary = RuntimeMaintainer(session, self.queue).recover_expired_leases()
+            if summary.expired_lease_count or summary.requeued_task_count or summary.dead_lettered_count:
+                logger.info(
+                    "worker_runtime_recovery_completed",
+                    extra={
+                        "tenant_id": tenant_id,
+                        "expired_lease_count": summary.expired_lease_count,
+                        "requeued_task_count": summary.requeued_task_count,
+                        "dead_lettered_count": summary.dead_lettered_count,
+                    },
+                )
+        except Exception as exc:
+            session.rollback()
+            logger.error(
+                "worker_runtime_recovery_failed",
+                extra={"tenant_id": tenant_id, "error": str(exc)},
+            )
         finally:
             session.close()
 

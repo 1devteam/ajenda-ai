@@ -58,6 +58,29 @@ def test_claim_and_start_returns_none_when_queue_has_no_task(monkeypatch: pytest
     assert session.closed is True
 
 
+def test_worker_loop_runs_bounded_tenant_scoped_recovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = SessionStub()
+    loop = _loop(session=session)
+    object.__setattr__(loop, "_last_recovery", 0.0)
+    calls: list[str] = []
+
+    class MaintainerStub:
+        def __init__(self, session_arg: object, queue_arg: object) -> None:
+            calls.append("init")
+
+        def recover_expired_leases(self) -> SimpleNamespace:
+            calls.append("recover")
+            return SimpleNamespace(expired_lease_count=1, requeued_task_count=1, dead_lettered_count=0)
+
+    monkeypatch.setattr(worker_loop, "RuntimeMaintainer", MaintainerStub)
+    monkeypatch.setattr(worker_loop.time, "monotonic", lambda: 100.0)
+
+    loop._maybe_recover_expired_leases("tenant-loop-contract")
+
+    assert calls == ["init", "recover"]
+    assert session.closed is True
+
+
 def test_claim_and_start_heartbeats_and_starts_claimed_task(monkeypatch: pytest.MonkeyPatch) -> None:
     session = SessionStub()
     loop = _loop(session=session)
