@@ -18,7 +18,18 @@ from backend.services.credentials.secret_protector import RuntimeCredentialSecre
 REPORT_RE = re.compile(
     r"\b(?:comparison\s+table|comparison\s+report|research\s+report|report\b|highlight\b|evidence\s+gap)", re.I
 )
-REPORT_ARTIFACTS = frozenset({"comparison_report", "mission_report", "research_report"})
+# These artifacts are whole-document/report-like outputs.  Keep this list
+# aligned with job_catalog producers so admission does not mistake a typed
+# analysis artifact for an unmaterialized generic report.
+REPORT_ARTIFACTS = frozenset(
+    {
+        "comparison_report",
+        "mission_report",
+        "research_report",
+        "business_review_report",
+        "goal_progress_evaluation",
+    }
+)
 CONTACTS_RE = re.compile(
     r"\bgoogle\s+contacts?\b|\b(?:check|read|list|show|fetch|get)\s+(?:my\s+|the\s+)?contacts?\b", re.I
 )

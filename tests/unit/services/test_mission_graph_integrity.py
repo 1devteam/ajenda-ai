@@ -99,3 +99,23 @@ def test_compare_qualification_facts_does_not_require_report_artifact() -> None:
     )
     assert report["status"] == "clear"
     assert not any(item["code"] == "mission_deliverable.report_not_materialized" for item in report["findings"])
+
+
+def test_goal_progress_report_is_materialized_by_goal_evaluation_job() -> None:
+    report = evaluate_admission_integrity(
+        session=MagicMock(),
+        tenant_id="tenant-1",
+        instruction="Evaluate goal progress and return an evaluation report with evidence gaps.",
+        task_graph={
+            "nodes": [
+                {
+                    "key": "goal-evaluation",
+                    "metadata": {"job_key": "analysis.evaluate_goal_progress"},
+                    "output_contract": {"artifact": "goal_progress_evaluation"},
+                }
+            ]
+        },
+    )
+
+    assert report["status"] == "clear"
+    assert not any(item["code"] == "mission_deliverable.report_not_materialized" for item in report["findings"])
