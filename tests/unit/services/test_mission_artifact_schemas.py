@@ -93,6 +93,7 @@ def test_artifact_schema_catalog_matches_job_outputs() -> None:
         "revenue_records",
         "business_review_report",
         "web_page_observation",
+        "goal_progress_evaluation",
     )
 
 
