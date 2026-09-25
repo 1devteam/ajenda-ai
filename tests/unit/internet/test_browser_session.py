@@ -4,6 +4,7 @@ from ipaddress import ip_address
 from unittest.mock import MagicMock, patch
 
 from backend.services.internet.browser_session import (
+    _assert_allowed_page_url,
     _browser_host_resolver_rules,
     assert_browser_runtime_ready,
     run_browser_session,
@@ -184,3 +185,16 @@ def test_browser_host_resolver_rules_use_vetted_addresses() -> None:
     ):
         rules = _browser_host_resolver_rules(("example.com",))
     assert rules == ["MAP example.com 93.184.216.34"]
+
+
+def test_browser_session_rejects_final_cross_origin_url() -> None:
+    with patch(
+        "backend.services.internet.browser_session._vet_browser_destination",
+    ) as vet:
+        try:
+            _assert_allowed_page_url("https://outside.example/", ("example.com",))
+        except NetworkEgressError as exc:
+            assert "outside allowed_origins" in str(exc)
+        else:
+            raise AssertionError("cross-origin final URL must fail closed")
+        vet.assert_not_called()

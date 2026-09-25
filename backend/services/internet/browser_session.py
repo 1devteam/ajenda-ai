@@ -93,6 +93,17 @@ def _browser_host_resolver_rules(allowed_hosts: Sequence[str]) -> list[str]:
     return rules
 
 
+def _assert_allowed_page_url(page_url: str, allowed_hosts: Sequence[str]) -> str:
+    """Reject a final browser location that escaped the contract origin set."""
+
+    normalized_url = normalize_page_url(page_url)
+    host = (urlparse(normalized_url).hostname or "").lower().rstrip(".")
+    if host not in allowed_hosts:
+        raise NetworkEgressError("web.browser_session final URL is outside allowed_origins")
+    _vet_browser_destination(normalized_url)
+    return normalized_url
+
+
 def _step_text(page: Any, selector: str, limit: int, timeout_ms: int) -> str:
     value = page.locator(selector).inner_text(timeout=min(timeout_ms, 10_000))
     return " ".join((value or "").split())[:limit]
@@ -184,7 +195,7 @@ def run_browser_session(
                     context.route("**/*", _route_handler)
                     page = context.new_page()
                     response = page.goto(page_url, wait_until=wait_until, timeout=timeout_ms)
-                    final_url = (page.url or page_url).strip() or page_url
+                    final_url = _assert_allowed_page_url(page.url or page_url, allowed_hosts)
                     title = (page.title() or "").strip()[:240] or None
                     text_preview = None
                     if extract_text:
@@ -218,7 +229,7 @@ def run_browser_session(
                                 wait_until=wait_until,
                                 timeout=timeout_ms,
                             )
-                            final_url = (page.url or normalized_target).strip() or normalized_target
+                            final_url = _assert_allowed_page_url(page.url or normalized_target, allowed_hosts)
                             steps.append(
                                 {
                                     "index": index,
@@ -252,7 +263,7 @@ def run_browser_session(
                             except Exception:
                                 # A same-document click need not produce a load event.
                                 pass
-                            final_url = (page.url or final_url).strip() or final_url
+                            final_url = _assert_allowed_page_url(page.url or final_url, allowed_hosts)
                             title = (page.title() or "").strip()[:240] or title
                             try:
                                 body_text = page.inner_text("body", timeout=min(timeout_ms, 10_000))
