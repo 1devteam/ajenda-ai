@@ -271,7 +271,7 @@ def extract_deliverable_request(text: str) -> DeliverableRequest | None:
         )
     )
     if identity_context and unresolved:
-        identity_aliases = {
+        identity_aliases: dict[str, DeliverableFieldKey] = {
             "evidence urls": "identity_evidence_urls",
             "evidence links": "identity_evidence_urls",
             "match reasons": "identity_match_reasons",
