@@ -157,9 +157,10 @@ def test_analysis_evaluate_goal_progress_action() -> None:
     )
     assert result.action == "analysis.evaluate_goal_progress"
     assert result.side_effect_class.value == "none"
-    assert result.output["status"] == "at_risk"
-    assert result.output["kpi_evaluations"][0]["gap"] == 19
-    assert result.output["state_changes"]["changes"]
+    evaluation = result.output["goal_progress_evaluation"]
+    assert evaluation["status"] == "at_risk"
+    assert evaluation["kpi_evaluations"][0]["gap"] == 19
+    assert evaluation["state_changes"]["changes"]
 
 
 def test_typed_temporal_fields() -> None:

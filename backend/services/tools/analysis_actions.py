@@ -236,7 +236,11 @@ def analysis_evaluate_goal_progress(invocation: ToolInvocation, context: ActionR
         evidence_ids=list(payload.evidence_ids),
         missing_evidence_codes=list(payload.missing_evidence_codes),
     )
-    output = result.model_dump(mode="json")
+    evaluation = result.model_dump(mode="json")
+    # Runtime contracts name the artifact explicitly. Keep the evaluator's
+    # typed payload under that key so WorkerRuntimeService can validate and
+    # persist the exact declared output rather than accepting an untyped blob.
+    output = {"goal_progress_evaluation": evaluation}
     summary = (
         f"Goal {result.goal_id} progress={result.status.value} "
         f"confidence={result.confidence} gaps={len(result.progress_gaps)}"
@@ -252,7 +256,7 @@ def analysis_evaluate_goal_progress(invocation: ToolInvocation, context: ActionR
                 action="analysis.evaluate_goal_progress",
                 provider="ajenda_analysis",
                 summary=summary,
-                payload=output,
+                payload=evaluation,
                 confidence=result.confidence,
                 cluster="evaluation_intelligence",
             )
