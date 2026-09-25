@@ -1828,7 +1828,7 @@ def interpret_instruction(
             recognized = True
             material = True
         if "observe_web_page" in outcomes and re.search(
-            r"\b(?:observe|inspect|open|follow|click|extract|return|browser|link|title|visible|timestamp|blocked|final\s+url)\b",
+            r"\b(?:observe|inspect|open|navigate|follow|click|extract|return|browser|link|title|visible|timestamp|blocked|final\s+url)\b",
             clause_text,
             flags=re.IGNORECASE,
         ):

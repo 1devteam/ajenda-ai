@@ -177,6 +177,8 @@ def test_browser_session_compiles_explicit_bounded_navigation() -> None:
     )
     payload = build_action_input(action_name="web.browser_session", intent=intent)
 
+    assert intent.interpretation_ready is True
+    assert intent.unmatched_material_clauses == []
     assert payload["commands"] == [
         {"action": "navigate", "url": "https://www.iana.org/domains"},
         {"action": "observe"},
