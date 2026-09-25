@@ -245,6 +245,8 @@ def web_browser_session(invocation: ToolInvocation, context: ActionRuntimeContex
         "blocked_requests": extraction.get("blocked_samples") or [],
         "observation_satisfied": extraction.get("observation_satisfied") is True,
     }
+    if output.get("error"):
+        output["web_page_observation"]["error"] = output["error"]
     summary = (
         f"Browser session {output.get('url')} (status={output.get('status_code')}, title={title[:80]!r}, real={real})."
         if real

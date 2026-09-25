@@ -88,6 +88,26 @@ def test_web_browser_session_emits_typed_page_observation_artifact() -> None:
     assert artifact["browser_trace"]
 
 
+def test_web_browser_session_preserves_runtime_error_in_failed_artifact() -> None:
+    snapshot = PageSnapshot(
+        url="https://example.com/",
+        real=False,
+        error="web.browser_session click step failed",
+        access_mode=InternetAccessMode.BROWSER_SESSION,
+        browser_ready=True,
+    )
+    with patch("backend.services.tools.web_actions.run_browser_session", return_value=snapshot):
+        registry = get_default_action_registry(rebuild=True)
+        result = registry.invoke(
+            ToolInvocation(
+                action="web.browser_session",
+                input={"url": "https://example.com", "observation_requirements": [{"kind": "title"}]},
+            ),
+            _context(),
+        )
+    assert result.output["web_page_observation"]["error"] == "web.browser_session click step failed"
+
+
 def test_public_identity_verification_requires_company_industry_and_location_evidence() -> None:
     snapshot = PageSnapshot(
         url="https://acmehvac.example/",

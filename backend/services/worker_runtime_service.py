@@ -123,8 +123,11 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
         ):
             raise ValueError("intermediate output contract is only permitted for public web discovery")
         return
-    errors = validate_artifact_payload(schema, raw_output[artifact_key])
+    errors = list(validate_artifact_payload(schema, raw_output[artifact_key]))
     if errors:
+        artifact_payload = raw_output[artifact_key]
+        if isinstance(artifact_payload, dict) and isinstance(artifact_payload.get("error"), str):
+            errors.insert(0, f"handler reported failure: {artifact_payload['error'][:500]}")
         raise ValueError(f"declared artifact '{artifact_key}' failed schema validation: {'; '.join(errors)}")
 
 

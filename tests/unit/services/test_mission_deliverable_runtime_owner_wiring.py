@@ -52,6 +52,29 @@ def test_completed_declared_artifact_gets_evidence_backed_identity() -> None:
     assert _materialized_artifact_reference(task, []) == []
 
 
+def test_declared_artifact_validation_preserves_handler_error() -> None:
+    task = SimpleNamespace(
+        metadata_json={"expected_output_contract": {"artifact": "web_page_observation"}},
+        status=ExecutionTaskState.RUNNING.value,
+    )
+    try:
+        worker_runtime_module._validate_declared_output_contract(
+            task,
+            {
+                "output": {
+                    "web_page_observation": {
+                        "error": "selector did not match any page element",
+                    }
+                }
+            },
+        )
+    except ValueError as exc:
+        assert "handler reported failure" in str(exc)
+        assert "selector did not match" in str(exc)
+    else:
+        raise AssertionError("invalid browser artifact must fail closed")
+
+
 def test_deliverable_read_model_failure_does_not_block_task_completion(monkeypatch) -> None:
     session = MagicMock()
     queue = MagicMock()
