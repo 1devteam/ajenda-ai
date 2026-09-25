@@ -103,6 +103,16 @@ def test_goal_progress_field_request_does_not_add_research_synthesis() -> None:
     )
     assert intent.interpretation_ready
     assert intent.requested_outcomes == ["evaluate_goal_progress"]
+    assert intent.deliverable_request is not None
+    assert intent.deliverable_request.unresolved_items == ()
+    assert {field.field_key for field in intent.deliverable_request.fields} == {
+        "goal_status",
+        "confidence",
+        "kpi_evaluations",
+        "progress_gaps",
+        "evidence_gaps",
+        "evaluation_explanations",
+    }
 
 
 def test_business_income_review_accepts_explicit_evidence_clauses() -> None:
