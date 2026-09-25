@@ -150,6 +150,17 @@ The current working tree completed Slice A, Slice B/C, and the narrow business-c
 
 The following remain deliberately open and are not represented as completed:
 
-- stronger DNS pinning than the current `vet_only` route-vetting boundary;
 - API-side browser execution, if any, and its deployment contract.
-- queued mission proof through WorkerLoop/lease/evidence/deliverable for the new browser job;
+- whether the deployed environment's Chromium resolver rules remain effective for every approved origin;
+
+## DNS hardening reconciliation — 2026-09-24
+
+The browser runtime now resolves every contract-approved host through
+`NetworkEgressAuthority` before Chromium launch and passes the resulting
+addresses to Chromium's `--host-resolver-rules`. Per-request route vetting is
+still retained for redirects, frames, and subresources. Runtime evidence now
+reports `dns_pin=chromium_host_resolver_rules` and the pinned host list.
+
+This closes the previously documented `vet_only` gap for approved browser
+origins. It does not authorize new origins, credentials, writes, downloads, or
+browser-side API execution.

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from ipaddress import ip_address
 from unittest.mock import MagicMock, patch
 
-from backend.services.internet.browser_session import assert_browser_runtime_ready, run_browser_session
+from backend.services.internet.browser_session import (
+    _browser_host_resolver_rules,
+    assert_browser_runtime_ready,
+    run_browser_session,
+)
 from backend.services.internet.modes import InternetAccessMode
-from backend.services.network_egress import NetworkEgressError
+from backend.services.network_egress import NetworkEgressError, VettedNetworkDestination
 
 
 class _FakeResponse:
@@ -162,3 +167,20 @@ def test_browser_session_runs_bounded_read_only_steps(monkeypatch) -> None:
     ]
     assert snapshot.extraction["dns_pin"] == "chromium_host_resolver_rules"
     assert _FakeChromium.launch_kwargs["args"][0].startswith("--host-resolver-rules=MAP example.com ")
+
+
+def test_browser_host_resolver_rules_use_vetted_addresses() -> None:
+    authority = MagicMock()
+    authority.vet_https_url.return_value = VettedNetworkDestination(
+        original_url="https://example.com/",
+        connect_url="https://93.184.216.34/",
+        pinned_ip=ip_address("93.184.216.34"),
+        sni_hostname="example.com",
+        host_header="example.com",
+    )
+    with patch(
+        "backend.services.internet.browser_session.get_default_network_egress_authority",
+        return_value=authority,
+    ):
+        rules = _browser_host_resolver_rules(("example.com",))
+    assert rules == ["MAP example.com 93.184.216.34"]
