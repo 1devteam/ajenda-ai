@@ -152,6 +152,21 @@ def test_validate_allows_observe_page_artifact_without_market_language() -> None
     )
 
 
+def test_validate_allows_bounded_browser_navigation_objective() -> None:
+    validate_mission_intake_prompt(
+        objective=("Open https://example.com, navigate to the page, and return the final title and URL."),
+        success_criteria=[
+            {
+                "description": (
+                    "A web_page_observation artifact records the final URL, title, and browser step evidence."
+                ),
+                "evidence": ["web page observation artifact and browser step trace"],
+            }
+        ],
+        constraints=[{"name": "No outbound messages", "description": "Do not send messages", "hard": True}],
+    )
+
+
 def test_validate_denies_duplicate_success_criteria() -> None:
     criterion = _valid_criterion()
     with pytest.raises(MissionIntakeQualityDeniedError) as exc_info:
