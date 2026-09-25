@@ -55,6 +55,19 @@ def test_validate_accepts_bounded_internal_crm_records_mission() -> None:
     )
 
 
+def test_validate_accepts_short_explicit_safety_constraint() -> None:
+    validate_mission_intake_prompt(
+        objective=("Observe the web page at https://example.com and return its title and visible text."),
+        success_criteria=[
+            {
+                "description": "A web_page_observation artifact records the observed page and evidence.",
+                "evidence": ["web_page_observation artifact"],
+            }
+        ],
+        constraints=[{"name": "No outbound messages", "description": "Do not send messages", "hard": True}],
+    )
+
+
 def test_validate_denies_placeholder_objective() -> None:
     with pytest.raises(MissionIntakeQualityDeniedError) as exc_info:
         validate_mission_intake_prompt(

@@ -444,6 +444,11 @@ def _is_vague_free_text(text: str) -> bool:
         return True
     if normalized in _PLACEHOLDER_OBJECTIVES:
         return True
+    # A short prohibition is still a concrete execution boundary.  Safety
+    # constraints such as "Do not send messages" must not be rejected merely
+    # because they contain fewer content words than an objective.
+    if re.match(r"^(?:do not|don't|never|must not|no)\s+[a-z0-9][a-z0-9' -]*$", normalized):
+        return False
     return len(_content_words(text)) < 3
 
 
