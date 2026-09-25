@@ -279,6 +279,9 @@ GOAL_PROGRESS_EVALUATION_SCHEMA = CompositionArtifactSchema(
     producer_job="analysis.evaluate_goal_progress",
     fields=(
         ArtifactFieldProjection(deliverable_field="goal_status", json_path="$.status", scope="whole_artifact"),
+        # ``confidence`` is the generic user-facing field name; retain the
+        # goal_confidence alias for callers that request it explicitly.
+        ArtifactFieldProjection(deliverable_field="confidence", json_path="$.confidence", scope="whole_artifact"),
         ArtifactFieldProjection(deliverable_field="goal_confidence", json_path="$.confidence", scope="whole_artifact"),
         ArtifactFieldProjection(
             deliverable_field="kpi_evaluations", json_path="$.kpi_evaluations", scope="whole_artifact"

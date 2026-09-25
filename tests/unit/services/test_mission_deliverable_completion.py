@@ -63,6 +63,42 @@ def test_typed_and_whole_artifact_fields_complete_only_after_materialization() -
     assert after.grants_execution_authority is False
 
 
+def test_goal_progress_artifact_accepts_empty_evaluation_arrays() -> None:
+    request = extract_deliverable_request(
+        "Return the evaluation status, confidence, KPI evaluations, progress gaps, evidence gaps, and explanations."
+    )
+    assert request is not None
+    projection = project_deliverable_request(request, know_how=REVOPS_V2_KNOW_HOW)
+    completion = evaluate_deliverable_completion(
+        projection,
+        [
+            MaterializedArtifact(
+                artifact_key="goal_progress_evaluation",
+                payload={
+                    "status": "insufficient_data",
+                    "goal_id": "g-1",
+                    "algorithm": "goal_progress_evaluation_v1",
+                    "confidence": 0.3,
+                    "evaluated_at": "2026-09-25T00:00:00Z",
+                    "explanations": ["No KPIs were declared."],
+                    "subject_refs": [],
+                    "evaluation_id": "eval-1",
+                    "evidence_gaps": [{"code": "kpis_not_declared", "kind": "evidence"}],
+                    "progress_gaps": [],
+                    "state_changes": None,
+                    "schema_version": "1.0",
+                    "kpi_evaluations": [],
+                    "recent_event_ids": [],
+                    "supporting_evidence_ids": [],
+                },
+            )
+        ],
+    )
+
+    assert completion.complete is True
+    assert all(field.status == "satisfied" for field in completion.fields)
+
+
 def test_invalid_typed_artifact_does_not_satisfy_bound_field() -> None:
     projection = _projection("Return company name and qualification reasons.")
     artifact = MaterializedArtifact(

@@ -137,6 +137,11 @@ def _typed_field_has_value(*, artifact: MaterializedArtifact, field_key: Deliver
             # A verified identity has no gaps. Presence of an empty list is
             # therefore a satisfied observation; omission remains unproven.
             return "identity_gaps" in artifact.payload and isinstance(artifact.payload["identity_gaps"], list)
+        if field_key in {"kpi_evaluations", "progress_gaps", "evidence_gaps"}:
+            # Empty typed arrays are affirmative observations for a goal
+            # evaluation. Presence is the proof; truthiness would erase it.
+            key = next((field.json_path[2:].strip() for field in whole if field.json_path.startswith("$.")), None)
+            return key is not None and key in artifact.payload and isinstance(artifact.payload[key], list)
         return all(
             field.json_path.startswith("$.") and bool(artifact.payload.get(field.json_path[2:].strip()))
             for field in whole
