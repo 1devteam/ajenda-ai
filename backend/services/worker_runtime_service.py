@@ -47,6 +47,24 @@ def _mirror_task_output_to_metadata(task_output: dict[str, Any]) -> dict[str, An
     }
 
 
+def _materialized_artifact_reference(task: ExecutionTask, evidence_ids: list[str]) -> list[dict[str, str]]:
+    """Attach a durable evidence-backed identity to a declared task artifact."""
+
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    contract = metadata.get("expected_output_contract")
+    artifact_key = contract.get("artifact") if isinstance(contract, dict) else None
+    if not isinstance(artifact_key, str) or not artifact_key.strip() or not evidence_ids:
+        return []
+    evidence_id = evidence_ids[0]
+    return [
+        {
+            "artifact_id": evidence_id,
+            "artifact_key": artifact_key.strip(),
+            "evidence_id": evidence_id,
+        }
+    ]
+
+
 def _task_action_name(task: ExecutionTask) -> str | None:
     metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
     invocation = metadata.get("tool_invocation")
@@ -383,6 +401,12 @@ class WorkerRuntimeService:
             ):
                 added = evidence_repo.add(evidence_record)
                 evidence_ids_for_review.append(str(added.id))
+            materialized_artifacts = _materialized_artifact_reference(task, evidence_ids_for_review)
+            if materialized_artifacts:
+                task.metadata_json = {
+                    **task.metadata_json,
+                    "materialized_artifacts": materialized_artifacts,
+                }
 
             # Outcome review bridge for high-risk GTM side-effecting actions (PR pilot coherence)
             # Auto-creates a draft review post-completion for missions launched with high-risk GTM

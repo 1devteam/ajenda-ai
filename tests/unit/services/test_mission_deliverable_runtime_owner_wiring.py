@@ -9,7 +9,7 @@ import backend.services.worker_runtime_service as worker_runtime_module
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.queue.base import QueueOperationResult
 from backend.services.mission_composition.service import MissionCompositionService
-from backend.services.worker_runtime_service import WorkerRuntimeService
+from backend.services.worker_runtime_service import WorkerRuntimeService, _materialized_artifact_reference
 
 
 def test_composition_owners_persist_canonical_deliverable_runtime_state() -> None:
@@ -35,6 +35,21 @@ def test_worker_complete_refreshes_read_model_before_rollup_and_commit() -> None
     commit_index = source.index("self._session.commit()")
 
     assert refresh_index < rollup_index < commit_index
+
+
+def test_completed_declared_artifact_gets_evidence_backed_identity() -> None:
+    task = SimpleNamespace(
+        metadata_json={"expected_output_contract": {"artifact": "web_page_observation"}},
+    )
+
+    assert _materialized_artifact_reference(task, ["evidence-1"]) == [
+        {
+            "artifact_id": "evidence-1",
+            "artifact_key": "web_page_observation",
+            "evidence_id": "evidence-1",
+        }
+    ]
+    assert _materialized_artifact_reference(task, []) == []
 
 
 def test_deliverable_read_model_failure_does_not_block_task_completion(monkeypatch) -> None:
