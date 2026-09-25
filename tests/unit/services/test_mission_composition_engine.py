@@ -96,6 +96,15 @@ def test_goal_progress_evaluation_compiles_read_only_typed_artifact() -> None:
     assert planned[0].tool_input["goal"]["name"].startswith("Assess goal progress")
 
 
+def test_goal_progress_field_request_does_not_add_research_synthesis() -> None:
+    intent = interpret_instruction(
+        "Assess goal progress for launching Ajenda AI. Return the evaluation status, confidence, "
+        "KPI evaluations, progress gaps, evidence gaps, and explanations."
+    )
+    assert intent.interpretation_ready
+    assert intent.requested_outcomes == ["evaluate_goal_progress"]
+
+
 def test_business_income_review_accepts_explicit_evidence_clauses() -> None:
     intent = interpret_instruction(
         "Review my business and suggest possible ways to increase income. "

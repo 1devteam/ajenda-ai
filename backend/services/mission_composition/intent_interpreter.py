@@ -464,7 +464,10 @@ _REPORT_SYNTHESIS_CLAUSE = re.compile(
     re.IGNORECASE,
 )
 _REPORT_SYNTHESIS_REQUEST = re.compile(
-    r"\b(?:comparison\s+table|research\s+report|evidence\s+gaps?|highlight\b.*opportunit)",
+    # Evidence-gap language is a field request for many typed artifacts
+    # (identity, goal evaluation, business review). It only implies research
+    # synthesis when paired with an explicit research-report/comparison intent.
+    r"\b(?:sourced\s+comparison|comparison\s+table|research\s+report|highlight\b.*opportunit)",
     re.IGNORECASE,
 )
 _BUSINESS_REVIEW_CLAUSE = re.compile(
@@ -1004,12 +1007,19 @@ def _classify_clause(
     profile_mission: bool = False,
     external_action_forbidden: bool = False,
     business_income_review: bool = False,
+    goal_progress_evaluation: bool = False,
 ) -> tuple[list[CanonicalOutcome], bool, bool]:
     """Return (outcomes, material, recognized)."""
 
     lower = clause.lower()
     if business_income_review and _BUSINESS_REVIEW_CLAUSE.match(clause.strip()):
         return ["review_business_income"], True, True
+    if goal_progress_evaluation and re.match(
+        r"^(?:return|provide|include|list)\b.*\b(?:status|confidence|kpi|progress\s+gaps?|evidence\s+gaps?|explanations?)\b",
+        clause.strip(),
+        flags=re.IGNORECASE,
+    ):
+        return ["evaluate_goal_progress"], True, True
     # A detailed multi-field deliverable list is not represented by the
     # canonical outcome contract. Do not let field names such as "research"
     # or "drafts" silently authorize a partial interpretation.
@@ -1589,7 +1599,7 @@ def interpret_instruction(
         # wording before admitting observe_contacts from fuzzy matching.
         if (
             fuzzy_hit.outcome == "observe_contacts"
-            and "observe_web_page" in outcomes
+            and ("observe_web_page" in outcomes or "evaluate_goal_progress" in outcomes)
             and not _contains_any(lower, _OBSERVE_CONTACT_PATTERNS)
         ):
             continue
@@ -1837,6 +1847,7 @@ def interpret_instruction(
             profile_mission=wants_business_profile,
             external_action_forbidden=_contains_any(lower, _NO_EXTERNAL_ACTION_PATTERNS),
             business_income_review=business_income_review_requested,
+            goal_progress_evaluation="evaluate_goal_progress" in outcomes,
         )
         if "verify_runtime_controls" in outcomes and re.search(
             r"\b(?:check|verify|evidence|runtime|network|secure|private|retry|audit|local)\b",
