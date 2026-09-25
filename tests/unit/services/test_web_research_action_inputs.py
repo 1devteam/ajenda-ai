@@ -152,6 +152,24 @@ def test_browser_session_compiles_follow_link_as_bounded_click() -> None:
     ]
 
 
+def test_browser_session_compiles_explicit_selector_text_requirement() -> None:
+    intent = interpret_instruction(
+        'Observe https://example.com and extract text from CSS selector "h1". '
+        "Return the title and extracted text. Do not send or modify anything."
+    )
+    payload = build_action_input(action_name="web.browser_session", intent=intent)
+
+    assert payload["observation_requirements"] == [
+        {"kind": "title"},
+        {"kind": "body"},
+        {"kind": "selector_text", "selector": "h1"},
+    ]
+    assert payload["commands"] == [
+        {"action": "observe"},
+        {"action": "extract", "selector": "h1"},
+    ]
+
+
 def test_public_identity_compiles_explicit_labeled_expectations() -> None:
     intent = interpret_instruction(
         "Verify the public identity of Acme HVAC at https://acmehvac.example. "

@@ -776,6 +776,18 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 requirements = [{"kind": "title"}, {"kind": "body"}]
             commands: list[dict[str, Any]] = []
             source = _instruction_text(intent)
+            selector_request = re.search(
+                r"\bextract\s+(?:the\s+)?(?:text|value)\s+from\s+(?:the\s+)?(?:css\s+)?selector\s+"
+                r"(?P<quote>[\"'`])(?P<selector>[^\"'`]{1,512})(?P=quote)",
+                source,
+                flags=re.IGNORECASE,
+            )
+            if selector_request is not None:
+                selector = selector_request.group("selector").strip()
+                if selector and not any(
+                    item.get("kind") == "selector_text" and item.get("selector") == selector for item in requirements
+                ):
+                    requirements.append({"kind": "selector_text", "selector": selector})
             follow_match = re.search(
                 r"\bfollow\b[^.!?]{0,100}\blink\b",
                 source,
