@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, MissionState, WorkerLeaseState
+from backend.domain.evidence import EVIDENCE_CONTRACT_SCHEMA_VERSION, EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.outcome_review import OutcomeReview
@@ -73,6 +74,49 @@ def _task_action_name(task: ExecutionTask) -> str | None:
         if isinstance(action, str) and action.strip():
             return action.strip()
     return None
+
+
+def _failure_evidence_record(*, task: ExecutionTask, lease: WorkerLease, worker_id: str, reason: str) -> EvidenceRecord:
+    """Build durable evidence for a terminal handler failure.
+
+    Failure evidence is deliberately rejected and never references a successful
+    artifact. It lets the runtime graph explain why an artifact was not
+    produced while preserving the failed task as the source of truth.
+    """
+
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    node_key = metadata.get("graph_node_key")
+    graph_reference = {
+        key: metadata[key] for key in ("graph_version", "graph_fingerprint", "graph_node_key") if key in metadata
+    }
+    summary = f"Task {task.id} failed: {reason}"[:4000]
+    return EvidenceRecord(
+        tenant_id=task.tenant_id,
+        mission_id=task.mission_id,
+        task_graph_node_key=node_key if isinstance(node_key, str) else None,
+        materialization_reference=graph_reference or None,
+        execution_task_id=task.id,
+        evidence_type="execution_failure",
+        evidence_source="worker_runtime.fail",
+        summary=summary,
+        structured_payload={
+            "task_id": str(task.id),
+            "lease_id": str(lease.id),
+            "worker_id": worker_id,
+            "failure_code": "HANDLER_FAILED",
+            "reason": reason,
+            "artifact_produced": False,
+        },
+        artifact_references=[],
+        provenance_metadata={
+            "runtime_path": "WorkerRuntimeService.fail",
+            "tenant_isolation": task.tenant_id,
+        },
+        trust_signal={"runtime_authoritative": True, "failure_only": True},
+        confidence=1.0,
+        collection_status="rejected",
+        schema_version=EVIDENCE_CONTRACT_SCHEMA_VERSION,
+    )
 
 
 def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[str, Any] | None) -> None:
@@ -842,6 +886,9 @@ class WorkerRuntimeService:
                 "failed_at": datetime.now(UTC).isoformat(),
             },
         }
+        EvidenceRepository(self._session).add(
+            _failure_evidence_record(task=task, lease=lease, worker_id=worker_id, reason=reason)
+        )
         self._transition_lease_to_released(lease)
         lease.heartbeat_at = datetime.now(UTC)
         self._audit.append(

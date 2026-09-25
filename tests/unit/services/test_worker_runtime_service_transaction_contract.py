@@ -483,6 +483,23 @@ def test_fail_commits_db_when_queue_fail_ack_fails() -> None:
     assert service._audit.append.call_args_list[-1].args[0].action == "terminal_queue_fail_cleanup_failed"
 
 
+def test_fail_persists_rejected_failure_evidence_without_artifact() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.fail_task.return_value = QueueOperationResult(ok=True)
+
+    service.fail(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id, reason="cross-origin blocked")
+
+    evidence = [call.args[0] for call in session.add.call_args_list if hasattr(call.args[0], "evidence_type")]
+    assert len(evidence) == 1
+    assert evidence[0].evidence_type == "execution_failure"
+    assert evidence[0].collection_status == "rejected"
+    assert evidence[0].execution_task_id == task.id
+    assert evidence[0].artifact_references == []
+    assert evidence[0].structured_payload["artifact_produced"] is False
+
+
 def test_complete_queue_ack_failure_does_not_rerun_or_fail_completed_work() -> None:
     service, _session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
         status=ExecutionTaskState.RUNNING.value
