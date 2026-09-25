@@ -788,6 +788,15 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                     item.get("kind") == "selector_text" and item.get("selector") == selector for item in requirements
                 ):
                     requirements.append({"kind": "selector_text", "selector": selector})
+            navigate_request = re.search(
+                r"\bnavigate\s+to\s+(?P<url>https?://[^\s<>()]+)",
+                source,
+                flags=re.IGNORECASE,
+            )
+            if navigate_request is not None:
+                target_url = navigate_request.group("url").rstrip(".,;:!?)]}")
+                if target_url:
+                    commands.append({"action": "navigate", "url": target_url})
             follow_match = re.search(
                 r"\bfollow\b[^.!?]{0,100}\blink\b",
                 source,

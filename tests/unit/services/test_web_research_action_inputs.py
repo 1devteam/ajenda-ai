@@ -170,6 +170,19 @@ def test_browser_session_compiles_explicit_selector_text_requirement() -> None:
     ]
 
 
+def test_browser_session_compiles_explicit_bounded_navigation() -> None:
+    intent = interpret_instruction(
+        "Open https://www.iana.org/domains/example, navigate to https://www.iana.org/domains, "
+        "and return the final page title and final URL."
+    )
+    payload = build_action_input(action_name="web.browser_session", intent=intent)
+
+    assert payload["commands"] == [
+        {"action": "navigate", "url": "https://www.iana.org/domains"},
+        {"action": "observe"},
+    ]
+
+
 def test_public_identity_compiles_explicit_labeled_expectations() -> None:
     intent = interpret_instruction(
         "Verify the public identity of Acme HVAC at https://acmehvac.example. "
