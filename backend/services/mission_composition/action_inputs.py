@@ -785,11 +785,17 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
             if follow_match and quoted_link:
                 link_text = quoted_link.group(1).strip().rstrip("…").rstrip(".").strip()
                 if link_text:
-                    # Match a stable text prefix across typographic/ASCII punctuation.
-                    # Exact text selectors reject links whose visible label includes
-                    # a trailing ellipsis or punctuation that the instruction omitted.
-                    escaped_link_text = link_text.replace("\\", "\\\\").replace('"', '\\"')
-                    commands.append({"action": "click", "selector": f'a:has-text("{escaped_link_text}")'})
+                    # Match one exact visible label while tolerating punctuation the
+                    # instruction omitted. A broad :has-text selector can resolve
+                    # multiple links and makes Playwright strict-mode selection fail.
+                    link_pattern = rf"^\s*{re.escape(link_text)}\s*(?:[….]*)?$"
+                    escaped_pattern = link_pattern.replace("\\", "\\\\").replace('"', '\\"')
+                    commands.append(
+                        {
+                            "action": "click",
+                            "selector": f'a:text-matches("{escaped_pattern}", "i")',
+                        }
+                    )
             for requirement in requirements:
                 if requirement["kind"] in {"title", "body"}:
                     if not any(command.get("action") == "observe" for command in commands):
