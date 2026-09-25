@@ -56,7 +56,10 @@ class _FakeBrowser:
 
 
 class _FakeChromium:
+    launch_kwargs: dict = {}
+
     def launch(self, **_kwargs) -> _FakeBrowser:
+        self.__class__.launch_kwargs = _kwargs
         return _FakeBrowser()
 
 
@@ -157,3 +160,5 @@ def test_browser_session_runs_bounded_read_only_steps(monkeypatch) -> None:
         "extract",
         "click",
     ]
+    assert snapshot.extraction["dns_pin"] == "chromium_host_resolver_rules"
+    assert _FakeChromium.launch_kwargs["args"][0].startswith("--host-resolver-rules=MAP example.com ")

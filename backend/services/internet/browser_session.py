@@ -78,6 +78,21 @@ def _allowed_hosts(page_url: str, allowed_origins: Sequence[str]) -> tuple[str, 
     return tuple(hosts)
 
 
+def _browser_host_resolver_rules(allowed_hosts: Sequence[str]) -> list[str]:
+    """Pin approved browser hosts to the addresses vetted before Chromium starts."""
+
+    authority = get_default_network_egress_authority()
+    rules: list[str] = []
+    for host in allowed_hosts:
+        destination = authority.vet_https_url(
+            f"https://{host}/",
+            allowed_hosts=[host],
+            action_name="web.browser_session",
+        )
+        rules.append(f"MAP {host} {destination.pinned_ip}")
+    return rules
+
+
 def _step_text(page: Any, selector: str, limit: int, timeout_ms: int) -> str:
     value = page.locator(selector).inner_text(timeout=min(timeout_ms, 10_000))
     return " ".join((value or "").split())[:limit]
@@ -153,7 +168,11 @@ def run_browser_session(
 
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
+            resolver_rules = _browser_host_resolver_rules(allowed_hosts)
+            browser = playwright.chromium.launch(
+                headless=True,
+                args=[f"--host-resolver-rules={','.join(resolver_rules)}"],
+            )
             try:
                 context = browser.new_context(
                     user_agent="AjendaInternet/1.0 (+browser_session)",
@@ -313,9 +332,8 @@ def run_browser_session(
                             "observation_requirements": requirement_results,
                             "observation_satisfied": observation_satisfied,
                             "observation_timestamp": datetime.now(UTC).isoformat(),
-                            # Chromium still resolves hosts after vet; DNS pin of every
-                            # subresource is a follow-up (route.fulfill via egress).
-                            "dns_pin": "vet_only",
+                            "dns_pin": "chromium_host_resolver_rules",
+                            "dns_pinned_hosts": list(allowed_hosts),
                         },
                     )
                 finally:
