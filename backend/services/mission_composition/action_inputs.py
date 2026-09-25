@@ -786,7 +786,10 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 link_text = quoted_link.group(1).strip().rstrip("…").rstrip(".").strip()
                 if link_text:
                     # Match a stable text prefix across typographic/ASCII punctuation.
-                    commands.append({"action": "click", "selector": f'a:text-is("{link_text}")'})
+                    # Exact text selectors reject links whose visible label includes
+                    # a trailing ellipsis or punctuation that the instruction omitted.
+                    escaped_link_text = link_text.replace("\\", "\\\\").replace('"', '\\"')
+                    commands.append({"action": "click", "selector": f'a:has-text("{escaped_link_text}")'})
             for requirement in requirements:
                 if requirement["kind"] in {"title", "body"}:
                     if not any(command.get("action") == "observe" for command in commands):

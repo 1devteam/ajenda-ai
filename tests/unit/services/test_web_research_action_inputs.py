@@ -144,7 +144,7 @@ def test_browser_session_compiles_follow_link_as_bounded_click() -> None:
     assert intent.interpretation_ready is True
     assert intent.unmatched_material_clauses == []
     assert payload["commands"] == [
-        {"action": "click", "selector": 'a:text-is("More information")'},
+        {"action": "click", "selector": 'a:has-text("More information")'},
         {"action": "observe"},
     ]
 
