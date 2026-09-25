@@ -642,6 +642,22 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 },
             }
         }
+    if action_name == "analysis.evaluate_goal_progress":
+        goal_name = intent.objective[:240].strip()
+        return {
+            "goal": {
+                "goal_id": "mission-goal-progress",
+                "objective_key": "mission_goal_progress",
+                "name": goal_name or "Mission goal",
+                "description": intent.objective[:2000],
+                "subject_refs": [],
+                "status": "active",
+            },
+            "kpis": [],
+            "events": [],
+            "evidence_ids": [],
+            "missing_evidence_codes": ["kpis_not_declared", "current_state_not_declared"],
+        }
     if action_name == "decision.recommend_next_action":
         if "review_business_income" in intent.requested_outcomes:
             return {

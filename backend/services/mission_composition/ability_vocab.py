@@ -18,6 +18,8 @@ ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "verify runtime controls": "verify_runtime_controls",
     "verify outbound controls": "verify_runtime_controls",
     "prepare an engineering review package": "verify_runtime_controls",
+    "evaluate goal progress": "evaluate_goal_progress",
+    "assess goal progress": "evaluate_goal_progress",
     # Qualify / score / rank family
     "score them": "qualify_prospects",
     "score it": "qualify_prospects",
@@ -106,6 +108,7 @@ OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
     (r"\b(?:audit|verify|review)\b.{0,80}\b(?:outbound|egress|runtime)\b", "verify_runtime_controls"),
     (r"\breview\s+my\s+business\b.{0,120}\b(?:increase|grow|improve)\s+(?:my\s+)?income\b", "review_business_income"),
     (r"\b(?:increase|grow|improve)\s+(?:my\s+)?income\b.{0,80}\bmy\s+business\b", "review_business_income"),
+    (r"\b(?:evaluate|assess|review)\b[^.!?]{0,48}\bgoal\s+progress\b", "evaluate_goal_progress"),
     (r"\b(?:prepare|create|produce)\b[^.!?]{0,48}\binvoice\s+drafts?\b", "prepare_invoice_drafts"),
     (r"\b(?:read|check|show|list|fetch)\b[^.!?]{0,48}\b(?:stripe|revenue|invoices?)\b", "read_revenue"),
     (r"\b(?:prepare|create|produce)\b[^.!?]{0,48}\b(?:revenue\s+)?reconciliation\b", "prepare_reconciliation"),

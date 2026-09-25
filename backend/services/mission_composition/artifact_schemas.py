@@ -274,6 +274,23 @@ WEB_PAGE_OBSERVATION_SCHEMA = CompositionArtifactSchema(
     ),
 )
 
+GOAL_PROGRESS_EVALUATION_SCHEMA = CompositionArtifactSchema(
+    artifact_key="goal_progress_evaluation",
+    producer_job="analysis.evaluate_goal_progress",
+    fields=(
+        ArtifactFieldProjection(deliverable_field="goal_status", json_path="$.status", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="goal_confidence", json_path="$.confidence", scope="whole_artifact"),
+        ArtifactFieldProjection(
+            deliverable_field="kpi_evaluations", json_path="$.kpi_evaluations", scope="whole_artifact"
+        ),
+        ArtifactFieldProjection(deliverable_field="progress_gaps", json_path="$.progress_gaps", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="evidence_gaps", json_path="$.evidence_gaps", scope="whole_artifact"),
+        ArtifactFieldProjection(
+            deliverable_field="evaluation_explanations", json_path="$.explanations", scope="whole_artifact"
+        ),
+    ),
+)
+
 ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     PROSPECT_CANDIDATES_SCHEMA.artifact_key: PROSPECT_CANDIDATES_SCHEMA,
     OBSERVED_CONTACTS_SCHEMA.artifact_key: OBSERVED_CONTACTS_SCHEMA,
@@ -283,6 +300,7 @@ ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     REVENUE_RECORDS_SCHEMA.artifact_key: REVENUE_RECORDS_SCHEMA,
     BUSINESS_REVIEW_REPORT_SCHEMA.artifact_key: BUSINESS_REVIEW_REPORT_SCHEMA,
     WEB_PAGE_OBSERVATION_SCHEMA.artifact_key: WEB_PAGE_OBSERVATION_SCHEMA,
+    GOAL_PROGRESS_EVALUATION_SCHEMA.artifact_key: GOAL_PROGRESS_EVALUATION_SCHEMA,
 }
 
 

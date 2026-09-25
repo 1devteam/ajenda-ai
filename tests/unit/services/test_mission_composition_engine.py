@@ -80,6 +80,22 @@ def test_business_income_review_compiles_profile_dependency_and_report() -> None
     assert planned[0].tool_input["query"].startswith("Ajenda products services")
 
 
+def test_goal_progress_evaluation_compiles_read_only_typed_artifact() -> None:
+    intent = interpret_instruction("Assess goal progress for launching Ajenda AI.")
+    assert intent.interpretation_ready
+    assert intent.requested_outcomes == ["evaluate_goal_progress"]
+
+    jobs = route_jobs_for_intent(intent)
+    assert [job.job_key for job in jobs] == ["analysis.evaluate_goal_progress"]
+    selections, missing = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    assert missing == []
+    planned = compile_planned_steps(selections, intent=intent)
+    assert len(planned) == 1
+    assert planned[0].action_name == "analysis.evaluate_goal_progress"
+    assert planned[0].output_contract == "goal_progress_evaluation"
+    assert planned[0].tool_input["goal"]["name"].startswith("Assess goal progress")
+
+
 def test_business_income_review_accepts_explicit_evidence_clauses() -> None:
     intent = interpret_instruction(
         "Review my business and suggest possible ways to increase income. "

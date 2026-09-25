@@ -50,6 +50,7 @@ DEFAULT_MAY_PREPARE: tuple[str, ...] = (
     "vertical.finance.prepare_reconciliation",
     "vertical.finance.prepare_invoice_drafts",
     "runtime.verify_controls",
+    "analysis.evaluate_goal_progress",
 )
 
 DEFAULT_MAY_PERFORM: tuple[str, ...] = (

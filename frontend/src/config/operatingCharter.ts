@@ -54,6 +54,7 @@ export const DEFAULT_OPERATING_CHARTER: OperatingCharter = {
     "vertical.finance.prepare_reconciliation",
     "vertical.finance.prepare_invoice_drafts",
     "runtime.verify_controls",
+    "analysis.evaluate_goal_progress",
   ],
   may_perform: [
     "gtm.crm_upsert",
@@ -109,6 +110,7 @@ export const PREPARE_ACTION_OPTIONS = [
   { action: "vertical.finance.prepare_reconciliation", label: "Prepare reconciliation" },
   { action: "vertical.finance.prepare_invoice_drafts", label: "Prepare invoice drafts" },
   { action: "runtime.verify_controls", label: "Verify runtime controls" },
+  { action: "analysis.evaluate_goal_progress", label: "Evaluate goal progress" },
 ] as const;
 
 export const PERFORM_ACTION_OPTIONS = [

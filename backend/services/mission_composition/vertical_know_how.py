@@ -254,6 +254,7 @@ REVOPS_V2_KNOW_HOW = VerticalKnowHowContract(
         "verify_public_identity",
         "review_business_income",
         "read_business_profile",
+        "evaluate_goal_progress",
     ),
     stages=(
         *REVOPS_V1_KNOW_HOW.stages,
@@ -274,6 +275,12 @@ REVOPS_V2_KNOW_HOW = VerticalKnowHowContract(
             depends_on=("crm_context",),
             optional=True,
         ),
+        KnowHowStage(
+            stage_key="goal_evaluation",
+            job_keys=("analysis.evaluate_goal_progress",),
+            depends_on=(),
+            optional=True,
+        ),
     ),
     deliverable_fields=(
         *REVOPS_V1_KNOW_HOW.deliverable_fields,
@@ -284,6 +291,10 @@ REVOPS_V2_KNOW_HOW = VerticalKnowHowContract(
         DeliverableField(
             field_key="business_review_report",
             produced_by_jobs=("business.review_income",),
+        ),
+        DeliverableField(
+            field_key="goal_progress_evaluation",
+            produced_by_jobs=("analysis.evaluate_goal_progress",),
         ),
     ),
     connectors=REVOPS_V1_KNOW_HOW.connectors,

@@ -794,6 +794,13 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "evaluate_goal_progress" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description="A goal_progress_evaluation artifact reports status, confidence, KPI gaps, and evidence gaps",
+                measurable=True,
+            )
+        )
     if "verify_runtime_controls" in outcomes:
         success.append(
             SuccessCriterion(
@@ -1436,6 +1443,17 @@ def interpret_instruction(
                 normalized_value="review_business_income",
                 confidence=0.9,
                 rule_id="review.business_income",
+            )
+        )
+    if "evaluate_goal_progress" in outcomes:
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.evaluate_goal_progress",
+                source="explicit",
+                source_text=text[:240],
+                normalized_value="evaluate_goal_progress",
+                confidence=0.95,
+                rule_id="analysis.evaluate_goal_progress",
             )
         )
     # HubSpot-as-source prospect research: one research_prospects outcome (not dual read_crm).

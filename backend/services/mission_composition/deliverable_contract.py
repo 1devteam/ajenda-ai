@@ -51,6 +51,12 @@ DeliverableFieldKey = Literal[
     "revenue_amount",
     "revenue_currency",
     "revenue_source",
+    "goal_status",
+    "goal_confidence",
+    "kpi_evaluations",
+    "progress_gaps",
+    "evidence_gaps",
+    "evaluation_explanations",
 ]
 
 
