@@ -90,6 +90,18 @@ def test_browser_observation_fields_do_not_become_prospect_website() -> None:
     assert request.fully_understood
 
 
+def test_browser_observation_accepts_plain_title_and_extracted_text() -> None:
+    request = deliverable_contract.extract_deliverable_request(
+        'Observe https://www.iana.org/domains/example and extract text from CSS selector "h1". '
+        "Return the title and extracted text."
+    )
+
+    assert request is not None
+    assert [field.field_key for field in request.fields] == ["title", "extracted_observations"]
+    assert request.unresolved_items == ()
+    assert request.fully_understood
+
+
 def test_browser_observation_does_not_fuzzy_match_contact_observation() -> None:
     intent = interpret_instruction(
         "Open https://www.iana.org/domains/example, follow its Domains link, and return the final URL, page title, visible text, and browser step trace."

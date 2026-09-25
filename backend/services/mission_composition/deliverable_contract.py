@@ -113,10 +113,16 @@ _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
     # Browser observation fields must precede the broad prospect ``url`` rule.
     # Otherwise "final URL" is misclassified as a prospect website.
     ("final_url", (r"\bfinal\s+url\b", r"\bredirected\s+url\b")),
-    ("title", (r"\bpage\s+title\b", r"\btitle\s+of\s+the\s+page\b")),
+    ("title", (r"\bpage\s+title\b", r"\btitle\s+of\s+the\s+page\b", r"^the\s+title$", r"^title$")),
     (
         "extracted_observations",
-        (r"\bvisible\s+(?:page\s+)?text\b", r"\bobserved\s+page\s+content\b"),
+        (
+            r"\bvisible\s+(?:page\s+)?text\b",
+            r"\bobserved\s+page\s+content\b",
+            r"\bextracted\s+(?:page\s+)?text\b",
+            r"\bextracted\s+observations?\b",
+            r"\bextracted\s+content\b",
+        ),
     ),
     (
         "observation_timestamp",
