@@ -163,6 +163,16 @@ def test_local_fixture_research_preserves_source_ids_for_all_contacts(monkeypatc
     assert len(candidates) == 5
     assert all(candidate["id"] == candidate["prospect_id"] for candidate in candidates)
     assert all(candidate.get("email") for candidate in candidates)
+    assert result.output["real"] is False
+    assert result.output["candidates_real"] is False
+    assert result.output["data_class"] == "fixture"
+    assert all(candidate["real"] is False for candidate in result.output["prospect_candidates"])
+    assert all(candidate["source"] == "local_fixture" for candidate in result.output["prospect_candidates"])
+    assert all(candidate["evidence_class"] == "fixture" for candidate in result.output["prospect_candidates"])
+    assert all(
+        candidate["identity_evidence_urls"] == [f"fixture://{candidate['id']}"]
+        for candidate in result.output["prospect_candidates"]
+    )
 
 
 def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> None:

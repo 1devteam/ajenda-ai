@@ -67,6 +67,12 @@ def test_web_browser_session_emits_typed_page_observation_artifact() -> None:
             "observation_timestamp": "2026-09-21T00:00:00Z",
             "observation_satisfied": True,
             "blocked_samples": [],
+            "request_vetting": "per_request",
+            "dns_pin": "chromium_host_resolver_rules",
+            "dns_pinned_hosts": ["example.com"],
+            "allowed_hosts": ["example.com"],
+            "engine": "chromium",
+            "ephemeral_context": True,
         },
     )
     with patch("backend.services.tools.web_actions.run_browser_session", return_value=snapshot):
@@ -86,6 +92,8 @@ def test_web_browser_session_emits_typed_page_observation_artifact() -> None:
     assert artifact["final_url"] == "https://example.com/"
     assert artifact["observation_satisfied"] is True
     assert artifact["browser_trace"]
+    assert artifact["network_provenance"]["dns_pin"] == "chromium_host_resolver_rules"
+    assert result.evidence[0].structured_payload["network_provenance"] == artifact["network_provenance"]
 
 
 def test_web_browser_session_preserves_runtime_error_in_failed_artifact() -> None:

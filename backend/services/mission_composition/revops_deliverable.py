@@ -221,6 +221,7 @@ class RevOpsMissionDeliverableRead(BaseModel):
     evidence_references: tuple[RevOpsEvidenceReferenceRead, ...] = ()
     task_state: RevOpsTaskStateRead
     completion: RevOpsCompletionRead
+    result_semantics: dict[str, Any] = Field(default_factory=dict)
     grants_execution_authority: Literal[False] = False
 
 
@@ -929,4 +930,16 @@ def assemble_revops_mission_deliverable(
             completion=completion,
             assembly_errors=assembly_errors,
         ),
+        result_semantics={
+            "completion_scope": "requested_deliverable",
+            "mission_acceptance": (
+                mission.metadata_json.get("acceptance") if isinstance(mission.metadata_json, dict) else None
+            ),
+            "business_outcome_status": (
+                artifacts["goal_progress_evaluation"].payload.get("status")
+                if "goal_progress_evaluation" in artifacts
+                and isinstance(artifacts["goal_progress_evaluation"].payload, dict)
+                else None
+            ),
+        },
     )

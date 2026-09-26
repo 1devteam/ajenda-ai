@@ -222,6 +222,8 @@ _TERMINAL_TASK_STATES: frozenset[str] = frozenset(
     }
 )
 
+_QUEUE_PAYLOAD_DB_VISIBILITY_GRACE_SECONDS = 30.0
+
 
 class WorkerRuntimeService:
     def __init__(self, session: Session, queue: QueueAdapter) -> None:
@@ -238,15 +240,67 @@ class WorkerRuntimeService:
 
         task = self._tasks.get(message.task_id)
         if task is None or task.tenant_id != tenant_id:
+            enqueued_at = message.enqueued_at
+            if enqueued_at.tzinfo is None:
+                enqueued_at = enqueued_at.replace(tzinfo=UTC)
+            payload_age_seconds = max(0.0, (datetime.now(UTC) - enqueued_at).total_seconds())
+            if task is None and payload_age_seconds < _QUEUE_PAYLOAD_DB_VISIBILITY_GRACE_SECONDS:
+                logger.warning(
+                    "claim_task_db_visibility_retry",
+                    extra={
+                        "task_id": str(message.task_id),
+                        "worker_id": worker_id,
+                        "payload_age_seconds": payload_age_seconds,
+                    },
+                )
+                released = self._queue.release_lease(
+                    tenant_id=tenant_id,
+                    task_id=message.task_id,
+                    worker_id=worker_id,
+                )
+                if not released.ok:
+                    raise RuntimeError(released.reason or "failed to release queue payload during DB visibility grace")
+                return None
             logger.error(
                 "claim_task_not_in_db",
-                extra={"task_id": str(message.task_id), "worker_id": worker_id},
+                extra={
+                    "task_id": str(message.task_id),
+                    "worker_id": worker_id,
+                    "payload_age_seconds": payload_age_seconds,
+                },
             )
-            self._queue.release_lease(
+            quarantined = self._queue.fail_task(
                 tenant_id=tenant_id,
                 task_id=message.task_id,
                 worker_id=worker_id,
+                reason="claimed queue payload has no matching tenant execution task",
             )
+            if not quarantined.ok:
+                self._queue.release_lease(
+                    tenant_id=tenant_id,
+                    task_id=message.task_id,
+                    worker_id=worker_id,
+                )
+            self._audit.append(
+                AuditEvent(
+                    tenant_id=tenant_id,
+                    mission_id=None,
+                    category="worker",
+                    action="orphan_queue_payload_quarantined"
+                    if quarantined.ok
+                    else "orphan_queue_payload_quarantine_failed",
+                    actor=worker_id,
+                    details="Claimed queue payload did not resolve to a tenant-owned execution task.",
+                    payload_json={
+                        "task_id": str(message.task_id),
+                        "payload_mission_id": str(message.mission_id),
+                        "payload_age_seconds": payload_age_seconds,
+                        "quarantined": quarantined.ok,
+                        "reason": quarantined.reason,
+                    },
+                )
+            )
+            self._session.commit()
             return None
 
         if task.status in _TERMINAL_TASK_STATES:
@@ -661,10 +715,21 @@ class WorkerRuntimeService:
                 acceptance_reasons.append("durable deliverable is incomplete")
                 acceptance_met = False
             acceptance_status = "met" if acceptance_met else "partially_met"
+            business_outcome_status = None
+            for sibling in siblings:
+                result = (
+                    sibling.metadata_json.get("handler_result") if isinstance(sibling.metadata_json, dict) else None
+                )
+                output = result.get("output") if isinstance(result, dict) else None
+                evaluation = output.get("goal_progress_evaluation") if isinstance(output, dict) else None
+                if isinstance(evaluation, dict) and isinstance(evaluation.get("status"), str):
+                    business_outcome_status = evaluation["status"]
             mission.metadata_json = {
                 **(mission.metadata_json if isinstance(mission.metadata_json, dict) else {}),
                 "acceptance": {
                     "status": acceptance_status,
+                    "scope": "runtime_execution_and_deliverable",
+                    "business_outcome_status": business_outcome_status,
                     "reasons": acceptance_reasons,
                     "evaluated_at": datetime.now(UTC).isoformat(),
                     "task_count": len(siblings),

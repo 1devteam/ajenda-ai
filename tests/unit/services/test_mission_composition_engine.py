@@ -94,6 +94,8 @@ def test_goal_progress_evaluation_compiles_read_only_typed_artifact() -> None:
     assert planned[0].action_name == "analysis.evaluate_goal_progress"
     assert planned[0].output_contract == "goal_progress_evaluation"
     assert planned[0].tool_input["goal"]["name"].startswith("Assess goal progress")
+    assert planned[0].tool_input["goal"]["goal_id"].startswith("mission-goal-")
+    assert "durable_goal_context_unavailable" in planned[0].tool_input["missing_evidence_codes"]
 
 
 def test_goal_progress_field_request_does_not_add_research_synthesis() -> None:

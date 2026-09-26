@@ -161,6 +161,8 @@ def test_analysis_evaluate_goal_progress_action() -> None:
     assert evaluation["status"] == "at_risk"
     assert evaluation["kpi_evaluations"][0]["gap"] == 19
     assert evaluation["state_changes"]["changes"]
+    assert evaluation["durable_goal_resolved"] is True
+    assert "evidence_gaps=" in result.summary
 
 
 def test_typed_temporal_fields() -> None:

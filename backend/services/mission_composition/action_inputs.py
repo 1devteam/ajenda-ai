@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -644,10 +645,11 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
         }
     if action_name == "analysis.evaluate_goal_progress":
         goal_name = intent.objective[:240].strip()
+        objective_key = hashlib.sha256(intent.objective.strip().encode("utf-8")).hexdigest()[:16]
         return {
             "goal": {
-                "goal_id": "mission-goal-progress",
-                "objective_key": "mission_goal_progress",
+                "goal_id": f"mission-goal-{objective_key}",
+                "objective_key": f"mission_goal_{objective_key}",
                 "name": goal_name or "Mission goal",
                 "description": intent.objective[:2000],
                 "subject_refs": [],
@@ -656,7 +658,11 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
             "kpis": [],
             "events": [],
             "evidence_ids": [],
-            "missing_evidence_codes": ["kpis_not_declared", "current_state_not_declared"],
+            "missing_evidence_codes": [
+                "durable_goal_context_unavailable",
+                "kpis_not_declared",
+                "current_state_not_declared",
+            ],
         }
     if action_name == "decision.recommend_next_action":
         if "review_business_income" in intent.requested_outcomes:
