@@ -34,7 +34,7 @@
     {
       "node_key": "graph.adjudicate",
       "owner": "graft_admission",
-      "implementation_status": "active_worktree",
+      "implementation_status": "new",
       "accepts": ["CanonicalMissionGraph", "CredentialPreflightReport"],
       "produces": ["GraphAdmissionReport"],
       "side_effect_class": "none",
@@ -43,7 +43,7 @@
     {
       "node_key": "credential.preflight",
       "owner": "credential_service",
-      "implementation_status": "active_worktree",
+      "implementation_status": "new",
       "accepts": [],
       "produces": ["CredentialPreflightReport"],
       "side_effect_class": "internal_read",
@@ -115,7 +115,7 @@
     {
       "node_key": "research.synthesize_report",
       "owner": "research_domain",
-      "implementation_status": "active_worktree",
+      "implementation_status": "extend",
       "accepts": ["QualificationAssessmentSet"],
       "produces": ["ResearchReport"],
       "side_effect_class": "none",
@@ -133,7 +133,7 @@
     {
       "node_key": "crm.reconcile",
       "owner": "crm_domain",
-      "implementation_status": "new",
+      "implementation_status": "extend",
       "accepts": ["CRMDesiredState", "CRMObservation", "ResolvedCompanySet", "ResolvedPersonSet"],
       "produces": ["CRMReconciliationPlan"],
       "side_effect_class": "none",
@@ -151,7 +151,7 @@
     {
       "node_key": "crm.verify_effect",
       "owner": "crm_domain",
-      "implementation_status": "new",
+      "implementation_status": "extend",
       "accepts": ["CRMMutationResult"],
       "produces": ["CRMReadbackResult", "EffectReceipt"],
       "side_effect_class": "external_read",

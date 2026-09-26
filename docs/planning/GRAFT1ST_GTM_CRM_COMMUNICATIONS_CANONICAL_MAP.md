@@ -779,7 +779,11 @@ This section freezes architectural decisions for implementation planning. `LOCKE
 
 ## 28. Frozen interface manifest
 
-The first implementation wave freezes names and ownership, not every future payload field. WP0 must materialize these as versioned code contracts before other windows merge.
+The first implementation wave freezes names and ownership, not every future payload field. WP0
+materializes these as versioned code contracts in
+`backend/services/vertical_ops/graft1st_contracts.py`; the frozen package and simulation fixtures are
+checked against those contracts and implementation ownership by
+`scripts/validation/graft1st_conformance_check.py`.
 
 | Interface package | Version to create | Owner | Stability boundary | Initial consumers |
 | --- | --- | --- | --- | --- |
@@ -887,14 +891,18 @@ These inputs do not prevent the architecture lock. They block only the named imp
 | Scenario coverage defined | SATISFIED | §25 |
 | Proof obligations defined | SATISFIED | §13 |
 | Owner-only choices isolated | SATISFIED | §§27, 31 |
-| Observed implementation fully reconciled to every node | INDETERMINATE | requires a fresh G.R.A.F.T.+ code/runtime sweep after current work is committed |
-| WP0 code contracts materialized and conformance-tested | NOT STARTED | first implementation package |
+| Observed implementation status reconciled to every node | SATISFIED | `graft1st_conformance_check.py` proves every non-`new` node has source ownership and rejects stale `active_worktree`, unknown, or unproved classifications |
+| WP0 code contracts materialized and conformance-tested | SATISFIED | `graft1st_contracts.py`, frozen package/simulation fixtures, `test_graft1st_contracts.py`, and `test_graft1st_conformance_check.py` |
 
 ## 33. Lock declaration
 
 The **G.R.A.F.T.1st architecture is conditionally locked at the design level** when this document is reviewed and accepted. The lock covers system boundaries, authority, node identities, dependency semantics, contract families, state meanings, ownership, side-effect rules, callback behavior, work-package boundaries, and proof obligations.
 
-The lock does not claim implementation, provider availability, legal approval, release readiness, or observed-system conformance. Those remain gated by the owner-input register, WP0 contract materialization, implementation tests, provider proofs, and a post-implementation G.R.A.F.T.+ reconciliation.
+The lock does not claim that `new` nodes are implemented, nor does it claim provider availability,
+legal approval, or release readiness. Those remain gated by the owner-input register, subsequent
+work packages, implementation/runtime tests, provider proofs, and G.R.A.F.T.+ reconciliation. WP0
+contract materialization and implementation-status reconciliation are complete and continuously
+checked by the conformance validator.
 
 After acceptance, further mapping passes should occur only when one of these is true:
 

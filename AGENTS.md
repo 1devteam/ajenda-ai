@@ -120,6 +120,7 @@ python scripts/validation/contract_drift_check.py
 python scripts/validation/runtime_authority_inventory_check.py
 python scripts/validation/migration_seed_contract_check.py
 python scripts/validation/ability_rollout_contract_check.py
+python scripts/validation/graft1st_conformance_check.py
 python -m pytest tests/unit/ tests/contract/ tests/deployment/ -m "not integration"
 ```
 
