@@ -160,6 +160,7 @@ _INTERNAL_CRM_READ_PATTERNS = (
     r"\b(?:review|inspect|summarize|compare|rank)\b[^.!?]{0,120}\b(?:ajenda(?:['\u2019]s)?\s+crm|ajenda\s+internal\s+crm|internal\s+(?:ajenda\s+)?crm)\b",
     r"\b(?:ajenda(?:['\u2019]s)?\s+crm|ajenda\s+internal\s+crm|internal\s+(?:ajenda\s+)?crm)\b[^.!?]{0,100}\b(?:records?|companies|contacts?|deals?|pipeline)\b",
     r"\b(?:review|inspect|summarize|compare|rank)\b[^.!?]{0,120}\b(?:ajenda(?:['\u2019]s)?\s+internal\s+records?|internal\s+records?)\b",
+    r"\b(?:find|search|research|identify|qualify)\b[^.!?]{0,120}\bfrom\s+(?:the\s+)?internal\s+(?:ajenda\s+)?crm\b",
 )
 _CRM_READ_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\b[^.!?]{0,48}\b(?:read|check|search|query|list|show)\b[^.!?]{0,48}\b(?:hubspot|crm)\b",
@@ -467,7 +468,7 @@ _REPORT_SYNTHESIS_REQUEST = re.compile(
     # Evidence-gap language is a field request for many typed artifacts
     # (identity, goal evaluation, business review). It only implies research
     # synthesis when paired with an explicit research-report/comparison intent.
-    r"\b(?:sourced\s+comparison|comparison\s+table|research\s+report|highlight\b.*opportunit)",
+    r"\b(?:sourced\s+comparison|comparison\s+(?:table|report)|research\s+report|highlight\b.*opportunit)",
     re.IGNORECASE,
 )
 _BUSINESS_REVIEW_CLAUSE = re.compile(
@@ -1255,6 +1256,7 @@ def interpret_instruction(
         and not crm_write_requested
         and not _contains_any(lower, _INTERNAL_CRM_READ_NEGATION_PATTERNS)
     )
+    internal_crm_as_source = re.search(r"\bfrom\s+(?:the\s+)?internal\s+(?:ajenda\s+)?crm\b", lower) is not None
     explicit_hubspot_record_read = bool(re.search(r"\buse\s+(?:the\s+)?(?:hubspot|crm)\s+records?\b", lower))
     wants_crm_read = (
         (
@@ -1293,6 +1295,10 @@ def interpret_instruction(
         and (not direct_crm_record_read or explicit_research_verb)
         and (not connector_read or explicit_prospect_research or hubspot_as_research_source)
     )
+    if internal_crm_as_source:
+        # "From internal CRM" names the authoritative dataset. The verb
+        # "find" must not also create a public-discovery branch.
+        wants_research = False
     if crm_only_ranking:
         # Ranking persisted CRM records is qualification over an internal
         # source. The words "companies in ..." must not turn it into public

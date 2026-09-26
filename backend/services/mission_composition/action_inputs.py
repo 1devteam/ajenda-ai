@@ -196,7 +196,8 @@ def _ajenda_internal_crm_only(intent: MissionIntent) -> bool:
     """Keep explicitly Ajenda-internal CRM research off public search."""
 
     return bool(
-        re.search(
+        "internal_crm_source" in intent.context_requirements
+        or re.search(
             r"\b(?:ajenda(?:'s)?\s+internal\s+crm|internal\s+ajenda\s+crm|ajenda\s+internal\s+(?:crm\s+)?records?)\b",
             _instruction_text(intent),
             re.IGNORECASE,
@@ -605,6 +606,15 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
         local_fixture_only = bool(
             re.search(r"\blocal\s+(?:test\s+)?fixtures?\b|\bfixture\s+data\s+only\b", source, re.IGNORECASE)
         )
+        if local_fixture_only and entity and entity.industry and entity.location:
+            fixture_scope_supported = (
+                "software" in entity.industry.casefold() and "austin" in entity.location.casefold()
+            )
+            if not fixture_scope_supported:
+                raise ValueError(
+                    "local prospect fixture supports only software companies in Austin; "
+                    "requested fixture scope is unavailable"
+                )
         internal_crm_only = _ajenda_internal_crm_only(intent)
         internal_only = local_fixture_only or internal_crm_only
         return {

@@ -5,6 +5,7 @@ from __future__ import annotations
 from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.contracts import MissionIntent, TargetEntity
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.mission_composition.service import MissionCompositionService
 
 
 def test_observe_web_page_is_a_distinct_browser_outcome() -> None:
@@ -62,6 +63,19 @@ def test_local_fixture_constraint_disables_public_search() -> None:
     assert payload["include_public_search"] is False
 
 
+def test_unsupported_local_fixture_scope_is_a_compile_gap() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction="Research three roofing companies in Austin using local fixture data only.",
+    )
+
+    assert record.ready_to_start is False
+    assert any(
+        "local prospect fixture supports only software companies in Austin" in (step.compile_gap or "")
+        for step in record.planned_steps
+    )
+
+
 def test_ajenda_internal_crm_source_disables_public_search() -> None:
     intent = interpret_instruction(
         "Research five software companies in Austin and summarize their matching Ajenda internal CRM records."
@@ -115,6 +129,12 @@ def test_ajenda_internal_crm_source_propagates_to_contact_observation() -> None:
 
 def test_ajenda_internal_crm_source_uses_fixture_qualification_threshold() -> None:
     intent = interpret_instruction("Qualify five software companies in Austin using Ajenda internal CRM records.")
+    payload = build_action_input(action_name="sales.qualify", intent=intent)
+    assert payload["context"]["qualification_threshold_10"] == 5
+
+
+def test_generic_internal_crm_source_uses_fixture_qualification_threshold() -> None:
+    intent = interpret_instruction("Find three HVAC companies in Dallas from internal CRM and qualify them.")
     payload = build_action_input(action_name="sales.qualify", intent=intent)
     assert payload["context"]["qualification_threshold_10"] == 5
 

@@ -316,6 +316,36 @@ def test_detailed_report_deliverable_materializes_synthesis_node() -> None:
     assert record.composition_provenance.grants_execution_authority is False
 
 
+def test_comparison_report_materializes_synthesis_node_with_qualification() -> None:
+    instruction = (
+        "Research four software development companies in Austin using local fixture data only, "
+        "qualify them, and produce a comparison report with evidence gaps. Do not contact anyone."
+    )
+    intent = interpret_instruction(instruction)
+    assert "synthesize_research_report" in intent.requested_outcomes
+
+    record = MissionCompositionService(db=None).compose(tenant_id="tenant", instruction=instruction)
+
+    assert record.ready_to_start is True
+    assert "research.synthesize_report" in {node["metadata"]["action"] for node in record.task_graph_preview["nodes"]}
+
+
+def test_generic_internal_crm_source_does_not_route_public_observation() -> None:
+    instruction = (
+        "Find three HVAC companies in Dallas from internal CRM and identify strong automation prospects. "
+        "Do not send messages."
+    )
+    intent = interpret_instruction(instruction)
+    assert "internal_crm_source" in intent.context_requirements
+
+    record = MissionCompositionService(db=None).compose(tenant_id="tenant", instruction=instruction)
+    actions = {node["metadata"]["action"] for node in record.task_graph_preview["nodes"]}
+
+    assert "web.research" not in actions
+    assert "research.observe_contacts" not in actions
+    assert "record.search" in actions
+
+
 def test_long_objective_is_preserved_without_lossy_truncation() -> None:
     instruction = "Research competitors and provide evidence. " + "Include verified details. " * 30
     intent = interpret_instruction(instruction)
