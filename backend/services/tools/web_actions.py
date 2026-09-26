@@ -244,6 +244,14 @@ def web_browser_session(invocation: ToolInvocation, context: ActionRuntimeContex
         "browser_trace": extraction.get("steps") or [],
         "blocked_requests": extraction.get("blocked_samples") or [],
         "observation_satisfied": extraction.get("observation_satisfied") is True,
+        "network_provenance": {
+            "request_vetting": extraction.get("request_vetting"),
+            "dns_pin": extraction.get("dns_pin"),
+            "dns_pinned_hosts": extraction.get("dns_pinned_hosts") or [],
+            "allowed_hosts": extraction.get("allowed_hosts") or [],
+            "engine": extraction.get("engine"),
+            "ephemeral_context": extraction.get("ephemeral_context") is True,
+        },
     }
     if output.get("error"):
         output["web_page_observation"]["error"] = output["error"]
@@ -273,6 +281,7 @@ def web_browser_session(invocation: ToolInvocation, context: ActionRuntimeContex
             "observation_satisfied": extraction.get("observation_satisfied", False),
             "browser_trace": extraction.get("steps", []),
             "blocked_requests": extraction.get("blocked_samples", []),
+            "network_provenance": output["web_page_observation"]["network_provenance"],
         },
         confidence=0.85 if real else 0.35,
         limitations=[
@@ -529,7 +538,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                             "kind": kind,
                             "value": value.strip(),
                             "source_url": f"fixture://{prospect.get('prospect_id') or prospect.get('company')}",
-                            "real": True,
+                            "real": False,
                             "via": "local_fixture",
                         }
                     )
@@ -576,10 +585,11 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                 )
                 continue
             source_url = str(fixture_contacts[0]["source_url"])
+            fixture_identity_evidence = [source_url]
             pages.append(
                 {
                     "url": source_url,
-                    "real": True,
+                    "real": False,
                     "status_code": None,
                     "title": prospect.get("company"),
                     "error": None,
@@ -587,7 +597,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     "domain": prospect.get("domain"),
                     "identity_status": "verified",
                     "source_reliability": "local_fixture",
-                    "identity_evidence_urls": [],
+                    "identity_evidence_urls": fixture_identity_evidence,
+                    "evidence_class": "fixture",
                 }
             )
             # Local fixtures are authoritative test data. Promote the
@@ -597,10 +608,11 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             verified_prospect_candidates.append(
                 {
                     **prospect,
-                    "real": True,
+                    "real": False,
                     "source": "local_fixture",
                     "identity_status": "verified",
-                    "identity_evidence_urls": [],
+                    "identity_evidence_urls": fixture_identity_evidence,
+                    "evidence_class": "fixture",
                     "sources": prospect.get("sources") if isinstance(prospect.get("sources"), list) else [],
                 }
             )
@@ -616,7 +628,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                         "sources": prospect.get("sources") if isinstance(prospect.get("sources"), list) else [],
                         "prospect_id": prospect.get("prospect_id"),
                         "identity_status": "verified",
-                        "identity_evidence_urls": [],
+                        "identity_evidence_urls": fixture_identity_evidence,
+                        "evidence_class": "fixture",
                         "contact_role_status": "verified" if prospect.get("role") else "unverified",
                         "contact_role_evidence": "bound prospect role" if prospect.get("role") else None,
                     }
@@ -956,8 +969,12 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             # verified rows beyond the operator's requested count.
             break
 
-    unique_urls_with_real = {str(item["source_url"]) for item in observed_contacts if item.get("real") is True}
-    accept_met = len(unique_urls_with_real) >= limit
+    accepted_observation_urls = {
+        str(item["source_url"])
+        for item in observed_contacts
+        if item.get("real") is True or item.get("via") == "local_fixture"
+    }
+    accept_met = len(accepted_observation_urls) >= limit
     limitations = [
         "contacts are extracted from fetched HTML text only",
         "page locality is not verified",
@@ -988,7 +1005,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         ],
         "verified_prospect_candidates": verified_prospect_candidates,
         "observed_contacts": observed_contacts,
-        "observed_count": len(unique_urls_with_real),
+        "observed_count": len(accepted_observation_urls),
         "contact_value_count": len(observed_contacts),
         "unobserved": unobserved,
         "pages": pages,
@@ -1005,14 +1022,14 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             if not verified_prospect_candidates
             else None
         ),
-        "real": bool(observed_contacts),
+        "real": any(item.get("real") is True for item in observed_contacts),
         "limitations": limitations,
         "condition_observations": [
             {
                 "condition_key": item["kind"],
                 "value": item["value"],
                 "source_url": item["source_url"],
-                "real": True,
+                "real": item.get("real") is True,
             }
             for item in observed_contacts
         ],
@@ -1041,7 +1058,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         },
     }
     summary = (
-        f"Observed contacts on {len(unique_urls_with_real)}/{limit} source page(s); "
+        f"Observed contacts on {len(accepted_observation_urls)}/{limit} source page(s); "
         f"{len(unobserved)} unobserved; accept_met={accept_met}."
     )
     evidence = EvidenceItem(
@@ -1074,14 +1091,14 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
             source_identity=(
                 EvidenceSourceIdentity(
-                    source_system="public_page",
-                    source_record_id=next(iter(unique_urls_with_real)),
+                    source_system="fixture_data" if payload.local_fixture_only else "public_page",
+                    source_record_id=next(iter(accepted_observation_urls)),
                 )
-                if unique_urls_with_real
+                if accepted_observation_urls
                 else None
             ),
             resolution=(
-                EvidenceLineageResolution.KNOWN if unique_urls_with_real else EvidenceLineageResolution.UNKNOWN
+                EvidenceLineageResolution.KNOWN if accepted_observation_urls else EvidenceLineageResolution.UNKNOWN
             ),
         ),
         side_effect_class=SideEffectClass.EXTERNAL_READ,

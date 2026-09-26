@@ -457,6 +457,15 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             continue
         prospect = _prospect_from_record(record, source="internal_record", query=payload.query)
         if payload.local_fixture_only:
+            fixture_id = str(record.get("id") or prospect.get("id") or "unknown")
+            prospect.update(
+                {
+                    "real": False,
+                    "source": "local_fixture",
+                    "evidence_class": "fixture",
+                    "identity_evidence_urls": [f"fixture://{fixture_id}"],
+                }
+            )
             fixture_contacts = store.search_records(
                 tenant_id=context.tenant_id,
                 record_type="contact",
@@ -544,11 +553,13 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             if internal_matches or crm_search.results
             else ("ddgs" if public_search_real else "ajenda_brain")
         ),
-        # Search/internal path executed; not a claim that each candidate was observed.
-        "real": True,
-        "candidates_real": bool(internal_matches or crm_search.results)
-        and not public_search_real
+        # ``real`` means real-world observation, never merely that code ran.
+        # Local fixtures remain explicit synthetic proof data.
+        "real": not payload.local_fixture_only,
+        "candidates_real": not payload.local_fixture_only
+        and bool(internal_matches or crm_search.results)
         and bool(prospect_candidates),
+        "data_class": "fixture" if payload.local_fixture_only else "observed",
         "plugin_required": False,
     }
     inspected = [

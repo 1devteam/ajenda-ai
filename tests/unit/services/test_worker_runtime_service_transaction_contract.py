@@ -12,7 +12,7 @@ import inspect
 import textwrap
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
@@ -598,6 +598,74 @@ def test_claim_next_task_reconciles_terminal_queue_artifact_without_claiming() -
     audit_event = service._audit.append.call_args.args[0]
     assert audit_event.action == "terminal_task_queue_claim_reconciled"
     assert audit_event.payload_json["requeue_allowed"] is False
+
+
+def test_claim_next_task_quarantines_orphan_queue_payload_without_requeue() -> None:
+    session = MagicMock()
+    queue = MagicMock()
+    queue.fail_task.return_value = QueueOperationResult(ok=True)
+    service = WorkerRuntimeService(session, queue)
+    tenant_id = "tenant-orphan-claim"
+    worker_id = "worker-orphan-claim"
+    task_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    queue.claim_task.return_value = QueueMessage(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        mission_id=mission_id,
+        fleet_id=None,
+        branch_id=None,
+        payload={"stale": True},
+        enqueued_at=datetime.now(UTC) - timedelta(minutes=5),
+    )
+    service._tasks = MagicMock()
+    service._tasks.get.return_value = None
+    service._audit = MagicMock()
+
+    assert service.claim_next_task(tenant_id=tenant_id, worker_id=worker_id) is None
+
+    queue.fail_task.assert_called_once_with(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        worker_id=worker_id,
+        reason="claimed queue payload has no matching tenant execution task",
+    )
+    queue.release_lease.assert_not_called()
+    assert service._audit.append.call_args.args[0].action == "orphan_queue_payload_quarantined"
+    session.commit.assert_called_once()
+
+
+def test_claim_next_task_releases_recent_payload_during_db_visibility_race() -> None:
+    session = MagicMock()
+    queue = MagicMock()
+    queue.release_lease.return_value = QueueOperationResult(ok=True)
+    service = WorkerRuntimeService(session, queue)
+    tenant_id = "tenant-commit-race"
+    worker_id = "worker-commit-race"
+    task_id = uuid.uuid4()
+    queue.claim_task.return_value = QueueMessage(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        mission_id=uuid.uuid4(),
+        fleet_id=None,
+        branch_id=None,
+        payload={},
+        enqueued_at=datetime.now(UTC),
+    )
+    service._tasks = MagicMock()
+    service._tasks.get.return_value = None
+    service._audit = MagicMock()
+
+    assert service.claim_next_task(tenant_id=tenant_id, worker_id=worker_id) is None
+
+    queue.release_lease.assert_called_once_with(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        worker_id=worker_id,
+    )
+    queue.fail_task.assert_not_called()
+    service._audit.append.assert_not_called()
+    session.commit.assert_not_called()
 
 
 def test_claim_next_task_reconciles_blocked_terminal_queue_artifact_without_claiming() -> None:

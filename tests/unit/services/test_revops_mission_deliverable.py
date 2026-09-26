@@ -206,6 +206,7 @@ def test_assembler_builds_complete_report_from_typed_runtime_artifacts() -> None
     assert report.limitations == ("Public-page coverage is bounded.",)
     assert report.approval_state.all_required_approved is True
     assert report.grants_execution_authority is False
+    assert report.result_semantics["completion_scope"] == "requested_deliverable"
 
     assert len(report.prospects) == 1
     prospect = report.prospects[0]
