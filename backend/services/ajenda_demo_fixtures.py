@@ -101,6 +101,61 @@ def supplemental_demo_records() -> dict[str, dict[str, dict[str, Any]]]:
             "email": email,
             "source": "local_fixture",
         }
+    for scope_key, industry, location, entries in (
+        (
+            "dallas-hvac",
+            "HVAC",
+            "Dallas",
+            (
+                ("Dallas Comfort HVAC", "dallascomfort.example", "hello@dallascomfort.example"),
+                ("North Texas Air Pros", "ntairpros.example", "hello@ntairpros.example"),
+                ("Oak Cliff Cooling", "oakcliffcooling.example", "hello@oakcliffcooling.example"),
+            ),
+        ),
+        (
+            "austin-roofing",
+            "roofing",
+            "Austin",
+            (
+                ("Capital Roof Works", "capitalroof.example", "hello@capitalroof.example"),
+                ("Lone Star Roofing", "lonestarroof.example", "hello@lonestarroof.example"),
+                ("Hill Country Roof Care", "hillcountryroof.example", "hello@hillcountryroof.example"),
+            ),
+        ),
+        (
+            "austin-plumbing",
+            "plumbing",
+            "Austin",
+            (
+                ("Barton Plumbing Co", "bartonplumbing.example", "hello@bartonplumbing.example"),
+                ("South Austin Pipeworks", "southaustinpipe.example", "hello@southaustinpipe.example"),
+                ("Cedar Park Plumbing", "cedarparkplumbing.example", "hello@cedarparkplumbing.example"),
+            ),
+        ),
+    ):
+        for index, (name, domain, email) in enumerate(entries, start=1):
+            account_id = f"fixture-{scope_key}-{index}"
+            contact_id = f"{account_id}-contact"
+            accounts[account_id] = {
+                "id": account_id,
+                "name": name,
+                "industry": industry,
+                "location": location,
+                "domain": domain,
+                "website": f"https://{domain}",
+                "product_description": f"{name} provides {industry} services in {location}.",
+                "research_summary": f"Local fixture account for {industry} proof in {location}.",
+                "automation_opportunity": "Evaluate governed AI mission automation for service operations.",
+                "source": "local_fixture",
+            }
+            contacts[contact_id] = {
+                "id": contact_id,
+                "name": f"{name} Contact",
+                "account_id": account_id,
+                "role": "Owner",
+                "email": email,
+                "source": "local_fixture",
+            }
     return {
         "account": accounts,
         "contact": contacts,

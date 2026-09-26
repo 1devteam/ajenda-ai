@@ -66,14 +66,26 @@ def test_local_fixture_constraint_disables_public_search() -> None:
 def test_unsupported_local_fixture_scope_is_a_compile_gap() -> None:
     record = MissionCompositionService(db=None).compose(
         tenant_id="tenant",
-        instruction="Research three roofing companies in Austin using local fixture data only.",
+        instruction="Research three manufacturing companies in Chicago using local fixture data only.",
     )
 
     assert record.ready_to_start is False
     assert any(
-        "local prospect fixture supports only software companies in Austin" in (step.compile_gap or "")
+        "local prospect fixtures support software development in Austin" in (step.compile_gap or "")
         for step in record.planned_steps
     )
+
+
+def test_supported_local_fixture_scopes_compile_without_public_search() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction="Research three HVAC companies in Dallas using local fixture data only.",
+    )
+
+    assert record.ready_to_start is True
+    research = next(step for step in record.planned_steps if step.action_name == "web.research")
+    assert research.tool_input["local_fixture_only"] is True
+    assert research.tool_input["include_public_search"] is False
 
 
 def test_ajenda_internal_crm_source_disables_public_search() -> None:

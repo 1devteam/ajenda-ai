@@ -607,12 +607,17 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
             re.search(r"\blocal\s+(?:test\s+)?fixtures?\b|\bfixture\s+data\s+only\b", source, re.IGNORECASE)
         )
         if local_fixture_only and entity and entity.industry and entity.location:
-            fixture_scope_supported = (
-                "software" in entity.industry.casefold() and "austin" in entity.location.casefold()
-            )
+            fixture_scope_supported = (entity.industry.casefold(), entity.location.casefold()) in {
+                ("software", "austin"),
+                ("software development", "austin"),
+                ("hvac", "dallas"),
+                ("roofing", "austin"),
+                ("plumbing", "austin"),
+            }
             if not fixture_scope_supported:
                 raise ValueError(
-                    "local prospect fixture supports only software companies in Austin; "
+                    "local prospect fixtures support software development in Austin, HVAC in Dallas, "
+                    "roofing in Austin, and plumbing in Austin; "
                     "requested fixture scope is unavailable"
                 )
         internal_crm_only = _ajenda_internal_crm_only(intent)

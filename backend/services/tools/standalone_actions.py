@@ -441,14 +441,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     seen_companies: set[str] = set()
     verified_public_candidate_count = 0
     candidate_records = (
-        [
-            record
-            for record in internal_matches
-            if isinstance(record, dict)
-            and (
-                record.get("source") == "local_fixture" or str(record.get("id") or "").startswith("fixture-austin-dev-")
-            )
-        ]
+        [record for record in internal_matches if isinstance(record, dict) and record.get("source") == "local_fixture"]
         if payload.local_fixture_only
         else internal_matches + list(crm_search.results or [])
     )
