@@ -441,7 +441,18 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     seen_companies: set[str] = set()
     verified_public_candidate_count = 0
     candidate_records = (
-        [record for record in internal_matches if isinstance(record, dict) and record.get("source") == "local_fixture"]
+        [
+            record
+            for record in internal_matches
+            if isinstance(record, dict)
+            and record.get("source") == "local_fixture"
+            # Contact searches are supplementary evidence for an account. A
+            # contact row must never be promoted to a prospect merely because
+            # its name matched the market query; it commonly has no website
+            # or company-level identity fields. The account lookup above is
+            # the authoritative candidate source for fixture research.
+            and not record.get("account_id")
+        ]
         if payload.local_fixture_only
         else internal_matches + list(crm_search.results or [])
     )

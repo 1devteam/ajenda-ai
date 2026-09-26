@@ -346,6 +346,18 @@ def test_generic_internal_crm_source_does_not_route_public_observation() -> None
     assert "record.search" in actions
 
 
+def test_plain_produce_report_materializes_research_synthesis() -> None:
+    instruction = "Research four accounting firms in Denver using local fixture data only and produce a report with evidence gaps."
+    intent = interpret_instruction(instruction)
+
+    assert "research_prospects" in intent.requested_outcomes
+    assert "synthesize_research_report" in intent.requested_outcomes
+
+    record = MissionCompositionService(db=None).compose(tenant_id="tenant", instruction=instruction)
+    actions = {node["metadata"]["action"] for node in record.task_graph_preview["nodes"]}
+    assert "research.synthesize_report" in actions
+
+
 def test_long_objective_is_preserved_without_lossy_truncation() -> None:
     instruction = "Research competitors and provide evidence. " + "Include verified details. " * 30
     intent = interpret_instruction(instruction)
