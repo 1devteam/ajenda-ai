@@ -25,8 +25,10 @@ def test_graft_plus_reconciles_frozen_graft1st_package_and_sources() -> None:
     assert report["errors"] == []
     assert report["node_count"] == 35
     assert report["scenario_count"] == 5
-    assert report["implementation_proof_node_count"] == 16
+    assert report["implementation_proof_node_count"] == 17
     assert report["status_counts"]["active_worktree"] == 0
+    assert report["status_counts"]["extend"] == 16
+    assert report["status_counts"]["new"] == 18
 
 
 def test_graft1st_conformance_rejects_stale_worktree_status(tmp_path: Path) -> None:

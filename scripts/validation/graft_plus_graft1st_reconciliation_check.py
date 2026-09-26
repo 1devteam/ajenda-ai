@@ -42,6 +42,13 @@ IMPLEMENTATION_PROOFS: dict[str, tuple[SourceProof, ...]] = {
     "graph.compile": (
         SourceProof("backend/services/mission_composition/plan_compiler.py", ("compile_task_graph_preview",)),
     ),
+    "graph.adjudicate": (
+        SourceProof(
+            "backend/api/routes/mission.py",
+            ("runtime_admission_metadata = build_runtime_admission_metadata", "execution_task_records=[]"),
+        ),
+        SourceProof("backend/domain/mission.py", ("def build_runtime_admission_metadata",)),
+    ),
     "task.materialize": (
         SourceProof(
             "backend/services/mission_runtime_task_materialization_service.py",

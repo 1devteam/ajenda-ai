@@ -894,6 +894,7 @@ These inputs do not prevent the architecture lock. They block only the named imp
 | Owner-only choices isolated | SATISFIED | §§27, 31 |
 | Observed implementation status reconciled to every node | SATISFIED | G.R.A.F.T.+ reconciliation in `graft_plus_graft1st_reconciliation_check.py` proves every non-`new` node has source ownership and rejects stale `active_worktree`, unknown, or unproved classifications |
 | WP0 G.R.A.F.T.1st code contracts materialized and conformance-tested | SATISFIED | `graft1st_contracts.py`, frozen package/simulation fixtures, `test_graft1st_contracts.py`, and `test_graft_plus_graft1st_reconciliation_check.py` |
+| WP1 vertical know-how, intent/outcomes, composition graph | SATISFIED | `REVOPS_V2_KNOW_HOW`, composition contracts/service, `compile_task_graph_preview`, tenant-scoped runtime admission, and runtime task materialization tests; credential preflight remains WP7 governance work |
 
 ## 33. Lock declaration
 

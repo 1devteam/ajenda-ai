@@ -34,7 +34,7 @@
     {
       "node_key": "graph.adjudicate",
       "owner": "graft_admission",
-      "implementation_status": "new",
+      "implementation_status": "extend",
       "accepts": ["CanonicalMissionGraph", "CredentialPreflightReport"],
       "produces": ["GraphAdmissionReport"],
       "side_effect_class": "none",
