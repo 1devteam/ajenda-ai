@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts.validation.graft1st_conformance_check import PACKAGE_PATH, SIMULATION_PATH, validate_conformance
+from scripts.validation.graft_plus_graft1st_reconciliation_check import (
+    PACKAGE_PATH,
+    SIMULATION_PATH,
+    validate_conformance,
+)
 
 
 def _mutated_package(tmp_path: Path, mutate) -> Path:  # type: ignore[no-untyped-def]
@@ -14,7 +18,7 @@ def _mutated_package(tmp_path: Path, mutate) -> Path:  # type: ignore[no-untyped
     return path
 
 
-def test_graft1st_conformance_matches_frozen_package_and_sources() -> None:
+def test_graft_plus_reconciles_frozen_graft1st_package_and_sources() -> None:
     report = validate_conformance()
 
     assert report["status"] == "passed"

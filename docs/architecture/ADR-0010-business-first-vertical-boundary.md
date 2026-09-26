@@ -82,6 +82,6 @@ A vertical addition must prove:
 4. Add side-effecting capabilities only after idempotency, approval,
    compensation, and runtime proofs exist.
 
-No new GRAFT1ST graft is required for this boundary. A future graft is only
+No new G.R.A.F.T.1st design is required for this boundary. A future G.R.A.F.T.1st design is only
 appropriate if the canonical business ontology, mission graph, or cross-vertical
 authority model changes.

@@ -1,5 +1,17 @@
 # GRAFT+ Build Workflow
 
+## Terminology boundary
+
+- **GRAFT1st** designs a new program or a new bounded system before its first implementation line.
+  Its artifacts are prospective architecture, contracts, dependency decisions, and proof plans;
+  they are not observed implementation evidence.
+- **GRAFT+** analyzes, changes, and verifies an existing program. It starts from implementation,
+  tests, migrations, persisted state, and runtime artifacts, then uses the dependency graph to
+  expose blast radius and proof obligations.
+
+The names are not interchangeable. A GRAFT1st design may later be reconciled to its growing
+implementation by GRAFT+, but that reconciliation remains GRAFT+ work.
+
 GRAFT+ is Ajenda AI's established workflow for fast, ambitious, evidence-backed changes. It uses
 the repository dependency graph to guide a build across its real contracts and blast radius. It is
 not a policy of choosing the smallest change; it is a policy of knowing what a change touches,

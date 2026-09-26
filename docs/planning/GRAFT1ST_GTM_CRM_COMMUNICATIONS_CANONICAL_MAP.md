@@ -783,7 +783,8 @@ The first implementation wave freezes names and ownership, not every future payl
 materializes these as versioned code contracts in
 `backend/services/vertical_ops/graft1st_contracts.py`; the frozen package and simulation fixtures are
 checked against those contracts and implementation ownership by
-`scripts/validation/graft1st_conformance_check.py`.
+`scripts/validation/graft_plus_graft1st_reconciliation_check.py`. The design artifact remains
+G.R.A.F.T.1st; comparison with the now-existing implementation is explicitly G.R.A.F.T.+ work.
 
 | Interface package | Version to create | Owner | Stability boundary | Initial consumers |
 | --- | --- | --- | --- | --- |
@@ -891,8 +892,8 @@ These inputs do not prevent the architecture lock. They block only the named imp
 | Scenario coverage defined | SATISFIED | §25 |
 | Proof obligations defined | SATISFIED | §13 |
 | Owner-only choices isolated | SATISFIED | §§27, 31 |
-| Observed implementation status reconciled to every node | SATISFIED | `graft1st_conformance_check.py` proves every non-`new` node has source ownership and rejects stale `active_worktree`, unknown, or unproved classifications |
-| WP0 code contracts materialized and conformance-tested | SATISFIED | `graft1st_contracts.py`, frozen package/simulation fixtures, `test_graft1st_contracts.py`, and `test_graft1st_conformance_check.py` |
+| Observed implementation status reconciled to every node | SATISFIED | G.R.A.F.T.+ reconciliation in `graft_plus_graft1st_reconciliation_check.py` proves every non-`new` node has source ownership and rejects stale `active_worktree`, unknown, or unproved classifications |
+| WP0 G.R.A.F.T.1st code contracts materialized and conformance-tested | SATISFIED | `graft1st_contracts.py`, frozen package/simulation fixtures, `test_graft1st_contracts.py`, and `test_graft_plus_graft1st_reconciliation_check.py` |
 
 ## 33. Lock declaration
 

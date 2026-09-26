@@ -550,6 +550,10 @@ Recent milestones:
 
 ## Established build workflow: UPG/LAP + GRAFT+
 
+GRAFT terminology is intentionally precise: **GRAFT1st** is used to design a new program or bounded
+system before its first line of implementation; **GRAFT+** is used to understand and change an
+existing program. Ajenda AI is an existing program, so repository change work uses GRAFT+.
+
 Non-trivial layer, runtime, tool, networking, persistence, security, or workflow work follows the
 repository's established [GRAFT+ workflow](docs/development/GRAFT_PLUS_WORKFLOW.md):
 
@@ -579,7 +583,7 @@ python scripts/validation/contract_drift_check.py
 python scripts/validation/runtime_authority_inventory_check.py
 python scripts/validation/migration_seed_contract_check.py
 python scripts/validation/ability_rollout_contract_check.py
-python scripts/validation/graft1st_conformance_check.py
+python scripts/validation/graft_plus_graft1st_reconciliation_check.py
 python scripts/validation/graft_plus_gate.py --base-ref origin/main --head-ref HEAD
 python -m pytest tests/unit/ tests/contract/ tests/deployment/ -m "not integration"
 ```

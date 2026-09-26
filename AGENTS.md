@@ -41,8 +41,12 @@ Do not implement a layer-level change until UPG/LAP is complete. If the review f
 
 ## GRAFT+ workflow
 
-GRAFT+ is the established repository workflow for non-trivial builds. After UPG/LAP and before
-implementation, use the canonical dependency graph to map the proposed or actual changed files,
+GRAFT1st and GRAFT+ are distinct methods. **GRAFT1st** designs a new program or bounded system
+before its first implementation line. **GRAFT+** analyzes and guides changes to an existing
+program. Do not use either name as a generic synonym for the other.
+
+GRAFT+ is the established repository workflow for non-trivial changes to this existing repository.
+After UPG/LAP and before modifying implementation, use the canonical dependency graph to map the proposed or actual changed files,
 their upstream consumers, downstream dependencies, semantic nodes, risk domains, invariants, and
 proof obligations. For uncommitted work, run explicit changed-file impact analysis; a Git ref range
 that excludes the working tree is not sufficient blast-radius evidence.
@@ -120,7 +124,7 @@ python scripts/validation/contract_drift_check.py
 python scripts/validation/runtime_authority_inventory_check.py
 python scripts/validation/migration_seed_contract_check.py
 python scripts/validation/ability_rollout_contract_check.py
-python scripts/validation/graft1st_conformance_check.py
+python scripts/validation/graft_plus_graft1st_reconciliation_check.py
 python -m pytest tests/unit/ tests/contract/ tests/deployment/ -m "not integration"
 ```
 

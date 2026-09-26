@@ -1,4 +1,4 @@
-"""Validate the frozen GRAFT1st package against implementation-backed ownership proof."""
+"""Reconcile a frozen GRAFT1st design against an existing program using GRAFT+."""
 
 from __future__ import annotations
 
@@ -163,7 +163,7 @@ def main() -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 1
     print(
-        "PASS: GRAFT1st conformance checks passed "
+        "PASS: GRAFT+ reconciliation of the GRAFT1st package passed "
         f"({report['node_count']} nodes, {report['edge_count']} edges, "
         f"{report['scenario_count']} simulations, "
         f"{report['implementation_proof_node_count']} implementation proofs)."
