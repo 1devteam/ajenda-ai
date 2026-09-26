@@ -46,6 +46,8 @@ flowchart LR
 | Google Calendar / Contacts connectors | Implemented — separate OAuth connect; external actions never silently simulate in production |
 | Credentials / Connections UI | Implemented at `/credentials` and `/connections` (OAuth-first Google cards) |
 | Mission composition engine | Implemented — plain language → structured `MissionIntent` → jobs → proposal; restatement on incomplete input |
+| Mission result semantics | Implemented — runtime/deliverable acceptance is separate from evaluated business-goal status |
+| Bounded browser observation | Implemented — read-only artifacts expose request vetting, DNS pinning, allowed hosts, engine, and ephemeral-context provenance |
 | Governed vertical operations | Implemented — `/v1/vertical-ops/*` template planning and bounded queue admission; Phase C templates remain plan-only |
 | Stripe billing API | Implemented — checkout, portal (`billing:manage`), signed webhook with dedup |
 | Ability runtime API | Implemented — task launch, proofs, feature/quota gates |
@@ -301,6 +303,7 @@ That ledger is normative for authority-class intent and required proof surfaces 
 | Customer frontend | `frontend/src/pages/*`, `App.tsx`, `api/client.ts` | signup/verify/promote flow, dashboard, billing, tasks; `/dev` retains ability-runtime console | frontend build CI, deployment contract tests |
 | Queue-backed execution | `ExecutionCoordinator`, queue adapters, task routes | admitted runtime work must be represented in DB and queue authority | integration/runtime tests, live proof |
 | Worker lease ownership | `WorkerRuntimeService`, `WorkerLease`, runtime transitions | worker leases control claim/start/complete/fail authority | runtime integration tests, live proof |
+| Queue/DB claim convergence | `WorkerRuntimeService.claim_next_task`, queue payload enqueue timestamps | recent taskless claims are released during the bounded commit-visibility window; stale payloads without a matching tenant task are quarantined instead of requeued forever | worker transaction tests, live mission proof |
 | Recovery reconciliation | `RuntimeMaintainer`, `QueueAdapter` recovery methods | stale work recovery uses queue evidence, expires stale leases, and avoids synthetic replacement work after payload loss | runtime recovery integration tests |
 | Dead-letter inspection/retry | queue adapters, `OperationsService`, operations routes | dead-letter retry/inspection reconciles DB and queue evidence with tenant scope | contract/integration operations tests |
 | Governance and audit evidence | audit/governance event models, policy path, runtime services, validation artifacts | admission, denial, completion, policy, and recovery decisions must leave reviewable evidence where required | unit/contract/integration tests, live proof |
@@ -316,6 +319,8 @@ That ledger is normative for authority-class intent and required proof surfaces 
 | Outcome reviews | outcome-review routes, models, repositories, migrations | outcome review records store review decisions, findings, confidence, gaps, and human-approval fields for mission result claims; they do not autonomously generate decisions or mutate runtime state unless a future explicit reviewer/scoring layer exists | unit/API/repository/migration contract tests |
 | Retrieval and recall contracts | retrieval-contract routes, models, repositories, migrations | retrieval contracts govern future memory retrieval requests, filters, provenance, status, supersession, and revocation without generating embeddings, running vector search, or mutating runtime state | unit/API/repository/migration contract tests |
 | Mission lifecycle read model | mission lifecycle route and mission/product contract aggregators | lifecycle reads aggregate mission, intake, plan, graph, materialization, evidence, outcome, memory, retrieval, completeness, and missing-next-step state without mutating or executing runtime work | unit/API tests |
+| Mission deliverable result semantics | `WorkerRuntimeService`, `revops_deliverable.py`, goal evaluation action | mission acceptance describes runtime execution and requested-deliverable completion; `result_semantics.business_outcome_status` independently reports the evaluated goal result. Without durable Goal/KPI authority, evaluation remains instruction-only and reports explicit evidence gaps | unit/service tests, live mission artifacts |
+| Fixture and browser evidence truth | `standalone_actions.py`, `web_actions.py`, evidence bridge | local fixtures remain `real=false` with `source=local_fixture` and `fixture://` identities; browser observations preserve governed network provenance in artifacts and evidence | tool unit tests, live mission artifacts |
 | Webhook delivery and replay | webhook routes, models, repositories, services, migrations | tenants can manage endpoints, delivery records, replay flows, reliability summaries, signing, and encrypted signing-secret storage | unit/contract/integration tests |
 | Deployment runtime contract | Compose/K8s manifests, production env contract, live proof script | deployment surfaces use canonical `AJENDA_*` env aliases, supported entrypoints, probes, metrics path, and prod-like proof stack | deployment tests, live-runtime proof |
 | Observability contract | observability route, Prometheus config, live proof | metrics are exposed at `/v1/observability/metrics` and scraped by Prometheus | contract/deployment tests, live proof |
@@ -543,6 +548,25 @@ Recent milestones:
 
 ---
 
+## Established build workflow: UPG/LAP + GRAFT+
+
+Non-trivial layer, runtime, tool, networking, persistence, security, or workflow work follows the
+repository's established [GRAFT+ workflow](docs/development/GRAFT_PLUS_WORKFLOW.md):
+
+1. verify implementation, tests, migrations, and runtime state as the source of truth;
+2. complete UPG/LAP responsibility, dependency, pitfall, invariant, and proof review;
+3. use the canonical dependency graph to measure the actual blast radius and select proof;
+4. build the complete graph-supported change—the workflow does not require the smallest patch;
+5. run targeted and graph-selected gates, then inspect real runtime artifacts for hidden errors;
+6. reconcile docs only after implementation and evidence agree.
+
+Ambitious or exploratory work is allowed. Unverified authority, tenant scope, persistence,
+side-effect, or retry assumptions are not. GRAFT+ is both a build guide and a test of the graph's
+coverage; unmapped files, missing invariants, and unexpected runtime artifacts are workflow
+findings to classify or resolve rather than reasons to silently narrow the intended build.
+
+---
+
 ## Quality gates
 
 Before opening a PR, run at minimum:
@@ -552,7 +576,10 @@ ruff check backend/ tests/ scripts/validation/
 ruff format --check backend/ tests/ scripts/validation/
 mypy backend/
 python scripts/validation/contract_drift_check.py
+python scripts/validation/runtime_authority_inventory_check.py
 python scripts/validation/migration_seed_contract_check.py
+python scripts/validation/ability_rollout_contract_check.py
+python scripts/validation/graft_plus_gate.py --base-ref origin/main --head-ref HEAD
 python -m pytest tests/unit/ tests/contract/ tests/deployment/ -m "not integration"
 ```
 
@@ -626,6 +653,7 @@ Start here when working on product direction and current runtime behavior.
 - `PROJECT_SPEC.md`
 - `README.md`
 - `docs/architecture/SYSTEM_ARCHITECTURE.md`
+- `docs/development/GRAFT_PLUS_WORKFLOW.md`
 - `docs/product/mission-based-ai-core.md`
 - `docs/product/GTM_SELF_SELLING_ARCHITECTURE.md`
 - `docs/product/GTM_CAPABILITY_CATALOG.md`

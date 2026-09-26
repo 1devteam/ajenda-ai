@@ -190,6 +190,13 @@ flowchart TD
 
 **Worker tenancy:** `AJENDA_WORKER_TENANT_MODE=multi` (default in staging/prod templates) round-robins active tenants via `tenant_scheduler`. `single` mode polls one `AJENDA_WORKER_TENANT_ID` only.
 
+**Queue/DB convergence:** queue publication and the surrounding database transaction have separate
+visibility timing. If a worker claims a newly enqueued payload before its task row is visible,
+`WorkerRuntimeService` releases it during a bounded 30-second commit-visibility grace window. An
+older payload with no matching tenant-owned task is quarantined to dead letter instead of released
+into an infinite claim loop. A tenant mismatch never receives the visibility grace and cannot
+execute.
+
 **Single execution spine:** the former POST worker claim/start/run mission-bridge routes now return
 HTTP 410 after permission validation. Their compatibility services are fail-closed tombstones.
 Only `WorkerLoop`/`WorkerRuntimeService` may claim, start, and dispatch queued work; GET readbacks
@@ -225,6 +232,22 @@ The report keeps `task_state.all_succeeded` separate from
 identity fields, invalid artifacts, missing real-effect receipt identifiers, and persisted
 request/projection drift remain visible or fail closed. A missing runtime deliverable state returns
 HTTP 404; invalid or inconsistent state returns HTTP 409.
+
+The report's `result_semantics` keeps runtime delivery and business evaluation separate:
+
+- `completion_scope=requested_deliverable` describes what the runtime assembled;
+- mission acceptance has `scope=runtime_execution_and_deliverable`;
+- `business_outcome_status` carries an evaluated goal result without redefining runtime success.
+
+Goal-progress evaluation does not infer durable Goal/KPI authority from mission wording. Without a
+repository-backed goal, its authority is `mission_instruction`, its scope is
+`mission_instruction_only`, `durable_goal_resolved` is false, and missing durable goal, KPI, and
+current-state context is returned as evidence gaps. Local fixture artifacts remain non-real at
+discovery and verification stages and use `fixture://` evidence identities.
+
+Read-only browser observations carry their network-control provenance into the typed artifact and
+evidence: per-request egress vetting, DNS-pin method and pinned hosts, allowed hosts, browser
+engine, and ephemeral-context status.
 
 ---
 

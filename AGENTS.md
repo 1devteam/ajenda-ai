@@ -39,6 +39,26 @@ For layer-level changes, tool stacks, provider changes, networking/security chan
 
 Do not implement a layer-level change until UPG/LAP is complete. If the review finds insufficient evidence, ask for clarification or narrow the scope.
 
+## GRAFT+ workflow
+
+GRAFT+ is the established repository workflow for non-trivial builds. After UPG/LAP and before
+implementation, use the canonical dependency graph to map the proposed or actual changed files,
+their upstream consumers, downstream dependencies, semantic nodes, risk domains, invariants, and
+proof obligations. For uncommitted work, run explicit changed-file impact analysis; a Git ref range
+that excludes the working tree is not sufficient blast-radius evidence.
+
+GRAFT+ does not require the smallest or most conservative patch. It may guide an ambitious or
+exploratory build when the source-of-truth ownership and invariants are known. Implement the
+complete coherent change supported by the graph, then run targeted, graph-selected, full, and live
+runtime proof in proportion to the blast radius. Inspect runtime artifacts adversarially for hidden
+failures outside the primary artifact, including shared queue state, DB/queue visibility races,
+fixture or simulated truth leakage, missing safety provenance, and completion/business-outcome
+conflation.
+
+Treat graph gaps and runtime contradictions as findings. Feed them back into UPG/LAP, expand the
+build or proof as needed, and update docs only after implementation and evidence agree. The
+canonical procedure is `docs/development/GRAFT_PLUS_WORKFLOW.md`.
+
 ## Hard boundaries
 
 Do not:

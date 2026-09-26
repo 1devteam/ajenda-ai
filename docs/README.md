@@ -1,6 +1,6 @@
 # Ajenda AI — Documentation Index
 
-**Last aligned with `main`:** 2026-07-07
+**Last aligned with `main`:** 2026-09-25
 
 When docs conflict with code, **code + tests win**. Start with the canonical set below.
 
@@ -17,6 +17,7 @@ When docs conflict with code, **code + tests win**. Start with the canonical set
 | [`SAAS_ARCHITECTURE.md`](SAAS_ARCHITECTURE.md) | Tenant isolation, plans, onboarding, billing |
 | [`deployment/production-env-contract.md`](deployment/production-env-contract.md) | Required production environment variables |
 | [`contracts/authority-ledger.v1.yaml`](contracts/authority-ledger.v1.yaml) | Machine-readable authority map |
+| [`development/GRAFT_PLUS_WORKFLOW.md`](development/GRAFT_PLUS_WORKFLOW.md) | Established UPG/LAP + graph-guided build and runtime-artifact workflow |
 
 ---
 

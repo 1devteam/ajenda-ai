@@ -1,6 +1,6 @@
 # Ajenda AI — Project State Report
 
-**Date:** August 30, 2026
+**Date:** September 25, 2026
 **Branch:** `main`  
 **Alembic head:** `0038_knowledge_retrieval`
 **Architecture map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md)
@@ -36,6 +36,8 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Multi-tenant workers (`AJENDA_WORKER_TENANT_MODE=multi`, ADR-0004)
 - Live runtime proof on `main`: echo task, `gtm.lead_enrich`, brain capstone slice
 - Read-only RevOps mission deliverable assembly at `GET /v1/missions/{mission_id}/deliverable`: typed artifacts, independently recomputed completion, approvals, effects, receipts, and evidence
+- Mission result semantics keep runtime/deliverable acceptance separate from `business_outcome_status`; instruction-only goal evaluations explicitly report missing durable Goal/KPI/current-state authority
+- Queue claim convergence releases recent payloads during the DB commit-visibility window and quarantines stale taskless payloads instead of requeueing them indefinitely
 
 ### 2.2 Tenant isolation and auth
 
@@ -66,6 +68,8 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - External connectors fail closed without credentials; simulation requires explicit non-production opt-in and remains disabled in production
 - Gmail query composition preserves sender and material `for` clauses, translates supported time windows, and rejects known unsupported explicit operators
 - Explicit HubSpot sourcing remains connector-bound and unsupported CRM discovery scopes are rejected instead of falling back
+- Local fixture research remains `real=false` with `fixture://` evidence identities at discovery and verification stages
+- Read-only browser artifacts preserve request-vetting, DNS-pin, allowed-host, engine, and ephemeral-context provenance
 
 ### 2.5 Customer frontend
 
