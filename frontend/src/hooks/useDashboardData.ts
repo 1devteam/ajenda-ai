@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { getAccountOnboarding, listMissions, listReviewQueue } from "../api/client";
+import { countStatusBreakdown } from "../dashboard/dashboardModel";
 import type { AccountOnboardingResponse, CustomerSession, MissionListItem, ReviewQueueItem } from "../types";
 import { failureText } from "../utils/errors";
 
 export type DashboardData = {
   missions: MissionListItem[];
+  missionTotalCount: number;
+  missionCompletedCount: number;
   approvalItems: ReviewQueueItem[];
   pendingApprovals: number;
   hasConnections: boolean;
@@ -17,6 +20,8 @@ export type DashboardData = {
 
 export function useDashboardData(session: CustomerSession | null): DashboardData {
   const [missions, setMissions] = useState<MissionListItem[]>([]);
+  const [missionTotalCount, setMissionTotalCount] = useState(0);
+  const [missionCompletedCount, setMissionCompletedCount] = useState(0);
   const [approvalItems, setApprovalItems] = useState<ReviewQueueItem[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [hasConnections, setHasConnections] = useState(false);
@@ -33,6 +38,8 @@ export function useDashboardData(session: CustomerSession | null): DashboardData
   useEffect(() => {
     if (!session) {
       setMissions([]);
+      setMissionTotalCount(0);
+      setMissionCompletedCount(0);
       setApprovalItems([]);
       setPendingApprovals(0);
       setHasConnections(false);
@@ -62,9 +69,15 @@ export function useDashboardData(session: CustomerSession | null): DashboardData
       const coreErrors: string[] = [];
 
       if (missionsResult.status === "fulfilled") {
-        setMissions(missionsResult.value.missions);
+        const listedMissions = missionsResult.value.missions;
+        const listedBreakdown = countStatusBreakdown(listedMissions);
+        setMissions(listedMissions);
+        setMissionTotalCount(missionsResult.value.total_count ?? listedMissions.length);
+        setMissionCompletedCount(missionsResult.value.completed_count ?? listedBreakdown.completed);
       } else {
         setMissions([]);
+        setMissionTotalCount(0);
+        setMissionCompletedCount(0);
         coreErrors.push(failureText(missionsResult.reason));
       }
 
@@ -109,8 +122,23 @@ export function useDashboardData(session: CustomerSession | null): DashboardData
     };
   }, [session, reloadToken]);
 
+  useEffect(() => {
+    if (
+      !session ||
+      !missions.some((mission) => ["planned", "approved", "queued", "running"].includes(mission.status))
+    ) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      reload();
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [missions, reload, session]);
+
   return {
     missions,
+    missionTotalCount,
+    missionCompletedCount,
     approvalItems,
     pendingApprovals,
     hasConnections,

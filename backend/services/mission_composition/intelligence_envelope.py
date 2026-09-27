@@ -17,6 +17,7 @@ from backend.services.mission_composition.contracts import (
     PlannedStepPreview,
 )
 from backend.services.mission_composition.job_catalog import BUSINESS_JOB_CATALOG, BUSINESS_JOBS_BY_KEY
+from backend.services.ontology.algorithms import evaluate_composition_algorithms
 
 _ARTIFACT_KEYS = {output for job in BUSINESS_JOB_CATALOG for output in job.produced_outputs}
 
@@ -404,6 +405,13 @@ def build_intelligence_envelope(
         planner_provenance=planner_provenance,
         planner_compile_error=planner_compile_error,
     )
+    algorithm_results = evaluate_composition_algorithms(
+        requested_outcomes=list(intent.requested_outcomes),
+        named_jobs=[job.job_key for job in jobs],
+        planned_steps=[step.step_key for step in planned_steps],
+        interpretation_evidence=[item.model_dump(mode="json") for item in intent.interpretation_evidence],
+        blocking_gap_count=sum(1 for gap in layer_gaps if gap.blocking),
+    )
     return IntelligenceEnvelope(
         schema_version=2,
         tenant_id=tenant_id,
@@ -422,4 +430,5 @@ def build_intelligence_envelope(
         unresolved_fields=tuple(dict.fromkeys(gap.field for gap in layer_gaps if gap.blocking)),
         assumptions=assumptions[:30],
         layer_gaps=layer_gaps,
+        algorithm_results=algorithm_results,
     )

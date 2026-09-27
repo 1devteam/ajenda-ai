@@ -6,6 +6,7 @@ import pytest
 
 from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
+from backend.services.mission_composition.contracts import MissionCompositionRecord
 from backend.services.mission_composition.deliverable_runtime_state import build_deliverable_runtime_state
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
@@ -185,6 +186,30 @@ def test_interpreter_maps_approved_prospect_save_to_crm_write() -> None:
     assert "update_crm" in intent.requested_outcomes
 
 
+def test_interpreter_maps_product_knowledge_language_to_existing_profile_context() -> None:
+    intent = interpret_instruction(
+        "Use Ajenda's approved CRM and GTM product knowledge. "
+        "Research three HVAC companies in Dallas, qualify them, and do not send messages."
+    )
+    assert intent.interpretation_ready
+    assert "research_prospects" in intent.requested_outcomes
+    assert "qualify_prospects" in intent.requested_outcomes
+    assert "business_profile" in intent.context_requirements
+    assert intent.unmatched_material_clauses == []
+    assert "send_outreach" not in intent.requested_outcomes
+
+
+def test_interpreter_maps_product_catalog_context_without_granting_product_authority() -> None:
+    intent = interpret_instruction(
+        "Use Ajenda's approved product catalog as context. "
+        "Find three software development companies in Austin using local fixture data only."
+    )
+    assert intent.interpretation_ready
+    assert intent.requested_outcomes == ["research_prospects"]
+    assert intent.context_requirements == ["business_profile"]
+    assert intent.unmatched_material_clauses == []
+
+
 def test_interpreter_accounts_sourced_comparison_as_research_deliverable() -> None:
     intent = interpret_instruction(
         "Find five software companies in Austin. Produce a sourced comparison and identify evidence gaps."
@@ -254,9 +279,23 @@ def test_composition_projects_replayable_intelligence_envelope_without_authority
     assert envelope.named_job_keys
     assert envelope.planned_step_keys == tuple(step.step_key for step in record.planned_steps)
     assert envelope.authority_class == "read_model"
+    assert envelope.algorithm_results
+    assert all(item.grants_execution_authority is False for item in envelope.algorithm_results)
     assert not any(gap.blocking for gap in envelope.layer_gaps)
     assert record.composition_provenance.grants_execution_authority is False
     assert record.ready_to_start is True
+
+
+def test_persisted_composition_rejects_tampered_algorithm_result() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-v2",
+        instruction=ROOFING_INSTRUCTION,
+    )
+    payload = record.model_dump(mode="json")
+    assert payload["intelligence_envelope"]["algorithm_results"]
+    payload["intelligence_envelope"]["algorithm_results"][0]["output"]["completeness_score"] = 0.01
+    with pytest.raises(ValueError, match="algorithm results are stale or inconsistent"):
+        MissionCompositionRecord.model_validate(payload)
 
 
 def test_negated_crm_records_are_not_misread_as_hubspot_read() -> None:

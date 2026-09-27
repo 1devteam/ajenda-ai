@@ -69,6 +69,8 @@ def test_list_missions_returns_newest_first_summary(monkeypatch) -> None:
         tenant_id=str(tenant_id), objective="Find three qualified roofing leads in Austin.", status="running"
     )
     repo.list_by_tenant.return_value = [newer, older]
+    repo.count_by_tenant.return_value = 2
+    repo.count_completed_by_tenant.return_value = 0
     monkeypatch.setattr(mission_module, "MissionRepository", lambda _db: repo)
 
     client = TestClient(app)
@@ -77,7 +79,11 @@ def test_list_missions_returns_newest_first_summary(monkeypatch) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["count"] == 2
+    assert body["total_count"] == 2
+    assert body["completed_count"] == 0
     assert body["missions"][0]["mission_id"] == str(newer.id)
     assert body["missions"][0]["status"] == "running"
     assert body["missions"][0]["allowed_actions"] == ["web.search", "gtm.email_draft"]
     repo.list_by_tenant.assert_called_once_with(str(tenant_id), limit=10)
+    repo.count_by_tenant.assert_called_once_with(str(tenant_id))
+    repo.count_completed_by_tenant.assert_called_once_with(str(tenant_id))

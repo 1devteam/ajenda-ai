@@ -8,6 +8,7 @@ import {
   isActiveMission,
   resolveAttentionBanner,
   resolvePrimaryAction,
+  successRateLabelFromCounts,
   usagePercent,
 } from "./dashboardModel";
 
@@ -146,5 +147,11 @@ describe("dashboardModel", () => {
     expect(usagePercent(80, 100)).toBe(80);
     expect(usagePercent(1, 0)).toBeNull();
     expect(usagePercent(1, -1)).toBeNull();
+  });
+
+  it("uses tenant-wide mission aggregates for the success rate", () => {
+    expect(successRateLabelFromCounts(1, 3)).toBe("33%");
+    expect(successRateLabelFromCounts(0, 0)).toBe("—");
+    expect(successRateLabelFromCounts(4, 3)).toBe("—");
   });
 });

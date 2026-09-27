@@ -19,7 +19,7 @@ import {
   isActiveMission,
   resolveAttentionBanner,
   resolvePrimaryAction,
-  successRateLabel,
+  successRateLabelFromCounts,
   usagePercent,
 } from "../dashboard/dashboardModel";
 
@@ -32,6 +32,8 @@ export default function DashboardPage() {
     pendingApprovals,
     hasConnections,
     onboarding,
+    missionTotalCount,
+    missionCompletedCount,
     loading: dataLoading,
     error: dataError,
     liveMessage,
@@ -46,7 +48,10 @@ export default function DashboardPage() {
 
   const activeMissions = useMemo(() => missions.filter(isActiveMission).length, [missions]);
   const completedToday = useMemo(() => countCompletedToday(missions), [missions]);
-  const successRate = useMemo(() => successRateLabel(missions), [missions]);
+  const successRate = useMemo(
+    () => successRateLabelFromCounts(missionCompletedCount, missionTotalCount),
+    [missionCompletedCount, missionTotalCount],
+  );
 
   const quotaPct = useMemo(() => {
     if (!usage) {
@@ -113,7 +118,7 @@ export default function DashboardPage() {
       id: "success",
       label: "Success rate",
       value: successRate,
-      hint: `${missions.length} total missions`,
+      hint: `${missionTotalCount} total missions`,
       to: "/results",
     },
   ];

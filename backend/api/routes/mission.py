@@ -839,6 +839,8 @@ class MissionListResponse(BaseModel):
 
     missions: list[MissionListItem]
     count: int
+    total_count: int = Field(default=0, ge=0)
+    completed_count: int = Field(default=0, ge=0)
 
 
 class MissionLifecycleCompleteness(BaseModel):
@@ -1628,9 +1630,15 @@ def list_missions(
     limit: int = Query(default=50, ge=1, le=200),
 ) -> MissionListResponse:
     """List tenant-owned missions newest-first for product navigation."""
-    missions = MissionRepository(db).list_by_tenant(str(tenant_id), limit=limit)
+    repository = MissionRepository(db)
+    missions = repository.list_by_tenant(str(tenant_id), limit=limit)
     items = [_mission_to_list_item(mission) for mission in missions]
-    return MissionListResponse(missions=items, count=len(items))
+    return MissionListResponse(
+        missions=items,
+        count=len(items),
+        total_count=repository.count_by_tenant(str(tenant_id)),
+        completed_count=repository.count_completed_by_tenant(str(tenant_id)),
+    )
 
 
 @router.get("/{mission_id}", response_model=MissionRead)

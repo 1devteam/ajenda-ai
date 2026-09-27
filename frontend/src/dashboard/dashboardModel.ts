@@ -116,6 +116,13 @@ export function successRateLabel(missions: MissionListItem[]): string {
   return `${Math.round((completed / missions.length) * 100)}%`;
 }
 
+export function successRateLabelFromCounts(completedCount: number, totalCount: number): string {
+  if (totalCount <= 0 || completedCount < 0 || completedCount > totalCount) {
+    return "—";
+  }
+  return `${Math.round((completedCount / totalCount) * 100)}%`;
+}
+
 export function usagePercent(current: number, limit: number): number | null {
   if (limit < 0 || limit === 0) {
     return null;

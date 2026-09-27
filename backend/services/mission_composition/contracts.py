@@ -15,6 +15,7 @@ from backend.services.mission_composition.deliverable_contract import (
     DeliverableRequest,
     extract_deliverable_request,
 )
+from backend.services.ontology.algorithms import AlgorithmResult, validate_composition_algorithm_results
 
 COMPOSITION_SCHEMA_VERSION = 7
 JOB_CATALOG_VERSION = "12"
@@ -670,7 +671,20 @@ class IntelligenceEnvelope(BaseModel):
     unresolved_fields: tuple[str, ...] = Field(default=(), max_length=40)
     assumptions: tuple[str, ...] = Field(default=(), max_length=30)
     layer_gaps: tuple[LayerGap, ...] = Field(default=(), max_length=80)
+    algorithm_results: tuple[AlgorithmResult, ...] = Field(default=(), max_length=20)
     authority_class: Literal["declarative", "read_model"] = "read_model"
+
+    @model_validator(mode="after")
+    def _algorithm_results_are_current(self) -> IntelligenceEnvelope:
+        validate_composition_algorithm_results(
+            results=self.algorithm_results,
+            requested_outcomes=list(self.requested_outcomes),
+            named_jobs=list(self.named_job_keys),
+            planned_steps=list(self.planned_step_keys),
+            interpretation_evidence=list(self.interpretation_evidence),
+            blocking_gap_count=sum(1 for gap in self.layer_gaps if gap.blocking),
+        )
+        return self
 
 
 class AllowedActionsProvenance(BaseModel):

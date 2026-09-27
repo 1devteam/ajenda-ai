@@ -7,7 +7,7 @@ from typing import Final
 BUSINESS_PROFILE_CATEGORY_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "company": ("business_name", "industry", "description", "service_area", "operator_notes"),
     "market": ("target_customers", "differentiators"),
-    "offer": ("products_services",),
+    "offer": ("products_services", "product_catalog"),
     "governance": ("operating_charter",),
     "growth": ("growth_goals", "acquisition_channels", "outreach_preferences", "content_themes"),
     "customer_insight": ("customer_interviews", "customer_polls", "customer_tests", "validation_criteria"),

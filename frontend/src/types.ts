@@ -502,6 +502,8 @@ export interface MissionListItem {
 export interface MissionListResponse {
   missions: MissionListItem[];
   count: number;
+  total_count?: number;
+  completed_count?: number;
 }
 
 export interface MissionPlanCreateRequest {
