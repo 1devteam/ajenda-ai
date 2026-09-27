@@ -46,7 +46,10 @@ flowchart LR
 | Google Calendar / Contacts connectors | Implemented — separate OAuth connect; external actions never silently simulate in production |
 | Credentials / Connections UI | Implemented at `/credentials` and `/connections` (OAuth-first Google cards) |
 | Mission composition engine | Implemented — plain language → structured `MissionIntent` → jobs → proposal; restatement on incomplete input |
+| Product knowledge shelf | Implemented — versioned, tenant-scoped product capabilities project through profile, CRM, retrieval, GTM, and vertical shelves |
+| Deterministic algorithm intelligence | Implemented — hashed, provenanced read-model results are recomputed on persisted composition reads and fail closed on drift |
 | Mission result semantics | Implemented — runtime/deliverable acceptance is separate from evaluated business-goal status |
+| Command Center mission metrics | Implemented — tenant-wide mission totals/completions drive success rate; active work refreshes the read model every 15 seconds |
 | Bounded browser observation | Implemented — read-only artifacts expose request vetting, DNS pinning, allowed hosts, engine, and ephemeral-context provenance |
 | Governed vertical operations | Implemented — `/v1/vertical-ops/*` template planning and bounded queue admission; Phase C templates remain plan-only |
 | Stripe billing API | Implemented — checkout, portal (`billing:manage`), signed webhook with dedup |
@@ -70,6 +73,30 @@ Ajenda runs fully without external CRM or email plugins:
 5. **Plugin discovery** — `GET /v1/plugins` lists standalone vs optional plugins and standard CRM contract paths.
 
 See [`docs/product/plugin-architecture.md`](docs/product/plugin-architecture.md).
+
+### Product knowledge and algorithmic integrity
+
+Ajenda's product knowledge is a declarative shelf, not an execution system. The
+canonical catalog lives in `backend/services/ontology/product_knowledge.py` and
+is projected through approved Business Profile facts, tenant CRM records,
+governed retrieval, existing GTM outcomes, and vertical context. Malformed or
+duplicate tenant entries fail closed. Catalog entries cannot register handlers,
+resolve credentials, invoke tools, approve work, or grant runtime authority.
+
+Composition algorithms are deterministic, versioned read-model evaluations.
+Each result records its registry identity, input hash, confidence, evidence
+references, provenance, and `grants_execution_authority=false`. When a
+composition record is read back, non-empty algorithm results are recomputed
+against the current composition inputs; stale, tampered, unknown, or
+authority-bearing results are rejected. Historical records without algorithm
+results remain readable for compatibility.
+
+The Command Center success rate is calculated from tenant-wide mission
+aggregates rather than only the newest mission-list page. While active work is
+present, the dashboard refreshes those aggregates every 15 seconds, so a
+worker-completed mission is reflected without a manual reload. See the full
+GRAFT+ map and runtime proof in
+[`docs/architecture/PRODUCT_KNOWLEDGE_SHELF_MAP.md`](docs/architecture/PRODUCT_KNOWLEDGE_SHELF_MAP.md).
 
 ### External connector truthfulness
 

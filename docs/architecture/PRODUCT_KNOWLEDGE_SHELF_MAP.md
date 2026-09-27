@@ -40,6 +40,9 @@ not introduce a parallel lattice runtime or a new execution path.
   `completed_count` aggregates, not only the newest page of missions. While
   active work exists, the dashboard refreshes that read model every 15 seconds
   so completion changes the displayed percentage without a manual reload.
+- Repeated retrieval with the same tenant, mission, query, and limit is covered
+  by an integration invariant that compares the complete ordered memory-hit
+  artifact, not merely the presence of one expected record.
 
 ## Blast radius
 
@@ -74,3 +77,9 @@ also exposed an existing profile-deliverable projection gap: the mission
 completed and its evidence persisted, but that specific read-only profile
 deliverable endpoint returned no projection. That gap is recorded rather than
 treated as a successful artifact.
+
+The retrieval proof also protects against a subtle shelf interaction: generic
+company retrieval must not spend its result budget on product-catalog hits.
+Product knowledge is returned for explicit product/capability/CRM/GTM/runtime
+questions, while mission-specific memory remains available for generic company
+queries.
