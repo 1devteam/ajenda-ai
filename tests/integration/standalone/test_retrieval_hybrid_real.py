@@ -43,21 +43,21 @@ def test_retrieval_hybrid_search_merges_internal_records_and_ephemeral_chunks(pg
         session.close()
 
     registry = get_default_action_registry(rebuild=True)
-    result = registry.invoke(
-        ToolInvocation(
-            action="retrieval.hybrid_search",
-            input={"query": "Austin roofing", "mission_id": str(mission_id), "limit": 5},
-        ),
-        ActionRuntimeContext(
-            tenant_id=tenant_id,
-            task_id=uuid.uuid4(),
-            mission_id=mission_id,
-            worker_id="worker-1",
-            lease_id="lease-1",
-            session_factory=session_factory,
-            vector_session_factory=session_factory,
-        ),
+    invocation = ToolInvocation(
+        action="retrieval.hybrid_search",
+        input={"query": "Austin roofing", "mission_id": str(mission_id), "limit": 5},
     )
+    context = ActionRuntimeContext(
+        tenant_id=tenant_id,
+        task_id=uuid.uuid4(),
+        mission_id=mission_id,
+        worker_id="worker-1",
+        lease_id="lease-1",
+        session_factory=session_factory,
+        vector_session_factory=session_factory,
+    )
+    result = registry.invoke(invocation, context)
+    repeated = registry.invoke(invocation, context)
 
     assert result.output["real"] is True
     assert result.output["plugin_required"] is False
@@ -68,3 +68,6 @@ def test_retrieval_hybrid_search_merges_internal_records_and_ephemeral_chunks(pg
     assert "chunk-roofing" in memory_ids or any(
         "Austin" in str(item.get("content")) for item in result.output["memories"]
     )
+    assert [item["id"] for item in result.output["memory_hits"]] == [
+        item["id"] for item in repeated.output["memory_hits"]
+    ]
