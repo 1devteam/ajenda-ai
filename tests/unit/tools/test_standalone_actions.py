@@ -175,6 +175,46 @@ def test_local_fixture_research_preserves_source_ids_for_all_contacts(monkeypatc
     )
 
 
+def test_local_fixture_contact_match_is_not_promoted_to_prospect(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    account = {
+        "id": "fixture-account-1",
+        "name": "Austin Plumbing",
+        "industry": "plumbing",
+        "location": "Austin",
+        "website": "https://austin-plumbing.example",
+        "source": "local_fixture",
+    }
+    contact = {
+        "id": "fixture-account-1-contact",
+        "name": "Austin Plumbing Contact",
+        "account_id": "fixture-account-1",
+        "email": "owner@austin-plumbing.example",
+        "source": "local_fixture",
+    }
+
+    class _Store:
+        def search_records(self, **kwargs):  # type: ignore[no-untyped-def]
+            if kwargs.get("record_type") == "account":
+                return [account]
+            if kwargs.get("record_type") == "contact":
+                return [contact]
+            return []
+
+    monkeypatch.setattr(standalone_actions, "resolve_record_store", lambda _ctx: _Store())
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="web.research",
+            input={"query": "plumbing companies in Austin", "local_fixture_only": True, "limit": 2},
+        ),
+        _context(),
+    )
+
+    assert [item["company"] for item in result.output["prospect_candidates"]] == ["Austin Plumbing"]
+    assert all(item.get("website") for item in result.output["prospect_candidates"])
+
+
 def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> None:
     """Open research about a third party must not report tenant profile as company/domain."""
     from backend.services.business_context_resolver import BusinessContext

@@ -468,7 +468,8 @@ _REPORT_SYNTHESIS_REQUEST = re.compile(
     # Evidence-gap language is a field request for many typed artifacts
     # (identity, goal evaluation, business review). It only implies research
     # synthesis when paired with an explicit research-report/comparison intent.
-    r"\b(?:sourced\s+comparison|comparison\s+(?:table|report)|research\s+report|highlight\b.*opportunit)",
+    r"\b(?:sourced\s+comparison|comparison\s+(?:table|report)|research\s+report|"
+    r"(?:return|produce|provide|create)\b[^.!?]{0,120}\breport\b|highlight\b.*opportunit)",
     re.IGNORECASE,
 )
 _BUSINESS_REVIEW_CLAUSE = re.compile(
