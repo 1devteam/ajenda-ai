@@ -109,7 +109,18 @@ def product_catalog_hits(query: str, *, limit: int = 8) -> list[dict[str, Any]]:
     """Return deterministic, inspectable catalog hits for explicit product queries."""
 
     normalized = " ".join(query.lower().split())
-    if not any(token in normalized for token in ("ajenda", "product", "capabilit", "what can", "feature")):
+    product_intent = (
+        "product",
+        "capabilit",
+        "what can",
+        "feature",
+        "crm",
+        "gtm",
+        "governed runtime",
+        "mission composition",
+        "browser research",
+    )
+    if not any(token in normalized for token in product_intent):
         return []
     hits: list[dict[str, Any]] = []
     for item in AJENDA_PRODUCT_KNOWLEDGE:

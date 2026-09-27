@@ -19,6 +19,10 @@ def test_product_catalog_hits_are_deterministic_and_provenanced() -> None:
     assert all(item["content"]["grants_execution_authority"] is False for item in hits)
 
 
+def test_generic_company_retrieval_does_not_consume_product_hit_budget() -> None:
+    assert product_catalog_hits("Ajenda AI") == []
+
+
 def test_product_catalog_does_not_match_unrelated_generic_query() -> None:
     assert product_catalog_hits("find roofing companies in Austin") == []
 
