@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from backend.domain.business_profile_projection import (
@@ -13,6 +14,7 @@ from backend.domain.business_profile_projection import (
 )
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.business_profile_categories import profile_category_for_field
+from backend.services.ontology.product_knowledge import ProductKnowledge
 
 
 def _clean_text(value: Any) -> str | None:
@@ -65,6 +67,32 @@ def read_profile_list(facts: dict[str, Any], *keys: str) -> list[str]:
     return []
 
 
+def read_product_catalog(facts: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read only tenant-approved, typed product entries; malformed entries fail closed."""
+
+    value = facts.get("product_catalog")
+    if isinstance(value, dict):
+        value = value.get("items") or value.get("values")
+    if not isinstance(value, list):
+        return []
+    entries: list[dict[str, Any]] = []
+    capability_ids: set[str] = set()
+    for item in value:
+        try:
+            if isinstance(item, dict):
+                product = ProductKnowledge.model_validate(item)
+                if product.capability_id in capability_ids:
+                    # A duplicated canonical ID is ambiguous tenant knowledge.
+                    # Reject the complete catalog rather than choosing an
+                    # arbitrary definition or preserving conflicting copies.
+                    return []
+                capability_ids.add(product.capability_id)
+                entries.append(product.model_dump(mode="json"))
+        except ValidationError:
+            continue
+    return entries
+
+
 def build_profile_brief(*, approved_facts: dict[str, Any], provenance: dict[str, Any] | None = None) -> dict[str, Any]:
     """Normalize approved profile facts into the canonical read deliverable.
 
@@ -100,6 +128,10 @@ def build_profile_brief(*, approved_facts: dict[str, Any], provenance: dict[str,
             "differentiators",
         }:
             missing_fields.append(canonical)
+
+    product_catalog = read_product_catalog(approved_facts)
+    if product_catalog:
+        brief["product_catalog"] = product_catalog
 
     conflicting_fields: list[str] = []
     for category, provenance_entry in (provenance or {}).items():
@@ -146,6 +178,9 @@ def build_profile_account_record(*, approved_facts: dict[str, Any]) -> dict[str,
         record["target_customers"] = target_customers
     if products_services:
         record["products_services"] = products_services
+    product_catalog = read_product_catalog(approved_facts)
+    if product_catalog:
+        record["product_catalog"] = product_catalog
     return record
 
 

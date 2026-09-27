@@ -57,6 +57,20 @@ class MissionRepository:
         self._reconcile_review_holds(missions=missions, tenant_id=tenant_id)
         return missions
 
+    def count_by_tenant(self, tenant_id: str) -> int:
+        """Return the complete tenant-scoped mission count, independent of page size."""
+        stmt = select(func.count()).select_from(Mission).where(Mission.tenant_id == tenant_id)
+        return int(self._session.scalar(stmt) or 0)
+
+    def count_completed_by_tenant(self, tenant_id: str) -> int:
+        """Return completed missions for one tenant using the canonical lifecycle state."""
+        stmt = (
+            select(func.count())
+            .select_from(Mission)
+            .where(Mission.tenant_id == tenant_id, Mission.status == MissionState.COMPLETED.value)
+        )
+        return int(self._session.scalar(stmt) or 0)
+
     def _reconcile_review_holds(self, *, missions: list[Mission], tenant_id: str) -> None:
         """Pause running missions that have no executable tasks left.
 

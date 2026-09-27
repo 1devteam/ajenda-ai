@@ -9,6 +9,7 @@ from backend.repositories.retrieval_contract_repository import RetrievalContract
 from backend.services.business_context_resolver import resolve_business_context
 from backend.services.business_profile_record_sync import build_profile_brief
 from backend.services.data_plane.memory_chunk_store import resolve_memory_chunk_store
+from backend.services.ontology.product_knowledge import product_catalog_hits
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.record_store import resolve_record_store
 from backend.services.tools.schemas import (
@@ -181,7 +182,9 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
         for index, item in enumerate(internal_hits, start=1)
     ]
     profile_hits = _approved_profile_hit(context, payload_input.query)
+    product_hits = product_catalog_hits(payload_input.query, limit=payload_input.limit)
     memories = _merge_hits(
+        product_hits,
         profile_hits,
         vector_hits,
         keyword_hits,
@@ -193,7 +196,9 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
     search_modes = sorted(
         {
             str(item.get("search_mode"))
-            for item in (profile_hits + vector_hits + keyword_hits + normalized_internal + contract_memory_hits)
+            for item in (
+                product_hits + profile_hits + vector_hits + keyword_hits + normalized_internal + contract_memory_hits
+            )
             if isinstance(item, dict) and item.get("search_mode")
         }
     )
@@ -205,6 +210,7 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
         "memory_chunk_keyword_count": len(keyword_hits),
         "memory_chunk_vector_count": len(vector_hits),
         "profile_hit_count": len(profile_hits),
+        "product_catalog_hit_count": len(product_hits),
     }
     if business_context.business_name:
         provenance["business_context"] = {

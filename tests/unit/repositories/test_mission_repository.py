@@ -103,3 +103,21 @@ def test_list_by_tenant_pauses_review_hold_without_active_tasks() -> None:
     assert mission.status == "paused"
     assert mission.metadata_json["runtime_reconciliation"]["reason"] == "review_hold_without_active_tasks"
     session.flush.assert_called_once_with()
+
+
+def test_mission_aggregate_counts_are_tenant_scoped_and_status_specific() -> None:
+    tenant_id = str(uuid.uuid4())
+    session = MagicMock()
+    session.scalar.side_effect = [7, 3]
+    repository = MissionRepository(session)
+
+    assert repository.count_by_tenant(tenant_id) == 7
+    assert repository.count_completed_by_tenant(tenant_id) == 3
+
+    count_statement = session.scalar.call_args_list[0].args[0]
+    completed_statement = session.scalar.call_args_list[1].args[0]
+    count_sql = str(count_statement.compile(compile_kwargs={"literal_binds": True}))
+    completed_sql = str(completed_statement.compile(compile_kwargs={"literal_binds": True}))
+    assert tenant_id in count_sql
+    assert tenant_id in completed_sql
+    assert "completed" in completed_sql

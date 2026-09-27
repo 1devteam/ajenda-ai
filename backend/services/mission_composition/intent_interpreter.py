@@ -305,6 +305,11 @@ _BUSINESS_PROFILE_READ_PATTERNS = (
 _BUSINESS_PROFILE_CONTEXT_PATTERNS = (
     r"\buse\s+(?:the\s+)?(?:approved\s+)?(?:business|company)\s+profile\b",
     r"\b(?:company|business)\s+profile\s+(?:for|of)\s+[A-Za-z0-9][^.;!?]{0,80}",
+    # Product knowledge is an approved business-profile fact. Treat requests
+    # to use it as context for an existing mission, never as a new authority-
+    # bearing outcome or executable capability.
+    r"\b(?:use|with|from)\b[^.!?]{0,100}\b(?:approved|canonical)\b[^.!?]{0,80}\bproduct\s+(?:catalog|knowledge|capabilities?)\b",
+    r"\b(?:approved|canonical)\s+(?:crm|gtm)\s+product\s+knowledge\b",
 )
 _BUSINESS_PROFILE_DELIVERABLE_PATTERNS = (
     r"\bproducts?\b",
@@ -1152,9 +1157,13 @@ def _classify_clause(
     # Bare location/count fragments treated as material when short.
     if not material and (re.search(r"\b\d+\b", lower) or len(clause.split()) <= 4):
         material = True
-    recognized = bool(outcomes) or _contains_any(
-        lower,
-        _NO_SEND_PATTERNS + _CONDITIONAL_SEND_PATTERNS + _CRM_NEGATION_PATTERNS + _NO_EXTERNAL_ACTION_PATTERNS,
+    recognized = (
+        bool(outcomes)
+        or profile_context
+        or _contains_any(
+            lower,
+            _NO_SEND_PATTERNS + _CONDITIONAL_SEND_PATTERNS + _CRM_NEGATION_PATTERNS + _NO_EXTERNAL_ACTION_PATTERNS,
+        )
     )
     if external_action_forbidden and re.search(
         r"\b(?:browse|contact|send|modify|perform)\b|\bexternal action\b", lower
