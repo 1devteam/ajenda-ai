@@ -19,3 +19,10 @@ def test_in_memory_demo_records_include_profile_account_and_prospect_pipeline() 
     assert records["account"][PROFILE_ACCOUNT_RECORD_ID]["name"] == "Ajenda AI"
     assert "acct-prospect-1" in records["account"]
     assert "opp-demo-1" in supplemental_demo_records()["opportunity"]
+
+
+def test_supplemental_records_include_professional_services_fixture_scope() -> None:
+    accounts = supplemental_demo_records()["account"]
+    matches = [item for item in accounts.values() if item.get("industry") == "professional services"]
+    assert len(matches) == 3
+    assert {item.get("location") for item in matches} == {"Austin"}

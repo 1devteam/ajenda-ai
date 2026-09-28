@@ -613,11 +613,12 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 ("hvac", "dallas"),
                 ("roofing", "austin"),
                 ("plumbing", "austin"),
+                ("professional services", "austin"),
             }
             if not fixture_scope_supported:
                 raise ValueError(
                     "local prospect fixtures support software development in Austin, HVAC in Dallas, "
-                    "roofing in Austin, and plumbing in Austin; "
+                    "roofing in Austin, plumbing in Austin, and professional services in Austin; "
                     "requested fixture scope is unavailable"
                 )
         internal_crm_only = _ajenda_internal_crm_only(intent)

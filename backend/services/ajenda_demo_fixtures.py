@@ -132,6 +132,16 @@ def supplemental_demo_records() -> dict[str, dict[str, dict[str, Any]]]:
                 ("Cedar Park Plumbing", "cedarparkplumbing.example", "hello@cedarparkplumbing.example"),
             ),
         ),
+        (
+            "austin-professional-services",
+            "professional services",
+            "Austin",
+            (
+                ("Barton Legal Advisors", "bartonlegal.example", "hello@bartonlegal.example"),
+                ("Capitol Strategy Group", "capitolstrategy.example", "contact@capitolstrategy.example"),
+                ("South Congress Consulting", "soco-consulting.example", "hello@soco-consulting.example"),
+            ),
+        ),
     ):
         for index, (name, domain, email) in enumerate(entries, start=1):
             account_id = f"fixture-{scope_key}-{index}"
