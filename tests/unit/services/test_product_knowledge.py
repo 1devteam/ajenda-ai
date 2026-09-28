@@ -38,6 +38,20 @@ def test_tenant_product_catalog_projects_into_profile_and_crm_shelves() -> None:
     assert record["product_catalog"][0]["capability_id"] == "ajenda.crm_operations"
 
 
+def test_catalog_only_profile_still_creates_a_crm_account_projection() -> None:
+    product = {
+        "capability_id": "ajenda.gtm_research",
+        "version": "1",
+        "display_name": "GTM research",
+        "summary": "Evidence-backed GTM research.",
+        "provenance": {"source_type": "unit_test", "source_name": "test"},
+    }
+    record = build_profile_account_record(approved_facts={"product_catalog": {"items": [product]}})
+
+    assert record is not None
+    assert record["product_catalog"][0]["capability_id"] == "ajenda.gtm_research"
+
+
 def test_malformed_tenant_product_entry_fails_closed() -> None:
     brief = build_profile_brief(approved_facts={"product_catalog": {"items": [{"capability_id": "unknown"}]}})
     assert "product_catalog" not in brief["facts"]

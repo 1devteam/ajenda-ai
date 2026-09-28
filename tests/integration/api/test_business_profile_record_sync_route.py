@@ -16,6 +16,7 @@ from backend.db.tenant_session import activate_tenant_session
 from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID
 from backend.domain.tenant import Tenant
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
+from backend.services.ontology.product_knowledge import ProductKnowledge
 
 pytestmark = pytest.mark.integration
 
@@ -76,3 +77,42 @@ def test_business_profile_upsert_syncs_internal_records(pg_session: Session) -> 
     )
     assert account is not None
     assert account["name"] == "Cycle Roofing LLC"
+
+
+def test_business_profile_product_catalog_projects_into_crm_account(pg_session: Session) -> None:
+    tenant_id = uuid.uuid4()
+    tenant = Tenant(
+        id=tenant_id,
+        name="Product Catalog Tenant",
+        slug=f"product-catalog-{tenant_id.hex[:8]}",
+        plan="free",
+    )
+    pg_session.add(tenant)
+    pg_session.commit()
+
+    product = ProductKnowledge(
+        capability_id="ajenda.crm_operations",
+        version="1",
+        display_name="CRM operations",
+        summary="Reads and prepares governed CRM changes.",
+        applicable_verticals=("gtm",),
+        provenance={"source_type": "integration_test", "source_name": "test"},
+    ).model_dump(mode="json")
+    app = _build_app(tenant_id=tenant_id, session=pg_session)
+    client = TestClient(app, raise_server_exceptions=True)
+
+    response = client.put(
+        "/v1/business-profile/facts/product_catalog",
+        json={"approved_fact": {"items": [product]}, "provenance_metadata": {"source": "integration_test"}},
+    )
+    assert response.status_code == 200
+
+    pg_session.expire_all()
+    activate_tenant_session(pg_session, str(tenant_id))
+    account = TenantInternalRecordRepository(pg_session).read_record(
+        tenant_id=str(tenant_id),
+        record_type="account",
+        record_id=PROFILE_ACCOUNT_RECORD_ID,
+    )
+    assert account is not None
+    assert account["product_catalog"] == [product]

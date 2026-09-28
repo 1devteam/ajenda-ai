@@ -89,6 +89,10 @@ def _task(*, mission: Mission, artifact: str, payload: object) -> ExecutionTask:
     return task
 
 
+def _profile_task(*, mission: Mission, payload: object) -> ExecutionTask:
+    return _task(mission=mission, artifact="business_profile_facts", payload=payload)
+
+
 def _repositories(monkeypatch, *, mission: Mission | None, tasks: list[ExecutionTask]):
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = mission
@@ -143,6 +147,38 @@ def test_route_returns_tenant_scoped_artifact_backed_deliverable(monkeypatch) ->
     )
     repos[2].list_for_mission.assert_called_once_with(mission_id=mission.id, tenant_id=str(tenant_id))
     repos[3].list_for_mission.assert_called_once_with(mission_id=mission.id, tenant_id=str(tenant_id))
+
+
+def test_profile_route_returns_dedicated_profile_deliverable(monkeypatch) -> None:
+    tenant_id = uuid.uuid4()
+    mission = _mission(tenant_id=str(tenant_id), instruction="Return company name.")
+    profile_id = uuid.uuid4()
+    task = _profile_task(
+        mission=mission,
+        payload={
+            "approved_facts": {"business_name": {"value": "Acme"}},
+            "profile_brief": {
+                "facts": {"business_name": "Acme"},
+                "missing_fields": ["description"],
+                "conflicting_fields": [],
+            },
+            "profile_id": str(profile_id),
+            "source": "approved_business_profile",
+        },
+    )
+    _repositories(monkeypatch, mission=mission, tasks=[task])
+    client = TestClient(_build_app(tenant_id), raise_server_exceptions=False)
+
+    response = client.get(f"/v1/missions/{mission.id}/profile-deliverable")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kind"] == "business_profile_brief"
+    assert body["profile_id"] == str(profile_id)
+    assert body["profile_brief"]["facts"]["business_name"] == "Acme"
+    assert body["missing_fields"] == ["description"]
+    assert body["complete"] is True
+    assert body["grants_execution_authority"] is False
 
 
 def test_route_resolves_current_draft_review_state_through_tenant_scope(monkeypatch) -> None:

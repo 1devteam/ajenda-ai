@@ -161,7 +161,8 @@ def build_profile_account_record(*, approved_facts: dict[str, Any]) -> dict[str,
     service_area = read_profile_text(approved_facts, "service_area", "business_address", "address")
     target_customers = read_profile_list(approved_facts, "target_customers", "customer_segments")
     products_services = read_profile_list(approved_facts, "products_services", "services", "offerings")
-    if not any((business_name, website, service_area, target_customers, products_services)):
+    product_catalog = read_product_catalog(approved_facts)
+    if not any((business_name, website, service_area, target_customers, products_services, product_catalog)):
         return None
     record: dict[str, Any] = {
         "id": PROFILE_ACCOUNT_RECORD_ID,
@@ -178,7 +179,6 @@ def build_profile_account_record(*, approved_facts: dict[str, Any]) -> dict[str,
         record["target_customers"] = target_customers
     if products_services:
         record["products_services"] = products_services
-    product_catalog = read_product_catalog(approved_facts)
     if product_catalog:
         record["product_catalog"] = product_catalog
     return record

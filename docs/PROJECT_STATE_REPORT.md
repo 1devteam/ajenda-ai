@@ -36,8 +36,10 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Multi-tenant workers (`AJENDA_WORKER_TENANT_MODE=multi`, ADR-0004)
 - Live runtime proof on `main`: echo task, `gtm.lead_enrich`, brain capstone slice
 - Read-only RevOps mission deliverable assembly at `GET /v1/missions/{mission_id}/deliverable`: typed artifacts, independently recomputed completion, approvals, effects, receipts, and evidence
+- Dedicated profile-read deliverable assembly at `GET /v1/missions/{mission_id}/profile-deliverable`, backed by the completed `business_profile_facts` artifact
 - Mission result semantics keep runtime/deliverable acceptance separate from `business_outcome_status`; instruction-only goal evaluations explicitly report missing durable Goal/KPI/current-state authority
 - Queue claim convergence releases recent payloads during the DB commit-visibility window and quarantines stale taskless payloads instead of requeueing them indefinitely
+- Product-catalog projection is tenant-isolated, idempotent, and durable in the internal CRM account shelf
 
 ### 2.2 Tenant isolation and auth
 

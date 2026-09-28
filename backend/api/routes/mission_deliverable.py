@@ -22,6 +22,10 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.services.document_artifacts import read_artifact
 from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
+from backend.services.mission_composition.profile_deliverable import (
+    ProfileDeliverableRead,
+    assemble_profile_deliverable,
+)
 from backend.services.mission_composition.revops_deliverable import (
     RevOpsMissionDeliverableRead,
     assemble_revops_mission_deliverable,
@@ -99,6 +103,40 @@ def read_revops_mission_deliverable(
         if str(exc) == "mission deliverable runtime state is absent":
             raise HTTPException(status_code=404, detail="mission deliverable runtime state not found") from exc
         raise HTTPException(status_code=409, detail="mission deliverable assembly is invalid") from exc
+
+
+@router.get("/{mission_id}/profile-deliverable", response_model=ProfileDeliverableRead)
+def read_profile_mission_deliverable(
+    mission_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> ProfileDeliverableRead:
+    """Assemble the approved business-profile mission artifact without mutation."""
+
+    _ = request
+    tenant_scope = str(tenant_id)
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_scope)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+    tasks = ExecutionTaskRepository(db).list_for_mission_for_tenant(
+        mission_id=mission_id,
+        tenant_id=tenant_scope,
+    )
+    evidence = EvidenceRepository(db).list_for_mission(
+        mission_id=mission_id,
+        tenant_id=tenant_scope,
+    )
+    try:
+        return assemble_profile_deliverable(
+            mission=mission,
+            tasks=tasks,
+            evidence_records=evidence,
+        )
+    except ValueError as exc:
+        if str(exc) == "business profile deliverable artifact is absent":
+            raise HTTPException(status_code=404, detail="business profile deliverable artifact not found") from exc
+        raise HTTPException(status_code=409, detail="business profile deliverable assembly is invalid") from exc
 
 
 @router.get("/{mission_id}/runtime-evidence", response_model=MissionRuntimeEvidenceProjection)

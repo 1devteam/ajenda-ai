@@ -13,6 +13,7 @@ from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.business_profile_record_sync import sync_profile_to_internal_records
+from backend.services.ontology.product_knowledge import ProductKnowledge
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
 
@@ -61,6 +62,61 @@ def test_sync_profile_to_internal_records_is_idempotent(pg_engine) -> None:
     assert account["name"] == "Summit HVAC"
     assert contact is not None
     assert contact["email"] == "ops@summithvac.com"
+
+
+def test_product_catalog_projection_is_durable_and_isolated_between_tenants(pg_engine) -> None:
+    tenant_a = f"tenant-product-a-{uuid.uuid4().hex[:8]}"
+    tenant_b = f"tenant-product-b-{uuid.uuid4().hex[:8]}"
+    session_factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    product_a = ProductKnowledge(
+        capability_id="ajenda.crm_operations",
+        version="1",
+        display_name="CRM operations",
+        summary="Tenant A CRM operations.",
+        applicable_verticals=("gtm",),
+        provenance={"source_type": "integration_test", "tenant": "a"},
+    ).model_dump(mode="json")
+    product_b = ProductKnowledge(
+        capability_id="ajenda.gtm_research",
+        version="1",
+        display_name="GTM research",
+        summary="Tenant B GTM research.",
+        applicable_verticals=("gtm",),
+        provenance={"source_type": "integration_test", "tenant": "b"},
+    ).model_dump(mode="json")
+
+    session = session_factory()
+    try:
+        activate_tenant_session(session, tenant_a)
+        sync_profile_to_internal_records(
+            session=session,
+            tenant_id=tenant_a,
+            approved_facts={"business_name": {"value": "Tenant A"}, "product_catalog": {"items": [product_a]}},
+        )
+        activate_tenant_session(session, tenant_b)
+        sync_profile_to_internal_records(
+            session=session,
+            tenant_id=tenant_b,
+            approved_facts={"business_name": {"value": "Tenant B"}, "product_catalog": {"items": [product_b]}},
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    verify = session_factory()
+    try:
+        for tenant_id, expected, foreign in ((tenant_a, product_a, product_b), (tenant_b, product_b, product_a)):
+            activate_tenant_session(verify, tenant_id)
+            account = TenantInternalRecordRepository(verify).read_record(
+                tenant_id=tenant_id,
+                record_type="account",
+                record_id=PROFILE_ACCOUNT_RECORD_ID,
+            )
+            assert account is not None
+            assert account["product_catalog"] == [expected]
+            assert foreign not in account["product_catalog"]
+    finally:
+        verify.close()
 
 
 def test_profile_synced_records_are_discoverable_via_hybrid_search(pg_engine) -> None:
