@@ -294,6 +294,109 @@ GOAL_PROGRESS_EVALUATION_SCHEMA = CompositionArtifactSchema(
     ),
 )
 
+# RevOps stage contracts are deliberately declared against the shapes emitted
+# by the governed local actions.  They make research/enrichment/draft/CRM
+# lineage inspectable without treating a projection as runtime authority.
+RESEARCHED_PROSPECTS_SCHEMA = CompositionArtifactSchema(
+    artifact_key="researched_prospects",
+    producer_job="sales.research_context",
+    fields=(
+        ArtifactFieldProjection(deliverable_field="crm_matches", json_path="$[].crm_matches", scope="per_item"),
+        ArtifactFieldProjection(deliverable_field="research_notes", json_path="$[].research_notes", scope="per_item"),
+        ArtifactFieldProjection(deliverable_field="research_source", json_path="$[].research_source", scope="per_item"),
+        ArtifactFieldProjection(deliverable_field="research_status", json_path="$[].research_real", scope="per_item"),
+        ArtifactFieldProjection(
+            deliverable_field="company_name", json_path="$[].company", scope="per_item", required_when_item_exists=False
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="website", json_path="$[].domain", scope="per_item", required_when_item_exists=False
+        ),
+    ),
+)
+
+ENRICHED_PROSPECTS_SCHEMA = CompositionArtifactSchema(
+    artifact_key="enriched_prospects",
+    producer_job="gtm.enrich_contacts",
+    fields=(
+        ArtifactFieldProjection(deliverable_field="company_name", json_path="$[].company", scope="per_item"),
+        ArtifactFieldProjection(deliverable_field="contacts", json_path="$[].contacts", scope="per_item"),
+        ArtifactFieldProjection(deliverable_field="enrichment_mode", json_path="$[].enrichment_mode", scope="per_item"),
+        ArtifactFieldProjection(deliverable_field="enrichment_real", json_path="$[].enrichment_real", scope="per_item"),
+        ArtifactFieldProjection(
+            deliverable_field="website", json_path="$[].domain", scope="per_item", required_when_item_exists=False
+        ),
+    ),
+)
+
+INTRODUCTION_DRAFTS_SCHEMA = CompositionArtifactSchema(
+    artifact_key="introduction_drafts",
+    producer_job="email.prepare_outreach",
+    fields=(
+        # Historical draft artifacts used a whole ``draft`` field and may not
+        # have persisted artifact IDs. Keep them readable while requiring the
+        # richer fields for newly emitted rows at the action boundary.
+        ArtifactFieldProjection(
+            deliverable_field="draft_artifact_id",
+            json_path="$[].artifact_id",
+            scope="per_item",
+            required_when_item_exists=False,
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="company_name", json_path="$[].company", scope="per_item", required_when_item_exists=False
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="draft_recipient",
+            json_path="$[].recipient",
+            scope="per_item",
+            required_when_item_exists=False,
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="draft_subject",
+            json_path="$[].subject",
+            scope="per_item",
+            required_when_item_exists=False,
+        ),
+        ArtifactFieldProjection(
+            deliverable_field="recipient_bound",
+            json_path="$[].recipient_bound",
+            scope="per_item",
+            required_when_item_exists=False,
+        ),
+    ),
+)
+
+INTERNAL_CRM_RECORDS_SCHEMA = CompositionArtifactSchema(
+    artifact_key="internal_crm_records",
+    producer_job="crm.internal_persistence",
+    fields=(
+        ArtifactFieldProjection(deliverable_field="crm_record_id", json_path="$[].id", scope="per_item"),
+        ArtifactFieldProjection(deliverable_field="record_operation", json_path="$[].operation", scope="per_item"),
+    ),
+)
+
+CRM_RECORDS_SCHEMA = CompositionArtifactSchema(
+    artifact_key="crm_records",
+    producer_job="crm.read_records",
+    fields=(
+        ArtifactFieldProjection(deliverable_field="crm_record_id", json_path="$[].id", scope="per_item"),
+        ArtifactFieldProjection(
+            deliverable_field="company_name", json_path="$[].company", scope="per_item", required_when_item_exists=False
+        ),
+        ArtifactFieldProjection(deliverable_field="research_source", json_path="$[].source", scope="per_item"),
+    ),
+)
+
+PIPELINE_RECORDS_SCHEMA = CompositionArtifactSchema(
+    artifact_key="pipeline_records",
+    producer_job="crm.pipeline_maintenance",
+    fields=(
+        ArtifactFieldProjection(deliverable_field="crm_record_id", json_path="$[].id", scope="per_item"),
+        ArtifactFieldProjection(deliverable_field="pipeline_status", json_path="$[].status", scope="per_item"),
+        ArtifactFieldProjection(deliverable_field="pipeline_source", json_path="$[].source", scope="per_item"),
+        ArtifactFieldProjection(deliverable_field="pipeline_data", json_path="$[].data", scope="per_item"),
+    ),
+)
+
 ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     PROSPECT_CANDIDATES_SCHEMA.artifact_key: PROSPECT_CANDIDATES_SCHEMA,
     OBSERVED_CONTACTS_SCHEMA.artifact_key: OBSERVED_CONTACTS_SCHEMA,
@@ -304,6 +407,12 @@ ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     BUSINESS_REVIEW_REPORT_SCHEMA.artifact_key: BUSINESS_REVIEW_REPORT_SCHEMA,
     WEB_PAGE_OBSERVATION_SCHEMA.artifact_key: WEB_PAGE_OBSERVATION_SCHEMA,
     GOAL_PROGRESS_EVALUATION_SCHEMA.artifact_key: GOAL_PROGRESS_EVALUATION_SCHEMA,
+    RESEARCHED_PROSPECTS_SCHEMA.artifact_key: RESEARCHED_PROSPECTS_SCHEMA,
+    ENRICHED_PROSPECTS_SCHEMA.artifact_key: ENRICHED_PROSPECTS_SCHEMA,
+    INTRODUCTION_DRAFTS_SCHEMA.artifact_key: INTRODUCTION_DRAFTS_SCHEMA,
+    INTERNAL_CRM_RECORDS_SCHEMA.artifact_key: INTERNAL_CRM_RECORDS_SCHEMA,
+    CRM_RECORDS_SCHEMA.artifact_key: CRM_RECORDS_SCHEMA,
+    PIPELINE_RECORDS_SCHEMA.artifact_key: PIPELINE_RECORDS_SCHEMA,
 }
 
 
@@ -366,6 +475,15 @@ def validate_artifact_payload(schema: CompositionArtifactSchema, payload: Any) -
                 errors.append(f"item {index} must be an object")
                 continue
             errors.extend(_public_prospect_errors(item, index))
+            if schema.artifact_key == "researched_prospects" and item.get("research_real") is not True:
+                errors.append(f"item {index} research result is not marked real")
+            if schema.artifact_key == "enriched_prospects":
+                mode = item.get("enrichment_mode")
+                real = item.get("enrichment_real")
+                if mode == "local_simulated" and real is True:
+                    errors.append(f"item {index} simulated enrichment cannot be marked real")
+                if real is True and mode in {"unresolved", "local_simulated"}:
+                    errors.append(f"item {index} enrichment mode contradicts enrichment_real")
             if schema.artifact_key == "verified_prospect_candidates" and not str(item.get("company") or "").strip():
                 errors.append(f"item {index} missing required field: company")
             for field in per_item_fields:

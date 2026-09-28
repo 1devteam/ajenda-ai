@@ -1,8 +1,14 @@
 from backend.services.mission_composition.artifact_schemas import (
     ARTIFACT_SCHEMAS_BY_KEY,
+    CRM_RECORDS_SCHEMA,
+    ENRICHED_PROSPECTS_SCHEMA,
+    INTERNAL_CRM_RECORDS_SCHEMA,
+    INTRODUCTION_DRAFTS_SCHEMA,
     OBSERVED_CONTACTS_SCHEMA,
+    PIPELINE_RECORDS_SCHEMA,
     PROSPECT_CANDIDATES_SCHEMA,
     QUALIFIED_PROSPECTS_SCHEMA,
+    RESEARCHED_PROSPECTS_SCHEMA,
     WEB_PAGE_OBSERVATION_SCHEMA,
     validate_artifact_payload,
     validate_artifact_schema_catalog,
@@ -94,7 +100,76 @@ def test_artifact_schema_catalog_matches_job_outputs() -> None:
         "business_review_report",
         "web_page_observation",
         "goal_progress_evaluation",
+        "researched_prospects",
+        "enriched_prospects",
+        "introduction_drafts",
+        "internal_crm_records",
+        "crm_records",
+        "pipeline_records",
     )
+
+
+def test_revops_stage_schemas_cover_internal_lane_outputs() -> None:
+    assert (
+        validate_artifact_payload(
+            RESEARCHED_PROSPECTS_SCHEMA,
+            [
+                {
+                    "crm_matches": [],
+                    "research_notes": ["internal"],
+                    "research_source": "ajenda_brain",
+                    "research_real": True,
+                }
+            ],
+        )
+        == ()
+    )
+    assert (
+        validate_artifact_payload(
+            ENRICHED_PROSPECTS_SCHEMA,
+            [{"company": "Acme", "contacts": [], "enrichment_mode": "unresolved", "enrichment_real": False}],
+        )
+        == ()
+    )
+    assert (
+        validate_artifact_payload(
+            INTRODUCTION_DRAFTS_SCHEMA,
+            [{"artifact_id": "draft-1", "subject": "Hello", "recipient": None, "recipient_bound": False}],
+        )
+        == ()
+    )
+    assert (
+        validate_artifact_payload(
+            INTERNAL_CRM_RECORDS_SCHEMA,
+            [{"id": "contact-1", "operation": "created"}],
+        )
+        == ()
+    )
+    assert (
+        validate_artifact_payload(
+            CRM_RECORDS_SCHEMA,
+            [{"id": "contact-1", "source": "internal_record"}],
+        )
+        == ()
+    )
+    assert (
+        validate_artifact_payload(
+            PIPELINE_RECORDS_SCHEMA,
+            [{"id": "opp-1", "status": "upserted", "source": "ajenda_brain", "data": {}}],
+        )
+        == ()
+    )
+
+
+def test_revops_artifact_validation_rejects_contradictory_or_non_real_rows() -> None:
+    assert validate_artifact_payload(
+        RESEARCHED_PROSPECTS_SCHEMA,
+        [{"crm_matches": [], "research_notes": [], "research_source": "ajenda_brain", "research_real": False}],
+    ) == ("item 0 research result is not marked real",)
+    assert validate_artifact_payload(
+        ENRICHED_PROSPECTS_SCHEMA,
+        [{"company": "Acme", "contacts": [], "enrichment_mode": "local_simulated", "enrichment_real": True}],
+    ) == ("item 0 simulated enrichment cannot be marked real", "item 0 enrichment mode contradicts enrichment_real")
 
 
 def test_artifact_payload_validation_rejects_empty_per_item_lists() -> None:

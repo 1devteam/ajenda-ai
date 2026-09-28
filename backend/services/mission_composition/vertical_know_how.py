@@ -226,6 +226,12 @@ REVOPS_V1_KNOW_HOW = VerticalKnowHowContract(
             optional=True,
             review_boundary="before_external_effect",
         ),
+        KnowHowStage(
+            stage_key="crm_persistence",
+            job_keys=("crm.internal_persistence",),
+            depends_on=("qualification",),
+            optional=True,
+        ),
     ),
     deliverable_fields=(
         DeliverableField(field_key="prospect_candidates", produced_by_jobs=("research.discover_prospects",)),
@@ -235,6 +241,11 @@ REVOPS_V1_KNOW_HOW = VerticalKnowHowContract(
         DeliverableField(field_key="introduction_drafts", produced_by_jobs=("email.prepare_outreach",)),
         DeliverableField(field_key="sent_messages", produced_by_jobs=("email.deliver_outreach",), required=False),
         DeliverableField(field_key="pipeline_records", produced_by_jobs=("crm.pipeline_maintenance",), required=False),
+        DeliverableField(
+            field_key="internal_crm_records",
+            produced_by_jobs=("crm.internal_persistence",),
+            required=False,
+        ),
     ),
     connectors=("gmail", "hubspot"),
     prohibited_actions=("gtm.social_publish", "web.open_write", "webhook.dispatch"),
