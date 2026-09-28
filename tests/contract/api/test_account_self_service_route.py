@@ -22,6 +22,7 @@ from backend.services.account_service import (
     AccountTenantSummary,
     AccountUsageSummary,
 )
+from backend.services.onboarding_service import OnboardingSnapshot
 
 
 def _build_client(*, roles: tuple[str, ...] = ("tenant_operator",)) -> tuple[TestClient, uuid.UUID]:
@@ -172,3 +173,32 @@ def test_account_billing_returns_status() -> None:
     body = response.json()
     assert body["has_billing_account"] is True
     assert body["stripe_customer_id"] == "cus_test"
+
+
+def test_account_onboarding_is_status_only_and_does_not_admit_runtime() -> None:
+    client, _tenant_id = _build_client()
+    snapshot = OnboardingSnapshot(
+        setup_version=1,
+        completed=True,
+        completed_at="2026-09-28T00:00:00+00:00",
+        completed_by_member_id="member-1",
+        suppress_prompt=False,
+        prompt_suppressed_at=None,
+        company_profile_ready=True,
+        operating_preferences_ready=True,
+        can_manage_connections=False,
+        human_member=True,
+        connections={"gmail": False, "google_calendar": False, "google_contacts": False, "google_docs": False},
+    )
+
+    with patch("backend.api.routes.account.OnboardingService") as service_cls:
+        service_cls.return_value.read.return_value = snapshot
+        response = client.get("/v1/account/onboarding")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["completed"] is True
+    # Account onboarding is a declarative status surface. It must not expose
+    # or imply mission/task/queue/lease execution state.
+    assert not any(key in body for key in ("mission_id", "task_ids", "queue", "lease_id", "runtime_queued"))
+    service_cls.return_value.read.assert_called_once()
