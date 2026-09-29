@@ -8,6 +8,7 @@ notes:
   - "When a contract changes authority class, update ADRs/tests/validation artifacts in the same workstream."
   - "Subsystem lane definitions live in docs/product/mission-runtime-architecture-map.md and explain how existing authority entries compose from input to proof; they do not add authority classes or create a competing registry."
   - "Future lane work must map back to these authority_entries, source_of_truth files, and required_proofs before claiming runtime behavior."
+  - "Graph/GRAFT surfaces are governed by explicit owner declarations; graph evidence may inform or block, but never self-grants runtime authority."
 
 authority_entries:
   - id: runtime_startup_contract
@@ -1436,3 +1437,172 @@ authority_entries:
       - tests/unit/abilities/test_ability_catalog.py
       - tests/unit/architecture/test_authority_ledger_contract.py
       - docs/planning/pr-430-knowledge-decision-support-acceptance.md
+
+  - id: graft_runtime_integrity_contract
+    area: GRAFT runtime admission integrity precondition
+    owner: runtime-admission-governance
+    source_of_truth:
+      - backend/services/mission_graph_integrity.py
+      - backend/api/routes/mission.py
+    route_scope:
+      - POST /v1/missions/{mission_id}/runtime-admission
+    authority_class: read_model
+    side_effect_class: tenant_scoped_admission_precondition_read
+    allowed_side_effects:
+      - inspect normalized mission instruction and materialized graph
+      - inspect tenant-scoped credential metadata and decryptability
+      - return a deterministic clear-or-blocked integrity report
+    forbidden_side_effects:
+      - create execution tasks
+      - provision runtime authority
+      - enqueue, dispatch, or execute handlers
+      - mutate credentials, mission, queue, lease, evidence, or tenant records
+    required_proofs:
+      - tests/unit/services/test_mission_graph_integrity.py
+      - tests/unit/api/test_mission_intake_route.py
+
+  - id: graft_runtime_evidence_projection_contract
+    area: read-only GRAFT runtime evidence projection
+    owner: evidence-observability-governance
+    source_of_truth:
+      - backend/services/mission_runtime_evidence_projection.py
+      - backend/api/routes/mission_deliverable.py
+    route_scope:
+      - GET /v1/missions/{mission_id}/runtime-evidence
+    authority_class: read_model
+    side_effect_class: tenant_scoped_runtime_evidence_read
+    allowed_side_effects:
+      - read tenant-scoped persisted mission, task, lease, lineage, evidence, and audit records
+      - emit diagnostic contradictions, missing evidence, and first-divergence findings
+    forbidden_side_effects:
+      - queue, claim, start, retry, dispatch, or authorize work
+      - mutate mission, task, queue, lease, evidence, artifact, or tenant state
+    required_proofs:
+      - tests/unit/services/test_mission_runtime_evidence_projection.py
+      - tests/contract/api/test_task_graph_runtime_boundary_contract.py
+
+  - id: graft_plus_workflow_control
+    area: GRAFT+ build and proof workflow
+    owner: architecture-runtime-governance
+    source_of_truth:
+      - docs/development/GRAFT_PLUS_WORKFLOW.md
+      - scripts/validation/graft_plus_gate.py
+      - scripts/validation/graph_impact_analysis.py
+      - scripts/validation/graph_proof_selection.py
+    route_scope: []
+    authority_class: declarative
+    side_effect_class: repository_validation_artifact_generation
+    allowed_side_effects:
+      - generate graph, impact, proof, and completeness reports
+      - fail validation or CI when declared gates fail
+    forbidden_side_effects:
+      - dispatch product runtime work
+      - grant credentials, approvals, or runtime authority
+      - mutate tenant or provider data
+    required_proofs:
+      - tests/unit/validation/test_graph_impact_analysis.py
+      - tests/unit/validation/test_graph_proof_selection.py
+      - tests/unit/validation/test_graft_plus_graft1st_reconciliation_check.py
+
+  - id: graft1st_revops_contract_package
+    area: declarative GRAFT1st RevOps contract package
+    owner: revops-composition-governance
+    source_of_truth:
+      - backend/services/vertical_ops/graft1st_contracts.py
+      - tests/fixtures/graft1st/gtm_crm_communications_contract_package.v2.json
+      - backend/services/mission_composition/vertical_know_how.py
+    route_scope: []
+    authority_class: declarative
+    side_effect_class: declarative_contract_validation
+    allowed_side_effects:
+      - validate typed nodes, edges, artifact envelopes, and simulations
+      - preserve versioned composition provenance
+    forbidden_side_effects:
+      - register handlers
+      - resolve secrets
+      - create tasks, queues, or leases
+      - mutate CRM, tenant, or provider data
+      - grant execution authority
+    required_proofs:
+      - tests/unit/services/test_graft1st_contracts.py
+      - tests/unit/services/test_revops_vertical_know_how.py
+      - tests/unit/validation/test_graft_plus_graft1st_reconciliation_check.py
+
+  - id: graft_artifact_lifecycle_contract
+    area: graph and GRAFT artifact ownership and lifecycle
+    owner: architecture-runtime-governance
+    source_of_truth:
+      - backend/services/graft_artifact_lifecycle.py
+      - docs/architecture/GRAFT_OWNERSHIP_AND_AUTHORITY_MATRIX.md
+    route_scope: []
+    authority_class: declarative
+    side_effect_class: artifact_lifecycle_contract_validation
+    allowed_side_effects:
+      - validate owner, freshness, retention, tenant-scope, and lineage metadata
+      - classify diagnostic, observation, and declarative artifacts
+    forbidden_side_effects:
+      - grant execution authority
+      - dispatch work
+      - mutate tenant, provider, or mission runtime state
+    required_proofs:
+      - tests/unit/services/test_graft_artifact_lifecycle.py
+      - tests/unit/architecture/test_authority_ledger_contract.py
+
+  - id: graft_runtime_admission_coverage_contract
+    area: runtime-work admission coverage inventory
+    owner: runtime-admission-governance
+    source_of_truth:
+      - backend/services/runtime_admission_coverage.py
+      - scripts/validation/graft_drift_controls.py
+    route_scope: []
+    authority_class: declarative
+    side_effect_class: admission_coverage_validation
+    allowed_side_effects:
+      - enumerate route and daemon admission boundaries
+      - require source anchors, integrity controls, and fail-closed declarations
+    forbidden_side_effects:
+      - admit, queue, claim, start, or dispatch runtime work
+      - grant credentials or runtime authority
+      - mutate tenant or provider data
+    required_proofs:
+      - tests/unit/services/test_runtime_admission_coverage.py
+      - tests/unit/validation/test_graft_drift_controls.py
+
+  - id: graft_runtime_reconciliation_contract
+    area: recurring graph-to-runtime artifact reconciliation
+    owner: evidence-observability-governance
+    source_of_truth:
+      - scripts/validation/graft_runtime_reconciliation.py
+      - docs/development/GRAFT_PLUS_WORKFLOW.md
+    route_scope: []
+    authority_class: read_model
+    side_effect_class: tenant_scoped_reconciliation_read
+    allowed_side_effects:
+      - compare graph expectation, selected nodes, materialized tasks, queue execution, evidence, and deliverable snapshots
+      - retain unresolved contradictions as visible findings
+    forbidden_side_effects:
+      - dispatch or retry work
+      - rewrite historical evidence or silently resolve contradictions
+      - mutate tenant, queue, lease, mission, or provider state
+    required_proofs:
+      - tests/unit/validation/test_graft_runtime_reconciliation.py
+      - tests/unit/validation/test_graft_drift_controls.py
+
+  - id: graft_future_authority_promotion_contract
+    area: future GRAFT+ authority promotion guard
+    owner: architecture-runtime-governance
+    source_of_truth:
+      - docs/architecture/GRAFT_OWNERSHIP_AND_AUTHORITY_MATRIX.md
+      - docs/contracts/authority-ledger.v1.yaml
+    route_scope: []
+    authority_class: declarative
+    side_effect_class: prohibited_until_separately_reviewed
+    allowed_side_effects:
+      - document a future promotion proposal and its required independent proofs
+    forbidden_side_effects:
+      - self-promote GRAFT or GRAFT+ authority
+      - create capabilities, resolve secrets, approve autonomy, or execute actions
+      - bypass ActionRegistry, approval, idempotency, rollback, audit, or kill-switch controls
+    required_proofs:
+      - tests/unit/architecture/test_authority_ledger_contract.py
+      - docs/architecture/GRAFT_OWNERSHIP_AND_AUTHORITY_MATRIX.md

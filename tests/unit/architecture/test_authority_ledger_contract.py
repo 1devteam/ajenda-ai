@@ -118,6 +118,41 @@ def test_knowledge_applicability_has_one_declared_owner() -> None:
     assert "mutate Knowledge Ledger or global Knowledge Lifecycle state" in block
 
 
+def test_graft_surfaces_have_explicit_owners_and_non_authority_boundaries() -> None:
+    expected = {
+        "graft_runtime_integrity_contract": "runtime-admission-governance",
+        "graft_runtime_evidence_projection_contract": "evidence-observability-governance",
+        "graft_plus_workflow_control": "architecture-runtime-governance",
+        "graft1st_revops_contract_package": "revops-composition-governance",
+        "graft_artifact_lifecycle_contract": "architecture-runtime-governance",
+    }
+    blocks = {block.splitlines()[0].removeprefix("id: "): block for block in _ledger_blocks()}
+
+    for entry_id, owner in expected.items():
+        assert entry_id in blocks
+        block = blocks[entry_id]
+        assert f"owner: {owner}" in block
+        assert "authority" in block.lower()
+
+
+def test_graft_runtime_read_models_are_not_runtime_authoritative() -> None:
+    blocks = {block.splitlines()[0].removeprefix("id: "): block for block in _ledger_blocks()}
+
+    for entry_id in ("graft_runtime_integrity_contract", "graft_runtime_evidence_projection_contract"):
+        assert "authority_class: read_model" in blocks[entry_id]
+        assert "authority_class: runtime_authoritative" not in blocks[entry_id]
+
+
+def test_graft_coverage_reconciliation_and_promotion_controls_are_declared() -> None:
+    blocks = {block.splitlines()[0].removeprefix("id: "): block for block in _ledger_blocks()}
+
+    assert "authority_class: declarative" in blocks["graft_runtime_admission_coverage_contract"]
+    assert "authority_class: read_model" in blocks["graft_runtime_reconciliation_contract"]
+    promotion = blocks["graft_future_authority_promotion_contract"]
+    assert "side_effect_class: prohibited_until_separately_reviewed" in promotion
+    assert "self-promote GRAFT or GRAFT+ authority" in promotion
+
+
 def test_route_scope_item_parser_finds_second_or_later_route_scope_items() -> None:
     block = """id: example_contract
     area: example

@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""Reject GRAFT drift that could weaken runtime authority boundaries."""
+
+from __future__ import annotations
+
+import ast
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from backend.services.graft_artifact_lifecycle import validate_graft_artifact_lifecycle_registry  # noqa: E402
+from backend.services.runtime_admission_coverage import validate_runtime_admission_coverage  # noqa: E402
+
+GRAPH_COMPONENTS = (
+    REPO_ROOT / "backend/services/graft_artifact_lifecycle.py",
+    REPO_ROOT / "backend/services/runtime_admission_coverage.py",
+    REPO_ROOT / "backend/services/mission_graph_integrity.py",
+    REPO_ROOT / "backend/services/mission_runtime_evidence_projection.py",
+    REPO_ROOT / "backend/services/vertical_ops/graft1st_contracts.py",
+    *sorted((REPO_ROOT / "scripts/validation").glob("graph_*.py")),
+)
+
+FORBIDDEN_CALLS = {
+    "register_handler",
+    "resolve_runtime_credential",
+    "_get_runtime_credential",
+    "dispatch_task",
+}
+FORBIDDEN_IMPORT_FRAGMENTS = (
+    "backend.workers.task_dispatcher",
+    "backend.services.tools.runtime_authority",
+)
+
+
+def _call_names(tree: ast.AST) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                names.add(node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                names.add(node.func.attr)
+    return names
+
+
+def validate_graph_authority_boundaries() -> list[str]:
+    errors: list[str] = []
+    for path in GRAPH_COMPONENTS:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        forbidden_calls = sorted(_call_names(tree) & FORBIDDEN_CALLS)
+        if forbidden_calls:
+            errors.append(
+                f"graph component calls forbidden runtime authority in {path.relative_to(REPO_ROOT)}: {forbidden_calls}"
+            )
+        for fragment in FORBIDDEN_IMPORT_FRAGMENTS:
+            if fragment in source:
+                errors.append(f"graph component imports runtime authority {fragment}: {path.relative_to(REPO_ROOT)}")
+        if re.search(r"grants_execution_authority\s*[:=]\s*True", source):
+            errors.append(f"graph component claims execution authority: {path.relative_to(REPO_ROOT)}")
+
+    materialization = (REPO_ROOT / "backend/services/mission_runtime_task_materialization_service.py").read_text(
+        encoding="utf-8"
+    )
+    if "get_default_action_registry" not in materialization:
+        errors.append("runtime task materialization no longer resolves actions through ActionRegistry")
+    bridge = (REPO_ROOT / "backend/services/mission_bridge_runtime_authority.py").read_text(encoding="utf-8")
+    if "get_default_action_registry" not in bridge:
+        errors.append("bridge runtime authority no longer resolves actions through ActionRegistry")
+    return errors
+
+
+def validate_graph_is_current() -> list[str]:
+    result = subprocess.run(
+        [sys.executable, "scripts/validation/build_dependency_graph.py", "--check"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return []
+    return [result.stdout.strip() or result.stderr.strip() or "canonical graph freshness check failed"]
+
+
+def validate_drift_controls() -> list[str]:
+    errors: list[str] = []
+    try:
+        validate_graft_artifact_lifecycle_registry()
+    except ValueError as exc:
+        errors.append(str(exc))
+    try:
+        validate_runtime_admission_coverage()
+    except ValueError as exc:
+        errors.append(str(exc))
+    errors.extend(validate_graph_authority_boundaries())
+    errors.extend(validate_graph_is_current())
+    return errors
+
+
+def main() -> int:
+    errors = validate_drift_controls()
+    if errors:
+        for error in errors:
+            print(f"FAIL: {error}")
+        return 1
+    print("PASS: GRAFT drift controls and canonical graph freshness checks passed.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

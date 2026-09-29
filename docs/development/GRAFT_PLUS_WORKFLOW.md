@@ -131,6 +131,28 @@ is a core GRAFT+ advantage, not a failed plan.
 - Never claim synthetic completion. Completion requires the artifact, diff, test, runtime proof, or
   explicitly documented non-goal.
 
+### 8. Recurring controls
+
+The weekly coherence workflow runs the admission-coverage and drift sentinels. The canonical
+graph freshness check fails when generated metadata no longer matches the repository. For a
+tenant-scoped runtime proof export, run:
+
+```bash
+python scripts/validation/graft_runtime_reconciliation.py \
+  path/to/runtime-reconciliation-snapshot.json \
+  --output artifacts/runtime-reconciliation-report.json
+```
+
+The snapshot validator compares graph expectation → selected nodes → materialized tasks → queue
+execution → evidence → final deliverable. It does not synthesize missing stages. Any unexplained
+contradiction remains unresolved and blocks the report until repaired or explicitly explained.
+
+### 9. Authority promotion boundary
+
+GRAFT+ cannot promote itself. Any future self-management capability requires an independently
+owned and reviewed capability manifest, bounded resources/actions, approval/autonomy policy,
+idempotency and rollback proof, audit/evidence/read-back, a kill switch, and recurring review.
+
 ## Relationship to other repository rules
 
 - **Pride Protocol** supplies the discipline: read fully, search affected instances, plan, test,

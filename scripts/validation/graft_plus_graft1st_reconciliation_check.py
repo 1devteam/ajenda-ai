@@ -12,6 +12,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from backend.services.graft_artifact_lifecycle import (  # noqa: E402
+    GRAFT_ARTIFACT_LIFECYCLE_BY_TYPE,
+    validate_graft_artifact_lifecycle_registry,
+)
 from backend.services.vertical_ops.graft1st_contracts import (  # noqa: E402
     GRAFT1ST_CONTRACT_PACKAGE_ID,
     GRAFT1ST_CONTRACT_PACKAGE_VERSION,
@@ -96,6 +100,20 @@ def validate_conformance(
     simulations = InterminglingSimulationSuite.model_validate_json(simulation_path.read_text(encoding="utf-8"))
 
     errors: list[str] = []
+    try:
+        validate_graft_artifact_lifecycle_registry()
+    except ValueError as exc:
+        errors.append(f"GRAFT artifact lifecycle registry is invalid: {exc}")
+
+    lifecycle_contract = GRAFT_ARTIFACT_LIFECYCLE_BY_TYPE.get("graft1st_revops_contract_package")
+    if lifecycle_contract is None:
+        errors.append("GRAFT1st package has no declared artifact lifecycle contract")
+    elif lifecycle_contract.artifact_schema_version != package.package_version:
+        errors.append(
+            "GRAFT1st lifecycle artifact schema version differs from the frozen package version: "
+            f"{lifecycle_contract.artifact_schema_version} != {package.package_version}"
+        )
+
     if package.package_id != GRAFT1ST_CONTRACT_PACKAGE_ID:
         errors.append("package id differs from the code constant")
     if package.package_version != GRAFT1ST_CONTRACT_PACKAGE_VERSION:
@@ -154,6 +172,10 @@ def validate_conformance(
         "edge_count": len(package.edges),
         "scenario_count": len(simulations.scenarios),
         "implementation_proof_node_count": len(IMPLEMENTATION_PROOFS),
+        "lifecycle_contract_count": len(GRAFT_ARTIFACT_LIFECYCLE_BY_TYPE),
+        "lifecycle_contracts_validated": not any(
+            error.startswith("GRAFT artifact lifecycle") or error.startswith("GRAFT1st lifecycle") for error in errors
+        ),
         "status_counts": {
             status.value: sum(1 for node in package.nodes if node.implementation_status == status)
             for status in NodeImplementationStatus

@@ -50,12 +50,22 @@ def test_typed_qualification_fields_are_bound_without_claiming_materialization()
     by_field = {binding.field_key: binding for binding in projection.bindings}
 
     assert set(by_field) == {"company_name", "qualification_reasons", "qualification_score"}
-    for field_key in by_field:
+    assert by_field["company_name"].artifact_keys == (
+        "qualified_prospects",
+        "researched_prospects",
+        "enriched_prospects",
+        "introduction_drafts",
+        "crm_records",
+    )
+    for field_key in ("qualification_reasons", "qualification_score"):
         assert by_field[field_key].status == "bound"
         assert by_field[field_key].basis == "typed_artifact_field"
         assert by_field[field_key].artifact_keys == ("qualified_prospects",)
         assert by_field[field_key].producer_jobs == ("sales.qualify_prospects",)
         assert by_field[field_key].grants_execution_authority is False
+    assert by_field["company_name"].status == "bound"
+    assert by_field["company_name"].basis == "typed_artifact_field"
+    assert by_field["company_name"].grants_execution_authority is False
     assert projection.fully_bound is True
     assert projection.grants_execution_authority is False
 
@@ -105,7 +115,12 @@ def test_unknown_request_item_survives_projection_and_keeps_it_incomplete() -> N
     assert by_field["company_name"].basis == "typed_artifact_field"
     assert by_field["website"].status == "bound"
     assert by_field["website"].basis == "typed_artifact_field"
-    assert by_field["website"].artifact_keys == ("verified_prospect_candidates", "prospect_candidates")
+    assert by_field["website"].artifact_keys == (
+        "verified_prospect_candidates",
+        "prospect_candidates",
+        "researched_prospects",
+        "enriched_prospects",
+    )
     assert projection.request_unresolved_items == ("lunar risk index",)
     assert projection.fully_bound is False
     assert projection.grants_execution_authority is False
@@ -120,17 +135,19 @@ def test_remaining_revops_fields_are_bound_to_typed_artifact_contracts() -> None
     )
     by_field = {binding.field_key: binding for binding in projection.bindings}
 
-    assert by_field["website"].artifact_keys == ("verified_prospect_candidates", "prospect_candidates")
+    assert by_field["website"].artifact_keys == (
+        "verified_prospect_candidates",
+        "prospect_candidates",
+        "researched_prospects",
+        "enriched_prospects",
+    )
     assert by_field["product_description"].artifact_keys == (
         "verified_prospect_candidates",
         "prospect_candidates",
     )
     assert by_field["qualification_evidence"].artifact_keys == ("qualified_prospects",)
     assert by_field["ajenda_relevance"].artifact_keys == ("qualified_prospects",)
-    assert by_field["research_summary"].artifact_keys == (
-        "verified_prospect_candidates",
-        "prospect_candidates",
-    )
+    assert by_field["research_summary"].artifact_keys == ("verified_prospect_candidates", "prospect_candidates")
     assert by_field["sources"].artifact_keys == (
         "verified_prospect_candidates",
         "prospect_candidates",

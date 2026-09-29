@@ -49,6 +49,19 @@ jobs:
       - name: Ability rollout contract sentinel
         run: python scripts/validation/ability_rollout_contract_check.py
 
+      - name: Build canonical dependency graph
+        run: python scripts/validation/build_dependency_graph.py
+
+      - name: GRAFT admission and drift sentinel
+        run: python scripts/validation/graft_drift_controls.py
+
+      - name: GRAFT reconciliation contract tests
+        run: |
+          python -m pytest -q \
+            tests/unit/services/test_runtime_admission_coverage.py \
+            tests/unit/validation/test_graft_drift_controls.py \
+            tests/unit/validation/test_graft_runtime_reconciliation.py
+
       - name: Unit contract and deployment tests
         run: |
           python -m pytest tests/unit/ tests/contract/ tests/deployment/ \

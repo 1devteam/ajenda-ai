@@ -35,7 +35,19 @@ def main() -> int:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     steps: list[dict[str, Any]] = []
     steps.append(_run("mission-contract-gate", [sys.executable, "scripts/validation/mission_contract_gate.py"]))
+    steps.append(
+        _run(
+            "graft1st-reconciliation-and-lifecycle",
+            [sys.executable, "scripts/validation/graft_plus_graft1st_reconciliation_check.py"],
+        )
+    )
     steps.append(_run("build-canonical-graph", [sys.executable, "scripts/validation/build_dependency_graph.py"]))
+    steps.append(
+        _run(
+            "graft-admission-and-drift-controls",
+            [sys.executable, "scripts/validation/graft_drift_controls.py"],
+        )
+    )
     if not args.skip_graph_tests:
         steps.append(
             _run(
@@ -117,7 +129,7 @@ def main() -> int:
     )
     report = {
         "schema_version": 1,
-        "workflow": "mission-contract -> GRAFT+ graph -> impact -> proof -> completeness -> decision",
+        "workflow": "mission-contract -> GRAFT1st/lifecycle reconciliation -> GRAFT+ graph -> impact -> proof -> completeness -> decision",
         "base_ref": args.base_ref,
         "head_ref": args.head_ref,
         "status": "passed" if all(step["status"] == "passed" for step in steps) else "failed",
