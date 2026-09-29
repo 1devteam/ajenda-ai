@@ -124,6 +124,18 @@ ALGORITHM_REGISTRY: tuple[AlgorithmDefinition, ...] = (
         provenance={"source_type": "algorithm_registry", "source_name": "Ajenda", "version_date": "2026-09-27"},
     ),
     AlgorithmDefinition(
+        algorithm_id="gtm.runtime_artifact_completeness.v1",
+        version="1",
+        display_name="Runtime artifact completeness",
+        description="Compares persisted runtime outputs with the declared acceptance contract.",
+        input_contract="terminal task outputs plus acceptance contract",
+        output_contract="runtime_artifact_completeness_result",
+        applicable_domains=("gtm", "mission_runtime"),
+        required_evidence=("terminal task outputs", "acceptance contract"),
+        confidence_semantics="Confidence is one only when the declared runtime acceptance contract is met.",
+        provenance={"source_type": "algorithm_registry", "source_name": "Ajenda", "version_date": "2026-09-29"},
+    ),
+    AlgorithmDefinition(
         algorithm_id="gtm.duplicate_identity_resolution.v1",
         version="1",
         display_name="Duplicate identity resolution",
@@ -207,6 +219,7 @@ def evaluate_composition_algorithms(
         completeness_input,
         status="evaluated" if complete and blocking_gap_count == 0 else "insufficient_evidence",
         output={
+            "evaluation_phase": "composition",
             "requested_outcome_count": len(requested_outcomes),
             "named_job_count": len(named_jobs),
             "planned_step_count": len(planned_steps),
@@ -230,6 +243,7 @@ def evaluate_composition_algorithms(
         source_input,
         status="evaluated" if confidence_values and blocking_gap_count == 0 else "insufficient_evidence",
         output={
+            "evaluation_phase": "composition",
             "evidence_count": len(confidence_values),
             "blocking_gap_count": blocking_gap_count,
             "source_confidence": round(source_confidence, 4),
@@ -242,6 +256,51 @@ def evaluate_composition_algorithms(
         ),
     )
     return completeness, source
+
+
+def evaluate_runtime_artifact_completeness(
+    *,
+    task_count: int,
+    failed_task_count: int,
+    acceptance_met: bool,
+    acceptance_reasons: list[str],
+    materialized_artifact_keys: list[str],
+) -> AlgorithmResult:
+    """Evaluate the persisted runtime result, separately from composition quality.
+
+    Composition algorithms describe whether Ajenda could plan a mission. This
+    algorithm describes what the worker actually delivered. Keeping the phases
+    separate prevents a complete plan from being reported as a complete result
+    after execution produced partial or rejected artifacts.
+    """
+
+    payload = {
+        "task_count": task_count,
+        "failed_task_count": failed_task_count,
+        "acceptance_met": acceptance_met,
+        "acceptance_reasons": list(acceptance_reasons),
+        "materialized_artifact_keys": sorted(set(materialized_artifact_keys)),
+    }
+    score = 1.0 if acceptance_met and failed_task_count == 0 and task_count > 0 else 0.0
+    status: Literal["evaluated", "insufficient_evidence", "conflict"] = (
+        "evaluated" if task_count > 0 else "insufficient_evidence"
+    )
+    return _result(
+        "gtm.runtime_artifact_completeness.v1",
+        payload,
+        status=status,
+        output={
+            "evaluation_phase": "runtime",
+            "task_count": task_count,
+            "failed_task_count": failed_task_count,
+            "acceptance_met": acceptance_met,
+            "acceptance_reasons": list(acceptance_reasons),
+            "materialized_artifact_keys": sorted(set(materialized_artifact_keys)),
+            "completeness_score": score,
+        },
+        confidence=score,
+        evidence_refs=("runtime.tasks", "runtime.acceptance", "runtime.materialized_artifacts"),
+    )
 
 
 def validate_composition_algorithm_results(
