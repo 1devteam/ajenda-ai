@@ -5,6 +5,7 @@ from backend.services.ontology.algorithms import (
     AlgorithmResult,
     evaluate_composition_algorithms,
     evaluate_duplicate_identity_resolution,
+    evaluate_runtime_artifact_completeness,
     evaluate_service_area_match,
     validate_composition_algorithm_results,
 )
@@ -44,6 +45,20 @@ def test_service_area_algorithm_fails_closed_without_inputs() -> None:
     result = evaluate_service_area_match(target_location=None, service_areas=[])
     assert result.status == "insufficient_evidence"
     assert result.output["matched"] is None
+    assert result.grants_execution_authority is False
+
+
+def test_runtime_artifact_completeness_does_not_inherit_composition_success() -> None:
+    result = evaluate_runtime_artifact_completeness(
+        task_count=3,
+        failed_task_count=0,
+        acceptance_met=False,
+        acceptance_reasons=["required 5 verified prospect identities, produced 3"],
+        materialized_artifact_keys=["observed_contacts"],
+    )
+    assert result.output["evaluation_phase"] == "runtime"
+    assert result.output["completeness_score"] == 0.0
+    assert result.provenance["algorithm_id"] == "gtm.runtime_artifact_completeness.v1"
     assert result.grants_execution_authority is False
 
 

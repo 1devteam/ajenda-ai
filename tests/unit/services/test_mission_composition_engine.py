@@ -412,6 +412,19 @@ def test_send_contradiction_across_sentences_fails_closed() -> None:
     assert any(item.field == "send_policy" for item in intent.ambiguity)
 
 
+def test_exclusive_target_scope_contradiction_fails_closed() -> None:
+    intent = interpret_instruction(
+        "Find five HVAC companies in Dallas, but only return roofing companies in Austin, "
+        "and qualify the results using local fixture data only."
+    )
+    assert [(entity.industry, entity.location) for entity in intent.target_entities[:2]] == [
+        ("HVAC", "Dallas"),
+        ("roofing", "Austin"),
+    ]
+    assert any(item.rule_id == "contradiction.target_scope_exclusive" for item in intent.contradictions)
+    assert any(item.field == "target_scope" for item in intent.ambiguity)
+
+
 def test_revops_composition_is_pinned_to_selected_know_how_version() -> None:
     service = MissionCompositionService(db=None)
     record = service.compose(

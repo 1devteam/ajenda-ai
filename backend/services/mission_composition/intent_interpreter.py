@@ -411,6 +411,9 @@ _LEADING_VERB_WORDS = frozenset(
         "study",
         "review",
         "target",
+        "but",
+        "only",
+        "return",
     }
 )
 # Strip quantity words so "three roofing companies" → industry "roofing".
@@ -622,43 +625,40 @@ def _extract_competitors_of(text: str) -> list[TargetEntity]:
 
 
 def _extract_industry_location_entities(text: str) -> list[TargetEntity]:
-    match = _SOFTWARE_RND_LOCATION.search(text) or _INDUSTRY_LOCATION.search(text)
-    if match is None:
-        return []
-    industry_tokens = [token for token in match.group("industry").strip().split() if token]
-    while industry_tokens and industry_tokens[0].lower() in _LEADING_VERB_WORDS:
-        industry_tokens.pop(0)
-    while industry_tokens and (industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()):
-        industry_tokens.pop(0)
-    industry = " ".join(industry_tokens).strip(" ,.;:")
-    location = _trim_location(match.group("location"))
-    # Drop trailing source qualifiers ("from HubSpot CRM records").
-    location = re.sub(
-        r"\s+\bfrom\b\s+.*$",
-        "",
-        location,
-        flags=re.IGNORECASE,
-    ).strip(" ,.;:")
-    if not industry or not location:
-        return []
-    # Industry must not keep the leading verb + quantity ("Research five roofing").
-    industry_tokens = [token for token in industry.split() if token]
-    while industry_tokens and industry_tokens[0].lower() in _LEADING_VERB_WORDS:
-        industry_tokens.pop(0)
-    while industry_tokens and (industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()):
-        industry_tokens.pop(0)
-    industry = " ".join(industry_tokens).strip(" ,.;:")
-    if not industry:
-        return []
-    return [
-        TargetEntity(
-            type="company",
-            industry=industry,
-            location=location,
-            provenance="explicit",
-            confidence=0.95,
-        )
-    ]
+    matches = list(_SOFTWARE_RND_LOCATION.finditer(text)) + list(_INDUSTRY_LOCATION.finditer(text))
+    matches.sort(key=lambda item: item.start())
+    entities: list[TargetEntity] = []
+    for match in matches:
+        industry_tokens = [token for token in match.group("industry").strip().split() if token]
+        while industry_tokens and industry_tokens[0].lower() in _LEADING_VERB_WORDS:
+            industry_tokens.pop(0)
+        while industry_tokens and (
+            industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()
+        ):
+            industry_tokens.pop(0)
+        industry = " ".join(industry_tokens).strip(" ,.;:")
+        location = _trim_location(match.group("location"))
+        # Drop trailing source qualifiers ("from HubSpot CRM records").
+        location = re.sub(r"\s+\bfrom\b\s+.*$", "", location, flags=re.IGNORECASE).strip(" ,.;:")
+        if not industry or not location:
+            continue
+        if not any(
+            entity.industry
+            and entity.location
+            and entity.industry.casefold() == industry.casefold()
+            and entity.location.casefold() == location.casefold()
+            for entity in entities
+        ):
+            entities.append(
+                TargetEntity(
+                    type="company",
+                    industry=industry,
+                    location=location,
+                    provenance="explicit",
+                    confidence=0.95,
+                )
+            )
+    return entities
 
 
 def _extract_target_entities(text: str) -> list[TargetEntity]:
@@ -1786,6 +1786,38 @@ def interpret_instruction(
     entities = _extract_target_entities(text)
     if not entities and wants_crm_read:
         entities = _extract_connector_company(text)
+    # Multiple explicit market scopes are valid only when the instruction
+    # clearly asks for a combined comparison. Exclusive wording such as
+    # "but only" is a contradiction, not a second executable target. Fail
+    # closed before job/ability resolution so downstream actions cannot mix
+    # locations or industries from one ambiguous mission.
+    market_entities = [
+        entity for entity in entities if entity.type == "company" and entity.industry and entity.location
+    ]
+    exclusive_scope = bool(re.search(r"\b(?:but\s+only|instead|rather\s+than)\b", text, re.IGNORECASE))
+    if exclusive_scope and len(market_entities) > 1:
+        first, second = market_entities[0], market_entities[1]
+        contradictions.append(
+            Contradiction(
+                field_path="target_entities.industry_location",
+                first_span=f"{first.industry} in {first.location}",
+                second_span=f"{second.industry} in {second.location}",
+                first_value=f"{first.industry}|{first.location}",
+                second_value=f"{second.industry}|{second.location}",
+                risk="high",
+                resolution_status="unresolved",
+                rule_id="contradiction.target_scope_exclusive",
+            )
+        )
+        clarifications.append(
+            _restatement(
+                field="target_scope",
+                understood=f"the mission names both {first.industry} in {first.location} and {second.industry} in {second.location}",
+                missing="the target industry and location are contradictory",
+                include_instruction="one target industry and one location, or an explicit comparison request",
+                reason="Contradictory target scope fails closed before runtime work is admitted.",
+            )
+        )
     if hubspot_as_research_source and "research_prospects" in outcomes and entities:
         head = entities[0]
         attrs = dict(head.attributes or {})

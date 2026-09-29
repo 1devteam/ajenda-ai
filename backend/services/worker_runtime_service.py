@@ -32,6 +32,7 @@ from backend.services.mission_composition.artifact_schemas import (
 )
 from backend.services.mission_composition.deliverable_runtime_read_model import refresh_deliverable_completion_metadata
 from backend.services.mission_intake_quality import contains_composition_clarification
+from backend.services.ontology.algorithms import evaluate_runtime_artifact_completeness
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
 from backend.services.tools.mission_input_binding import handler_output_for_task, pending_dependency_keys
 
@@ -513,6 +514,25 @@ class WorkerRuntimeService:
                     **task.metadata_json,
                     "materialized_artifacts": materialized_artifacts,
                 }
+                # The task projection is not the durable evidence contract.
+                # Copy the declared artifact identity onto the tenant-scoped
+                # evidence row so artifact references survive task projection
+                # refreshes and can be reconciled independently.
+                for reference in materialized_artifacts:
+                    evidence_id = reference.get("evidence_id")
+                    if not isinstance(evidence_id, str):
+                        continue
+                    materialized_evidence = evidence_repo.get_for_tenant(
+                        evidence_id=uuid.UUID(evidence_id),
+                        tenant_id=task.tenant_id,
+                    )
+                    if materialized_evidence is None:
+                        raise ValueError("materialized artifact evidence is missing for the task tenant")
+                    references = list(materialized_evidence.artifact_references or [])
+                    if reference not in references:
+                        references.append(reference)
+                        materialized_evidence.artifact_references = references
+                        evidence_repo.update(materialized_evidence)
 
             # Outcome review bridge for high-risk GTM side-effecting actions (PR pilot coherence)
             # Auto-creates a draft review post-completion for missions launched with high-risk GTM
@@ -715,6 +735,24 @@ class WorkerRuntimeService:
                 acceptance_reasons.append("durable deliverable is incomplete")
                 acceptance_met = False
             acceptance_status = "met" if acceptance_met else "partially_met"
+            runtime_artifacts: list[str] = []
+            for sibling in siblings:
+                sibling_metadata = sibling.metadata_json if isinstance(sibling.metadata_json, dict) else {}
+                raw_artifacts = sibling_metadata.get("materialized_artifacts") or []
+                if not isinstance(raw_artifacts, list):
+                    continue
+                for artifact_ref in raw_artifacts:
+                    if isinstance(artifact_ref, dict) and isinstance(
+                        artifact_key := artifact_ref.get("artifact_key"), str
+                    ):
+                        runtime_artifacts.append(artifact_key)
+            runtime_algorithm = evaluate_runtime_artifact_completeness(
+                task_count=len(siblings),
+                failed_task_count=sum(1 for item in siblings if item.status in failedish),
+                acceptance_met=acceptance_met,
+                acceptance_reasons=acceptance_reasons,
+                materialized_artifact_keys=runtime_artifacts,
+            )
             business_outcome_status = None
             for sibling in siblings:
                 result = (
@@ -733,6 +771,7 @@ class WorkerRuntimeService:
                     "reasons": acceptance_reasons,
                     "evaluated_at": datetime.now(UTC).isoformat(),
                     "task_count": len(siblings),
+                    "algorithm_results": [runtime_algorithm.model_dump(mode="json")],
                 },
             }
             if not acceptance_met:
