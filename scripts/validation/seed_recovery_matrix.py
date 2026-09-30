@@ -118,8 +118,7 @@ def _create_task(
         runtime.start_execution(tenant_id=tenant_id, lease_id=uuid.UUID(lease_id_raw), worker_id=worker_id)
 
     lease = session.scalar(
-        select(WorkerLease)
-        .where(WorkerLease.id == uuid.UUID(lease_id_raw), WorkerLease.task_id == task.id)
+        select(WorkerLease).where(WorkerLease.id == uuid.UUID(lease_id_raw), WorkerLease.task_id == task.id)
     )
     if lease is None:
         raise RuntimeError(f"{kind} fixture lease was not readable after admission")
