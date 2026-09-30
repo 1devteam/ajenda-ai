@@ -133,7 +133,7 @@ Allowed values for a specific execution artifact:
 
 Important review rules:
 
-- A `not_executed` runner artifact with `integration_backed` provenance is a pointer to integration-test proof, not fresh runner evidence.
+- A recovery artifact is only runner-backed when the operator supplied seeded task IDs and the runner captured API, DB, Redis, and audit evidence. Missing seed inputs are recorded as `blocked`; the runner never fabricates recovery state.
 - A `runner_backed` artifact may be treated as direct live-runner proof only when the run outcome and evidence status are also trustworthy for the scenario.
 - `unsupported` provenance must not satisfy release-gating evidence requirements.
 
@@ -228,7 +228,7 @@ Scenario executed, but the artifact set is too weak to trust the result as a nor
 
 ### `not_executed`
 
-Scenario exists in the matrix, but the runner did not execute it and the row must not be treated as runner-backed evidence; intentional integration-backed `not_executed` rows are recorded without failing the whole run by themselves.
+Scenario exists in the matrix, but the runner did not execute it. Recovery rows no longer use this outcome: they either execute the governed recovery endpoint or report `blocked` when seeded operator inputs are absent.
 
 ---
 
@@ -301,10 +301,10 @@ Current release-gating set: `RG-01` through `RG-12`
 | RG-05 | auth_tenant_envelope | invalid or missing envelope is rejected without side effects | P0 | SAFE_READ_ONLY | authoritative_gate | runner_and_contract | tenant-scoped route available | invoke protected routes with missing/invalid tenant/auth | request rejected with no mutation | mutation or enqueue on invalid envelope | API | `backend/middleware/tenant_context.py`, `backend/middleware/auth_context.py`, tenant isolation contract tests + runner RG-05 | CI/local/shared_dev |
 | RG-06 | execution_plane | queued task completes cleanly | P1 | TENANT_SCOPED_MUTATION | authoritative_gate | runner_and_integration | valid queued task and worker path | exercise worker completion path | task reaches completed, lease released, audit/log evidence present | duplicate completion, stuck processing, missing release path | DB, Redis, audit, logs | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py`, runtime integration + runner RG-06 | local/isolated/shared_dev with care |
 | RG-07 | failure_plane | forced failure reaches valid failure terminal path | P1 | TENANT_SCOPED_MUTATION | authoritative_gate | runner_and_integration | deterministic fail task available | exercise failure path | task enters `failed` or valid dead-letter terminal state with evidence | silent failure, missing audit, invalid terminal path | DB, Redis, audit, logs | worker runtime + dispatcher + runner RG-07 | local/isolated/shared_dev with care |
-| RG-08 | recovery_plane | stale claimed lease recovery re-queues safely | P1 | GLOBAL_MUTATION | authoritative_gate | integration_test | expired claimed lease exists with an authoritative queue payload | POST `/v1/operations/recovery` | claimed task re-queued, lease expired, and queue reconciled to exactly one pending payload | no-op on expired claimed work; duplicate pending payloads; synthetic replacement work after payload loss; unsafe mutation patterns | API, DB, Redis, audit | `backend/services/runtime_maintainer.py`, `backend/queue/base.py`, `backend/queue/adapters/redis_adapter.py`, `tests/integration/runtime/test_claim_start_failure_recovery_real.py`, `tests/integration/runtime/test_lease_recovery_real.py`, recovery integration tests; runner marks RG-08 not executed until seeded proof exists | isolated_env_only |
-| RG-09 | recovery_plane | stale running lease recovery and retry/dead-letter path | P1 | GLOBAL_MUTATION | authoritative_gate | integration_test | expired active lease exists with processing or pending queue payload evidence | POST `/v1/operations/recovery` | running work atomically reconciles Redis processing/pending state to one pending payload and recovers to queued with retry accounting, or dead-letters at retry ceiling | stuck running work; illegal retry behavior; duplicate processing/pending residue; silent payload loss | API, DB, audit, Redis | `backend/services/runtime_maintainer.py`, `backend/queue/base.py`, `backend/queue/adapters/redis_adapter.py`, `tests/integration/runtime/test_runtime_recovery_queue_corruption_real.py`, `tests/integration/runtime/test_runtime_reconciliation_enforcement_real.py`, recovery integration tests; runner marks RG-09 not executed until seeded proof exists | isolated_env_only |
+| RG-08 | recovery_plane | stale claimed lease recovery re-queues safely | P1 | GLOBAL_MUTATION | authoritative_gate | runner_and_integration | expired claimed lease exists with an authoritative queue payload; operator supplies `AJENDA_CLAIMED_RECOVERY_TASK_ID` | POST `/v1/operations/recovery` | claimed task re-queued, lease expired, and queue reconciled to exactly one pending payload | no-op on expired claimed work; duplicate pending payloads; synthetic replacement work after payload loss; unsafe mutation patterns | API, DB, Redis, audit | `backend/services/runtime_maintainer.py`, `backend/queue/base.py`, `backend/queue/adapters/redis_adapter.py`, `tests/integration/runtime/test_claim_start_failure_recovery_real.py`, `tests/integration/runtime/test_lease_recovery_real.py`, runner RG-08 | isolated_env_only |
+| RG-09 | recovery_plane | stale running lease recovery and retry/dead-letter path | P1 | GLOBAL_MUTATION | authoritative_gate | runner_and_integration | expired active lease exists with processing or pending queue payload evidence; operator supplies `AJENDA_RUNNING_RECOVERY_TASK_ID` | POST `/v1/operations/recovery` | running work atomically reconciles Redis processing/pending state to one pending payload and recovers to queued with retry accounting, or dead-letters at retry ceiling | stuck running work; illegal retry behavior; duplicate processing/pending residue; silent payload loss | API, DB, audit, Redis | `backend/services/runtime_maintainer.py`, `backend/queue/base.py`, `backend/queue/adapters/redis_adapter.py`, `tests/integration/runtime/test_runtime_recovery_queue_corruption_real.py`, `tests/integration/runtime/test_runtime_reconciliation_enforcement_real.py`, runner RG-09 | isolated_env_only |
 | RG-10 | dead_letter_plane | illegal dead-letter retry is rejected safely | P1 | TENANT_SCOPED_MUTATION | authoritative_gate | contract_and_integration | task not in legal retry state | POST dead-letter retry route | illegal retry rejected, no mutation | illegal requeue or state change | API, DB | dead-letter operation contract + integration tests | local/isolated/shared_dev with care |
-| RG-11 | recovery_plane | recovery mutates only stale work | P0 | GLOBAL_MUTATION | authoritative_gate | integration_test | recovery endpoint available; healthy work exists; terminal stale ownership and missing-payload stale work are represented | POST `/v1/operations/recovery` and inspect before/after | only recoverable expired/stale work changes; terminal stale ownership is expired without requeue; missing payload retry recovery with retries remaining fails closed and preserves DB task/lease state; retry-exhausted stale work follows the dead-letter path | healthy work mutation or drift; terminal stale work requeued; missing payload converted into synthetic queued work | API, DB, Redis, audit | `backend/services/runtime_maintainer.py`, `backend/queue/base.py`, `backend/queue/adapters/redis_adapter.py`, `tests/integration/runtime/test_runtime_reconciliation_enforcement_real.py`, recovery integration tests; runner marks RG-11 not executed until seeded proof exists | isolated_env_only |
+| RG-11 | recovery_plane | recovery mutates only stale work | P0 | GLOBAL_MUTATION | authoritative_gate | runner_and_integration | recovery endpoint available; operator supplies `AJENDA_RECOVERY_STALE_TASK_ID` and `AJENDA_RECOVERY_HEALTHY_TASK_ID`; terminal and missing-payload cases remain integration-covered | POST `/v1/operations/recovery` and inspect before/after | only recoverable expired/stale work changes; healthy work remains byte-for-byte stable in task status/retry projection | healthy work mutation or drift; terminal stale work requeued; missing payload converted into synthetic queued work | API, DB, Redis, audit | `backend/services/runtime_maintainer.py`, `backend/queue/base.py`, `backend/queue/adapters/redis_adapter.py`, `tests/integration/runtime/test_runtime_reconciliation_enforcement_real.py`, runner RG-11 | isolated_env_only |
 | RG-12 | compliance_plane | policy denial routes task to pending review with no enqueue | P1 | TENANT_SCOPED_MUTATION | authoritative_gate | runner_and_integration | policy-denied task available | POST `/v1/tasks/{task_id}/queue` | 400 denial, pending_review/gov evidence, no enqueue | unsafe queue admission after policy denial | API, DB, Redis, audit, governance | execution coordinator + policy path + runner RG-12 | local/isolated/shared_dev with care |
 
 ---
@@ -390,10 +390,10 @@ Current broader scenario count: **54**
 | ID | Domain | Scenario | Priority | Safety Class | Matrix Status | Validation Backing | Preconditions | Action | Expected Result | Forbidden Result | Evidence Sources | Implementation Mapping | Execution Policy |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | FR-01 | failure_plane | forced failure transitions to failed + dead-letter path as appropriate | P1 | TENANT_SCOPED_MUTATION | evidence_backed | runner_and_integration | deterministic fail task | fail execution | failed or valid dead-letter terminal outcome | silent error path | DB, Redis, audit, logs | worker runtime service / dispatcher | local/isolated |
-| FR-02 | recovery_plane | stale claimed lease recovers claimed to queued | P1 | GLOBAL_MUTATION | evidence_backed | integration_test | expired claimed lease with queue payload authority | run recovery | re-queued claimed task with reconciled single pending payload and expired lease | stale claimed task stranded; duplicate requeue; silent payload loss | API, DB, Redis, audit | runtime maintainer, queue adapter reconciliation, `tests/integration/runtime/test_claim_start_failure_recovery_real.py`, `tests/integration/runtime/test_lease_recovery_real.py` | isolated_env_only |
-| FR-03 | recovery_plane | stale running lease recovers with retry increment | P1 | GLOBAL_MUTATION | evidence_backed | integration_test | expired running lease with retries remaining and processing or pending payload evidence | run recovery | queued with incremented retry count and exactly one reconciled pending payload | recovery without retry accounting; duplicate processing/pending residue; duplicate requeue; silent payload loss | API, DB, Redis, audit | runtime maintainer, Redis atomic recovery script, `tests/integration/runtime/test_runtime_recovery_queue_corruption_real.py`, `tests/integration/runtime/test_runtime_reconciliation_enforcement_real.py` | isolated_env_only |
+| FR-02 | recovery_plane | stale claimed lease recovers claimed to queued | P1 | GLOBAL_MUTATION | evidence_backed | runner_and_integration | expired claimed lease with queue payload authority; operator supplies `AJENDA_CLAIMED_RECOVERY_TASK_ID` | run governed recovery endpoint | re-queued claimed task with reconciled single pending payload and expired lease | stale claimed task stranded; duplicate requeue; silent payload loss | API, DB, Redis, audit | runtime maintainer, queue adapter reconciliation, `tests/integration/runtime/test_claim_start_failure_recovery_real.py`, `tests/integration/runtime/test_lease_recovery_real.py`, runner FR-02 | isolated_env_only |
+| FR-03 | recovery_plane | stale running lease recovers with retry increment | P1 | GLOBAL_MUTATION | evidence_backed | runner_and_integration | expired running lease with retries remaining and processing or pending payload evidence; operator supplies `AJENDA_RUNNING_RECOVERY_TASK_ID` | run governed recovery endpoint | queued with incremented retry count and exactly one reconciled pending payload | recovery without retry accounting; duplicate processing/pending residue; duplicate requeue; silent payload loss | API, DB, Redis, audit | runtime maintainer, Redis atomic recovery script, `tests/integration/runtime/test_runtime_recovery_queue_corruption_real.py`, `tests/integration/runtime/test_runtime_reconciliation_enforcement_real.py`, runner FR-03 | isolated_env_only |
 | FR-04 | recovery_plane | retry exhaustion dead-letters stale running work | P1 | GLOBAL_MUTATION | evidence_backed | integration_test | expired running lease at retry ceiling | run recovery | dead-lettered state | infinite recovery loop | DB, audit | runtime maintainer | isolated_env_only |
-| FR-05 | recovery_plane | recovery is idempotent for already-resolved expired work | P0 | GLOBAL_MUTATION | evidence_backed | integration_test | recovered, expired/resolved, terminal stale ownership, or missing-payload stale work present | run recovery again | no double increment / no double enqueue; terminal stale ownership expires without requeue; missing-payload retry recovery with retries remaining fails closed without DB state mutation; retry-exhausted stale work follows the dead-letter path | repeated mutation of resolved work; terminal stale ownership requeued; synthetic queued work created after payload loss | DB, Redis, audit | runtime maintainer, queue adapter reconciliation, `tests/integration/runtime/test_lease_recovery_real.py`, `tests/integration/runtime/test_runtime_reconciliation_enforcement_real.py` | isolated_env_only |
+| FR-05 | recovery_plane | recovery is idempotent for already-resolved expired work | P0 | GLOBAL_MUTATION | evidence_backed | runner_and_integration | recovered, expired/resolved, terminal stale ownership, or missing-payload stale work present; operator supplies `AJENDA_RECOVERY_IDEMPOTENCY_TASK_ID` | run governed recovery endpoint twice and compare artifacts | no double increment / no double enqueue; integration proof covers terminal and missing-payload cases | repeated mutation of resolved work; terminal stale ownership requeued; synthetic queued work created after payload loss | DB, Redis, audit | runtime maintainer, queue adapter reconciliation, `tests/integration/runtime/test_lease_recovery_real.py`, `tests/integration/runtime/test_runtime_reconciliation_enforcement_real.py`, runner FR-05 | isolated_env_only |
 | FR-06 | recovery_plane | protected recovery route returns the full bounded summary including dead-letter outcomes | P2 | GLOBAL_MUTATION | evidence_backed | contract_test | recovery route is invoked through the API boundary with a valid tenant/auth envelope and operator/admin runtime authorization; unauthorized callers are rejected without service invocation | POST `/v1/operations/recovery` and inspect the response payload | response exposes `expired_lease_count`, `requeued_task_count`, and `dead_lettered_count` exactly as returned by the service boundary for authorized callers | public recovery access; recovery route drops dead-letter outcomes or rewrites the bounded summary emitted by the service | API | `backend/api/routes/operations.py`, `tests/contract/operations/test_recovery_contract.py`, `tests/contract/operations/test_recovery_public_contract.py` | CI/local/shared_dev |
 
 ### Dead-letter plane
@@ -413,7 +413,7 @@ Current broader scenario count: **54**
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | IN-01 | integrity_plane | no duplicate active lease for same task | P0 | TENANT_SCOPED_MUTATION | evidence_backed | integration_test | existing active lease | attempt second active ownership | duplicate ownership prevented and queue claim compensated cleanly | two active authoritative leases or queue claim stranded in processing | DB, Redis | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py` | local/isolated |
 | IN-02 | integrity_plane | completion leaves no queue-processing leftovers | P0 | TENANT_SCOPED_MUTATION | evidence_backed | runner_and_integration | completed task exists | inspect post-completion state | no processing leftovers and duplicate completion rejected without extra audit | completed task remains in processing or duplicate completion mutates runtime state | DB, Redis, audit | `backend/services/worker_runtime_service.py`, `tests/integration/runtime/test_release_gating_runtime_real.py`, runner RG-06 | local/isolated |
-| IN-03 | recovery_plane | recovery does not mutate healthy leases/tasks | P0 | GLOBAL_MUTATION | evidence_backed | integration_test | healthy work present | run recovery | only stale work changes | healthy task drift | API, DB, audit | runtime maintainer integration tests; runner marks RG-11 not executed until seeded proof exists | isolated_env_only |
+| IN-03 | recovery_plane | recovery does not mutate healthy leases/tasks | P0 | GLOBAL_MUTATION | evidence_backed | runner_and_integration | healthy work present; operator supplies stale and healthy task IDs | run recovery and inspect before/after | only stale work changes | healthy task drift | API, DB, audit | runtime maintainer integration tests; runner RG-11 | isolated_env_only |
 
 ### Observability plane
 
@@ -489,7 +489,7 @@ The runner currently provides direct runner-backed proof for:
 - RG-10
 - RG-12
 
-The runner accepts these recovery row IDs only to emit explicit `not_executed` artifacts with `integration_backed` evidence basis until seeded, row-specific proof exists:
+The runner accepts these recovery row IDs and executes the governed recovery endpoint when seeded, row-specific proof inputs are supplied:
 
 - RG-08
 - RG-09
@@ -498,7 +498,45 @@ The runner accepts these recovery row IDs only to emit explicit `not_executed` a
 - FR-03
 - FR-05
 
-These rows are integration-backed only and are not runner-backed.
+Without the required seeded IDs or operator credentials, these rows are recorded as `blocked`; they are never represented as a successful or synthetic runner result. Integration tests remain the authoritative source for cases that require fixture construction (terminal ownership and missing-payload recovery).
+
+### Disposable recovery fixture seeding
+
+Use `scripts/validation/seed_recovery_matrix.py` only against a disposable
+Postgres/Redis pair. The utility refuses `AJENDA_ENV=production`, requires
+`AJENDA_VALIDATION_ENV=isolated` and `--confirm-isolated`, and creates queue
+payloads through `ExecutionCoordinator` plus claims/starts through
+`WorkerRuntimeService`. It does not invoke recovery or write replacement queue
+payloads directly.
+
+```bash
+AJENDA_VALIDATION_ENV=isolated \
+AJENDA_ENV=staging \
+AJENDA_DATABASE_URL="$AJENDA_DB_URL" \
+AJENDA_QUEUE_URL="$AJENDA_REDIS_URL" \
+python scripts/validation/seed_recovery_matrix.py \
+  --confirm-isolated \
+  --manifest /tmp/ajenda-recovery-seed.json
+```
+
+The command prints the tenant and four fixture IDs. Export those values, then
+create a bounded temporary bearer session for the isolated recovery operator:
+
+```bash
+AJENDA_ENV=staging \
+AJENDA_VALIDATION_ENV=isolated \
+AJENDA_DATABASE_URL="$AJENDA_DB_URL" \
+python scripts/validation/create_recovery_operator_session.py \
+  --tenant-id "$AJENDA_TENANT_ID" \
+  --confirm-isolated
+```
+
+Export the printed `AJENDA_AUTH_HEADER`, then run RG-08, RG-09, FR-05, and
+RG-11 individually. The session has a maximum 30-minute lifetime and is scoped
+to the recovery-seed tenant; tear down the isolated database and Redis instance
+after proof. The seeder intentionally does not provide a broad destructive
+cleanup command. The global recovery route requires bearer platform
+authentication; a tenant API key is not interchangeable for this proof.
 
 The current runner also emits:
 

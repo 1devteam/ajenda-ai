@@ -76,9 +76,27 @@ def index_mission_tasks_by_node_key(tasks: list[ExecutionTask]) -> dict[str, Exe
         key = graph_node_key_for_task(task)
         if key is None:
             continue
-        # Prefer completed when duplicates exist (re-runs).
+        # Prefer the completed task that actually contains a structured output.
+        # Runtime retries can leave an older completed projection beside a later
+        # terminal task; status alone is not enough to identify the usable world
+        # state for a downstream binding.
         existing = indexed.get(key)
-        if existing is None or task.status == ExecutionTaskState.COMPLETED.value:
+        if existing is None:
+            indexed[key] = task
+            continue
+        existing_output = handler_output_for_task(existing)
+        candidate_output = handler_output_for_task(task)
+        existing_rank = (
+            int(existing.status == ExecutionTaskState.COMPLETED.value),
+            int(bool(existing_output)),
+            len(existing_output),
+        )
+        candidate_rank = (
+            int(task.status == ExecutionTaskState.COMPLETED.value),
+            int(bool(candidate_output)),
+            len(candidate_output),
+        )
+        if candidate_rank > existing_rank:
             indexed[key] = task
     return indexed
 
@@ -890,7 +908,10 @@ def bind_tool_invocation_for_task(
         except Exception:
             # Unit stubs may lack set_config; repository still works without RLS.
             pass
-        mission_tasks = ExecutionTaskRepository(session).list_for_mission(mission_id=UUID(str(task.mission_id)))
+        mission_tasks = ExecutionTaskRepository(session).list_for_mission_for_tenant(
+            mission_id=UUID(str(task.mission_id)),
+            tenant_id=task.tenant_id,
+        )
     finally:
         session.close()
 

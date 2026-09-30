@@ -374,10 +374,43 @@ class TaskDispatcher:
             session.commit()
         except Exception as exc:
             session.rollback()
-            logger.critical(
-                "dispatcher_fail_path_failed",
+            # A handler failure must never disappear behind a swallowed
+            # compensation error. Retry once using a fresh tenant session for
+            # transient DB/queue visibility races, while retaining the runtime
+            # service's lease and tenant checks as the authority boundary.
+            logger.exception(
+                "dispatcher_fail_path_retry",
                 extra={"lease_id": str(lease_id), "error": str(exc)},
             )
+            session.close()
+            retry_session = self._open_tenant_session()
+            try:
+                retry_runtime = WorkerRuntimeService(retry_session, self.queue)
+                retry_runtime.fail(
+                    tenant_id=self.tenant_id,
+                    lease_id=lease_id,
+                    worker_id=self.worker_id,
+                    reason=reason,
+                )
+                retry_session.commit()
+                logger.warning(
+                    "dispatcher_fail_path_recovered",
+                    extra={"lease_id": str(lease_id), "original_error": str(exc)},
+                )
+            except Exception as retry_exc:
+                retry_session.rollback()
+                logger.exception(
+                    "dispatcher_fail_path_failed",
+                    extra={
+                        "lease_id": str(lease_id),
+                        "error": str(retry_exc),
+                        "original_error": str(exc),
+                        "reason": reason,
+                    },
+                )
+            finally:
+                retry_session.close()
+            return
         finally:
             session.close()
 

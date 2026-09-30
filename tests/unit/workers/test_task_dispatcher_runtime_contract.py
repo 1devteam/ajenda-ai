@@ -408,3 +408,31 @@ def test_execute_preserves_normal_failure_for_non_side_effecting_tool_completion
     dispatcher.execute(task_id=uuid.uuid4(), lease_id=uuid.uuid4())
 
     assert failures == ["completion failed"]
+
+
+def test_fail_retries_with_fresh_session_after_transient_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    dispatcher = _dispatcher()
+    lease_id = uuid.uuid4()
+    sessions = [
+        type("Session", (), {"rollback": lambda self: None, "commit": lambda self: None, "close": lambda self: None})()
+        for _ in range(2)
+    ]
+    monkeypatch.setattr(TaskDispatcher, "_open_tenant_session", lambda self: sessions.pop(0))
+
+    calls = 0
+
+    class RuntimeStub:
+        def __init__(self, session: object, queue: object) -> None:
+            pass
+
+        def fail(self, **kwargs: Any) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("visibility race")
+
+    monkeypatch.setattr(task_dispatcher, "WorkerRuntimeService", RuntimeStub)
+
+    dispatcher._fail(lease_id=lease_id, reason="handler exploded")
+
+    assert calls == 2

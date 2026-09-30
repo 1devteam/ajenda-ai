@@ -35,11 +35,17 @@ RUNNER_BACKED_SCENARIOS=(
   "RG-07"
   "RG-10"
   "RG-12"
+  "RG-08"
+  "RG-09"
+  "RG-11"
+  "FR-02"
+  "FR-03"
+  "FR-05"
 )
 
-# These rows are accepted by the runner only to emit explicit not_executed
-# run outcomes with integration_backed evidence_basis until seeded proof exists.
-INTEGRATION_BACKED_RECOVERY_SCENARIOS=(
+# These rows execute the governed global recovery endpoint when operators supply
+# pre-seeded stale-task IDs. The runner never creates or mutates recovery state.
+RECOVERY_SCENARIOS=(
   "RG-08"
   "RG-09"
   "RG-11"
@@ -58,6 +64,11 @@ Environment:
   AJENDA_REDIS_URL       Redis URL for queue evidence
   AJENDA_TENANT_ID       Tenant UUID for tenant-scoped scenarios
   AJENDA_AUTH_HEADER     Authorization header value (e.g. 'Bearer ...')
+  AJENDA_CLAIMED_RECOVERY_TASK_ID  seeded expired claimed task for RG-08/FR-02
+  AJENDA_RUNNING_RECOVERY_TASK_ID  seeded expired running task for RG-09/FR-03
+  AJENDA_RECOVERY_IDEMPOTENCY_TASK_ID seeded expired task for FR-05 (defaults to running ID)
+  AJENDA_RECOVERY_STALE_TASK_ID    seeded stale task for RG-11 (defaults to claimed ID)
+  AJENDA_RECOVERY_HEALTHY_TASK_ID  seeded healthy task for RG-11
   AJENDA_LOG_SOURCE      Worker log file path or docker container name
   AJENDA_VALIDATION_ENV  local|ci|shared_dev|isolated|staging (default: local)
 USAGE
@@ -318,44 +329,150 @@ run_rg07_forced_failure() {
   scenario_pass "$d" "$id forced failure evidence validated"
 }
 
-run_integration_backed_recovery_placeholder() {
+recovery_task_evidence() {
+  local task_id="$1"
+  local outdir="$2"
+  mkdir -p "$outdir"
+  db_query "SELECT status,retry_count FROM execution_tasks WHERE id='${task_id}';" "$outdir/task_state.tsv" || true
+  db_query "SELECT id::text,status,holder_identity FROM worker_leases WHERE task_id='${task_id}' ORDER BY created_at DESC LIMIT 5;" "$outdir/lease_state.tsv" || true
+  db_query "SELECT id::text,category,action,actor,created_at::text,payload_json::text FROM audit_events WHERE payload_json->>'task_id'='${task_id}' ORDER BY created_at DESC LIMIT 20;" "$outdir/task_audit.tsv" || true
+  redis_cmd "$outdir/pending_payloads.txt" LRANGE "ajenda:queue:${AJENDA_TENANT_ID}:pending" 0 -1 || true
+  redis_cmd "$outdir/processing_payloads.txt" LRANGE "ajenda:queue:${AJENDA_TENANT_ID}:processing" 0 -1 || true
+}
+
+recovery_endpoint_call() {
+  local outdir="$1"
+  local status
+  status="$(api_call POST "/v1/operations/recovery" "$outdir/recovery_call")"
+  printf '%s\n' "$status" > "$outdir/recovery_status.txt"
+  printf '%s\n' "$status"
+}
+
+recovery_task_status() {
+  local outdir="$1"
+  awk -F '\t' 'NR == 1 { print $1 }' "$outdir/task_state.tsv" 2>/dev/null || true
+}
+
+recovery_lease_status() {
+  local outdir="$1"
+  awk -F '\t' 'NR == 1 { print $2 }' "$outdir/lease_state.tsv" 2>/dev/null || true
+}
+
+recovery_payload_count() {
+  local outdir="$1"
+  local file="$2"
+  if [[ ! -f "$outdir/$file" ]]; then
+    printf '0'
+    return 0
+  fi
+  grep -F -c -- "$3" "$outdir/$file" || true
+}
+
+run_recovery_task_proof() {
   local id="$1"
-  local message="$2"
+  local task_id="$2"
+  local expected_status="$3"
+  local description="$4"
   local group="global-mutation"
   scenario_enabled "$id" "$group" || return 0
   local d; d="$(scenario_dir "$id")"
 
-  scenario_not_executed "$d" "$message"
+  require_env_for_scenario "$d" AJENDA_TENANT_ID AJENDA_DB_URL AJENDA_REDIS_URL || return 0
+  require_operator_auth_for_scenario "$d" || return 0
+  if [[ ! "$task_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+    scenario_blocked "$d" "$id requires a UUID-shaped seeded task ID"
+    return 0
+  fi
+
+  recovery_task_evidence "$task_id" "$d/before"
+  local status
+  status="$(recovery_endpoint_call "$d")"
+  recovery_task_evidence "$task_id" "$d/after"
+
+  if ! assert_status_in "$status" 200; then
+    scenario_fail "$d" "$id recovery endpoint expected HTTP 200, got $status"
+    return 0
+  fi
+  if [[ ! -s "$d/before/task_state.tsv" || ! -s "$d/before/lease_state.tsv" ]]; then
+    scenario_evidence_incomplete "$d" "$id missing pre-recovery task or lease evidence"
+    return 0
+  fi
+  local initial_status initial_lease
+  initial_status="$(recovery_task_status "$d/before")"
+  initial_lease="$(recovery_lease_status "$d/before")"
+  if [[ "$initial_status" != "claimed" && "$initial_status" != "running" ]] || \
+     [[ "$initial_lease" != "claimed" && "$initial_lease" != "active" ]]; then
+    scenario_fail "$d" "$id seeded task was not stale-recovery eligible: status=${initial_status:-missing} lease=${initial_lease:-missing}"
+    return 0
+  fi
+  if [[ ! -s "$d/after/task_state.tsv" || ! -s "$d/after/lease_state.tsv" || ! -s "$d/after/task_audit.tsv" || ! -f "$d/after/pending_payloads.txt" || ! -f "$d/after/processing_payloads.txt" ]]; then
+    scenario_evidence_incomplete "$d" "$id recovery ran but required DB/audit/Redis evidence was incomplete"
+    return 0
+  fi
+
+  local final_status final_lease pending_count processing_count
+  final_status="$(recovery_task_status "$d/after")"
+  final_lease="$(recovery_lease_status "$d/after")"
+  pending_count="$(recovery_payload_count "$d/after" pending_payloads.txt "$task_id")"
+  processing_count="$(recovery_payload_count "$d/after" processing_payloads.txt "$task_id")"
+  if [[ "$final_status" != "$expected_status" || "$final_lease" != "expired" ]]; then
+    scenario_fail "$d" "$id $description expected status=$expected_status and lease=expired, got status=${final_status:-missing} lease=${final_lease:-missing}"
+    return 0
+  fi
+  if [[ "$expected_status" == "queued" && "$pending_count" -ne 1 ]] || [[ "$processing_count" -ne 0 ]]; then
+    scenario_fail "$d" "$id queue reconciliation expected pending=1 and processing=0, got pending=$pending_count processing=$processing_count"
+    return 0
+  fi
+  scenario_pass "$d" "$id $description validated through governed recovery API, DB, audit, and Redis"
 }
 
 run_rg08_claimed_recovery() {
-  run_integration_backed_recovery_placeholder \
-    "RG-08" \
-    "RG-08 is integration-backed only; runner does not seed or execute stale claimed recovery proof"
+  run_recovery_task_proof "RG-08" "${AJENDA_CLAIMED_RECOVERY_TASK_ID:-}" queued "stale claimed lease requeued safely"
 }
 
 run_rg09_running_recovery() {
-  run_integration_backed_recovery_placeholder \
-    "RG-09" \
-    "RG-09 is integration-backed only; runner does not seed or execute stale running retry/dead-letter proof"
+  run_recovery_task_proof "RG-09" "${AJENDA_RUNNING_RECOVERY_TASK_ID:-}" queued "stale running lease requeued with reconciled queue state"
 }
 
 run_fr02_claimed_recovery() {
-  run_integration_backed_recovery_placeholder \
-    "FR-02" \
-    "FR-02 is integration-backed only; runner does not seed or execute stale claimed recovery proof"
+  run_recovery_task_proof "FR-02" "${AJENDA_CLAIMED_RECOVERY_TASK_ID:-}" queued "claimed lease recovery invariant"
 }
 
 run_fr03_running_recovery() {
-  run_integration_backed_recovery_placeholder \
-    "FR-03" \
-    "FR-03 is integration-backed only; runner does not seed or execute stale running retry proof"
+  run_recovery_task_proof "FR-03" "${AJENDA_RUNNING_RECOVERY_TASK_ID:-}" queued "running lease recovery invariant"
 }
 
 run_fr05_recovery_idempotency() {
-  run_integration_backed_recovery_placeholder \
-    "FR-05" \
-    "FR-05 is integration-backed only; runner does not seed or execute recovery idempotency proof"
+  local id="FR-05"; local group="global-mutation"
+  scenario_enabled "$id" "$group" || return 0
+  local d; d="$(scenario_dir "$id")"
+  local task_id="${AJENDA_RECOVERY_IDEMPOTENCY_TASK_ID:-${AJENDA_RUNNING_RECOVERY_TASK_ID:-}}"
+  require_env_for_scenario "$d" AJENDA_TENANT_ID AJENDA_DB_URL AJENDA_REDIS_URL || return 0
+  require_operator_auth_for_scenario "$d" || return 0
+  if [[ ! "$task_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+    scenario_blocked "$d" "$id requires a UUID-shaped seeded task ID"
+    return 0
+  fi
+  local first_api_status second_api_status
+  first_api_status="$(recovery_endpoint_call "$d/first")"
+  recovery_task_evidence "$task_id" "$d/first"
+  second_api_status="$(recovery_endpoint_call "$d/second")"
+  recovery_task_evidence "$task_id" "$d/second"
+  if ! assert_status_in "$first_api_status" 200 || ! assert_status_in "$second_api_status" 200 || \
+     [[ ! -s "$d/first/task_state.tsv" || ! -s "$d/second/task_state.tsv" || ! -f "$d/first/pending_payloads.txt" || ! -f "$d/second/pending_payloads.txt" ]]; then
+    scenario_evidence_incomplete "$d" "$id recovery idempotency ran but required task/queue evidence was incomplete"
+    return 0
+  fi
+  local first_status second_status first_pending second_pending
+  first_status="$(recovery_task_status "$d/first")"
+  second_status="$(recovery_task_status "$d/second")"
+  first_pending="$(recovery_payload_count "$d/first" pending_payloads.txt "$task_id")"
+  second_pending="$(recovery_payload_count "$d/second" pending_payloads.txt "$task_id")"
+  if [[ "$first_status" != "$second_status" || "$first_pending" -ne "$second_pending" ]]; then
+    scenario_fail "$d" "$id repeated recovery changed task/queue projection: first status=$first_status pending=$first_pending; second status=$second_status pending=$second_pending"
+    return 0
+  fi
+  scenario_pass "$d" "$id repeated recovery was stable without duplicate queue projection"
 }
 
 run_rg10_dead_letter_retry_legality() {
@@ -381,9 +498,48 @@ run_rg10_dead_letter_retry_legality() {
 }
 
 run_rg11_recovery_safety() {
-  run_integration_backed_recovery_placeholder \
-    "RG-11" \
-    "RG-11 is integration-backed only; runner does not seed or execute recovery truth invariant proof"
+  local id="RG-11"; local group="global-mutation"
+  scenario_enabled "$id" "$group" || return 0
+  local d; d="$(scenario_dir "$id")"
+  local stale_id="${AJENDA_RECOVERY_STALE_TASK_ID:-${AJENDA_CLAIMED_RECOVERY_TASK_ID:-}}"
+  local healthy_id="${AJENDA_RECOVERY_HEALTHY_TASK_ID:-}"
+  require_env_for_scenario "$d" AJENDA_TENANT_ID AJENDA_DB_URL AJENDA_REDIS_URL || return 0
+  require_operator_auth_for_scenario "$d" || return 0
+  if [[ ! "$stale_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ || ! "$healthy_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+    scenario_blocked "$d" "$id requires UUID-shaped stale and healthy seeded task IDs"
+    return 0
+  fi
+  db_query "SELECT id::text,status,retry_count FROM execution_tasks WHERE id IN ('${stale_id}','${healthy_id}') ORDER BY id;" "$d/before_tasks.tsv" || true
+  db_query "SELECT task_id::text,status,holder_identity FROM worker_leases WHERE task_id IN ('${stale_id}','${healthy_id}') ORDER BY task_id,created_at DESC;" "$d/before_leases.tsv" || true
+  local recovery_status
+  recovery_status="$(recovery_endpoint_call "$d")"
+  db_query "SELECT id::text,status,retry_count FROM execution_tasks WHERE id IN ('${stale_id}','${healthy_id}') ORDER BY id;" "$d/after_tasks.tsv" || true
+  db_query "SELECT task_id::text,status,holder_identity FROM worker_leases WHERE task_id IN ('${stale_id}','${healthy_id}') ORDER BY task_id,created_at DESC;" "$d/after_leases.tsv" || true
+  audit_lookup "$AJENDA_TENANT_ID" "global_recovery_completed" "$d/recovery_audit.tsv" || true
+  if ! assert_status_in "$recovery_status" 200; then
+    scenario_fail "$d" "$id recovery endpoint expected HTTP 200, got $recovery_status"
+    return 0
+  fi
+  if [[ ! -s "$d/before_tasks.tsv" || ! -s "$d/before_leases.tsv" || ! -s "$d/after_tasks.tsv" || ! -s "$d/after_leases.tsv" || ! -s "$d/recovery_audit.tsv" ]]; then
+    scenario_evidence_incomplete "$d" "$id recovery safety ran but before/after task, lease, or audit evidence was incomplete"
+    return 0
+  fi
+  local healthy_before healthy_after
+  local stale_before stale_after stale_lease_after
+  stale_before="$(awk -F '\t' -v id="$stale_id" '$1 == id { print $2 "\t" $3; exit }' "$d/before_tasks.tsv")"
+  stale_after="$(awk -F '\t' -v id="$stale_id" '$1 == id { print $2 "\t" $3; exit }' "$d/after_tasks.tsv")"
+  stale_lease_after="$(awk -F '\t' -v id="$stale_id" '$1 == id { print $2; exit }' "$d/after_leases.tsv")"
+  if [[ -z "$stale_before" || "$stale_before" == "$stale_after" || "$stale_lease_after" != "expired" ]]; then
+    scenario_fail "$d" "$id stale task did not produce an observable recovery transition: before=${stale_before:-missing} after=${stale_after:-missing} lease=${stale_lease_after:-missing}"
+    return 0
+  fi
+  healthy_before="$(awk -F '\t' -v id="$healthy_id" '$1 == id { print $2 "\t" $3; exit }' "$d/before_tasks.tsv")"
+  healthy_after="$(awk -F '\t' -v id="$healthy_id" '$1 == id { print $2 "\t" $3; exit }' "$d/after_tasks.tsv")"
+  if [[ -z "$healthy_before" || "$healthy_before" != "$healthy_after" ]]; then
+    scenario_fail "$d" "$id healthy task changed during stale recovery: before=${healthy_before:-missing} after=${healthy_after:-missing}"
+    return 0
+  fi
+  scenario_pass "$d" "$id stale recovery changed only the seeded stale work; healthy work remained unchanged"
 }
 
 run_rg12_pending_review() {

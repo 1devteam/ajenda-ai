@@ -11,6 +11,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.services.tools.mission_input_binding import (
     DependencyNotReadyError,
     apply_input_bindings,
+    index_mission_tasks_by_node_key,
     pending_dependency_keys,
 )
 from backend.services.tools.schemas import RecordWriteInput
@@ -67,6 +68,29 @@ def test_pending_dependencies_when_upstream_incomplete() -> None:
         dependency_keys=["ability-web-research"],
     )
     assert pending_dependency_keys(task=draft, mission_tasks=[research, draft]) == ["ability-web-research"]
+
+
+def test_duplicate_node_prefers_completed_projection_with_structured_output() -> None:
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    stale = _task(
+        node_key="ability-web-research",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={},
+    )
+    usable = _task(
+        node_key="ability-web-research",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={"prospect_candidates": [{"company": "Austin Forge Labs"}]},
+    )
+
+    indexed = index_mission_tasks_by_node_key([usable, stale])
+
+    assert indexed["ability-web-research"].id == usable.id
 
 
 def test_bind_prospect_candidates_into_draft_context() -> None:
