@@ -500,6 +500,30 @@ The runner accepts these recovery row IDs and executes the governed recovery end
 
 Without the required seeded IDs or operator credentials, these rows are recorded as `blocked`; they are never represented as a successful or synthetic runner result. Integration tests remain the authoritative source for cases that require fixture construction (terminal ownership and missing-payload recovery).
 
+### Disposable recovery fixture seeding
+
+Use `scripts/validation/seed_recovery_matrix.py` only against a disposable
+Postgres/Redis pair. The utility refuses `AJENDA_ENV=production`, requires
+`AJENDA_VALIDATION_ENV=isolated` and `--confirm-isolated`, and creates queue
+payloads through `ExecutionCoordinator` plus claims/starts through
+`WorkerRuntimeService`. It does not invoke recovery or write replacement queue
+payloads directly.
+
+```bash
+AJENDA_VALIDATION_ENV=isolated \
+AJENDA_ENV=staging \
+AJENDA_DATABASE_URL="$AJENDA_DB_URL" \
+AJENDA_QUEUE_URL="$AJENDA_REDIS_URL" \
+python scripts/validation/seed_recovery_matrix.py \
+  --confirm-isolated \
+  --manifest /tmp/ajenda-recovery-seed.json
+```
+
+The command prints the tenant and four fixture IDs. Export those values, add a
+platform-operator `AJENDA_AUTH_HEADER`, then run RG-08, RG-09, FR-05, and RG-11
+individually. Tear down the isolated database and Redis instance after proof;
+the seeder intentionally does not provide a broad destructive cleanup command.
+
 The current runner also emits:
 
 - per-scenario dynamic result metadata
