@@ -175,6 +175,15 @@ require_env_for_scenario() {
   return 0
 }
 
+require_operator_auth_for_scenario() {
+  local outdir="$1"
+  if [[ -n "${AJENDA_AUTH_HEADER:-}" ]]; then
+    return 0
+  fi
+  scenario_blocked "$outdir" "missing platform operator authentication: set AJENDA_AUTH_HEADER"
+  return 1
+}
+
 require_validation_env_for_scenario() {
   local outdir="$1"
   shift

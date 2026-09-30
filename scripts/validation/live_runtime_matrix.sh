@@ -377,7 +377,8 @@ run_recovery_task_proof() {
   scenario_enabled "$id" "$group" || return 0
   local d; d="$(scenario_dir "$id")"
 
-  require_env_for_scenario "$d" AJENDA_TENANT_ID AJENDA_AUTH_HEADER AJENDA_DB_URL AJENDA_REDIS_URL || return 0
+  require_env_for_scenario "$d" AJENDA_TENANT_ID AJENDA_DB_URL AJENDA_REDIS_URL || return 0
+  require_operator_auth_for_scenario "$d" || return 0
   if [[ ! "$task_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
     scenario_blocked "$d" "$id requires a UUID-shaped seeded task ID"
     return 0
@@ -446,7 +447,8 @@ run_fr05_recovery_idempotency() {
   scenario_enabled "$id" "$group" || return 0
   local d; d="$(scenario_dir "$id")"
   local task_id="${AJENDA_RECOVERY_IDEMPOTENCY_TASK_ID:-${AJENDA_RUNNING_RECOVERY_TASK_ID:-}}"
-  require_env_for_scenario "$d" AJENDA_TENANT_ID AJENDA_AUTH_HEADER AJENDA_DB_URL AJENDA_REDIS_URL || return 0
+  require_env_for_scenario "$d" AJENDA_TENANT_ID AJENDA_DB_URL AJENDA_REDIS_URL || return 0
+  require_operator_auth_for_scenario "$d" || return 0
   if [[ ! "$task_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
     scenario_blocked "$d" "$id requires a UUID-shaped seeded task ID"
     return 0
@@ -501,7 +503,8 @@ run_rg11_recovery_safety() {
   local d; d="$(scenario_dir "$id")"
   local stale_id="${AJENDA_RECOVERY_STALE_TASK_ID:-${AJENDA_CLAIMED_RECOVERY_TASK_ID:-}}"
   local healthy_id="${AJENDA_RECOVERY_HEALTHY_TASK_ID:-}"
-  require_env_for_scenario "$d" AJENDA_TENANT_ID AJENDA_AUTH_HEADER AJENDA_DB_URL AJENDA_REDIS_URL || return 0
+  require_env_for_scenario "$d" AJENDA_TENANT_ID AJENDA_DB_URL AJENDA_REDIS_URL || return 0
+  require_operator_auth_for_scenario "$d" || return 0
   if [[ ! "$stale_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ || ! "$healthy_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
     scenario_blocked "$d" "$id requires UUID-shaped stale and healthy seeded task IDs"
     return 0

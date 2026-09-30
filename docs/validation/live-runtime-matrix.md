@@ -519,10 +519,24 @@ python scripts/validation/seed_recovery_matrix.py \
   --manifest /tmp/ajenda-recovery-seed.json
 ```
 
-The command prints the tenant and four fixture IDs. Export those values, add a
-platform-operator `AJENDA_AUTH_HEADER`, then run RG-08, RG-09, FR-05, and RG-11
-individually. Tear down the isolated database and Redis instance after proof;
-the seeder intentionally does not provide a broad destructive cleanup command.
+The command prints the tenant and four fixture IDs. Export those values, then
+create a bounded temporary bearer session for the isolated recovery operator:
+
+```bash
+AJENDA_ENV=staging \
+AJENDA_VALIDATION_ENV=isolated \
+AJENDA_DATABASE_URL="$AJENDA_DB_URL" \
+python scripts/validation/create_recovery_operator_session.py \
+  --tenant-id "$AJENDA_TENANT_ID" \
+  --confirm-isolated
+```
+
+Export the printed `AJENDA_AUTH_HEADER`, then run RG-08, RG-09, FR-05, and
+RG-11 individually. The session has a maximum 30-minute lifetime and is scoped
+to the recovery-seed tenant; tear down the isolated database and Redis instance
+after proof. The seeder intentionally does not provide a broad destructive
+cleanup command. The global recovery route requires bearer platform
+authentication; a tenant API key is not interchangeable for this proof.
 
 The current runner also emits:
 
