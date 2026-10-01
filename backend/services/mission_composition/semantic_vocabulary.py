@@ -7,6 +7,7 @@ abilities, grant authority, resolve credentials, or execute provider work.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -29,6 +30,34 @@ class SemanticConcept(BaseModel):
     normalization_rule: str = Field(default="lowercase_trim_collapse_whitespace", max_length=160)
     source_reference: str = Field(min_length=1, max_length=240)
     version: str = Field(pattern=r"^[1-9]\d*\.\d+\.\d+$", max_length=40)
+    grants_execution_authority: Literal[False] = False
+
+
+class SemanticJobBinding(BaseModel):
+    """Read-only link between a semantic concept and canonical business jobs."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    concept_id: str = Field(min_length=1, max_length=120)
+    concept_version: str = Field(min_length=1, max_length=40)
+    source: Literal["requested_outcome", "explicit_instruction"]
+    expected_job_keys: tuple[str, ...] = Field(default=(), max_length=10)
+    selected_job_keys: tuple[str, ...] = Field(default=(), max_length=40)
+    status: Literal["informational", "satisfied", "conflict"] = "informational"
+    grants_execution_authority: Literal[False] = False
+
+
+class SemanticSelection(BaseModel):
+    """Composed semantic read model used to inspect concept-to-job reasoning."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    concepts: tuple[str, ...] = Field(default=(), max_length=40)
+    matched_terms: tuple[str, ...] = Field(default=(), max_length=40)
+    bindings: tuple[SemanticJobBinding, ...] = Field(default=(), max_length=40)
+    conflicts: tuple[str, ...] = Field(default=(), max_length=20)
+    source_reference: str = "Ajenda shared semantic vocabulary"
     grants_execution_authority: Literal[False] = False
 
 
@@ -117,6 +146,104 @@ _ALIASES = {
     for concept in SHARED_BUSINESS_CONCEPTS
     for alias in (concept.concept_id, concept.display_name, *concept.aliases)
 }
+
+_OUTCOME_CONCEPTS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "research_prospects": ("prospect", ("research.discover_prospects",)),
+    "qualify_prospects": ("qualification", ("sales.qualify_prospects",)),
+    "prepare_outreach": ("outreach", ("email.prepare_outreach",)),
+    "send_outreach": ("outreach", ("email.deliver_outreach",)),
+    "read_crm": ("pipeline", ("crm.read_records",)),
+    "persist_internal_crm": ("pipeline", ("crm.internal_persistence",)),
+    "maintain_pipeline": ("pipeline", ("crm.pipeline_maintenance",)),
+}
+
+
+def _validate_aliases() -> None:
+    """Fail closed if shared vocabulary introduces an ambiguous alias."""
+
+    seen: dict[str, str] = {}
+    for concept in SHARED_BUSINESS_CONCEPTS:
+        for alias in (concept.concept_id, concept.display_name, *concept.aliases):
+            normalized = normalize_concept_text(alias)
+            prior = seen.get(normalized)
+            if prior is not None and prior != concept.concept_id:
+                raise ValueError(f"semantic alias conflict: {normalized!r} maps to {prior} and {concept.concept_id}")
+            seen[normalized] = concept.concept_id
+
+
+_validate_aliases()
+
+
+def build_semantic_selection(
+    *,
+    instruction: str,
+    requested_outcomes: Iterable[str],
+    selected_job_keys: Iterable[str],
+) -> SemanticSelection:
+    """Derive deterministic concept/job provenance without changing authority."""
+
+    selected = tuple(dict.fromkeys(str(item) for item in selected_job_keys if str(item).strip()))
+    selected_set = set(selected)
+    concepts: list[str] = []
+    terms: list[str] = []
+    bindings: list[SemanticJobBinding] = []
+    conflicts: list[str] = []
+
+    for raw_outcome in requested_outcomes:
+        outcome = normalize_concept_text(str(raw_outcome))
+        mapping = _OUTCOME_CONCEPTS.get(outcome)
+        if mapping is None:
+            continue
+        concept_id, expected = mapping
+        concept = SHARED_BUSINESS_CONCEPTS_BY_ID[concept_id]
+        if concept_id not in concepts:
+            concepts.append(concept_id)
+        binding_status: Literal["satisfied", "conflict"] = (
+            "satisfied" if set(expected).issubset(selected_set) else "conflict"
+        )
+        if binding_status == "conflict":
+            conflicts.append(
+                f"semantic concept {concept_id} expected jobs {','.join(expected)}; "
+                f"selected {','.join(selected) or 'none'}"
+            )
+        bindings.append(
+            SemanticJobBinding(
+                concept_id=concept_id,
+                concept_version=concept.version,
+                source="requested_outcome",
+                expected_job_keys=expected,
+                selected_job_keys=selected,
+                status=binding_status,
+            )
+        )
+
+    normalized_instruction = normalize_concept_text(instruction)
+    for concept in SHARED_BUSINESS_CONCEPTS:
+        candidates = (concept.concept_id, concept.display_name, *concept.aliases)
+        matched = next(
+            (
+                term
+                for term in candidates
+                if re.search(
+                    rf"(?<![a-z0-9]){re.escape(normalize_concept_text(term))}(?![a-z0-9])", normalized_instruction
+                )
+            ),
+            None,
+        )
+        if matched is None:
+            continue
+        if concept.concept_id not in concepts:
+            concepts.append(concept.concept_id)
+        normalized_match = normalize_concept_text(matched)
+        if normalized_match not in terms:
+            terms.append(normalized_match)
+
+    return SemanticSelection(
+        concepts=tuple(concepts),
+        matched_terms=tuple(terms),
+        bindings=tuple(bindings),
+        conflicts=tuple(dict.fromkeys(conflicts)),
+    )
 
 
 def resolve_shared_concept(value: str) -> SemanticConcept | None:

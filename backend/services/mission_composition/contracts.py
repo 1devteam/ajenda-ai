@@ -15,6 +15,7 @@ from backend.services.mission_composition.deliverable_contract import (
     DeliverableRequest,
     extract_deliverable_request,
 )
+from backend.services.mission_composition.semantic_vocabulary import SemanticSelection
 from backend.services.ontology.algorithms import AlgorithmResult, validate_composition_algorithm_results
 
 COMPOSITION_SCHEMA_VERSION = 8
@@ -772,6 +773,7 @@ class CompositionProvenance(BaseModel):
     know_how_id: str | None = Field(default=None, max_length=160)
     know_how_version: str | None = Field(default=None, max_length=40)
     components_active: list[str] = Field(default_factory=lambda: ["regex_core"], max_length=20)
+    semantic_selection: SemanticSelection | None = None
 
     @model_validator(mode="after")
     def _know_how_reference_is_complete(self) -> CompositionProvenance:

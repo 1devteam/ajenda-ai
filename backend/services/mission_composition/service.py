@@ -71,6 +71,7 @@ from backend.services.mission_composition.proposal_store import (
     mark_superseded,
     put_proposal,
 )
+from backend.services.mission_composition.semantic_vocabulary import build_semantic_selection
 from backend.services.mission_composition.structured_planner import (
     PlannerRequest,
     StructuredPlannerProvider,
@@ -448,6 +449,13 @@ class MissionCompositionService:
             preferred_credential_by_integration=preferred_creds,
             credential_type_by_id=type_by_id,
         )
+        semantic_selection = build_semantic_selection(
+            instruction=raw_instruction,
+            requested_outcomes=intent.requested_outcomes,
+            selected_job_keys=(job.job_key for job in jobs),
+        )
+        for conflict in semantic_selection.conflicts:
+            missing.append({"kind": "semantic_conflict", "message": conflict})
         planner_compile_error: str | None = None
         try:
             planned_steps = compile_planned_steps(selections, intent=intent)
@@ -494,7 +502,7 @@ class MissionCompositionService:
         }
         required_jobs_ready = all(job.job_key in ready_job_keys for job in jobs if job.maturity == "runtime_bound")
         interpretation_ok = bool(intent.interpretation_ready) and not intent.ambiguity
-        composition_ok = bool(allowed_actions) and required_jobs_ready
+        composition_ok = bool(allowed_actions) and required_jobs_ready and not semantic_selection.conflicts
         connection_blocked = bool(missing) and not composition_ok
         blocking_gaps = [gap for gap in intelligence_envelope.layer_gaps if gap.blocking]
         ready_to_start = (
@@ -548,6 +556,7 @@ class MissionCompositionService:
                 know_how_id=know_how.know_how_id if know_how is not None else None,
                 know_how_version=know_how.know_how_version if know_how is not None else None,
                 components_active=list(intent.components_executed or intent.components_active),
+                semantic_selection=semantic_selection,
             ),
         )
         # Only interpretation failures escalate via thread history.
