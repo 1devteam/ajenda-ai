@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "graft_plus_frontier",
+  "proposal_id": "replace-with-proposal-id",
+  "target_outcome": "Describe the future outcome being explored",
+  "status": "draft",
+  "source_of_truth": "Current implementation, tests, and runtime artifacts",
+  "hypotheses": [
+    "State a falsifiable hypothesis"
+  ],
+  "candidate_paths": [
+    "Describe one candidate architecture or experiment"
+  ],
+  "invariants": [
+    "Tenant isolation remains true",
+    "Existing runtime authority remains unchanged"
+  ],
+  "authority_boundaries": [
+    "Planning and evidence only",
+    "No runtime effects"
+  ],
+  "experiments": [
+    {
+      "id": "experiment-1",
+      "success_signal": "Define what evidence would support the hypothesis",
+      "rollback": "Disable or discard the experiment"
+    }
+  ],
+  "promotion_criteria": [
+    "Standard GRAFT+ impact and proof pass",
+    "Explicit owner and review"
+  ],
+  "rollback": {
+    "kill_switch": "Named configuration or review-controlled disable mechanism"
+  },
+  "grants_runtime_authority": false,
+  "runtime_effects": []
+}

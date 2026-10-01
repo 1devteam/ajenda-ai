@@ -615,6 +615,10 @@ python scripts/validation/graft_plus_gate.py --base-ref origin/main --head-ref H
 python -m pytest tests/unit/ tests/contract/ tests/deployment/ -m "not integration"
 ```
 
+For ambitious or unconventional ideas, use the separate [GRAFT+ Frontier Track](docs/development/GRAFT_PLUS_FRONTIER_TRACK.md).
+It produces a side-by-side planning artifact and never grants runtime authority; promotion still requires
+the standard GRAFT+ impact and proof workflow.
+
 Run integration tests, migration round-trip checks, and live runtime proof when your change affects runtime behavior, queueing, recovery, isolation, release-gating, compose deploy, or validation semantics.
 
 ---
