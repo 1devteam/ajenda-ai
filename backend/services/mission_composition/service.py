@@ -778,6 +778,16 @@ class MissionCompositionService:
                     "allowed_actions_provenance": record.allowed_actions_provenance.model_dump(mode="json"),
                     "missing_connections": record.missing_connections,
                     "composition_provenance": record.composition_provenance.model_dump(mode="json"),
+                    "coverage_assessment": (
+                        record.coverage_assessment.model_dump(mode="json")
+                        if record.coverage_assessment is not None
+                        else None
+                    ),
+                    "epistemic_context": (
+                        record.epistemic_context.model_dump(mode="json")
+                        if record.epistemic_context is not None
+                        else None
+                    ),
                     "actor_id": actor_id,
                     **(
                         {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: deliverable_runtime_state}
@@ -1158,6 +1168,14 @@ class MissionCompositionService:
                 "allowed_actions_provenance": record.allowed_actions_provenance.model_dump(mode="json"),
                 "missing_connections": list(record.missing_connections),
                 "composition_provenance": record.composition_provenance.model_dump(mode="json"),
+                "coverage_assessment": (
+                    record.coverage_assessment.model_dump(mode="json")
+                    if record.coverage_assessment is not None
+                    else None
+                ),
+                "epistemic_context": (
+                    record.epistemic_context.model_dump(mode="json") if record.epistemic_context is not None else None
+                ),
                 "acceptance_contract": {
                     "candidate_min": (
                         record.intent.requested_quantity or 1

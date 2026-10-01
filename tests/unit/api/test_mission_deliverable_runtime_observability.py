@@ -13,6 +13,7 @@ from backend.api.routes import mission as mission_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.principal import Principal, PrincipalType
 from backend.domain.mission import Mission
+from backend.services.mission_composition.coverage import assess_coverage
 from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
 from backend.services.mission_composition.deliverable_runtime_observability import (
     build_deliverable_runtime_state_read,
@@ -21,6 +22,8 @@ from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
     build_deliverable_runtime_state,
 )
+from backend.services.mission_composition.epistemic import build_epistemic_context
+from backend.services.mission_composition.intent_interpreter import interpret_instruction
 
 
 def _metadata(instruction: str) -> dict[str, object]:
@@ -37,6 +40,16 @@ def _metadata(instruction: str) -> dict[str, object]:
             }
         }
     }
+
+
+def _metadata_with_composition_context(instruction: str) -> dict[str, object]:
+    metadata = _metadata(instruction)
+    composition = metadata["mission_intake"]["context"]["composition"]  # type: ignore[index]
+    intent = interpret_instruction(instruction)
+    coverage = assess_coverage(intent)
+    composition["coverage_assessment"] = coverage.model_dump(mode="json")
+    composition["epistemic_context"] = build_epistemic_context(intent, coverage).model_dump(mode="json")
+    return metadata
 
 
 def _runtime_state(metadata: dict[str, object]) -> dict[str, object]:
@@ -107,6 +120,22 @@ def test_observability_projects_pre_evaluation_state_without_authority() -> None
     assert read.unresolved_items == ("lunar risk index",)
     assert read.complete is False
     assert read.grants_execution_authority is False
+
+
+def test_observability_projects_composition_coverage_and_epistemic_context() -> None:
+    metadata = _metadata_with_composition_context(
+        "Find five software development companies in Austin using local fixture data only and return company name."
+    )
+
+    read = build_deliverable_runtime_state_read(metadata)
+
+    assert read is not None
+    assert read.coverage_assessment is not None
+    assert read.coverage_assessment.status == "supported_with_limits"
+    assert read.coverage_assessment.grants_execution_authority is False
+    assert read.epistemic_context is not None
+    assert "local_fixture" in read.epistemic_context.source_classes
+    assert read.epistemic_context.grants_execution_authority is False
 
 
 def test_observability_projects_validated_partial_completion() -> None:
@@ -199,6 +228,8 @@ def test_mission_read_exposes_tenant_scoped_deliverable_runtime_state(monkeypatc
         "observed_at": None,
         "reconciled_at": None,
         "contradiction_codes": [],
+        "coverage_assessment": None,
+        "epistemic_context": None,
         "grants_execution_authority": False,
     }
     repo.get_for_tenant.assert_called_once_with(mission_id=mission.id, tenant_id=str(tenant_id))
