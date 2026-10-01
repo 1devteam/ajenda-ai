@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from backend.services.mission_composition.contracts import CoverageAssessment, EpistemicContext
 from backend.services.mission_composition.deliverable_completion import DeliverableCompletion
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
 from backend.services.mission_composition.deliverable_runtime_state import (
@@ -38,6 +39,8 @@ class DeliverableRuntimeStateRead(BaseModel):
     observed_at: datetime | None = None
     reconciled_at: datetime | None = None
     contradiction_codes: tuple[str, ...] = ()
+    coverage_assessment: CoverageAssessment | None = None
+    epistemic_context: EpistemicContext | None = None
     grants_execution_authority: Literal[False] = False
 
 
@@ -56,6 +59,21 @@ def _raw_runtime_state(metadata: object) -> object | None:
     return composition.get(DELIVERABLE_RUNTIME_STATE_METADATA_KEY)
 
 
+def _raw_composition(metadata: object) -> dict[str, object] | None:
+    """Return the confirmed composition envelope without trusting its contents."""
+
+    if not isinstance(metadata, dict):
+        return None
+    intake = metadata.get("mission_intake")
+    if not isinstance(intake, dict):
+        return None
+    context = intake.get("context")
+    if not isinstance(context, dict):
+        return None
+    composition = context.get("composition")
+    return composition if isinstance(composition, dict) else None
+
+
 def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntimeStateRead | None:
     """Build a validated read model from mission metadata, failing closed on drift."""
 
@@ -63,6 +81,18 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
     state = load_deliverable_runtime_state(raw_state)
     if state is None:
         return None
+
+    composition = _raw_composition(metadata)
+    coverage = (
+        CoverageAssessment.model_validate(composition["coverage_assessment"])
+        if composition is not None and isinstance(composition.get("coverage_assessment"), dict)
+        else None
+    )
+    epistemic = (
+        EpistemicContext.model_validate(composition["epistemic_context"])
+        if composition is not None and isinstance(composition.get("epistemic_context"), dict)
+        else None
+    )
 
     requested_fields = tuple(field.field_key for field in state.request.fields)
     projected_fields = tuple(binding.field_key for binding in state.projection.bindings)
@@ -116,4 +146,6 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
         observed_at=state.lifecycle.observed_at,
         reconciled_at=state.lifecycle.reconciled_at,
         contradiction_codes=state.lifecycle.contradiction_codes,
+        coverage_assessment=coverage,
+        epistemic_context=epistemic,
     )
