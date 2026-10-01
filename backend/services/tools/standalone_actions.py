@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from backend.services.business_context_resolver import default_company_and_domain, resolve_business_context
-from backend.services.internet import fetch_public_page, public_search, search_bundle_as_legacy_dict
+from backend.services.internet import fetch_public_page, search_bundle_as_legacy_dict
+from backend.services.internet.search import DuckDuckGoInstantAnswerProvider
 from backend.services.network_egress import NetworkEgressError, get_default_network_egress_authority
 from backend.services.plugins.crm_client import default_crm_client
 from backend.services.retry_policy import RetryPolicy
@@ -87,9 +88,18 @@ def _fetch_public_page_snippet(
 
 
 def _fetch_duckduckgo_instant_answer(*, query: str, limit: int, timeout_seconds: float) -> dict[str, Any]:
-    """Back-compat name for unit tests; delegates to internet.public_search."""
+    """Return the governed DuckDuckGo Instant Answer compatibility payload."""
 
-    return search_bundle_as_legacy_dict(public_search(query=query, limit=limit, timeout_seconds=timeout_seconds))
+    # This compatibility helper promises the Instant Answer contract.  Calling
+    # the auto provider chain here made its result depend on whether the
+    # optional ``ddgs`` package was installed, bypassing the governed egress
+    # path that callers and tests expect to exercise.
+    bundle = DuckDuckGoInstantAnswerProvider().search(
+        query=query,
+        limit=limit,
+        timeout_seconds=timeout_seconds,
+    )
+    return search_bundle_as_legacy_dict(bundle)
 
 
 _MARKET_STOPWORDS = frozenset(

@@ -7,6 +7,7 @@ state, or grants execution authority.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -15,6 +16,7 @@ from backend.services.mission_composition.deliverable_completion import Delivera
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
 from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
+    DeliverableLifecycleState,
     load_deliverable_runtime_state,
 )
 
@@ -32,6 +34,10 @@ class DeliverableRuntimeStateRead(BaseModel):
     unproven_fields: tuple[DeliverableFieldKey, ...] = ()
     unresolved_items: tuple[str, ...] = ()
     complete: bool = False
+    lifecycle_state: DeliverableLifecycleState = "planned"
+    observed_at: datetime | None = None
+    reconciled_at: datetime | None = None
+    contradiction_codes: tuple[str, ...] = ()
     grants_execution_authority: Literal[False] = False
 
 
@@ -106,4 +112,8 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
         unproven_fields=tuple(unproven_fields),
         unresolved_items=state.request.unresolved_items,
         complete=complete,
+        lifecycle_state=state.lifecycle.effective_state(),
+        observed_at=state.lifecycle.observed_at,
+        reconciled_at=state.lifecycle.reconciled_at,
+        contradiction_codes=state.lifecycle.contradiction_codes,
     )

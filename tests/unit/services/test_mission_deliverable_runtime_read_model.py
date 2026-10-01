@@ -68,6 +68,7 @@ def test_refresh_marks_bound_fields_complete_only_after_required_artifacts_mater
     assert partial.complete is False
     partial_state = partial_metadata["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
     assert partial_state["completion"]["complete"] is False
+    assert partial_state["lifecycle"]["state"] == "incomplete"
 
     drafts = _task(
         artifact="introduction_drafts",
@@ -81,7 +82,30 @@ def test_refresh_marks_bound_fields_complete_only_after_required_artifacts_mater
         DELIVERABLE_RUNTIME_STATE_METADATA_KEY
     ]
     assert complete_state["completion"]["complete"] is True
+    assert complete_state["lifecycle"]["state"] == "current"
+    assert complete_state["lifecycle"]["materialized_artifact_count"] == 2
     assert complete_state["grants_execution_authority"] is False
+
+
+def test_refresh_marks_conflicting_duplicate_artifacts_contradictory() -> None:
+    metadata = _metadata("Return drafts.")
+    first = _task(
+        artifact="introduction_drafts",
+        payload=[{"company": "Acme", "subject": "Hello"}],
+        task_id="00000000-0000-0000-0000-000000000001",
+    )
+    second = _task(
+        artifact="introduction_drafts",
+        payload=[{"company": "Acme", "subject": "Different"}],
+        task_id="00000000-0000-0000-0000-000000000002",
+    )
+
+    updated, completion = refresh_deliverable_completion_metadata(metadata, [first, second])
+
+    assert completion is not None
+    state = updated["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
+    assert state["lifecycle"]["state"] == "contradictory"
+    assert state["lifecycle"]["contradiction_codes"] == ["conflicting_artifact:introduction_drafts"]
 
 
 def test_refresh_keeps_bound_field_missing_until_its_artifact_exists() -> None:

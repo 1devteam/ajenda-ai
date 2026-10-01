@@ -6,6 +6,7 @@ state, approvals, credentials, queue state, or external-effect authority.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
@@ -15,9 +16,14 @@ from backend.services.mission_composition.deliverable_completion import (
     DeliverableCompletion,
     evaluate_deliverable_completion,
 )
-from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
+from backend.services.mission_composition.deliverable_runtime_artifacts import (
+    collect_materialized_artifacts,
+    conflicting_materialized_artifact_keys,
+)
 from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
+    DeliverableArtifactLifecycle,
+    DeliverableLifecycleState,
     load_deliverable_runtime_state,
 )
 
@@ -52,11 +58,34 @@ def refresh_deliverable_completion_metadata(
 
     artifacts = collect_materialized_artifacts(tasks)
     completion = evaluate_deliverable_completion(state.projection, artifacts)
+    now = datetime.now(UTC)
+    conflicts = conflicting_materialized_artifact_keys(tasks)
+    if conflicts:
+        lifecycle_state: DeliverableLifecycleState = "contradictory"
+        contradiction_codes = tuple(f"conflicting_artifact:{key}" for key in conflicts)
+    elif not artifacts:
+        lifecycle_state = "planned"
+        contradiction_codes = ()
+    elif completion.complete:
+        lifecycle_state = "current"
+        contradiction_codes = ()
+    else:
+        lifecycle_state = "incomplete"
+        contradiction_codes = ()
+    lifecycle = DeliverableArtifactLifecycle(
+        state=lifecycle_state,
+        observed_at=now if artifacts else state.lifecycle.observed_at,
+        reconciled_at=now,
+        freshness_window_seconds=state.lifecycle.freshness_window_seconds,
+        materialized_artifact_count=len(artifacts),
+        contradiction_codes=contradiction_codes,
+        supersedes_artifact_id=state.lifecycle.supersedes_artifact_id,
+    )
     completion_payload: dict[str, object] = {
         **completion.model_dump(mode="json"),
         "complete": completion.complete,
     }
-    refreshed_state = state.model_copy(update={"completion": completion_payload})
+    refreshed_state = state.model_copy(update={"completion": completion_payload, "lifecycle": lifecycle})
 
     composition[DELIVERABLE_RUNTIME_STATE_METADATA_KEY] = refreshed_state.model_dump(mode="json")
     context["composition"] = composition
