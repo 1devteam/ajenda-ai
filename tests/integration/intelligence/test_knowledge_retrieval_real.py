@@ -165,6 +165,16 @@ def test_real_intelligence_ledger_lifecycle_retrieval_path_is_current_read_only_
     assert result.output["is_decision_support"] is False
     assert _tenant_counts(factory, tenant) == before == (4, 3)
 
+    repeated = registry.invoke(
+        ToolInvocation(action="knowledge.retrieve_current", input={"query": query}),
+        _context(tenant, factory),
+    )
+    assert repeated.output == result.output
+    assert len(repeated.evidence) == len(result.evidence) == 1
+    assert repeated.evidence[0].structured_payload == result.evidence[0].structured_payload
+    assert repeated.evidence[0].summary == result.evidence[0].summary
+    assert repeated.evidence[0].task_id != result.evidence[0].task_id
+
     hidden = registry.invoke(
         ToolInvocation(action="knowledge.retrieve_current", input={"query": query}),
         _context(other_tenant, factory),
