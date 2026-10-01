@@ -17,7 +17,7 @@ from backend.services.mission_composition.deliverable_contract import (
 )
 from backend.services.ontology.algorithms import AlgorithmResult, validate_composition_algorithm_results
 
-COMPOSITION_SCHEMA_VERSION = 7
+COMPOSITION_SCHEMA_VERSION = 8
 JOB_CATALOG_VERSION = "12"
 INTERPRETER_VERSION = "14"
 CAPABILITY_RESOLVER_VERSION = "11"
@@ -71,6 +71,27 @@ ReadinessStatus = Literal[
     "permission_required",
 ]
 SelectionStatus = Literal["selected", "alternative", "rejected"]
+CoverageMode = Literal["local_fixture", "internal_crm", "public_or_provider", "unknown"]
+CoverageStatus = Literal[
+    "supported",
+    "supported_with_limits",
+    "insufficient_capacity",
+    "unsupported_scope",
+    "unknown",
+]
+EpistemicSourceClass = Literal[
+    "explicit_user",
+    "tenant_profile",
+    "shared_knowledge",
+    "local_fixture",
+    "internal_crm",
+    "public_observation",
+    "provider_observation",
+    "derived",
+    "unknown",
+]
+EpistemicFreshness = Literal["not_observed", "current", "stale", "unknown"]
+EpistemicContradictionStatus = Literal["none", "unresolved", "resolved", "unknown"]
 
 # Canonical business outcomes owned by the interpreter → job catalog boundary.
 CanonicalOutcome = Literal[
@@ -392,6 +413,45 @@ class BudgetLimits(BaseModel):
     max_tasks: int | None = Field(default=None, ge=1)
     max_runtime_minutes: int | None = Field(default=None, ge=1)
     max_cost_usd: float | None = Field(default=None, gt=0)
+
+
+class CoverageAssessment(BaseModel):
+    """Read-only source applicability result attached to composition."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = Field(default=1, ge=1)
+    mode: CoverageMode
+    status: CoverageStatus
+    scope_key: str | None = Field(default=None, max_length=200)
+    requested_quantity: int | None = Field(default=None, ge=1, le=100)
+    available_quantity: int | None = Field(default=None, ge=0, le=100000)
+    reasons: tuple[str, ...] = Field(default=(), max_length=20)
+    source_reference: str = Field(min_length=1, max_length=240)
+    authority_class: Literal["declarative", "read_model"] = "read_model"
+    grants_execution_authority: Literal[False] = False
+
+    @property
+    def ready(self) -> bool:
+        return self.status in {"supported", "supported_with_limits", "unknown"}
+
+
+class EpistemicContext(BaseModel):
+    """Read-only knowledge state used to constrain composition claims."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = Field(default=1, ge=1)
+    source_classes: tuple[EpistemicSourceClass, ...] = Field(default=("unknown",), max_length=12)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    confidence_basis: tuple[str, ...] = Field(default=(), max_length=20)
+    freshness: EpistemicFreshness = "not_observed"
+    contradiction_status: EpistemicContradictionStatus = "none"
+    unresolved_contradiction_count: int = Field(default=0, ge=0, le=100)
+    required_evidence: tuple[str, ...] = Field(default=(), max_length=40)
+    missing_evidence: tuple[str, ...] = Field(default=(), max_length=40)
+    authority_class: Literal["declarative", "read_model"] = "read_model"
+    grants_execution_authority: Literal[False] = False
 
 
 def normalize_outcome_token(value: str) -> CanonicalOutcome | None:
@@ -745,6 +805,11 @@ class MissionCompositionRecord(BaseModel):
     approval_gates: list[str] = Field(default_factory=list, max_length=20)
     planned_steps: list[PlannedStepPreview] = Field(default_factory=list, max_length=40)
     intelligence_envelope: IntelligenceEnvelope | None = None
+    # Additive read-only source applicability/capacity result. This does not
+    # grant runtime authority or replace action/credential admission.
+    coverage_assessment: CoverageAssessment | None = None
+    # Additive pre-runtime knowledge state; never a runtime authority source.
+    epistemic_context: EpistemicContext | None = None
     task_graph_preview: dict[str, Any] = Field(default_factory=dict)
     planner_proposal: dict[str, Any] | None = None
     planner_provenance: dict[str, Any] | None = None

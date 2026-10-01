@@ -43,6 +43,7 @@ from backend.services.mission_composition.contracts import (
     MissionIntent,
     is_ranking_only_instruction,
 )
+from backend.services.mission_composition.coverage import assess_coverage
 from backend.services.mission_composition.deliverable_contract import (
     DeliverableFieldRequirement,
     DeliverableRequest,
@@ -51,6 +52,7 @@ from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
     build_deliverable_runtime_state,
 )
+from backend.services.mission_composition.epistemic import build_epistemic_context
 from backend.services.mission_composition.intelligence_envelope import (
     build_intelligence_envelope,
     clarifications_from_layer_gaps,
@@ -382,6 +384,8 @@ class MissionCompositionService:
 
         charter = _load_charter(self._db, tenant_id)
         connected_ids, connected_integrations, preferred_creds, type_by_id = _connected_sets(self._db, tenant_id)
+        coverage_assessment = assess_coverage(intent)
+        epistemic_context = build_epistemic_context(intent, coverage_assessment)
 
         jobs = route_jobs_for_intent(intent)
         know_how = select_vertical_know_how(intent.requested_outcomes)
@@ -493,7 +497,13 @@ class MissionCompositionService:
         composition_ok = bool(allowed_actions) and required_jobs_ready
         connection_blocked = bool(missing) and not composition_ok
         blocking_gaps = [gap for gap in intelligence_envelope.layer_gaps if gap.blocking]
-        ready_to_start = interpretation_ok and composition_ok and not connection_blocked and not blocking_gaps
+        ready_to_start = (
+            interpretation_ok
+            and composition_ok
+            and not connection_blocked
+            and not blocking_gaps
+            and coverage_assessment.ready
+        )
         named_work = bool(jobs)
 
         if not named_work:
@@ -523,6 +533,8 @@ class MissionCompositionService:
             approval_gates=sorted(set(approval_gates)),
             planned_steps=planned_steps,
             intelligence_envelope=intelligence_envelope,
+            coverage_assessment=coverage_assessment,
+            epistemic_context=epistemic_context,
             task_graph_preview=task_graph_preview,
             planner_proposal=planner_proposal,
             planner_provenance=planner_provenance,
