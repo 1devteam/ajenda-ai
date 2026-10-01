@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "manifest_id": "ajenda-outcome-graphs",
+  "manifest_version": "1.0.0",
+  "authority_class": "architecture_governance",
+  "graphs": {
+    "semantic": {
+      "owner": "mission-composition-intelligence",
+      "source_of_truth": [
+        "backend/services/mission_composition/contracts.py",
+        "backend/services/mission_composition/service.py",
+        "backend/services/mission_composition/vertical_know_how.py"
+      ],
+      "version": "1.0.0",
+      "compatibility": "additive fields and aliases; conflicting meanings fail closed",
+      "historical_read": "preserve recorded know_how_id and know_how_version"
+    },
+    "epistemic": {
+      "owner": "mission-composition-evidence",
+      "source_of_truth": [
+        "backend/services/mission_composition/epistemic.py",
+        "backend/services/mission_composition/contracts.py",
+        "backend/services/mission_composition/deliverable_runtime_observability.py"
+      ],
+      "version": "1.0.0",
+      "compatibility": "unknown, stale, and contradictory states remain visible; no silent downgrade",
+      "historical_read": "preserve source class, confidence, freshness, and evidence requirements"
+    },
+    "operational": {
+      "owner": "mission-runtime-governance",
+      "source_of_truth": [
+        "backend/services/mission_composition/service.py",
+        "backend/services/mission_runtime_task_materialization_service.py",
+        "backend/services/worker_runtime_service.py"
+      ],
+      "version": "1.0.0",
+      "compatibility": "runtime authority remains with BusinessJob, ActionRegistry, TaskDispatcher, and WorkerRuntimeService",
+      "historical_read": "preserve graph_version, materialization references, task lineage, and evidence references"
+    }
+  },
+  "grants_runtime_authority": false
+}

@@ -624,6 +624,11 @@ python scripts/validation/graft_plus_frontier.py \
 
 The full contract is documented in [GRAFT+ Frontier Track](docs/development/GRAFT_PLUS_FRONTIER_TRACK.md).
 
+Canonical ownership and compatibility for the three outcome graphs are declared in
+[`outcome-graph-ownership.v1.json`](docs/contracts/outcome-graph-ownership.v1.json) and checked by
+`python scripts/validation/outcome_graph_ownership_check.py`. This manifest is governance metadata;
+it does not grant any graph runtime authority.
+
 ### What the GRAFT+ shift has taught us
 
 The history of using GRAFT+ in Ajenda shows that it is more than a change checklist. It is an
