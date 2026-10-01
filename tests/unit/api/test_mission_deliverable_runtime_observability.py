@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -136,6 +136,61 @@ def test_observability_projects_composition_coverage_and_epistemic_context() -> 
     assert read.epistemic_context is not None
     assert "local_fixture" in read.epistemic_context.source_classes
     assert read.epistemic_context.grants_execution_authority is False
+
+
+def test_observability_projects_expired_current_artifact_as_stale() -> None:
+    metadata = _metadata("Return company name.")
+    state = _runtime_state(metadata)
+    state["lifecycle"].update(
+        {
+            "state": "current",
+            "observed_at": (datetime.now(UTC) - timedelta(days=2)).isoformat(),
+            "freshness_window_seconds": 86_400,
+        }
+    )
+
+    read = build_deliverable_runtime_state_read(metadata)
+
+    assert read is not None
+    assert read.lifecycle_state == "stale"
+    assert read.grants_execution_authority is False
+
+
+def test_observability_keeps_contradictory_epistemic_artifact_visible() -> None:
+    instruction = "Find five software development companies in Austin using public sources and return company name."
+    request = extract_deliverable_request(instruction)
+    assert request is not None
+    intent = interpret_instruction(instruction)
+    coverage = assess_coverage(intent)
+    epistemic = build_epistemic_context(intent, coverage)
+    state = build_deliverable_runtime_state(request, epistemic_context=epistemic)
+    assert state is not None
+    state["lifecycle"].update(
+        {
+            "state": "contradictory",
+            "contradiction_codes": ["epistemic_unresolved"],
+            "epistemic_reconciliation": "blocked",
+        }
+    )
+    metadata = {
+        "mission_intake": {
+            "context": {
+                "composition": {
+                    DELIVERABLE_RUNTIME_STATE_METADATA_KEY: state,
+                    "coverage_assessment": coverage.model_dump(mode="json"),
+                    "epistemic_context": epistemic.model_dump(mode="json"),
+                }
+            }
+        }
+    }
+
+    read = build_deliverable_runtime_state_read(metadata)
+
+    assert read is not None
+    assert read.lifecycle_state == "contradictory"
+    assert read.epistemic_reconciliation == "blocked"
+    assert read.epistemic_missing_evidence == ("runtime_source_observation",)
+    assert read.contradiction_codes == ("epistemic_unresolved",)
 
 
 def test_observability_rejects_epistemic_lifecycle_drift() -> None:
