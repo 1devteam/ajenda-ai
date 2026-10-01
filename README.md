@@ -596,6 +596,65 @@ side-effect, or retry assumptions are not. GRAFT+ is both a build guide and a te
 coverage; unmapped files, missing invariants, and unexpected runtime artifacts are workflow
 findings to classify or resolve rather than reasons to silently narrow the intended build.
 
+### R&D lanes: proven change and frontier exploration
+
+Ajenda's research and development process now has two deliberately separate GRAFT+ lanes:
+
+- **Standard GRAFT+** works from the existing implementation and produces the build-ready impact,
+  invariant, proof, runtime-artifact, and reconciliation record.
+- **GRAFT+ Frontier Track** captures ambitious hypotheses, unconventional mechanisms, alternative
+  architectures, counterfactuals, reversible experiments, unknowns, promotion criteria, rollback,
+  and a kill switch.
+
+Both lanes use the same canonical graph, but their artifacts are generated independently and can be
+compared side by side. Frontier work is explicitly research evidence—not runtime authority. It cannot
+dispatch tasks, call providers, resolve credentials, register handlers, approve side effects, or
+become production truth. A frontier proposal becomes implementation work only after an explicit
+promotion review and a normal GRAFT+ impact/proof pass.
+
+Run the frontier validator with the standard impact report:
+
+```bash
+python scripts/validation/graft_plus_frontier.py \
+  --frontier-spec docs/templates/graft-plus-frontier-spec.v1.json \
+  --impact-report artifacts/graph-impact-report.json \
+  --output artifacts/frontier-validation.json \
+  --comparison-output artifacts/frontier-side-by-side.json
+```
+
+The full contract is documented in [GRAFT+ Frontier Track](docs/development/GRAFT_PLUS_FRONTIER_TRACK.md).
+
+### What the GRAFT+ shift has taught us
+
+The history of using GRAFT+ in Ajenda shows that it is more than a change checklist. It is an
+architectural intelligence and discovery process:
+
+- It exposed hidden blast radius around mission composition, coverage, evidence, queues, workers,
+  browser safety, tenant boundaries, and deliverables before those relationships were obvious.
+- Runtime-artifact review found issues that green mission status concealed, including stale container
+  images, queue/database visibility races, shared queue contamination, fixture data presented as real,
+  lost identity provenance, and business-goal completion being confused with runtime completion.
+- It allowed larger coherent changes while keeping ActionRegistry, TaskDispatcher,
+  WorkerRuntimeService, tenant isolation, evidence, and side-effect controls authoritative.
+- It turned graph gaps, unmapped files, contradictory artifacts, and stale documentation into visible
+  findings rather than silent assumptions.
+
+The process also has real limits:
+
+- A passing graph report does not prove live infrastructure health or business truth.
+- A mission artifact can look complete while shared queue, worker, persistence, or provenance state is
+  unhealthy; adversarial runtime inspection is required.
+- Generated graph output is temporary, so the builder, semantic overlay, tests, and runtime artifacts
+  remain the durable sources of truth.
+- GRAFT+ adds time and review overhead, and its findings can be noisy until they are reconciled.
+- Frontier proposals are hypotheses, not implementations; treating them as authority would defeat the
+  separation this workflow is designed to protect.
+
+The practical realization is that Ajenda now has two complementary R&D behaviors: standard GRAFT+
+makes existing-system change legible and provable, while the Frontier Track makes ambitious
+possibilities explicit without allowing speculation to mutate production behavior. Their value comes
+from comparison, runtime evidence, and honest reconciliation—not from the graph artifact alone.
+
 ---
 
 ## Quality gates
