@@ -77,12 +77,7 @@ def collect_materialized_artifacts(tasks: list[ExecutionTask]) -> tuple[Material
     selecting an arbitrary winner, which leaves the requested deliverable incomplete.
     """
 
-    grouped: dict[str, list[Any]] = defaultdict(list)
-    for task in sorted(tasks, key=lambda item: str(item.id)):
-        artifact = materialized_artifact_for_task(task)
-        if artifact is not None:
-            grouped[artifact.artifact_key].append(artifact.payload)
-
+    grouped = _group_materialized_payloads(tasks)
     collected: list[MaterializedArtifact] = []
     for artifact_key in sorted(grouped):
         payloads = grouped[artifact_key]
@@ -91,3 +86,23 @@ def collect_materialized_artifacts(tasks: list[ExecutionTask]) -> tuple[Material
             continue
         collected.append(MaterializedArtifact(artifact_key=artifact_key, payload=first))
     return tuple(collected)
+
+
+def _group_materialized_payloads(tasks: list[ExecutionTask]) -> dict[str, list[Any]]:
+    grouped: dict[str, list[Any]] = defaultdict(list)
+    for task in sorted(tasks, key=lambda item: str(item.id)):
+        artifact = materialized_artifact_for_task(task)
+        if artifact is not None:
+            grouped[artifact.artifact_key].append(artifact.payload)
+    return grouped
+
+
+def conflicting_materialized_artifact_keys(tasks: list[ExecutionTask]) -> tuple[str, ...]:
+    """Return artifact keys with divergent completed payloads."""
+
+    grouped = _group_materialized_payloads(tasks)
+    return tuple(
+        artifact_key
+        for artifact_key, payloads in sorted(grouped.items())
+        if len(payloads) > 1 and any(payload != payloads[0] for payload in payloads[1:])
+    )

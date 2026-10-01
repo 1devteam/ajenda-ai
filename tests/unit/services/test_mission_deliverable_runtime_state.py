@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
@@ -6,6 +7,7 @@ from pydantic import ValidationError
 from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
 from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
+    DeliverableArtifactLifecycle,
     build_deliverable_runtime_state,
     load_deliverable_runtime_state,
 )
@@ -70,3 +72,21 @@ def test_runtime_state_loader_rejects_forged_execution_authority() -> None:
 
 def test_metadata_key_is_explicit_and_stable() -> None:
     assert DELIVERABLE_RUNTIME_STATE_METADATA_KEY == "deliverable_runtime_state"
+
+
+def test_new_runtime_state_starts_planned_and_has_no_authority() -> None:
+    state = build_deliverable_runtime_state(_request("Return company name."))
+
+    assert state is not None
+    assert state["lifecycle"]["state"] == "planned"
+    assert state["lifecycle"]["grants_execution_authority"] is False
+
+
+def test_lifecycle_effective_state_detects_expired_current_observation() -> None:
+    lifecycle = DeliverableArtifactLifecycle(
+        state="current",
+        observed_at=datetime.now(UTC) - timedelta(days=2),
+        freshness_window_seconds=86_400,
+    )
+
+    assert lifecycle.effective_state() == "stale"

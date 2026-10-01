@@ -8,9 +8,10 @@ authority and does not claim that any artifact has been produced.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.services.mission_composition.deliverable_contract import DeliverableRequest
 from backend.services.mission_composition.deliverable_projection import (
@@ -24,6 +25,51 @@ from backend.services.mission_composition.vertical_know_how import (
 
 DELIVERABLE_RUNTIME_STATE_METADATA_KEY = "deliverable_runtime_state"
 
+DeliverableLifecycleState = Literal[
+    "planned",
+    "current",
+    "incomplete",
+    "stale",
+    "contradictory",
+    "superseded",
+    "archived",
+]
+
+
+class DeliverableArtifactLifecycle(BaseModel):
+    """Persisted, non-authoritative lifecycle for materialized deliverables."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[1] = 1
+    state: DeliverableLifecycleState = "planned"
+    observed_at: datetime | None = None
+    reconciled_at: datetime | None = None
+    freshness_window_seconds: int | None = Field(default=86_400, ge=0, le=31_536_000)
+    materialized_artifact_count: int = Field(default=0, ge=0)
+    contradiction_codes: tuple[str, ...] = ()
+    supersedes_artifact_id: str | None = None
+    grants_execution_authority: Literal[False] = False
+
+    @model_validator(mode="after")
+    def validate_lineage(self) -> DeliverableArtifactLifecycle:
+        if self.state == "superseded" and not self.supersedes_artifact_id:
+            raise ValueError("superseded deliverable requires supersedes_artifact_id")
+        if self.state != "contradictory" and self.contradiction_codes:
+            raise ValueError("contradiction codes require contradictory deliverable state")
+        return self
+
+    def effective_state(self, *, now: datetime | None = None) -> DeliverableLifecycleState:
+        """Return stale when a current observation exceeds its freshness window."""
+
+        if self.state != "current" or self.observed_at is None or self.freshness_window_seconds is None:
+            return self.state
+        current = now or datetime.now(UTC)
+        observed = self.observed_at
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=UTC)
+        return "stale" if current > observed + timedelta(seconds=self.freshness_window_seconds) else "current"
+
 
 class DeliverableRuntimeState(BaseModel):
     """Persistable semantic/projection state required for runtime evaluation."""
@@ -34,6 +80,7 @@ class DeliverableRuntimeState(BaseModel):
     request: DeliverableRequest
     projection: DeliverableProjection
     completion: dict[str, object] | None = None
+    lifecycle: DeliverableArtifactLifecycle = Field(default_factory=DeliverableArtifactLifecycle)
     grants_execution_authority: Literal[False] = False
 
 

@@ -195,6 +195,10 @@ def test_mission_read_exposes_tenant_scoped_deliverable_runtime_state(monkeypatc
         "unproven_fields": [],
         "unresolved_items": [],
         "complete": False,
+        "lifecycle_state": "planned",
+        "observed_at": None,
+        "reconciled_at": None,
+        "contradiction_codes": [],
         "grants_execution_authority": False,
     }
     repo.get_for_tenant.assert_called_once_with(mission_id=mission.id, tenant_id=str(tenant_id))
