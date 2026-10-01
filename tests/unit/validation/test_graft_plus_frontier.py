@@ -37,7 +37,16 @@ def test_frontier_rejects_authority_claims() -> None:
 
 
 def test_side_by_side_comparison_keeps_tracks_separate() -> None:
-    comparison = build_comparison(_spec(), {"status": "passed", "metrics": {"changed_files": 3}})
+    comparison = build_comparison(
+        _spec(),
+        {
+            "changed_files": ["a.py", "b.py", "c.py"],
+            "changed_nodes": ["a", "b"],
+            "impacted_tests": ["test_a"],
+            "metrics": {"changed_file_count": 3, "changed_node_count": 2, "impacted_test_count": 1},
+        },
+    )
     assert comparison["frontier"]["grants_runtime_authority"] is False
-    assert comparison["standard_graft_plus"]["changed_files"] == 3
+    assert comparison["standard_graft_plus"]["changed_file_count"] == 3
+    assert comparison["standard_graft_plus"]["changed_node_count"] == 2
     assert comparison["decision_boundary"]["promotion_requires_standard_graft_plus"] is True
