@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
+from backend.services.mission_composition.coverage import assess_coverage
 from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
 from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
@@ -11,6 +12,8 @@ from backend.services.mission_composition.deliverable_runtime_state import (
     build_deliverable_runtime_state,
     load_deliverable_runtime_state,
 )
+from backend.services.mission_composition.epistemic import build_epistemic_context
+from backend.services.mission_composition.intent_interpreter import interpret_instruction
 
 
 def _request(text: str):
@@ -80,6 +83,22 @@ def test_new_runtime_state_starts_planned_and_has_no_authority() -> None:
     assert state is not None
     assert state["lifecycle"]["state"] == "planned"
     assert state["lifecycle"]["grants_execution_authority"] is False
+
+
+def test_runtime_state_records_epistemic_reconciliation_snapshot() -> None:
+    instruction = (
+        "Find five software development companies in Austin using local fixture data only and return company name."
+    )
+    intent = interpret_instruction(instruction)
+    context = build_epistemic_context(intent, assess_coverage(intent))
+    state = build_deliverable_runtime_state(_request(instruction), epistemic_context=context)
+
+    assert state is not None
+    lifecycle = state["lifecycle"]
+    assert lifecycle["epistemic_context_schema_version"] == context.schema_version
+    assert lifecycle["epistemic_freshness"] == context.freshness
+    assert lifecycle["epistemic_reconciliation"] == "aligned"
+    assert lifecycle["epistemic_missing_evidence"] == []
 
 
 def test_lifecycle_effective_state_detects_expired_current_observation() -> None:

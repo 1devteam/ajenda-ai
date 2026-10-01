@@ -39,6 +39,8 @@ class DeliverableRuntimeStateRead(BaseModel):
     observed_at: datetime | None = None
     reconciled_at: datetime | None = None
     contradiction_codes: tuple[str, ...] = ()
+    epistemic_reconciliation: Literal["not_available", "aligned", "blocked"] = "not_available"
+    epistemic_missing_evidence: tuple[str, ...] = ()
     coverage_assessment: CoverageAssessment | None = None
     epistemic_context: EpistemicContext | None = None
     grants_execution_authority: Literal[False] = False
@@ -94,6 +96,16 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
         else None
     )
 
+    if epistemic is not None and state.lifecycle.epistemic_context_schema_version is not None:
+        if state.lifecycle.epistemic_context_schema_version != epistemic.schema_version:
+            raise ValueError("deliverable lifecycle epistemic schema does not match composition context")
+        if state.lifecycle.epistemic_freshness != epistemic.freshness:
+            raise ValueError("deliverable lifecycle epistemic freshness does not match composition context")
+        if state.lifecycle.epistemic_contradiction_status != epistemic.contradiction_status:
+            raise ValueError("deliverable lifecycle epistemic contradiction state does not match composition context")
+        if state.lifecycle.epistemic_missing_evidence != epistemic.missing_evidence:
+            raise ValueError("deliverable lifecycle epistemic evidence does not match composition context")
+
     requested_fields = tuple(field.field_key for field in state.request.fields)
     projected_fields = tuple(binding.field_key for binding in state.projection.bindings)
     if projected_fields != requested_fields:
@@ -146,6 +158,8 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
         observed_at=state.lifecycle.observed_at,
         reconciled_at=state.lifecycle.reconciled_at,
         contradiction_codes=state.lifecycle.contradiction_codes,
+        epistemic_reconciliation=state.lifecycle.epistemic_reconciliation,
+        epistemic_missing_evidence=state.lifecycle.epistemic_missing_evidence,
         coverage_assessment=coverage,
         epistemic_context=epistemic,
     )

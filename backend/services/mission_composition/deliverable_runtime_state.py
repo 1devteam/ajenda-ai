@@ -13,6 +13,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.services.mission_composition.contracts import (
+    EpistemicContext,
+    EpistemicContradictionStatus,
+    EpistemicFreshness,
+)
 from backend.services.mission_composition.deliverable_contract import DeliverableRequest
 from backend.services.mission_composition.deliverable_projection import (
     DeliverableProjection,
@@ -49,6 +54,11 @@ class DeliverableArtifactLifecycle(BaseModel):
     materialized_artifact_count: int = Field(default=0, ge=0)
     contradiction_codes: tuple[str, ...] = ()
     supersedes_artifact_id: str | None = None
+    epistemic_context_schema_version: int | None = Field(default=None, ge=1)
+    epistemic_freshness: EpistemicFreshness | None = None
+    epistemic_contradiction_status: EpistemicContradictionStatus | None = None
+    epistemic_missing_evidence: tuple[str, ...] = ()
+    epistemic_reconciliation: Literal["not_available", "aligned", "blocked"] = "not_available"
     grants_execution_authority: Literal[False] = False
 
     @model_validator(mode="after")
@@ -87,6 +97,7 @@ class DeliverableRuntimeState(BaseModel):
 def build_deliverable_runtime_state(
     request: DeliverableRequest | None,
     *,
+    epistemic_context: EpistemicContext | None = None,
     know_how: VerticalKnowHowContract = REVOPS_V1_KNOW_HOW,
     minimum_rows: int = 0,
     minimum_rows_by_artifact: dict[str, int] | None = None,
@@ -95,6 +106,13 @@ def build_deliverable_runtime_state(
 
     if request is None:
         return None
+    epistemic_reconciliation: Literal["not_available", "aligned", "blocked"] = "not_available"
+    if epistemic_context is not None:
+        epistemic_reconciliation = (
+            "blocked"
+            if epistemic_context.contradiction_status == "unresolved" or epistemic_context.missing_evidence
+            else "aligned"
+        )
     state = DeliverableRuntimeState(
         request=request,
         projection=project_deliverable_request(
@@ -102,6 +120,13 @@ def build_deliverable_runtime_state(
             know_how=know_how,
             minimum_rows=minimum_rows,
             minimum_rows_by_artifact=minimum_rows_by_artifact,
+        ),
+        lifecycle=DeliverableArtifactLifecycle(
+            epistemic_context_schema_version=(epistemic_context.schema_version if epistemic_context else None),
+            epistemic_freshness=(epistemic_context.freshness if epistemic_context else None),
+            epistemic_contradiction_status=(epistemic_context.contradiction_status if epistemic_context else None),
+            epistemic_missing_evidence=(epistemic_context.missing_evidence if epistemic_context else ()),
+            epistemic_reconciliation=epistemic_reconciliation,
         ),
     )
     return state.model_dump(mode="json")
