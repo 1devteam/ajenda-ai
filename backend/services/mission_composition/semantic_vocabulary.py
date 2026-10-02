@@ -140,10 +140,210 @@ SHARED_BUSINESS_CONCEPTS: tuple[SemanticConcept, ...] = (
     ),
 )
 
-SHARED_BUSINESS_CONCEPTS_BY_ID = {concept.concept_id: concept for concept in SHARED_BUSINESS_CONCEPTS}
+DOMAIN_AND_INDUSTRY_CONCEPTS: tuple[SemanticConcept, ...] = (
+    SemanticConcept(
+        concept_id="service_area",
+        display_name="Service area",
+        aliases=("coverage area", "territory", "location coverage"),
+        concept_type="relationship",
+        related_concepts=("customer", "job"),
+        applicable_domains=("local_service_business", "field_service"),
+        source_reference="Ajenda local-service business vocabulary",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="appointment",
+        display_name="Appointment",
+        aliases=("booking", "scheduled visit"),
+        concept_type="artifact",
+        related_concepts=("customer", "job"),
+        applicable_domains=("local_service_business", "healthcare_business", "professional_services"),
+        source_reference="Ajenda service-business vocabulary",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="technician",
+        display_name="Technician",
+        aliases=("service technician", "field worker"),
+        concept_type="entity",
+        related_concepts=("job", "service_area"),
+        applicable_domains=("field_service",),
+        source_reference="Ajenda field-service vocabulary",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="maintenance_plan",
+        display_name="Maintenance plan",
+        aliases=(
+            "maintenance agreements",
+            "maintenance agreement",
+            "service plan",
+            "service plans",
+            "maintenance plans",
+        ),
+        concept_type="relationship",
+        related_concepts=("customer", "job"),
+        applicable_domains=("recurring_service_business", "field_service", "hvac"),
+        source_reference="Ajenda recurring-service and HVAC vocabulary",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="heat_pump",
+        display_name="Heat pump",
+        aliases=("heat-pump",),
+        concept_type="entity",
+        related_concepts=("job", "maintenance_plan"),
+        applicable_domains=("hvac",),
+        source_reference="Ajenda HVAC industry overlay",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="furnace",
+        display_name="Furnace",
+        aliases=("heating furnace",),
+        concept_type="entity",
+        related_concepts=("job", "maintenance_plan"),
+        applicable_domains=("hvac",),
+        source_reference="Ajenda HVAC industry overlay",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="storm_damage",
+        display_name="Storm damage",
+        aliases=("hail damage", "wind damage"),
+        concept_type="process",
+        related_concepts=("estimate", "job"),
+        applicable_domains=("roofing",),
+        source_reference="Ajenda roofing industry overlay",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="drain_cleaning",
+        display_name="Drain cleaning",
+        aliases=("drain service",),
+        concept_type="process",
+        related_concepts=("job", "service_area"),
+        applicable_domains=("plumbing",),
+        source_reference="Ajenda plumbing industry overlay",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="water_heater",
+        display_name="Water heater",
+        aliases=("water-heater",),
+        concept_type="entity",
+        related_concepts=("job", "estimate"),
+        applicable_domains=("plumbing",),
+        source_reference="Ajenda plumbing industry overlay",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="panel_upgrade",
+        display_name="Panel upgrade",
+        aliases=("electrical panel upgrade",),
+        concept_type="process",
+        related_concepts=("estimate", "job"),
+        applicable_domains=("electrical",),
+        source_reference="Ajenda electrical industry overlay",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="irrigation",
+        display_name="Irrigation",
+        aliases=("irrigation service", "sprinkler service"),
+        concept_type="process",
+        related_concepts=("job", "service_area"),
+        applicable_domains=("landscaping",),
+        source_reference="Ajenda landscaping industry overlay",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="termite",
+        display_name="Termite",
+        aliases=("termite control",),
+        concept_type="entity",
+        related_concepts=("job", "maintenance_plan"),
+        applicable_domains=("pest_control",),
+        source_reference="Ajenda pest-control industry overlay",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="matter",
+        display_name="Matter",
+        aliases=("legal matter", "case"),
+        concept_type="artifact",
+        related_concepts=("customer", "appointment"),
+        applicable_domains=("professional_services", "legal"),
+        source_reference="Ajenda legal industry overlay",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="patient",
+        display_name="Patient",
+        aliases=("new patient",),
+        concept_type="entity",
+        related_concepts=("appointment", "customer"),
+        applicable_domains=("healthcare_business", "dental"),
+        source_reference="Ajenda healthcare-business and dental vocabulary",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="candidate",
+        display_name="Candidate",
+        aliases=("job candidate", "applicant"),
+        concept_type="entity",
+        related_concepts=("pipeline", "outreach"),
+        applicable_domains=("recruiting",),
+        source_reference="Ajenda recruiting industry overlay",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="trial",
+        display_name="Trial",
+        aliases=("free trial", "product trial"),
+        concept_type="relationship",
+        related_concepts=("customer", "pipeline"),
+        applicable_domains=("b2b_software", "saas"),
+        source_reference="Ajenda SaaS industry overlay",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="subscription",
+        display_name="Subscription",
+        aliases=("plan subscription", "recurring subscription"),
+        concept_type="relationship",
+        related_concepts=("customer", "pipeline"),
+        applicable_domains=("b2b_software", "saas", "recurring_service_business"),
+        source_reference="Ajenda recurring-business and SaaS vocabulary",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="sku",
+        display_name="SKU",
+        aliases=("stock keeping unit", "product code"),
+        concept_type="entity",
+        related_concepts=("customer", "order"),
+        applicable_domains=("ecommerce", "retail"),
+        source_reference="Ajenda e-commerce vocabulary",
+        version="1.0.0",
+    ),
+    SemanticConcept(
+        concept_id="order",
+        display_name="Order",
+        aliases=("purchase order", "customer order"),
+        concept_type="artifact",
+        related_concepts=("customer", "sku"),
+        applicable_domains=("ecommerce", "retail"),
+        source_reference="Ajenda e-commerce vocabulary",
+        version="1.0.0",
+    ),
+)
+
+ALL_SEMANTIC_CONCEPTS: tuple[SemanticConcept, ...] = SHARED_BUSINESS_CONCEPTS + DOMAIN_AND_INDUSTRY_CONCEPTS
+SHARED_BUSINESS_CONCEPTS_BY_ID = {concept.concept_id: concept for concept in ALL_SEMANTIC_CONCEPTS}
 _ALIASES = {
     normalize_concept_text(alias): concept.concept_id
-    for concept in SHARED_BUSINESS_CONCEPTS
+    for concept in ALL_SEMANTIC_CONCEPTS
     for alias in (concept.concept_id, concept.display_name, *concept.aliases)
 }
 
@@ -162,7 +362,7 @@ def _validate_aliases() -> None:
     """Fail closed if shared vocabulary introduces an ambiguous alias."""
 
     seen: dict[str, str] = {}
-    for concept in SHARED_BUSINESS_CONCEPTS:
+    for concept in ALL_SEMANTIC_CONCEPTS:
         for alias in (concept.concept_id, concept.display_name, *concept.aliases):
             normalized = normalize_concept_text(alias)
             prior = seen.get(normalized)
@@ -218,7 +418,7 @@ def build_semantic_selection(
         )
 
     normalized_instruction = normalize_concept_text(instruction)
-    for concept in SHARED_BUSINESS_CONCEPTS:
+    for concept in ALL_SEMANTIC_CONCEPTS:
         candidates = (concept.concept_id, concept.display_name, *concept.aliases)
         matched = next(
             (
