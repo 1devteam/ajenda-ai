@@ -47,6 +47,18 @@ class SemanticJobBinding(BaseModel):
     grants_execution_authority: Literal[False] = False
 
 
+class SemanticLatticeComponent(BaseModel):
+    """Versioned declarative lattice component with explicit multi-parent lineage."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    component_id: str = Field(min_length=1, max_length=80)
+    version: str = Field(pattern=r"^[1-9]\d*\.\d+\.\d+$", max_length=40)
+    parents: tuple[str, ...] = Field(default=(), max_length=8)
+    source_reference: str = Field(min_length=1, max_length=240)
+    grants_execution_authority: Literal[False] = False
+
+
 class SemanticSelection(BaseModel):
     """Composed semantic read model used to inspect concept-to-job reasoning."""
 
@@ -55,6 +67,7 @@ class SemanticSelection(BaseModel):
     schema_version: Literal[1] = 1
     lattice_version: str = Field(default="1.0.0", pattern=r"^[1-9]\d*\.\d+\.\d+$", max_length=40)
     active_components: tuple[str, ...] = Field(default=(), max_length=30)
+    component_conflicts: tuple[str, ...] = Field(default=(), max_length=20)
     concepts: tuple[str, ...] = Field(default=(), max_length=40)
     matched_terms: tuple[str, ...] = Field(default=(), max_length=40)
     bindings: tuple[SemanticJobBinding, ...] = Field(default=(), max_length=40)
@@ -453,6 +466,135 @@ _COMPONENT_ORDER = (
     "saas",
     "ecommerce_retail",
 )
+SEMANTIC_LATTICE_COMPONENTS: tuple[SemanticLatticeComponent, ...] = (
+    SemanticLatticeComponent(
+        component_id="shared_business", version="1.0.0", source_reference="Ajenda shared business vocabulary"
+    ),
+    SemanticLatticeComponent(
+        component_id="gtm.core",
+        version="1.0.0",
+        parents=("shared_business",),
+        source_reference="Ajenda shared GTM vocabulary",
+    ),
+    SemanticLatticeComponent(
+        component_id="local_service_business",
+        version="1.0.0",
+        parents=("shared_business",),
+        source_reference="Ajenda local-service domain vocabulary",
+    ),
+    SemanticLatticeComponent(
+        component_id="field_service",
+        version="1.0.0",
+        parents=("local_service_business",),
+        source_reference="Ajenda field-service domain vocabulary",
+    ),
+    SemanticLatticeComponent(
+        component_id="professional_services",
+        version="1.0.0",
+        parents=("shared_business",),
+        source_reference="Ajenda professional-services domain vocabulary",
+    ),
+    SemanticLatticeComponent(
+        component_id="healthcare_business",
+        version="1.0.0",
+        parents=("shared_business",),
+        source_reference="Ajenda healthcare-business domain vocabulary",
+    ),
+    SemanticLatticeComponent(
+        component_id="b2b_sales",
+        version="1.0.0",
+        parents=("gtm.core",),
+        source_reference="Ajenda B2B-sales domain vocabulary",
+    ),
+    SemanticLatticeComponent(
+        component_id="finance",
+        version="1.0.0",
+        parents=("shared_business",),
+        source_reference="Ajenda finance vocabulary",
+    ),
+    SemanticLatticeComponent(
+        component_id="advertising",
+        version="1.0.0",
+        parents=("gtm.core",),
+        source_reference="Ajenda advertising domain vocabulary",
+    ),
+    SemanticLatticeComponent(
+        component_id="recurring_service_business",
+        version="1.0.0",
+        parents=("local_service_business",),
+        source_reference="Ajenda recurring-service domain vocabulary",
+    ),
+    SemanticLatticeComponent(
+        component_id="ecommerce",
+        version="1.0.0",
+        parents=("shared_business",),
+        source_reference="Ajenda e-commerce domain vocabulary",
+    ),
+    SemanticLatticeComponent(
+        component_id="hvac",
+        version="1.0.0",
+        parents=("field_service", "recurring_service_business"),
+        source_reference="Ajenda HVAC industry overlay",
+    ),
+    SemanticLatticeComponent(
+        component_id="roofing",
+        version="1.0.0",
+        parents=("field_service",),
+        source_reference="Ajenda roofing industry overlay",
+    ),
+    SemanticLatticeComponent(
+        component_id="plumbing",
+        version="1.0.0",
+        parents=("field_service",),
+        source_reference="Ajenda plumbing industry overlay",
+    ),
+    SemanticLatticeComponent(
+        component_id="electrical",
+        version="1.0.0",
+        parents=("field_service",),
+        source_reference="Ajenda electrical industry overlay",
+    ),
+    SemanticLatticeComponent(
+        component_id="landscaping",
+        version="1.0.0",
+        parents=("field_service",),
+        source_reference="Ajenda landscaping industry overlay",
+    ),
+    SemanticLatticeComponent(
+        component_id="pest_control",
+        version="1.0.0",
+        parents=("field_service", "recurring_service_business"),
+        source_reference="Ajenda pest-control industry overlay",
+    ),
+    SemanticLatticeComponent(
+        component_id="legal",
+        version="1.0.0",
+        parents=("professional_services",),
+        source_reference="Ajenda legal industry overlay",
+    ),
+    SemanticLatticeComponent(
+        component_id="dental",
+        version="1.0.0",
+        parents=("healthcare_business", "local_service_business"),
+        source_reference="Ajenda dental industry overlay",
+    ),
+    SemanticLatticeComponent(
+        component_id="recruiting",
+        version="1.0.0",
+        parents=("professional_services", "b2b_sales"),
+        source_reference="Ajenda recruiting industry overlay",
+    ),
+    SemanticLatticeComponent(
+        component_id="saas", version="1.0.0", parents=("b2b_sales",), source_reference="Ajenda SaaS industry overlay"
+    ),
+    SemanticLatticeComponent(
+        component_id="ecommerce_retail",
+        version="1.0.0",
+        parents=("ecommerce",),
+        source_reference="Ajenda e-commerce retail overlay",
+    ),
+)
+_LATTICE_COMPONENTS_BY_ID = {item.component_id: item for item in SEMANTIC_LATTICE_COMPONENTS}
 _INDUSTRY_COMPONENT_TERMS = {
     "hvac": "hvac",
     "roofing": "roofing",
@@ -476,6 +618,11 @@ _INDUSTRY_COMPONENT_TERMS = {
     "paid media": "advertising",
     "ad campaign": "advertising",
 }
+_COMPONENT_DOMAIN_ALIASES = {
+    "gtm": "gtm.core",
+    "service_business": "local_service_business",
+    "b2b_software": "saas",
+}
 
 
 def _validate_aliases() -> None:
@@ -492,6 +639,32 @@ def _validate_aliases() -> None:
 
 
 _validate_aliases()
+
+
+def _compose_lattice_components(requested: set[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Expand requested components through explicit multi-parent inheritance."""
+
+    expanded: set[str] = set()
+    conflicts: list[str] = []
+
+    def visit(component_id: str, trail: tuple[str, ...] = ()) -> None:
+        if component_id in expanded:
+            return
+        component = _LATTICE_COMPONENTS_BY_ID.get(component_id)
+        if component is None:
+            conflicts.append(f"unknown semantic lattice component: {component_id}")
+            return
+        if component_id in trail:
+            conflicts.append(f"semantic lattice parent cycle: {' -> '.join((*trail, component_id))}")
+            return
+        for parent in component.parents:
+            visit(parent, (*trail, component_id))
+        expanded.add(component_id)
+
+    for component_id in requested:
+        visit(component_id)
+    ordered = tuple(component for component in _COMPONENT_ORDER if component in expanded)
+    return ordered, tuple(dict.fromkeys(conflicts))
 
 
 def build_semantic_selection(
@@ -565,8 +738,12 @@ def build_semantic_selection(
         if normalized_match not in terms:
             terms.append(normalized_match)
 
+    normalized_components = {_COMPONENT_DOMAIN_ALIASES.get(component, component) for component in component_candidates}
+    active_components, component_conflicts = _compose_lattice_components(normalized_components)
+    conflicts.extend(component_conflicts)
     return SemanticSelection(
-        active_components=tuple(component for component in _COMPONENT_ORDER if component in component_candidates),
+        active_components=active_components,
+        component_conflicts=component_conflicts,
         concepts=tuple(concepts),
         matched_terms=tuple(terms),
         bindings=tuple(bindings),

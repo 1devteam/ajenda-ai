@@ -60,7 +60,14 @@ def test_semantic_selection_exposes_industry_overlay_terms() -> None:
     assert {"prospect", "heat_pump", "maintenance_plan"}.issubset(selection.concepts)
     assert {"heat pump", "maintenance plans"}.issubset(selection.matched_terms)
     assert selection.lattice_version == "1.0.0"
-    assert selection.active_components == ("shared_business", "gtm.core", "hvac")
+    assert selection.active_components == (
+        "shared_business",
+        "gtm.core",
+        "local_service_business",
+        "field_service",
+        "recurring_service_business",
+        "hvac",
+    )
     assert selection.conflicts == ()
     assert selection.grants_execution_authority is False
 
@@ -76,7 +83,30 @@ def test_advertising_overlay_is_declarative_and_catalog_only() -> None:
         selection.concepts
     )
     assert "advertising" in selection.active_components
+    assert selection.active_components[:3] == ("shared_business", "gtm.core", "advertising")
     assert selection.grants_execution_authority is False
+
+
+def test_multi_parent_overlay_inherits_all_required_domains() -> None:
+    dental = build_semantic_selection(
+        instruction="Research dental patients and appointments in Austin.",
+        requested_outcomes=("research_prospects",),
+        selected_job_keys=("research.discover_prospects",),
+    )
+    recruiting = build_semantic_selection(
+        instruction="Research recruiting candidates for a software employer.",
+        requested_outcomes=("research_prospects",),
+        selected_job_keys=("research.discover_prospects",),
+    )
+
+    assert {"shared_business", "gtm.core", "healthcare_business", "local_service_business", "dental"}.issubset(
+        dental.active_components
+    )
+    assert {"shared_business", "gtm.core", "professional_services", "b2b_sales", "recruiting"}.issubset(
+        recruiting.active_components
+    )
+    assert dental.component_conflicts == ()
+    assert recruiting.component_conflicts == ()
 
 
 def test_semantic_selection_fails_closed_when_a_required_job_is_missing() -> None:
