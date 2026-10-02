@@ -519,7 +519,7 @@ class MissionCompositionService:
             proposal_status: str = "interpretation_failed"
         elif connection_blocked:
             proposal_status = "connection_required"
-        elif blocking_gaps or not composition_ok:
+        elif blocking_gaps or not composition_ok or not coverage_assessment.ready:
             proposal_status = "gaps_open"
         else:
             proposal_status = "proposal_ready"

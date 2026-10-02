@@ -56,3 +56,15 @@ def test_composition_record_exposes_coverage_without_granting_authority() -> Non
     assert record.coverage_assessment.status == "unsupported_scope"
     assert record.ready_to_start is False
     assert record.coverage_assessment.grants_execution_authority is False
+
+
+def test_blocked_coverage_cannot_be_labeled_proposal_ready() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-coverage",
+        instruction="Find five HVAC companies in Dallas using local fixture data only.",
+    )
+
+    assert record.coverage_assessment is not None
+    assert record.coverage_assessment.status == "insufficient_capacity"
+    assert record.proposal_status == "gaps_open"
+    assert record.ready_to_start is False
