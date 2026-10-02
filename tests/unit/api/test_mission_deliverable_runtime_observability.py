@@ -24,6 +24,7 @@ from backend.services.mission_composition.deliverable_runtime_state import (
 )
 from backend.services.mission_composition.epistemic import build_epistemic_context
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.mission_composition.semantic_vocabulary import build_semantic_selection
 
 
 def _metadata(instruction: str) -> dict[str, object]:
@@ -136,6 +137,32 @@ def test_observability_projects_composition_coverage_and_epistemic_context() -> 
     assert read.epistemic_context is not None
     assert "local_fixture" in read.epistemic_context.source_classes
     assert read.epistemic_context.grants_execution_authority is False
+
+
+def test_observability_reconciles_semantic_selection_from_composition() -> None:
+    metadata = _metadata_with_composition_context(
+        "Research five software development companies in Austin using local fixture data only and return company name."
+    )
+    composition = metadata["mission_intake"]["context"]["composition"]  # type: ignore[index]
+    assert isinstance(composition, dict)
+    intent = interpret_instruction(
+        "Research five software development companies in Austin using local fixture data only."
+    )
+    composition["composition_provenance"] = {
+        "semantic_selection": build_semantic_selection(
+            instruction=intent.raw_instruction,
+            requested_outcomes=intent.requested_outcomes,
+            selected_job_keys=("research.discover_prospects",),
+        ).model_dump(mode="json")
+    }
+
+    read = build_deliverable_runtime_state_read(metadata)
+
+    assert read is not None
+    assert read.semantic_reconciliation == "aligned"
+    assert read.semantic_selection is not None
+    assert read.semantic_selection.concepts == ("prospect",)
+    assert read.grants_execution_authority is False
 
 
 def test_observability_projects_expired_current_artifact_as_stale() -> None:

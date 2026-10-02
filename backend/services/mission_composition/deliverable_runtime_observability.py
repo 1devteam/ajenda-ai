@@ -20,6 +20,7 @@ from backend.services.mission_composition.deliverable_runtime_state import (
     DeliverableLifecycleState,
     load_deliverable_runtime_state,
 )
+from backend.services.mission_composition.semantic_vocabulary import SemanticSelection
 
 
 class DeliverableRuntimeStateRead(BaseModel):
@@ -41,6 +42,8 @@ class DeliverableRuntimeStateRead(BaseModel):
     contradiction_codes: tuple[str, ...] = ()
     epistemic_reconciliation: Literal["not_available", "aligned", "blocked"] = "not_available"
     epistemic_missing_evidence: tuple[str, ...] = ()
+    semantic_selection: SemanticSelection | None = None
+    semantic_reconciliation: Literal["not_available", "aligned", "blocked"] = "not_available"
     coverage_assessment: CoverageAssessment | None = None
     epistemic_context: EpistemicContext | None = None
     grants_execution_authority: Literal[False] = False
@@ -95,6 +98,15 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
         if composition is not None and isinstance(composition.get("epistemic_context"), dict)
         else None
     )
+    semantic = None
+    semantic_reconciliation: Literal["not_available", "aligned", "blocked"] = "not_available"
+    if composition is not None and isinstance(composition.get("composition_provenance"), dict):
+        provenance = composition["composition_provenance"]
+        assert isinstance(provenance, dict)
+        raw_semantic = provenance.get("semantic_selection")
+        if isinstance(raw_semantic, dict):
+            semantic = SemanticSelection.model_validate(raw_semantic)
+            semantic_reconciliation = "blocked" if semantic.conflicts else "aligned"
 
     if epistemic is not None and state.lifecycle.epistemic_context_schema_version is not None:
         if state.lifecycle.epistemic_context_schema_version != epistemic.schema_version:
@@ -160,6 +172,8 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
         contradiction_codes=state.lifecycle.contradiction_codes,
         epistemic_reconciliation=state.lifecycle.epistemic_reconciliation,
         epistemic_missing_evidence=state.lifecycle.epistemic_missing_evidence,
+        semantic_selection=semantic,
+        semantic_reconciliation=semantic_reconciliation,
         coverage_assessment=coverage,
         epistemic_context=epistemic,
     )

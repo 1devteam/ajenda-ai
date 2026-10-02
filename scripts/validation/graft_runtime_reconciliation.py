@@ -16,6 +16,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from backend.services.mission_composition.semantic_vocabulary import SemanticSelection
+
 
 class RuntimeStage(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -47,6 +49,7 @@ class RuntimeReconciliationSnapshot(BaseModel):
     queued_tasks: tuple[RuntimeStage, ...] = ()
     evidence_nodes: tuple[RuntimeStage, ...] = ()
     deliverable_nodes: tuple[RuntimeStage, ...] = ()
+    semantic_selection: SemanticSelection | None = None
     findings: tuple[ReconciliationFinding, ...] = ()
 
 
@@ -61,6 +64,30 @@ STAGES = (
 
 def reconcile_snapshot(snapshot: RuntimeReconciliationSnapshot) -> dict[str, Any]:
     findings = list(snapshot.findings)
+    if snapshot.semantic_selection is not None:
+        if snapshot.semantic_selection.conflicts:
+            findings.append(
+                ReconciliationFinding(
+                    finding_id="semantic.selection_conflict",
+                    category="semantic",
+                    message=(
+                        "Semantic concept-to-job selection contains unresolved conflicts: "
+                        f"{list(snapshot.semantic_selection.conflicts)}"
+                    ),
+                )
+            )
+        for binding in snapshot.semantic_selection.bindings:
+            if binding.status == "conflict":
+                findings.append(
+                    ReconciliationFinding(
+                        finding_id=f"semantic.binding.{binding.concept_id}",
+                        category="semantic",
+                        message=(
+                            f"Semantic concept {binding.concept_id} was not reconciled with its "
+                            f"expected jobs {list(binding.expected_job_keys)}."
+                        ),
+                    )
+                )
     expected = set(snapshot.graph_expected_nodes)
     if len(expected) != len(snapshot.graph_expected_nodes):
         findings.append(
@@ -120,6 +147,13 @@ def reconcile_snapshot(snapshot: RuntimeReconciliationSnapshot) -> dict[str, Any
         "tenant_id": snapshot.tenant_id,
         "mission_id": snapshot.mission_id,
         "stage_counts": {stage_name: len(getattr(snapshot, stage_name)) for stage_name in STAGES},
+        "semantic_reconciliation": (
+            "not_available"
+            if snapshot.semantic_selection is None
+            else "blocked"
+            if snapshot.semantic_selection.conflicts
+            else "aligned"
+        ),
         "finding_count": len(findings),
         "unresolved_finding_count": len(unresolved),
         "status": "passed" if not unresolved else "blocked",
