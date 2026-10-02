@@ -31,6 +31,32 @@ def test_graph_contains_static_semantic_and_test_layers() -> None:
     assert "runtime-secret-boundary" in invariant_ids
 
 
+def test_graph_maps_frontier_template_as_governance_input() -> None:
+    graph = MODULE.build_graph()
+    node_ids = {node["id"] for node in graph["nodes"]}
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
+
+    assert "contract:graft-plus-frontier-spec-v2" in node_ids
+    assert (
+        "graph-tool:scripts.validation.graft_plus_frontier",
+        "contract:graft-plus-frontier-spec-v2",
+        "consumes_governance_contract",
+    ) in edges
+
+
+def test_graph_maps_its_overlay_as_builder_input() -> None:
+    graph = MODULE.build_graph()
+    node_ids = {node["id"] for node in graph["nodes"]}
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
+
+    assert "contract:dependency-graph-overlay-v1" in node_ids
+    assert (
+        "graph-tool:scripts.validation.build_dependency_graph",
+        "contract:dependency-graph-overlay-v1",
+        "consumes_governance_contract",
+    ) in edges
+
+
 def test_graph_contains_browser_deployment_support_edges() -> None:
     graph = MODULE.build_graph()
     node_ids = {node["id"] for node in graph["nodes"]}

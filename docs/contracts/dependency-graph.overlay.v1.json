@@ -29,7 +29,8 @@
     {"id":"state:verification-token","type":"state_resource","label":"Email verification token consumption","source":"backend/repositories/tenant_member_repository.py"},
     {"id":"state:bootstrap-api-key","type":"state_resource","label":"Bootstrap API-key promotion","source":"backend/repositories/api_key_repository.py"},
     {"id":"state:customer-refresh-token","type":"state_resource","label":"Customer refresh-token consumption","source":"backend/repositories/customer_auth_session_repository.py"},
-    {"id":"state:api-key-quota-capacity","type":"state_resource","label":"API-key quota capacity reservation","source":"backend/services/quota_enforcement.py"}
+    {"id":"state:api-key-quota-capacity","type":"state_resource","label":"API-key quota capacity reservation","source":"backend/services/quota_enforcement.py"},
+    {"id":"contract:graft-plus-frontier-spec-v2","type":"governance_contract","label":"GRAFT+ Frontier v2 specification","source":"docs/templates/graft-plus-frontier-spec.v2.json"}
   ],
   "edges": [
     {"from":"runtime:api","to":"py:backend.main","type":"executes","evidence":"backend/main.py"},
@@ -85,7 +86,8 @@
     {"from":"py:backend.repositories.customer_auth_session_repository","to":"state:customer-refresh-token","type":"serializes_state","evidence":"backend/repositories/customer_auth_session_repository.py"},
     {"from":"state:customer-refresh-token","to":"db:table:customer_auth_sessions","type":"persisted_in","evidence":"backend/repositories/customer_auth_session_repository.py"},
     {"from":"py:backend.services.quota_enforcement","to":"state:api-key-quota-capacity","type":"serializes_state","evidence":"backend/services/quota_enforcement.py"},
-    {"from":"state:api-key-quota-capacity","to":"db:table:api_key_records","type":"measured_by","evidence":"backend/repositories/api_key_repository.py"}
+    {"from":"state:api-key-quota-capacity","to":"db:table:api_key_records","type":"measured_by","evidence":"backend/repositories/api_key_repository.py"},
+    {"from":"graph-tool:scripts.validation.graft_plus_frontier","to":"contract:graft-plus-frontier-spec-v2","type":"consumes_governance_contract","evidence":"scripts/validation/graft_plus_frontier.py"}
   ],
   "invariants": [
     {"id":"tenant-isolation","status":"known_violation","rule":"Every tenant-owned database object must be covered by the tenant DB boundary, with explicit ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY, tenant isolation policy, and reviewed admin bypass unless explicitly classified as cross-tenant/control-plane.","sources":["backend/app/dependencies/db.py","alembic/versions/0003_row_level_security.py","tests/contract/api/test_tenant_isolation_policy.py"],"applies_to":["boundary:tenant-db"]},

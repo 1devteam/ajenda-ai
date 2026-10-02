@@ -33,6 +33,7 @@ from graph_runtime_support_inventory import collect_runtime_support_inventory
 from graph_semantic_inventory import collect_semantic_inventory
 
 OVERLAY_PATH = REPO_ROOT / "docs/contracts/dependency-graph.overlay.v1.json"
+OVERLAY_NODE_ID = "contract:dependency-graph-overlay-v1"
 DEFAULT_OUTPUT = REPO_ROOT / "docs/architecture/dependency-graph.v1.json"
 PRODUCTION_PYTHON_ROOTS = (REPO_ROOT / "backend", REPO_ROOT / "services")
 GRAPH_TOOLING_PYTHON_ROOT = REPO_ROOT / "scripts" / "validation"
@@ -369,6 +370,14 @@ def build_graph() -> dict[str, Any]:
     nodes.extend(runtime_action_selection_inventory["nodes"])
     nodes.extend(runtime_support_inventory["nodes"])
     nodes.extend(deployment_inventory["nodes"])
+    nodes.append(
+        {
+            "id": OVERLAY_NODE_ID,
+            "type": "governance_contract",
+            "label": "Canonical dependency graph overlay",
+            "source": str(OVERLAY_PATH.relative_to(REPO_ROOT)),
+        }
+    )
 
     edges: list[dict[str, Any]] = [
         {"from": edge.source, "to": edge.target, "type": edge.type, "evidence": edge.evidence}
@@ -382,6 +391,14 @@ def build_graph() -> dict[str, Any]:
     edges.extend(runtime_action_selection_inventory["edges"])
     edges.extend(runtime_support_inventory["edges"])
     edges.extend(deployment_inventory["edges"])
+    edges.append(
+        {
+            "from": "graph-tool:scripts.validation.build_dependency_graph",
+            "to": OVERLAY_NODE_ID,
+            "type": "consumes_governance_contract",
+            "evidence": str(OVERLAY_PATH.relative_to(REPO_ROOT)),
+        }
+    )
 
     node_ids_seen = [str(node["id"]) for node in nodes]
     duplicates = sorted(node_id for node_id, count in Counter(node_ids_seen).items() if count > 1)

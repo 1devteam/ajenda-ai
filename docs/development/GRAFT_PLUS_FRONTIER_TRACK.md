@@ -53,6 +53,8 @@ Schema version 2 makes a frontier proposal reviewable as a durable research reco
 The validator records a canonical proposal hash, graph hash, owner, experiment IDs, evidence
 requirements, and promotion boundary in the side-by-side artifact. This makes a frontier result
 reproducible and prevents a passing structural check from being mistaken for empirical success.
+The canonical dependency graph explicitly maps the v2 template as a governance-contract input to
+the validator; prose documentation remains a manual-review input rather than a runtime node.
 
 Use v1 only for compatibility with historical proposals. New work should copy
 `docs/templates/graft-plus-frontier-spec.v2.json`,
