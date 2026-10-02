@@ -50,6 +50,13 @@ def test_semantic_selection_records_outcome_to_job_provenance() -> None:
     guidance = {item.component_id: item for item in selection.component_job_guidance}
     assert guidance["gtm.core"].status == "satisfied"
     assert "sales.qualify_prospects" in guidance["gtm.core"].candidate_job_keys
+    assert {item.component_id for item in selection.active_component_provenance} >= {"shared_business", "gtm.core"}
+    assert all(item.version == "1.0.0" and item.source_reference for item in selection.active_component_provenance)
+    assert {item.concept_id for item in selection.concept_provenance} == {
+        "prospect",
+        "qualification",
+        "outreach",
+    }
     assert selection.grants_execution_authority is False
 
 

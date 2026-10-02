@@ -79,9 +79,11 @@ class SemanticSelection(BaseModel):
     schema_version: Literal[1] = 1
     lattice_version: str = Field(default="1.0.0", pattern=r"^[1-9]\d*\.\d+\.\d+$", max_length=40)
     active_components: tuple[str, ...] = Field(default=(), max_length=30)
+    active_component_provenance: tuple[SemanticLatticeComponent, ...] = Field(default=(), max_length=30)
     component_conflicts: tuple[str, ...] = Field(default=(), max_length=20)
     component_job_guidance: tuple[SemanticComponentJobGuidance, ...] = Field(default=(), max_length=30)
     concepts: tuple[str, ...] = Field(default=(), max_length=40)
+    concept_provenance: tuple[SemanticConcept, ...] = Field(default=(), max_length=40)
     matched_terms: tuple[str, ...] = Field(default=(), max_length=40)
     bindings: tuple[SemanticJobBinding, ...] = Field(default=(), max_length=40)
     conflicts: tuple[str, ...] = Field(default=(), max_length=20)
@@ -781,6 +783,7 @@ def build_semantic_selection(
     normalized_components = {_COMPONENT_DOMAIN_ALIASES.get(component, component) for component in component_candidates}
     active_components, component_conflicts = _compose_lattice_components(normalized_components)
     conflicts.extend(component_conflicts)
+    concept_provenance = tuple(SHARED_BUSINESS_CONCEPTS_BY_ID[concept_id] for concept_id in concepts)
     component_job_guidance = tuple(
         SemanticComponentJobGuidance(
             component_id=component,
@@ -793,9 +796,11 @@ def build_semantic_selection(
     )
     return SemanticSelection(
         active_components=active_components,
+        active_component_provenance=tuple(_LATTICE_COMPONENTS_BY_ID[component] for component in active_components),
         component_conflicts=component_conflicts,
         component_job_guidance=component_job_guidance,
         concepts=tuple(concepts),
+        concept_provenance=concept_provenance,
         matched_terms=tuple(terms),
         bindings=tuple(bindings),
         conflicts=tuple(dict.fromkeys(conflicts)),
