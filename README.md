@@ -619,13 +619,18 @@ Run the frontier validator with the standard impact report:
 
 ```bash
 python scripts/validation/graft_plus_frontier.py \
-  --frontier-spec docs/templates/graft-plus-frontier-spec.v1.json \
+  --frontier-spec docs/templates/graft-plus-frontier-spec.v2.json \
   --impact-report artifacts/graph-impact-report.json \
   --output artifacts/frontier-validation.json \
   --comparison-output artifacts/frontier-side-by-side.json
 ```
 
 The full contract is documented in [GRAFT+ Frontier Track](docs/development/GRAFT_PLUS_FRONTIER_TRACK.md).
+
+New frontier proposals use schema version 2. They must name owners, state unknowns and expected
+failure modes, define measurable experiments with durable artifact paths, and retain promotion
+evidence. A validator pass proves contract and authority separation only; it does not prove the
+hypothesis or execute the experiment.
 
 Canonical ownership and compatibility for the three outcome graphs are declared in
 [`outcome-graph-ownership.v1.json`](docs/contracts/outcome-graph-ownership.v1.json) and checked by

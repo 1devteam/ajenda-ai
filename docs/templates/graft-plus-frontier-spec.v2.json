@@ -1,0 +1,66 @@
+{
+  "schema_version": 2,
+  "artifact_kind": "graft_plus_frontier",
+  "proposal_id": "shadow-execution-outcome-loop-v1",
+  "target_outcome": "Preview mission plans and evidence gaps without creating runtime work",
+  "status": "experimental",
+  "source_of_truth": "Ajenda composition contracts, queue authority, and runtime artifacts",
+  "owner": {
+    "accountable": "Ajenda product owner",
+    "technical": "mission-composition owner",
+    "review": "architecture-runtime-governance"
+  },
+  "artifact_root": "artifacts/frontier/shadow-execution-outcome-loop-v1",
+  "hypotheses": [
+    "A non-materializing shadow pass can identify unsupported coverage and missing evidence earlier",
+    "Side-by-side plan comparison can improve promotion decisions without changing runtime authority"
+  ],
+  "candidate_paths": [
+    "composition-only shadow preview",
+    "counterfactual plan comparison"
+  ],
+  "unknowns": [
+    "Whether preview findings reduce failed admissions in representative missions",
+    "Whether comparison latency remains acceptable for interactive composition"
+  ],
+  "expected_failure_modes": [
+    "Preview reports a false coverage gap",
+    "Preview diverges from the eventual governed composition"
+  ],
+  "invariants": [
+    "Tenant isolation remains true",
+    "Existing runtime authority remains unchanged"
+  ],
+  "authority_boundaries": [
+    "Planning and evidence only",
+    "No runtime effects"
+  ],
+  "experiments": [
+    {
+      "id": "shadow-preview-1",
+      "success_signal": "Preview identifies coverage and evidence gaps with no materialized tasks",
+      "measurement": "Compare preview findings with post-composition coverage and lifecycle artifacts",
+      "artifact_path": "artifacts/frontier/shadow-execution-outcome-loop-v1/shadow-preview-1.json",
+      "rollback": "Disable the frontier proposal"
+    }
+  ],
+  "evidence_policy": {
+    "required_artifacts": [
+      "frontier-validation.json",
+      "frontier-side-by-side.json",
+      "experiment-result.json"
+    ],
+    "retention": "Retain until proposal is rejected, promoted, or superseded"
+  },
+  "promotion_criteria": [
+    "Standard GRAFT+ impact and proof pass",
+    "Tenant and authority invariants pass",
+    "Live artifact review confirms no queue or provider effects",
+    "Measured success signal is reproducible"
+  ],
+  "rollback": {
+    "kill_switch": "Named configuration or review-controlled disable mechanism"
+  },
+  "grants_runtime_authority": false,
+  "runtime_effects": []
+}
