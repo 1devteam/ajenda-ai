@@ -15,6 +15,7 @@ from backend.services.mission_composition.deliverable_runtime_state import (
 )
 from backend.services.mission_composition.epistemic import build_epistemic_context
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.mission_composition.shadow_preview import build_shadow_preview
 
 MISSION_ID = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
 
@@ -90,6 +91,36 @@ def test_refresh_marks_bound_fields_complete_only_after_required_artifacts_mater
     assert complete_state["grants_execution_authority"] is False
 
 
+def test_refresh_reconciles_durable_shadow_preview_with_runtime_artifacts() -> None:
+    instruction = "Return drafts."
+    request = extract_deliverable_request(instruction)
+    assert request is not None
+    preview = build_shadow_preview(
+        proposal_id="proposal-shadow",
+        preview_id="preview-shadow",
+        task_graph={"schema_version": 1, "nodes": [], "metadata": {}},
+        planned_artifact_keys=("introduction_drafts",),
+        coverage_assessment=None,
+        epistemic_context=None,
+    )
+    state = build_deliverable_runtime_state(request, shadow_preview=preview)
+    assert state is not None
+    metadata = {"mission_intake": {"context": {"composition": {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: state}}}}
+    task = _task(
+        artifact="introduction_drafts",
+        payload=[{"company": "Acme", "subject": "Hello"}],
+        task_id="00000000-0000-0000-0000-000000000099",
+    )
+
+    updated, completion = refresh_deliverable_completion_metadata(metadata, [task])
+
+    assert completion is not None and completion.complete is True
+    refreshed = updated["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
+    assert refreshed["shadow_preview"]["preview_id"] == "preview-shadow"
+    assert refreshed["runtime_reconciliation"]["status"] == "aligned"
+    assert refreshed["runtime_reconciliation"]["grants_execution_authority"] is False
+
+
 def test_refresh_preserves_epistemic_reconciliation_metadata() -> None:
     instruction = (
         "Find five software development companies in Austin using local fixture data only and return company name."
@@ -134,6 +165,38 @@ def test_refresh_marks_conflicting_duplicate_artifacts_contradictory() -> None:
     state = updated["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
     assert state["lifecycle"]["state"] == "contradictory"
     assert state["lifecycle"]["contradiction_codes"] == ["conflicting_artifact:introduction_drafts"]
+
+
+def test_refresh_marks_shadow_reconciliation_contradictory_for_conflicting_artifacts() -> None:
+    request = extract_deliverable_request("Return drafts.")
+    assert request is not None
+    preview = build_shadow_preview(
+        proposal_id="proposal-shadow",
+        preview_id="preview-shadow",
+        task_graph={"nodes": [], "metadata": {}},
+        planned_artifact_keys=("introduction_drafts",),
+        coverage_assessment=None,
+        epistemic_context=None,
+    )
+    state = build_deliverable_runtime_state(request, shadow_preview=preview)
+    assert state is not None
+    metadata = {"mission_intake": {"context": {"composition": {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: state}}}}
+    first = _task(
+        artifact="introduction_drafts",
+        payload=[{"company": "Acme", "subject": "Hello"}],
+        task_id="00000000-0000-0000-0000-000000000091",
+    )
+    second = _task(
+        artifact="introduction_drafts",
+        payload=[{"company": "Acme", "subject": "Different"}],
+        task_id="00000000-0000-0000-0000-000000000092",
+    )
+
+    updated, _ = refresh_deliverable_completion_metadata(metadata, [first, second])
+
+    refreshed = updated["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
+    assert refreshed["runtime_reconciliation"]["status"] == "contradictory"
+    assert refreshed["runtime_reconciliation"]["contradiction_codes"] == ["conflicting_artifact:introduction_drafts"]
 
 
 def test_refresh_keeps_bound_field_missing_until_its_artifact_exists() -> None:

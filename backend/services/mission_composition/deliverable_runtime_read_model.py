@@ -26,6 +26,7 @@ from backend.services.mission_composition.deliverable_runtime_state import (
     DeliverableLifecycleState,
     load_deliverable_runtime_state,
 )
+from backend.services.mission_composition.shadow_preview import reconcile_shadow_preview
 
 
 def refresh_deliverable_completion_metadata(
@@ -91,7 +92,24 @@ def refresh_deliverable_completion_metadata(
         **completion.model_dump(mode="json"),
         "complete": completion.complete,
     }
-    refreshed_state = state.model_copy(update={"completion": completion_payload, "lifecycle": lifecycle})
+    runtime_reconciliation = (
+        reconcile_shadow_preview(
+            state.shadow_preview,
+            tasks=tasks,
+            artifacts=artifacts,
+            completion=completion,
+            contradiction_codes=tuple(f"conflicting_artifact:{key}" for key in conflicts),
+        )
+        if state.shadow_preview is not None
+        else state.runtime_reconciliation
+    )
+    refreshed_state = state.model_copy(
+        update={
+            "completion": completion_payload,
+            "lifecycle": lifecycle,
+            "runtime_reconciliation": runtime_reconciliation,
+        }
+    )
 
     composition[DELIVERABLE_RUNTIME_STATE_METADATA_KEY] = refreshed_state.model_dump(mode="json")
     context["composition"] = composition

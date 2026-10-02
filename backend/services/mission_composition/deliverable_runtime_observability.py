@@ -21,6 +21,7 @@ from backend.services.mission_composition.deliverable_runtime_state import (
     load_deliverable_runtime_state,
 )
 from backend.services.mission_composition.semantic_vocabulary import SemanticSelection
+from backend.services.mission_composition.shadow_preview import RuntimeReconciliation, ShadowPreview
 
 
 class DeliverableRuntimeStateRead(BaseModel):
@@ -46,6 +47,8 @@ class DeliverableRuntimeStateRead(BaseModel):
     semantic_reconciliation: Literal["not_available", "aligned", "blocked"] = "not_available"
     coverage_assessment: CoverageAssessment | None = None
     epistemic_context: EpistemicContext | None = None
+    shadow_preview: ShadowPreview | None = None
+    runtime_reconciliation: RuntimeReconciliation | None = None
     grants_execution_authority: Literal[False] = False
 
 
@@ -182,4 +185,6 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
         semantic_reconciliation=semantic_reconciliation,
         coverage_assessment=coverage,
         epistemic_context=epistemic,
+        shadow_preview=state.shadow_preview,
+        runtime_reconciliation=state.runtime_reconciliation,
     )

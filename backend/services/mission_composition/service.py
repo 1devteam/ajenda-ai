@@ -72,6 +72,7 @@ from backend.services.mission_composition.proposal_store import (
     put_proposal,
 )
 from backend.services.mission_composition.semantic_vocabulary import build_semantic_selection
+from backend.services.mission_composition.shadow_preview import build_shadow_preview
 from backend.services.mission_composition.structured_planner import (
     PlannerRequest,
     StructuredPlannerProvider,
@@ -768,6 +769,14 @@ class MissionCompositionService:
                 "qualified_prospects": record.intent.qualification_quantity or record.intent.requested_quantity or 0,
                 "introduction_drafts": record.intent.qualification_quantity or record.intent.requested_quantity or 0,
             },
+            shadow_preview=build_shadow_preview(
+                proposal_id=record.proposal_id,
+                preview_id=f"{record.proposal_id}:shadow",
+                task_graph=record.task_graph_preview,
+                planned_artifact_keys=tuple(step.output_contract for step in record.planned_steps),
+                coverage_assessment=record.coverage_assessment,
+                epistemic_context=record.epistemic_context,
+            ),
         )
         intake = build_mission_intake_metadata(
             success_criteria=success_criteria,
@@ -1157,6 +1166,14 @@ class MissionCompositionService:
                     or record.intent.requested_quantity
                     or 0,
                 },
+                shadow_preview=build_shadow_preview(
+                    proposal_id=record.proposal_id,
+                    preview_id=f"{record.proposal_id}:shadow",
+                    task_graph=graph_preview,
+                    planned_artifact_keys=tuple(step.output_contract for step in record.planned_steps),
+                    coverage_assessment=record.coverage_assessment,
+                    epistemic_context=record.epistemic_context,
+                ),
             )
             context["composition"] = {
                 "proposal_id": record.proposal_id,

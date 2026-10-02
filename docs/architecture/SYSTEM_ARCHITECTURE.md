@@ -249,6 +249,19 @@ Read-only browser observations carry their network-control provenance into the t
 evidence: per-request egress vetting, DNS-pin method and pinned hosts, allowed hosts, browser
 engine, and ephemeral-context status.
 
+### 5.2 Durable shadow preview and runtime reconciliation
+
+Composition persists a typed `ShadowPreview` inside the existing tenant-scoped deliverable runtime
+state. It records the proposal lineage, planned graph nodes/actions, expected artifact keys, coverage,
+and epistemic evidence requirements. The preview is a read model: it cannot create tasks, resolve
+credentials, call providers, enter a queue, or grant runtime authority.
+
+When `WorkerRuntimeService` refreshes the deliverable read model after governed task completion,
+`RuntimeReconciliation` compares the preview with completed declared artifacts. It reports aligned,
+incomplete, drifted, or contradictory outcomes, including missing and unexpected artifact keys. The
+comparison is persisted beside completion and is exposed through the existing mission read model;
+historical missions without a preview remain readable with a null preview/reconciliation.
+
 ---
 
 ## 6. End-to-end paid customer loop (staging-ready)

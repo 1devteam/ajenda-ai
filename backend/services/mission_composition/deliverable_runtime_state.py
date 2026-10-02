@@ -24,6 +24,7 @@ from backend.services.mission_composition.deliverable_projection import (
     DeliverableProjection,
     project_deliverable_request,
 )
+from backend.services.mission_composition.shadow_preview import RuntimeReconciliation, ShadowPreview
 from backend.services.mission_composition.vertical_know_how import (
     REVOPS_V1_KNOW_HOW,
     VerticalKnowHowContract,
@@ -94,6 +95,8 @@ class DeliverableRuntimeState(BaseModel):
     request: DeliverableRequest
     projection: DeliverableProjection
     completion: dict[str, object] | None = None
+    shadow_preview: ShadowPreview | None = None
+    runtime_reconciliation: RuntimeReconciliation | None = None
     lifecycle: DeliverableArtifactLifecycle = Field(default_factory=DeliverableArtifactLifecycle)
     grants_execution_authority: Literal[False] = False
 
@@ -106,6 +109,7 @@ def build_deliverable_runtime_state(
     know_how: VerticalKnowHowContract = REVOPS_V1_KNOW_HOW,
     minimum_rows: int = 0,
     minimum_rows_by_artifact: dict[str, int] | None = None,
+    shadow_preview: ShadowPreview | None = None,
 ) -> dict[str, object] | None:
     """Build JSON-safe durable state from the canonical interpreted request."""
 
@@ -126,6 +130,7 @@ def build_deliverable_runtime_state(
             minimum_rows=minimum_rows,
             minimum_rows_by_artifact=minimum_rows_by_artifact,
         ),
+        shadow_preview=shadow_preview,
         lifecycle=DeliverableArtifactLifecycle(
             epistemic_context_schema_version=(epistemic_context.schema_version if epistemic_context else None),
             epistemic_freshness=(epistemic_context.freshness if epistemic_context else None),

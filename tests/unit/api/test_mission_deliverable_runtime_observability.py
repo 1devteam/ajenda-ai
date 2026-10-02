@@ -368,6 +368,8 @@ def test_mission_read_exposes_tenant_scoped_deliverable_runtime_state(monkeypatc
         "epistemic_context": None,
         "semantic_selection": None,
         "semantic_reconciliation": "not_available",
+        "shadow_preview": None,
+        "runtime_reconciliation": None,
         "grants_execution_authority": False,
     }
     repo.get_for_tenant.assert_called_once_with(mission_id=mission.id, tenant_id=str(tenant_id))
