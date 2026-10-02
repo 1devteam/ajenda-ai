@@ -65,6 +65,20 @@ def test_semantic_selection_exposes_industry_overlay_terms() -> None:
     assert selection.grants_execution_authority is False
 
 
+def test_advertising_overlay_is_declarative_and_catalog_only() -> None:
+    selection = build_semantic_selection(
+        instruction="Analyze paid media campaigns, target audience, ad creative, ad spend, impressions, clicks, and conversions.",
+        requested_outcomes=(),
+        selected_job_keys=(),
+    )
+
+    assert {"campaign", "audience", "creative", "ad_budget", "impression", "click", "ad_conversion"}.issubset(
+        selection.concepts
+    )
+    assert "advertising" in selection.active_components
+    assert selection.grants_execution_authority is False
+
+
 def test_semantic_selection_fails_closed_when_a_required_job_is_missing() -> None:
     selection = build_semantic_selection(
         instruction="Qualify the prospects.",
