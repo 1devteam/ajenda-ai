@@ -63,6 +63,30 @@ def test_typed_and_whole_artifact_fields_complete_only_after_materialization() -
     assert after.grants_execution_authority is False
 
 
+def test_company_name_is_satisfied_by_discovery_artifacts() -> None:
+    projection = _projection("Return company name.")
+    completion = evaluate_deliverable_completion(
+        projection,
+        [
+            MaterializedArtifact(
+                artifact_key="prospect_candidates",
+                payload=[
+                    {
+                        "company": "Austin Forge Labs",
+                        "website": "https://austin-forge.example",
+                        "product_description": "Software development",
+                        "research_summary": "Fixture research result",
+                        "sources": ["fixture://austin-forge"],
+                    }
+                ],
+            )
+        ],
+    )
+
+    assert completion.complete is True
+    assert completion.fields[0].status == "satisfied"
+
+
 def test_goal_progress_artifact_accepts_empty_evaluation_arrays() -> None:
     request = extract_deliverable_request(
         "Return the evaluation status, confidence, KPI evaluations, progress gaps, evidence gaps, and explanations."

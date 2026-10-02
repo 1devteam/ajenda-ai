@@ -342,6 +342,8 @@ def test_mission_read_exposes_tenant_scoped_deliverable_runtime_state(monkeypatc
         "epistemic_missing_evidence": [],
         "coverage_assessment": None,
         "epistemic_context": None,
+        "semantic_selection": None,
+        "semantic_reconciliation": "not_available",
         "grants_execution_authority": False,
     }
     repo.get_for_tenant.assert_called_once_with(mission_id=mission.id, tenant_id=str(tenant_id))

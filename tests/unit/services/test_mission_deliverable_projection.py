@@ -51,6 +51,8 @@ def test_typed_qualification_fields_are_bound_without_claiming_materialization()
 
     assert set(by_field) == {"company_name", "qualification_reasons", "qualification_score"}
     assert by_field["company_name"].artifact_keys == (
+        "verified_prospect_candidates",
+        "prospect_candidates",
         "qualified_prospects",
         "researched_prospects",
         "enriched_prospects",

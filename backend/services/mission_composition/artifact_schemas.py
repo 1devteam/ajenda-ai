@@ -44,6 +44,15 @@ PROSPECT_CANDIDATES_SCHEMA = CompositionArtifactSchema(
     producer_job="research.discover_prospects",
     fields=(
         ArtifactFieldProjection(
+            deliverable_field="company_name",
+            json_path="$[].company",
+            scope="per_item",
+            # Discovery payloads persisted before the company-name projection
+            # was formalized remain readable; a request for the field still
+            # fails closed when the value is absent.
+            required_when_item_exists=False,
+        ),
+        ArtifactFieldProjection(
             deliverable_field="website",
             json_path="$[].website",
             scope="per_item",
@@ -82,6 +91,12 @@ VERIFIED_PROSPECT_CANDIDATES_SCHEMA = CompositionArtifactSchema(
     artifact_key="verified_prospect_candidates",
     producer_job="research.observe_sources",
     fields=(
+        ArtifactFieldProjection(
+            deliverable_field="company_name",
+            json_path="$[].company",
+            scope="per_item",
+            required_when_item_exists=False,
+        ),
         ArtifactFieldProjection(deliverable_field="website", json_path="$[].website", scope="per_item"),
         ArtifactFieldProjection(
             deliverable_field="product_description", json_path="$[].product_description", scope="per_item"

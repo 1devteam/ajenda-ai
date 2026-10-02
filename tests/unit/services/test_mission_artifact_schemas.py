@@ -21,12 +21,14 @@ def test_prospect_candidates_schema_exposes_explicit_research_fields() -> None:
     assert schema.artifact_key == "prospect_candidates"
     assert schema.producer_job == "research.discover_prospects"
     assert [field.deliverable_field for field in schema.fields] == [
+        "company_name",
         "website",
         "product_description",
         "research_summary",
         "sources",
     ]
     assert [field.json_path for field in schema.fields] == [
+        "$[].company",
         "$[].website",
         "$[].product_description",
         "$[].research_summary",
@@ -36,7 +38,8 @@ def test_prospect_candidates_schema_exposes_explicit_research_fields() -> None:
     assert all(
         field.required_when_item_exists
         for field in schema.fields
-        if field.deliverable_field not in {"qualification_dimensions", "disqualifiers", "recommended_next_action"}
+        if field.deliverable_field
+        not in {"company_name", "qualification_dimensions", "disqualifiers", "recommended_next_action"}
     )
     assert schema.grants_execution_authority is False
 
