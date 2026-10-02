@@ -59,6 +59,8 @@ def test_semantic_selection_exposes_industry_overlay_terms() -> None:
 
     assert {"prospect", "heat_pump", "maintenance_plan"}.issubset(selection.concepts)
     assert {"heat pump", "maintenance plans"}.issubset(selection.matched_terms)
+    assert selection.lattice_version == "1.0.0"
+    assert selection.active_components == ("shared_business", "gtm.core", "hvac")
     assert selection.conflicts == ()
     assert selection.grants_execution_authority is False
 

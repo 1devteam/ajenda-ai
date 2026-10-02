@@ -53,6 +53,8 @@ class SemanticSelection(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal[1] = 1
+    lattice_version: str = Field(default="1.0.0", pattern=r"^[1-9]\d*\.\d+\.\d+$", max_length=40)
+    active_components: tuple[str, ...] = Field(default=(), max_length=30)
     concepts: tuple[str, ...] = Field(default=(), max_length=40)
     matched_terms: tuple[str, ...] = Field(default=(), max_length=40)
     bindings: tuple[SemanticJobBinding, ...] = Field(default=(), max_length=40)
@@ -357,6 +359,48 @@ _OUTCOME_CONCEPTS: dict[str, tuple[str, tuple[str, ...]]] = {
     "maintain_pipeline": ("pipeline", ("crm.pipeline_maintenance",)),
 }
 
+_COMPONENT_ORDER = (
+    "shared_business",
+    "gtm.core",
+    "local_service_business",
+    "field_service",
+    "professional_services",
+    "healthcare_business",
+    "b2b_sales",
+    "recurring_service_business",
+    "ecommerce",
+    "hvac",
+    "roofing",
+    "plumbing",
+    "electrical",
+    "landscaping",
+    "pest_control",
+    "legal",
+    "dental",
+    "recruiting",
+    "saas",
+    "ecommerce_retail",
+)
+_INDUSTRY_COMPONENT_TERMS = {
+    "hvac": "hvac",
+    "roofing": "roofing",
+    "plumbing": "plumbing",
+    "electrical": "electrical",
+    "landscaping": "landscaping",
+    "pest control": "pest_control",
+    "legal": "legal",
+    "law firm": "legal",
+    "dental": "dental",
+    "dentist": "dental",
+    "recruiting": "recruiting",
+    "staffing": "recruiting",
+    "saas": "saas",
+    "software": "saas",
+    "e-commerce": "ecommerce_retail",
+    "ecommerce": "ecommerce_retail",
+    "retail": "ecommerce_retail",
+}
+
 
 def _validate_aliases() -> None:
     """Fail closed if shared vocabulary introduces an ambiguous alias."""
@@ -388,6 +432,9 @@ def build_semantic_selection(
     terms: list[str] = []
     bindings: list[SemanticJobBinding] = []
     conflicts: list[str] = []
+    component_candidates: set[str] = {"shared_business"}
+    if requested_outcomes or selected:
+        component_candidates.add("gtm.core")
 
     for raw_outcome in requested_outcomes:
         outcome = normalize_concept_text(str(raw_outcome))
@@ -396,6 +443,7 @@ def build_semantic_selection(
             continue
         concept_id, expected = mapping
         concept = SHARED_BUSINESS_CONCEPTS_BY_ID[concept_id]
+        component_candidates.update(concept.applicable_domains)
         if concept_id not in concepts:
             concepts.append(concept_id)
         binding_status: Literal["satisfied", "conflict"] = (
@@ -418,6 +466,9 @@ def build_semantic_selection(
         )
 
     normalized_instruction = normalize_concept_text(instruction)
+    for term, component in _INDUSTRY_COMPONENT_TERMS.items():
+        if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", normalized_instruction):
+            component_candidates.add(component)
     for concept in ALL_SEMANTIC_CONCEPTS:
         candidates = (concept.concept_id, concept.display_name, *concept.aliases)
         matched = next(
@@ -439,6 +490,7 @@ def build_semantic_selection(
             terms.append(normalized_match)
 
     return SemanticSelection(
+        active_components=tuple(component for component in _COMPONENT_ORDER if component in component_candidates),
         concepts=tuple(concepts),
         matched_terms=tuple(terms),
         bindings=tuple(bindings),
