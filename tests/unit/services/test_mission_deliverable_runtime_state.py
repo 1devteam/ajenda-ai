@@ -101,6 +101,22 @@ def test_runtime_state_records_epistemic_reconciliation_snapshot() -> None:
     assert lifecycle["epistemic_missing_evidence"] == []
 
 
+def test_runtime_state_records_coverage_reconciliation_snapshot() -> None:
+    instruction = (
+        "Find five software development companies in Austin using local fixture data only and return company name."
+    )
+    intent = interpret_instruction(instruction)
+    coverage = assess_coverage(intent)
+    state = build_deliverable_runtime_state(
+        _request(instruction), coverage_assessment=coverage, epistemic_context=build_epistemic_context(intent, coverage)
+    )
+
+    assert state is not None
+    lifecycle = state["lifecycle"]
+    assert lifecycle["coverage_assessment"] == coverage.model_dump(mode="json")
+    assert lifecycle["coverage_assessment"]["grants_execution_authority"] is False
+
+
 def test_lifecycle_effective_state_detects_expired_current_observation() -> None:
     lifecycle = DeliverableArtifactLifecycle(
         state="current",

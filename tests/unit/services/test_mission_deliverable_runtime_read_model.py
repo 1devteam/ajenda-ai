@@ -97,8 +97,9 @@ def test_refresh_preserves_epistemic_reconciliation_metadata() -> None:
     request = extract_deliverable_request(instruction)
     assert request is not None
     intent = interpret_instruction(instruction)
-    epistemic = build_epistemic_context(intent, assess_coverage(intent))
-    state = build_deliverable_runtime_state(request, epistemic_context=epistemic)
+    coverage = assess_coverage(intent)
+    epistemic = build_epistemic_context(intent, coverage)
+    state = build_deliverable_runtime_state(request, coverage_assessment=coverage, epistemic_context=epistemic)
     assert state is not None
     metadata = {"mission_intake": {"context": {"composition": {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: state}}}}
 
@@ -111,6 +112,7 @@ def test_refresh_preserves_epistemic_reconciliation_metadata() -> None:
     assert lifecycle["epistemic_contradiction_status"] == epistemic.contradiction_status
     assert lifecycle["epistemic_missing_evidence"] == list(epistemic.missing_evidence)
     assert lifecycle["epistemic_reconciliation"] == "aligned"
+    assert lifecycle["coverage_assessment"] == coverage.model_dump(mode="json")
 
 
 def test_refresh_marks_conflicting_duplicate_artifacts_contradictory() -> None:

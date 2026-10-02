@@ -139,6 +139,30 @@ def test_observability_projects_composition_coverage_and_epistemic_context() -> 
     assert read.epistemic_context.grants_execution_authority is False
 
 
+def test_observability_rejects_coverage_lineage_drift() -> None:
+    instruction = (
+        "Find five software development companies in Austin using local fixture data only and return company name."
+    )
+    intent = interpret_instruction(instruction)
+    coverage = assess_coverage(intent)
+    epistemic = build_epistemic_context(intent, coverage)
+    state = build_deliverable_runtime_state(
+        extract_deliverable_request(instruction), coverage_assessment=coverage, epistemic_context=epistemic
+    )
+    assert state is not None
+    composition = {
+        "coverage_assessment": coverage.model_dump(mode="json"),
+        "epistemic_context": epistemic.model_dump(mode="json"),
+        DELIVERABLE_RUNTIME_STATE_METADATA_KEY: state,
+    }
+    composition[DELIVERABLE_RUNTIME_STATE_METADATA_KEY]["lifecycle"]["coverage_assessment"]["status"] = (
+        "insufficient_capacity"
+    )
+
+    with pytest.raises(ValueError, match="coverage does not match"):
+        build_deliverable_runtime_state_read({"mission_intake": {"context": {"composition": composition}}})
+
+
 def test_observability_reconciles_semantic_selection_from_composition() -> None:
     metadata = _metadata_with_composition_context(
         "Research five software development companies in Austin using local fixture data only and return company name."

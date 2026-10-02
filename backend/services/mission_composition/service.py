@@ -760,6 +760,7 @@ class MissionCompositionService:
 
         deliverable_runtime_state = build_deliverable_runtime_state(
             _runtime_deliverable_request(record.intent),
+            coverage_assessment=record.coverage_assessment,
             epistemic_context=record.epistemic_context,
             know_how=select_vertical_know_how(record.intent.requested_outcomes) or REVOPS_V1_KNOW_HOW,
             minimum_rows=record.intent.requested_quantity or 0,
@@ -1144,6 +1145,7 @@ class MissionCompositionService:
             )
             deliverable_runtime_state = build_deliverable_runtime_state(
                 _runtime_deliverable_request(record.intent),
+                coverage_assessment=record.coverage_assessment,
                 epistemic_context=record.epistemic_context,
                 know_how=select_vertical_know_how(record.intent.requested_outcomes) or REVOPS_V1_KNOW_HOW,
                 minimum_rows=record.intent.requested_quantity or 0,

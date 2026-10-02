@@ -14,6 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.services.mission_composition.contracts import (
+    CoverageAssessment,
     EpistemicContext,
     EpistemicContradictionStatus,
     EpistemicFreshness,
@@ -59,6 +60,9 @@ class DeliverableArtifactLifecycle(BaseModel):
     epistemic_contradiction_status: EpistemicContradictionStatus | None = None
     epistemic_missing_evidence: tuple[str, ...] = ()
     epistemic_reconciliation: Literal["not_available", "aligned", "blocked"] = "not_available"
+    # Snapshot composition applicability in the same lineage envelope as the
+    # materialized deliverable; this does not grant runtime authority.
+    coverage_assessment: CoverageAssessment | None = None
     grants_execution_authority: Literal[False] = False
 
     @model_validator(mode="after")
@@ -97,6 +101,7 @@ class DeliverableRuntimeState(BaseModel):
 def build_deliverable_runtime_state(
     request: DeliverableRequest | None,
     *,
+    coverage_assessment: CoverageAssessment | None = None,
     epistemic_context: EpistemicContext | None = None,
     know_how: VerticalKnowHowContract = REVOPS_V1_KNOW_HOW,
     minimum_rows: int = 0,
@@ -127,6 +132,7 @@ def build_deliverable_runtime_state(
             epistemic_contradiction_status=(epistemic_context.contradiction_status if epistemic_context else None),
             epistemic_missing_evidence=(epistemic_context.missing_evidence if epistemic_context else ()),
             epistemic_reconciliation=epistemic_reconciliation,
+            coverage_assessment=coverage_assessment,
         ),
     )
     return state.model_dump(mode="json")

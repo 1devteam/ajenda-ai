@@ -118,6 +118,12 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
         if state.lifecycle.epistemic_missing_evidence != epistemic.missing_evidence:
             raise ValueError("deliverable lifecycle epistemic evidence does not match composition context")
 
+    if state.lifecycle.coverage_assessment is not None:
+        if coverage is None:
+            raise ValueError("deliverable lifecycle coverage is missing from composition context")
+        if state.lifecycle.coverage_assessment != coverage:
+            raise ValueError("deliverable lifecycle coverage does not match composition context")
+
     requested_fields = tuple(field.field_key for field in state.request.fields)
     projected_fields = tuple(binding.field_key for binding in state.projection.bindings)
     if projected_fields != requested_fields:
