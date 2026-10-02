@@ -4,6 +4,7 @@ import uuid
 
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
+from backend.services.mission_composition.coverage import assess_coverage
 from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
 from backend.services.mission_composition.deliverable_runtime_read_model import (
     refresh_deliverable_completion_metadata,
@@ -12,6 +13,8 @@ from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
     build_deliverable_runtime_state,
 )
+from backend.services.mission_composition.epistemic import build_epistemic_context
+from backend.services.mission_composition.intent_interpreter import interpret_instruction
 
 MISSION_ID = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
 
@@ -85,6 +88,29 @@ def test_refresh_marks_bound_fields_complete_only_after_required_artifacts_mater
     assert complete_state["lifecycle"]["state"] == "current"
     assert complete_state["lifecycle"]["materialized_artifact_count"] == 2
     assert complete_state["grants_execution_authority"] is False
+
+
+def test_refresh_preserves_epistemic_reconciliation_metadata() -> None:
+    instruction = (
+        "Find five software development companies in Austin using local fixture data only and return company name."
+    )
+    request = extract_deliverable_request(instruction)
+    assert request is not None
+    intent = interpret_instruction(instruction)
+    epistemic = build_epistemic_context(intent, assess_coverage(intent))
+    state = build_deliverable_runtime_state(request, epistemic_context=epistemic)
+    assert state is not None
+    metadata = {"mission_intake": {"context": {"composition": {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: state}}}}
+
+    updated, completion = refresh_deliverable_completion_metadata(metadata, [])
+
+    assert completion is not None
+    lifecycle = updated["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]["lifecycle"]
+    assert lifecycle["epistemic_context_schema_version"] == epistemic.schema_version
+    assert lifecycle["epistemic_freshness"] == epistemic.freshness
+    assert lifecycle["epistemic_contradiction_status"] == epistemic.contradiction_status
+    assert lifecycle["epistemic_missing_evidence"] == list(epistemic.missing_evidence)
+    assert lifecycle["epistemic_reconciliation"] == "aligned"
 
 
 def test_refresh_marks_conflicting_duplicate_artifacts_contradictory() -> None:

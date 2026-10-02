@@ -80,6 +80,11 @@ def refresh_deliverable_completion_metadata(
         materialized_artifact_count=len(artifacts),
         contradiction_codes=contradiction_codes,
         supersedes_artifact_id=state.lifecycle.supersedes_artifact_id,
+        epistemic_context_schema_version=state.lifecycle.epistemic_context_schema_version,
+        epistemic_freshness=state.lifecycle.epistemic_freshness,
+        epistemic_contradiction_status=state.lifecycle.epistemic_contradiction_status,
+        epistemic_missing_evidence=state.lifecycle.epistemic_missing_evidence,
+        epistemic_reconciliation=state.lifecycle.epistemic_reconciliation,
     )
     completion_payload: dict[str, object] = {
         **completion.model_dump(mode="json"),
