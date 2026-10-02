@@ -47,6 +47,9 @@ def test_semantic_selection_records_outcome_to_job_provenance() -> None:
     assert selection.concepts == ("prospect", "qualification", "outreach")
     assert {binding.status for binding in selection.bindings} == {"satisfied"}
     assert selection.conflicts == ()
+    guidance = {item.component_id: item for item in selection.component_job_guidance}
+    assert guidance["gtm.core"].status == "satisfied"
+    assert "sales.qualify_prospects" in guidance["gtm.core"].candidate_job_keys
     assert selection.grants_execution_authority is False
 
 
@@ -84,6 +87,9 @@ def test_advertising_overlay_is_declarative_and_catalog_only() -> None:
     )
     assert "advertising" in selection.active_components
     assert selection.active_components[:3] == ("shared_business", "gtm.core", "advertising")
+    advertising_guidance = next(item for item in selection.component_job_guidance if item.component_id == "advertising")
+    assert advertising_guidance.status == "informational"
+    assert advertising_guidance.grants_execution_authority is False
     assert selection.grants_execution_authority is False
 
 

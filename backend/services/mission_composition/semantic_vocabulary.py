@@ -59,6 +59,18 @@ class SemanticLatticeComponent(BaseModel):
     grants_execution_authority: Literal[False] = False
 
 
+class SemanticComponentJobGuidance(BaseModel):
+    """Advisory component-to-job hint; the job catalog remains authoritative."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    component_id: str = Field(min_length=1, max_length=80)
+    candidate_job_keys: tuple[str, ...] = Field(default=(), max_length=20)
+    selected_job_keys: tuple[str, ...] = Field(default=(), max_length=40)
+    status: Literal["informational", "satisfied"] = "informational"
+    grants_execution_authority: Literal[False] = False
+
+
 class SemanticSelection(BaseModel):
     """Composed semantic read model used to inspect concept-to-job reasoning."""
 
@@ -68,6 +80,7 @@ class SemanticSelection(BaseModel):
     lattice_version: str = Field(default="1.0.0", pattern=r"^[1-9]\d*\.\d+\.\d+$", max_length=40)
     active_components: tuple[str, ...] = Field(default=(), max_length=30)
     component_conflicts: tuple[str, ...] = Field(default=(), max_length=20)
+    component_job_guidance: tuple[SemanticComponentJobGuidance, ...] = Field(default=(), max_length=30)
     concepts: tuple[str, ...] = Field(default=(), max_length=40)
     matched_terms: tuple[str, ...] = Field(default=(), max_length=40)
     bindings: tuple[SemanticJobBinding, ...] = Field(default=(), max_length=40)
@@ -623,6 +636,33 @@ _COMPONENT_DOMAIN_ALIASES = {
     "service_business": "local_service_business",
     "b2b_software": "saas",
 }
+_COMPONENT_JOB_HINTS: dict[str, tuple[str, ...]] = {
+    "gtm.core": (
+        "research.discover_prospects",
+        "research.observe_sources",
+        "sales.qualify_prospects",
+        "gtm.enrich_contacts",
+        "email.prepare_outreach",
+        "crm.read_records",
+    ),
+    "local_service_business": ("research.discover_prospects", "research.observe_sources", "sales.qualify_prospects"),
+    "field_service": ("research.discover_prospects", "research.observe_sources", "sales.qualify_prospects"),
+    "professional_services": ("research.discover_prospects", "research.observe_sources", "sales.qualify_prospects"),
+    "healthcare_business": ("research.discover_prospects", "research.observe_sources", "sales.qualify_prospects"),
+    "b2b_sales": (
+        "research.discover_prospects",
+        "research.observe_sources",
+        "sales.qualify_prospects",
+        "crm.read_records",
+    ),
+    "advertising": ("research.synthesize_report", "analysis.evaluate_goal_progress"),
+    "recurring_service_business": (
+        "research.discover_prospects",
+        "sales.qualify_prospects",
+        "crm.pipeline_maintenance",
+    ),
+    "ecommerce": ("research.synthesize_report", "analysis.evaluate_goal_progress", "crm.read_records"),
+}
 
 
 def _validate_aliases() -> None:
@@ -741,9 +781,20 @@ def build_semantic_selection(
     normalized_components = {_COMPONENT_DOMAIN_ALIASES.get(component, component) for component in component_candidates}
     active_components, component_conflicts = _compose_lattice_components(normalized_components)
     conflicts.extend(component_conflicts)
+    component_job_guidance = tuple(
+        SemanticComponentJobGuidance(
+            component_id=component,
+            candidate_job_keys=_COMPONENT_JOB_HINTS[component],
+            selected_job_keys=selected,
+            status=("satisfied" if set(selected).intersection(_COMPONENT_JOB_HINTS[component]) else "informational"),
+        )
+        for component in active_components
+        if component in _COMPONENT_JOB_HINTS
+    )
     return SemanticSelection(
         active_components=active_components,
         component_conflicts=component_conflicts,
+        component_job_guidance=component_job_guidance,
         concepts=tuple(concepts),
         matched_terms=tuple(terms),
         bindings=tuple(bindings),
