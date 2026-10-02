@@ -1,6 +1,6 @@
 # Ajenda AI — Project State Report
 
-**Date:** September 25, 2026
+**Date:** October 2, 2026
 **Branch:** `main`  
 **Alembic head:** `0038_knowledge_retrieval`
 **Architecture map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md)
@@ -40,6 +40,9 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Mission result semantics keep runtime/deliverable acceptance separate from `business_outcome_status`; instruction-only goal evaluations explicitly report missing durable Goal/KPI/current-state authority
 - Queue claim convergence releases recent payloads during the DB commit-visibility window and quarantines stale taskless payloads instead of requeueing them indefinitely
 - Product-catalog projection is tenant-isolated, idempotent, and durable in the internal CRM account shelf
+- Deterministic coverage assessment is attached to composition and carried into the deliverable lifecycle lineage; unsupported and over-capacity fixture scopes fail closed before runtime
+- Epistemic context and deliverable lifecycle reconciliation preserve source, freshness, contradiction, and coverage metadata through artifact refresh and read-model projection
+- Semantic lattice vocabulary is versioned and provenance-backed across shared GTM/business, business-family, and industry overlays; advertising remains declarative and catalog-only until provider proof exists
 
 ### 2.2 Tenant isolation and auth
 
@@ -70,6 +73,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - External connectors fail closed without credentials; simulation requires explicit non-production opt-in and remains disabled in production
 - Gmail query composition preserves sender and material `for` clauses, translates supported time windows, and rejects known unsupported explicit operators
 - Explicit HubSpot sourcing remains connector-bound and unsupported CRM discovery scopes are rejected instead of falling back
+- Semantic overlays currently guide interpretation and composition provenance; multi-parent merge semantics and tenant-private vocabulary overrides remain future work
 - Local fixture research remains `real=false` with `fixture://` evidence identities at discovery and verification stages
 - Read-only browser artifacts preserve request-vetting, DNS-pin, allowed-host, engine, and ephemeral-context provenance
 

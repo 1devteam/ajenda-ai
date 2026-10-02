@@ -572,6 +572,9 @@ Recent milestones:
 - **Paid customer product:** account APIs, customer frontend (router + pages), Compose/K8s frontend deploy, GHCR frontend image CI, E2E integration test + staging curl proof
 - **Alembic head:** `0036_composition_thread`
 - **Live proof CI:** `main` push runs Live Runtime Proof after integration + docker build (see `docs/validation/live-runtime-proof-release-gate.md`)
+- **Outcome-loop intelligence:** deterministic coverage/applicability assessment, epistemic context, deliverable lifecycle reconciliation, and semantic lattice provenance are implemented before and alongside governed runtime execution
+- **Semantic lattice:** shared GTM/business concepts now compose with local-service, field-service, professional-services, healthcare, SaaS, e-commerce, and industry overlays including HVAC, roofing, plumbing, electrical, landscaping, pest control, legal, dental, recruiting, and advertising
+- **Advertising boundary:** advertising concepts (campaign, audience, creative, spend, impressions, clicks, conversions) are declarative composition vocabulary; the existing ads role remains catalog-only until a governed provider path is proven
 
 ---
 
@@ -659,6 +662,23 @@ The practical realization is that Ajenda now has two complementary R&D behaviors
 makes existing-system change legible and provable, while the Frontier Track makes ambitious
 possibilities explicit without allowing speculation to mutate production behavior. Their value comes
 from comparison, runtime evidence, and honest reconciliation—not from the graph artifact alone.
+
+### Outcome-loop intelligence and semantic lattice
+
+Ajenda's composition layer now records more than selected actions. A mission can carry a deterministic
+coverage assessment (known fixture scope/capacity or explicitly unknown provider/CRM capacity), an
+epistemic context (source class, confidence, freshness, missing evidence, and contradiction state),
+and a deliverable lifecycle snapshot that is reconciled against materialized artifacts. These records
+remain read models and grant no runtime authority.
+
+Semantic selection is versioned and provenance-backed. It exposes active lattice components such as
+`shared_business`, `gtm.core`, business-family domains, and industry overlays. This vocabulary guides
+interpretation and job composition only; `ActionRegistry`, `TaskDispatcher`, `WorkerRuntimeService`,
+tenant scope, credentials, approvals, and provider effects remain authoritative elsewhere.
+
+The current semantic layer is intentionally not the finished lattice resolver. Multi-parent merge
+semantics, tenant-private terminology overrides, epistemic budgets, counterfactual planning, governed
+knowledge-change proposals, and recurring cross-stage reconciliation remain subsequent work.
 
 ---
 
