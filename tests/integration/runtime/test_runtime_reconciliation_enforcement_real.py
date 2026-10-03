@@ -12,6 +12,11 @@ from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueMessage
+from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
+from backend.services.mission_composition.deliverable_runtime_state import (
+    DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
+    build_deliverable_runtime_state,
+)
 from backend.services.runtime_maintainer import RuntimeMaintainer
 
 pytestmark = pytest.mark.integration
@@ -148,6 +153,54 @@ def test_terminal_task_with_expired_active_lease_expires_ownership_without_reque
         assert summary.dead_lettered_count == 0
         assert task.status == ExecutionTaskState.COMPLETED.value
         assert lease.status == WorkerLeaseState.EXPIRED.value
+    finally:
+        session.close()
+
+
+def test_periodic_maintenance_refreshes_deliverable_read_model(
+    pg_engine,
+    queue_adapter,
+) -> None:
+    session_factory = _session_factory(pg_engine)
+    tenant_id = _tenant_id()
+
+    session = session_factory()
+    try:
+        _create_tenant(session, tenant_id)
+        mission = _create_mission(session, tenant_id)
+        request = extract_deliverable_request("Return drafts.")
+        assert request is not None
+        runtime_state = build_deliverable_runtime_state(request)
+        assert runtime_state is not None
+        mission.metadata_json = {
+            "mission_intake": {
+                "context": {
+                    "composition": {
+                        DELIVERABLE_RUNTIME_STATE_METADATA_KEY: runtime_state,
+                    }
+                }
+            }
+        }
+        task = _create_task(
+            session,
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            status=ExecutionTaskState.COMPLETED.value,
+        )
+        task.metadata_json = {
+            "expected_output_contract": {"artifact": "introduction_drafts"},
+            "handler_result": {"output": {"introduction_drafts": [{"company": "Acme"}]}},
+        }
+        session.commit()
+
+        summary = RuntimeMaintainer(session=session, queue=queue_adapter).recover_expired_leases()
+
+        session.refresh(mission)
+        composition = mission.metadata_json["mission_intake"]["context"]["composition"]
+        refreshed = composition[DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
+        assert summary.deliverable_reconciled_count == 1
+        assert refreshed["lifecycle"]["state"] == "current"
+        assert refreshed["lifecycle"]["materialized_artifact_count"] == 1
     finally:
         session.close()
 

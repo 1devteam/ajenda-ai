@@ -684,6 +684,10 @@ read-model refresh compares those expectations with later governed runtime artif
 remain read models and grant no runtime authority; missing or unexpected artifacts remain visible.
 The read-only proposal shadow-preview endpoint validates those server-owned expectations before
 confirmation without creating runtime work.
+The periodic worker maintenance pass also refreshes tenant-scoped deliverable read models through
+the same canonical lifecycle transformer used after task completion. This keeps freshness and
+artifact reconciliation moving even when no new task has just completed; it does not create work,
+resolve credentials, or change queue authority.
 The October 3, 2026 outcome-loop checkpoint proves supported fixture execution, unsupported and
 over-capacity fail-closed composition, and insufficient-public-evidence fail-closed runtime behavior.
 It also verifies that materialized work cannot remain silently current when coverage was blocked; see

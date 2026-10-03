@@ -36,10 +36,14 @@ from sqlalchemy.orm import Session
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
+from backend.domain.mission import Mission
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueAdapter
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.runtime.transitions import transition_lease, transition_task
+from backend.services.mission_composition.deliverable_runtime_read_model import (
+    refresh_deliverable_completion_metadata,
+)
 
 logger = logging.getLogger("ajenda.runtime_maintainer")
 
@@ -67,6 +71,7 @@ class RecoverySummary:
     requeued_task_count: int
     dead_lettered_count: int
     mismatched_state_count: int = 0
+    deliverable_reconciled_count: int = 0
 
 
 class RuntimeMaintainer:
@@ -344,6 +349,7 @@ class RuntimeMaintainer:
         requeued_count += queue_reconciliation.requeued_task_count
         dead_lettered_count += queue_reconciliation.dead_lettered_count
         mismatched_state_count += queue_reconciliation.mismatched_state_count
+        deliverable_reconciled_count = self.reconcile_deliverable_read_models()
 
         logger.info(
             "runtime_maintainer_recovery_complete",
@@ -352,6 +358,7 @@ class RuntimeMaintainer:
                 "requeued_tasks": requeued_count,
                 "dead_lettered_tasks": dead_lettered_count,
                 "mismatched_states": mismatched_state_count,
+                "deliverable_reconciled": deliverable_reconciled_count,
             },
         )
 
@@ -360,7 +367,43 @@ class RuntimeMaintainer:
             requeued_task_count=requeued_count,
             dead_lettered_count=dead_lettered_count,
             mismatched_state_count=mismatched_state_count,
+            deliverable_reconciled_count=deliverable_reconciled_count,
         )
+
+    def reconcile_deliverable_read_models(self) -> int:
+        """Refresh tenant-owned deliverable read models during maintenance.
+
+        This reuses the canonical completion/lifecycle transformer and only
+        updates mission metadata. It never changes task state, leases, queue
+        messages, credentials, approvals, or provider authority.
+        """
+
+        tenant_ids = set(self._session.scalars(select(ExecutionTask.tenant_id)).all())
+        reconciled = 0
+        for tenant_id in tenant_ids:
+            missions = self._session.scalars(select(Mission).where(Mission.tenant_id == tenant_id)).all()
+            for mission in missions:
+                metadata = dict(mission.metadata_json or {})
+                refreshed, _completion = refresh_deliverable_completion_metadata(
+                    metadata,
+                    list(
+                        self._session.scalars(
+                            select(ExecutionTask).where(
+                                ExecutionTask.tenant_id == tenant_id,
+                                ExecutionTask.mission_id == mission.id,
+                            )
+                        )
+                    ),
+                )
+                if refreshed == mission.metadata_json:
+                    continue
+                mission.metadata_json = refreshed
+                self._session.add(mission)
+                reconciled += 1
+        if reconciled:
+            self._session.flush()
+            self._session.commit()
+        return reconciled
 
     def _reconcile_queue_processing_payloads(self) -> RecoverySummary:
         tenant_ids = set(self._session.scalars(select(ExecutionTask.tenant_id)).all())
