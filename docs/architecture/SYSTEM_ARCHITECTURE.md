@@ -273,10 +273,14 @@ is explicitly non-executable. These estimates inform review; they do not become 
 
 Completed tenant outcome reviews can be projected as review-only knowledge-change proposals at
 `GET /v1/missions/{mission_id}/knowledge-change-proposals`. The projection requires evidence,
-preserves review and artifact lineage, and reports runtime reconciliation state. It has no persistence
-owner for applying changes yet: proposals cannot mutate shared semantic vocabulary or tenant facts,
+preserves review and artifact lineage, and reports runtime reconciliation state. It has a persistence
+owner for governance state but no application owner yet: proposals cannot mutate shared semantic vocabulary or tenant facts,
 register runtime handlers, resolve credentials, or enqueue work. A future application workflow must
 define explicit human approval, provenance, rollback, and audit semantics.
+
+The lifecycle store now records explicit review decisions, supersession links, rollback lineage,
+provenance, and append-only audit events. These records are governance state only; “accepted” means
+approved for a future application workflow, not applied to composition or runtime.
 
 ### 5.3 Canonical outcome-graph lineage
 

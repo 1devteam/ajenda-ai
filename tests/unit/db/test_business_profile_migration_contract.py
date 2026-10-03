@@ -11,7 +11,7 @@ def test_business_profile_migration_is_current_head_and_short_revision_id() -> N
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0045_stripe_revenue_payload"]
+    assert heads == ["0046_knowledge_change_proposals"]
     assert len(heads[0]) <= 32
 
 

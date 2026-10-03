@@ -3,20 +3,24 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import ValidationError
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
+from backend.domain.audit_event import AuditEvent
 from backend.domain.execution_task import ExecutionTask
+from backend.domain.knowledge_change_proposal import KnowledgeChangeProposalRecord
 from backend.domain.worker_lease import WorkerLease
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
+from backend.repositories.knowledge_change_proposal_repository import KnowledgeChangeProposalRepository
 from backend.repositories.lineage_record_repository import LineageRecordRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
@@ -24,6 +28,7 @@ from backend.services.document_artifacts import read_artifact
 from backend.services.knowledge.knowledge_change_proposals import (
     KnowledgeChangeProposalSet,
     build_knowledge_change_proposals,
+    proposal_from_record,
 )
 from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
 from backend.services.mission_composition.deliverable_runtime_state import load_deliverable_runtime_state
@@ -41,6 +46,15 @@ from backend.services.mission_runtime_evidence_projection import (
 )
 
 router = APIRouter(prefix="/missions", tags=["missions"])
+
+
+class KnowledgeChangeProposalReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = Field(pattern="^(accepted|rejected|superseded|rolled_back)$")
+    superseding_proposal_id: str | None = Field(default=None, max_length=160)
+    rollback_of_proposal_id: str | None = Field(default=None, max_length=160)
+    note: str = Field(min_length=1, max_length=2_000)
 
 
 def _runtime_state_from_metadata(metadata: object) -> object | None:
@@ -84,6 +98,127 @@ def read_knowledge_change_proposals(
         reviews=reviews,
         runtime_state=runtime_state,
     )
+
+
+@router.post(
+    "/{mission_id}/knowledge-change-proposals/materialize",
+    response_model=KnowledgeChangeProposalSet,
+    status_code=status.HTTP_201_CREATED,
+)
+def materialize_knowledge_change_proposals(
+    mission_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> KnowledgeChangeProposalSet:
+    """Persist the review-only projection and append provenance audit events."""
+
+    require_route_permission(request=request, db=db, permission=Permission.OUTCOME_REVIEW_MANAGE, tenant_id=tenant_id)
+    tenant_scope = str(tenant_id)
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_scope)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+    reviews = OutcomeReviewRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_scope)
+    metadata = mission.metadata_json if isinstance(mission.metadata_json, dict) else {}
+    try:
+        runtime_state = load_deliverable_runtime_state(_runtime_state_from_metadata(metadata))
+    except ValidationError as exc:
+        raise HTTPException(status_code=409, detail="mission deliverable runtime state is invalid") from exc
+    projected = build_knowledge_change_proposals(
+        tenant_id=tenant_scope, mission_id=mission_id, reviews=reviews, runtime_state=runtime_state
+    )
+    repository = KnowledgeChangeProposalRepository(db)
+    actor_id = str(getattr(getattr(request.state, "principal", None), "subject_id", "unknown"))
+    records = []
+    try:
+        for proposal in projected.proposals:
+            if repository.get(tenant_id=tenant_scope, proposal_id=proposal.proposal_id) is not None:
+                continue
+            records.append(
+                repository.add(
+                    KnowledgeChangeProposalRecord(
+                        tenant_id=tenant_scope,
+                        proposal_id=proposal.proposal_id,
+                        mission_id=mission_id,
+                        review_id=proposal.review_id,
+                        scope=proposal.scope,
+                        target_key=proposal.target_key,
+                        suggested_change=proposal.suggested_change,
+                        rationale=proposal.rationale,
+                        evidence_references=list(proposal.evidence_references),
+                        source_artifact_ids=list(proposal.source_artifact_ids),
+                        runtime_reconciliation=proposal.runtime_reconciliation,
+                        confidence=proposal.confidence,
+                        provenance={"source": "outcome_review", "actor_id": actor_id},
+                    )
+                )
+            )
+            AuditEventRepository(db).append(
+                AuditEvent(
+                    tenant_id=tenant_scope,
+                    mission_id=mission_id,
+                    category="knowledge_change_proposal",
+                    action="materialized",
+                    actor=actor_id,
+                    details="Materialized review-only knowledge-change proposal.",
+                    payload_json={"proposal_id": proposal.proposal_id, "review_id": str(proposal.review_id)},
+                )
+            )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="knowledge-change proposal materialization failed") from exc
+    return KnowledgeChangeProposalSet(
+        mission_id=mission_id,
+        proposals=tuple(proposal_from_record(record) for record in records),
+    )
+
+
+@router.post(
+    "/{mission_id}/knowledge-change-proposals/{proposal_id}/review",
+    response_model=KnowledgeChangeProposalSet,
+)
+def review_knowledge_change_proposal(
+    mission_id: uuid.UUID,
+    proposal_id: str,
+    body: KnowledgeChangeProposalReviewRequest,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> KnowledgeChangeProposalSet:
+    """Record a human lifecycle decision without applying knowledge or runtime work."""
+
+    require_route_permission(request=request, db=db, permission=Permission.OUTCOME_REVIEW_MANAGE, tenant_id=tenant_id)
+    tenant_scope = str(tenant_id)
+    record = KnowledgeChangeProposalRepository(db).get(tenant_id=tenant_scope, proposal_id=proposal_id)
+    if record is None or record.mission_id != mission_id:
+        raise HTTPException(status_code=404, detail="knowledge-change proposal not found for tenant")
+    actor_id = str(getattr(getattr(request.state, "principal", None), "subject_id", "unknown"))
+    try:
+        KnowledgeChangeProposalRepository(db).transition(
+            record=record,
+            status=body.status,
+            actor_id=actor_id,
+            provenance={"review_note": body.note, "reviewed_at": datetime.now(UTC).isoformat()},
+            superseded_by_proposal_id=body.superseding_proposal_id,
+            rollback_of_proposal_id=body.rollback_of_proposal_id,
+        )
+        AuditEventRepository(db).append(
+            AuditEvent(
+                tenant_id=tenant_scope,
+                mission_id=mission_id,
+                category="knowledge_change_proposal",
+                action=body.status,
+                actor=actor_id,
+                details=body.note,
+                payload_json={"proposal_id": proposal_id, "rollback_of": body.rollback_of_proposal_id},
+            )
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="knowledge-change proposal review failed") from exc
+    return KnowledgeChangeProposalSet(mission_id=mission_id, proposals=(proposal_from_record(record),))
 
 
 def _draft_artifact_ids(tasks: list[ExecutionTask]) -> tuple[str, ...]:

@@ -690,6 +690,10 @@ Completed outcome reviews can also be projected through
 tenant-scoped suggestions with evidence and reconciliation lineage. They are review-only: they do
 not write the knowledge ledger, mutate shared vocabulary, register handlers, grant permissions, or
 create runtime work. Shared-taxonomy candidates always remain explicitly human-reviewable.
+An explicit `POST .../materialize` stores the proposal lifecycle in the tenant-scoped
+`knowledge_change_proposals` table and emits an append-only audit event. Review decisions are
+recorded through `POST .../{proposal_id}/review`; accepted, rejected, superseded, and rolled-back
+states remain provenance-linked and still do not apply knowledge automatically.
 
 Semantic selection is versioned and provenance-backed. It exposes active lattice components such as
 `shared_business`, `gtm.core`, business-family domains, and industry overlays. This vocabulary guides
