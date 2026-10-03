@@ -366,6 +366,8 @@ def test_mission_read_exposes_tenant_scoped_deliverable_runtime_state(monkeypatc
         "contradiction_codes": [],
         "epistemic_reconciliation": "not_available",
         "epistemic_missing_evidence": [],
+        "epistemic_budget_status": "within_budget",
+        "epistemic_budget_excesses": [],
         "coverage_assessment": None,
         "graph_lineage": {
             "schema_version": 1,

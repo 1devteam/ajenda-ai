@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.services.mission_composition.contracts import (
     CoverageAssessment,
+    EpistemicBudgetStatus,
     EpistemicContext,
     EpistemicContradictionStatus,
     EpistemicFreshness,
@@ -61,6 +62,8 @@ class DeliverableArtifactLifecycle(BaseModel):
     epistemic_freshness: EpistemicFreshness | None = None
     epistemic_contradiction_status: EpistemicContradictionStatus | None = None
     epistemic_missing_evidence: tuple[str, ...] = ()
+    epistemic_budget_status: EpistemicBudgetStatus = "within_budget"
+    epistemic_budget_excesses: tuple[str, ...] = ()
     epistemic_reconciliation: Literal["not_available", "aligned", "blocked"] = "not_available"
     # Snapshot composition applicability in the same lineage envelope as the
     # materialized deliverable; this does not grant runtime authority.
@@ -122,7 +125,11 @@ def build_deliverable_runtime_state(
     if epistemic_context is not None:
         epistemic_reconciliation = (
             "blocked"
-            if epistemic_context.contradiction_status == "unresolved" or epistemic_context.missing_evidence
+            if (
+                epistemic_context.contradiction_status == "unresolved"
+                or epistemic_context.missing_evidence
+                or epistemic_context.budget_status == "exceeded"
+            )
             else "aligned"
         )
     state = DeliverableRuntimeState(
@@ -139,6 +146,8 @@ def build_deliverable_runtime_state(
             epistemic_freshness=(epistemic_context.freshness if epistemic_context else None),
             epistemic_contradiction_status=(epistemic_context.contradiction_status if epistemic_context else None),
             epistemic_missing_evidence=(epistemic_context.missing_evidence if epistemic_context else ()),
+            epistemic_budget_status=(epistemic_context.budget_status if epistemic_context else "within_budget"),
+            epistemic_budget_excesses=(epistemic_context.budget_excesses if epistemic_context else ()),
             epistemic_reconciliation=epistemic_reconciliation,
             coverage_assessment=coverage_assessment,
             graph_lineage=graph_lineage or GraphLineage(),

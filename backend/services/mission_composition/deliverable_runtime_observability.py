@@ -12,7 +12,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from backend.services.mission_composition.contracts import CoverageAssessment, EpistemicContext, GraphLineage
+from backend.services.mission_composition.contracts import (
+    CoverageAssessment,
+    EpistemicBudgetStatus,
+    EpistemicContext,
+    GraphLineage,
+)
 from backend.services.mission_composition.deliverable_completion import DeliverableCompletion
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
 from backend.services.mission_composition.deliverable_runtime_state import (
@@ -43,6 +48,8 @@ class DeliverableRuntimeStateRead(BaseModel):
     contradiction_codes: tuple[str, ...] = ()
     epistemic_reconciliation: Literal["not_available", "aligned", "blocked"] = "not_available"
     epistemic_missing_evidence: tuple[str, ...] = ()
+    epistemic_budget_status: EpistemicBudgetStatus = "within_budget"
+    epistemic_budget_excesses: tuple[str, ...] = ()
     semantic_selection: SemanticSelection | None = None
     semantic_reconciliation: Literal["not_available", "aligned", "blocked"] = "not_available"
     coverage_assessment: CoverageAssessment | None = None
@@ -121,6 +128,10 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
             raise ValueError("deliverable lifecycle epistemic contradiction state does not match composition context")
         if state.lifecycle.epistemic_missing_evidence != epistemic.missing_evidence:
             raise ValueError("deliverable lifecycle epistemic evidence does not match composition context")
+        if state.lifecycle.epistemic_budget_status != epistemic.budget_status:
+            raise ValueError("deliverable lifecycle epistemic budget status does not match composition context")
+        if state.lifecycle.epistemic_budget_excesses != epistemic.budget_excesses:
+            raise ValueError("deliverable lifecycle epistemic budget excesses do not match composition context")
 
     if state.lifecycle.coverage_assessment is not None:
         if coverage is None:
@@ -182,6 +193,8 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
         contradiction_codes=state.lifecycle.contradiction_codes,
         epistemic_reconciliation=state.lifecycle.epistemic_reconciliation,
         epistemic_missing_evidence=state.lifecycle.epistemic_missing_evidence,
+        epistemic_budget_status=state.lifecycle.epistemic_budget_status,
+        epistemic_budget_excesses=state.lifecycle.epistemic_budget_excesses,
         semantic_selection=semantic,
         semantic_reconciliation=semantic_reconciliation,
         coverage_assessment=coverage,

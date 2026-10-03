@@ -4,8 +4,12 @@ import uuid
 
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
+from backend.services.mission_composition.contracts import Contradiction
 from backend.services.mission_composition.coverage import assess_coverage
 from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
+from backend.services.mission_composition.deliverable_runtime_observability import (
+    build_deliverable_runtime_state_read,
+)
 from backend.services.mission_composition.deliverable_runtime_read_model import (
     refresh_deliverable_completion_metadata,
 )
@@ -142,6 +146,8 @@ def test_refresh_preserves_epistemic_reconciliation_metadata() -> None:
     assert lifecycle["epistemic_freshness"] == epistemic.freshness
     assert lifecycle["epistemic_contradiction_status"] == epistemic.contradiction_status
     assert lifecycle["epistemic_missing_evidence"] == list(epistemic.missing_evidence)
+    assert lifecycle["epistemic_budget_status"] == epistemic.budget_status
+    assert lifecycle["epistemic_budget_excesses"] == list(epistemic.budget_excesses)
     assert lifecycle["epistemic_reconciliation"] == "aligned"
     assert lifecycle["coverage_assessment"] == coverage.model_dump(mode="json")
 
@@ -215,6 +221,52 @@ def test_refresh_keeps_bound_field_missing_until_its_artifact_exists() -> None:
     assert statuses["drafts"] == "satisfied"
     state = updated["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
     assert state["completion"]["complete"] is False
+
+
+def test_refresh_blocks_exceeded_epistemic_budget_and_read_projection_preserves_it() -> None:
+    instruction = "Find five companies in Austin and return company name."
+    request = extract_deliverable_request(instruction)
+    assert request is not None
+    intent = interpret_instruction(instruction).model_copy(
+        update={
+            "contradictions": [
+                Contradiction(
+                    field_path="target_entities.location",
+                    first_span="in Austin",
+                    second_span="not in Austin",
+                    first_value="Austin",
+                    second_value="not Austin",
+                )
+            ]
+        }
+    )
+    coverage = assess_coverage(intent)
+    epistemic = build_epistemic_context(intent, coverage)
+    assert epistemic.budget_status == "exceeded"
+    state = build_deliverable_runtime_state(request, epistemic_context=epistemic)
+    assert state is not None
+    metadata = {
+        "mission_intake": {
+            "context": {
+                "composition": {
+                    DELIVERABLE_RUNTIME_STATE_METADATA_KEY: state,
+                    "epistemic_context": epistemic.model_dump(mode="json"),
+                }
+            }
+        }
+    }
+
+    updated, _ = refresh_deliverable_completion_metadata(metadata, [])
+    lifecycle = updated["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]["lifecycle"]
+    assert lifecycle["epistemic_reconciliation"] == "blocked"
+    assert lifecycle["epistemic_budget_status"] == "exceeded"
+    assert lifecycle["epistemic_budget_excesses"] == list(epistemic.budget_excesses)
+
+    read = build_deliverable_runtime_state_read(updated)
+    assert read is not None
+    assert read.epistemic_reconciliation == "blocked"
+    assert read.epistemic_budget_status == "exceeded"
+    assert read.epistemic_budget_excesses == epistemic.budget_excesses
 
 
 def test_refresh_requires_requested_row_count() -> None:

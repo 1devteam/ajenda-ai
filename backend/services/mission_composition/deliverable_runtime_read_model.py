@@ -85,6 +85,8 @@ def refresh_deliverable_completion_metadata(
         epistemic_freshness=state.lifecycle.epistemic_freshness,
         epistemic_contradiction_status=state.lifecycle.epistemic_contradiction_status,
         epistemic_missing_evidence=state.lifecycle.epistemic_missing_evidence,
+        epistemic_budget_status=state.lifecycle.epistemic_budget_status,
+        epistemic_budget_excesses=state.lifecycle.epistemic_budget_excesses,
         coverage_assessment=state.lifecycle.coverage_assessment,
         graph_lineage=state.lifecycle.graph_lineage,
         epistemic_reconciliation=state.lifecycle.epistemic_reconciliation,
