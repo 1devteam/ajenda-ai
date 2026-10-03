@@ -18,7 +18,11 @@ from sqlalchemy.orm import Session
 from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
-from backend.services.mission_composition.contracts import MissionCompositionRecord
+from backend.services.mission_composition.contracts import (
+    CoverageAssessment,
+    EpistemicContext,
+    MissionCompositionRecord,
+)
 from backend.services.mission_composition.counterfactual_plans import build_counterfactual_plan_set
 from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.mission_composition.service import (
@@ -59,6 +63,8 @@ class ComposeMissionResponse(BaseModel):
     planned_steps: list[dict[str, Any]]
     task_graph_preview: dict[str, Any]
     intelligence_envelope: dict[str, Any] | None = None
+    coverage_assessment: CoverageAssessment | None = None
+    epistemic_context: EpistemicContext | None = None
     clarifications: list[dict[str, Any]]
     ready_to_start: bool
     composition: dict[str, Any]
@@ -158,6 +164,8 @@ def _to_compose_response(record: MissionCompositionRecord) -> ComposeMissionResp
         intelligence_envelope=(
             record.intelligence_envelope.model_dump(mode="json") if record.intelligence_envelope is not None else None
         ),
+        coverage_assessment=record.coverage_assessment,
+        epistemic_context=record.epistemic_context,
         clarifications=[item.model_dump(mode="json") for item in record.clarifications],
         ready_to_start=record.ready_to_start,
         composition=record.model_dump(mode="json"),

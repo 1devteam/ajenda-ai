@@ -73,6 +73,9 @@ def test_compose_returns_proposal_without_runtime_authority() -> None:
     assert body["allowed_actions"]
     assert body["task_graph_preview"]["nodes"]
     assert body["composition"]["allowed_actions_provenance"]["selected_by"] == "mission_composition_engine"
+    assert body["coverage_assessment"]["status"] == "unknown"
+    assert body["coverage_assessment"]["grants_execution_authority"] is False
+    assert body["epistemic_context"]["grants_execution_authority"] is False
     assert body["ready_to_start"] is True
 
 
