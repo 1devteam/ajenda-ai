@@ -76,6 +76,54 @@ def test_compose_returns_proposal_without_runtime_authority() -> None:
     assert body["ready_to_start"] is True
 
 
+def test_shadow_preview_validates_plan_without_runtime_work() -> None:
+    tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    app = _build_app(tenant_id)
+    with (
+        patch.object(composition_module, "require_route_permission", return_value=None),
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
+    ):
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        cred_repo_cls.return_value.list_for_tenant.return_value = []
+        client = TestClient(app)
+        compose = client.post("/v1/missions/compose", json={"instruction": ROOFING_INSTRUCTION})
+        assert compose.status_code == 200, compose.text
+        proposal_id = compose.json()["proposal_id"]
+
+        shadow = client.get(f"/v1/missions/proposals/{proposal_id}/shadow-preview")
+
+    assert shadow.status_code == 200, shadow.text
+    body = shadow.json()
+    assert body["status"] == "ready_for_confirmation"
+    assert body["preview"]["proposal_id"] == proposal_id
+    assert body["runtime_work_created"] is False
+    assert body["grants_execution_authority"] is False
+    assert all(check["status"] == "passed" for check in body["checks"])
+
+
+def test_shadow_preview_is_tenant_scoped() -> None:
+    tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    other_tenant = uuid.UUID("22222222-2222-2222-2222-222222222222")
+    app = _build_app(tenant_id)
+    other_app = _build_app(other_tenant)
+    with (
+        patch.object(composition_module, "require_route_permission", return_value=None),
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
+    ):
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        cred_repo_cls.return_value.list_for_tenant.return_value = []
+        client = TestClient(app)
+        compose = client.post("/v1/missions/compose", json={"instruction": ROOFING_INSTRUCTION})
+        proposal_id = compose.json()["proposal_id"]
+
+        other_client = TestClient(other_app)
+        shadow = other_client.get(f"/v1/missions/proposals/{proposal_id}/shadow-preview")
+
+    assert shadow.status_code == 404
+
+
 def test_confirm_creates_mission_plan_graph_not_queue() -> None:
     tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
     mission_id = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")

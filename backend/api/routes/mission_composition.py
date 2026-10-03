@@ -1,6 +1,7 @@
 """Mission Composition API (ADR-0008).
 
 POST /v1/missions/compose — read-only proposal (no runtime).
+GET /v1/missions/proposals/{proposal_id}/shadow-preview — read-only plan validation.
 POST /v1/missions/proposals/{proposal_id}/confirm — intake + plan + graph only.
 """
 
@@ -17,10 +18,12 @@ from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
 from backend.services.mission_composition.contracts import MissionCompositionRecord
+from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.mission_composition.service import (
     MissionCompositionError,
     MissionCompositionService,
 )
+from backend.services.mission_composition.shadow_preview import build_shadow_preview
 
 router = APIRouter(prefix="/missions", tags=["mission-composition"])
 
@@ -67,6 +70,21 @@ class ConfirmCompositionRequest(BaseModel):
     # Preferred: confirm by proposal identity only. Full composition is legacy/compat.
     composition: dict[str, Any] | None = None
     idempotency_key: str | None = Field(default=None, max_length=200)
+
+
+class ShadowPreviewResponse(BaseModel):
+    """Read-only shadow validation; it cannot create runtime work."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: str
+    status: str
+    preview: dict[str, Any]
+    checks: list[dict[str, Any]]
+    planned_task_count: int = 0
+    runtime_work_created: bool = False
+    grants_execution_authority: bool = False
+    authority_class: str = "read_model"
 
 
 class ConfirmCompositionResponse(BaseModel):
@@ -146,6 +164,52 @@ def _map_error(exc: MissionCompositionError) -> HTTPException:
     elif exc.code in {"INTAKE_QUALITY", "NO_RUNTIME_ACTIONS", "PROPOSAL_NOT_READY"}:
         status = 422
     return HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message})
+
+
+@router.get("/proposals/{proposal_id}/shadow-preview", response_model=ShadowPreviewResponse)
+def read_shadow_preview(
+    proposal_id: str,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> ShadowPreviewResponse:
+    """Validate a persisted plan without confirming or materializing runtime work."""
+
+    require_route_permission(request=request, db=db, permission=Permission.MISSION_CREATE, tenant_id=tenant_id)
+    record = get_proposal(tenant_id=str(tenant_id), proposal_id=proposal_id, db=db)
+    if record is None:
+        raise HTTPException(status_code=404, detail="proposal not found for tenant")
+    preview = build_shadow_preview(
+        proposal_id=record.proposal_id,
+        preview_id=f"{record.proposal_id}:shadow",
+        task_graph=record.task_graph_preview,
+        planned_artifact_keys=tuple(step.output_contract for step in record.planned_steps),
+        coverage_assessment=record.coverage_assessment,
+        epistemic_context=record.epistemic_context,
+    )
+    checks = [
+        {
+            "check": "server_owned_composition",
+            "status": "passed",
+            "details": "Preview was rebuilt from the tenant-scoped persisted proposal.",
+        },
+        {
+            "check": "runtime_authority_boundary",
+            "status": "passed",
+            "details": "Shadow evaluation cannot create tasks, queue work, resolve credentials, or call providers.",
+        },
+        {
+            "check": "composition_readiness",
+            "status": "passed" if record.ready_to_start else "blocked",
+            "details": f"ready_to_start={record.ready_to_start}",
+        },
+    ]
+    return ShadowPreviewResponse(
+        proposal_id=record.proposal_id,
+        status="ready_for_confirmation" if record.ready_to_start else "blocked",
+        preview=preview.model_dump(mode="json"),
+        checks=checks,
+    )
 
 
 @router.post("/compose", response_model=ComposeMissionResponse)

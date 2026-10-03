@@ -262,6 +262,10 @@ incomplete, drifted, or contradictory outcomes, including missing and unexpected
 comparison is persisted beside completion and is exposed through the existing mission read model;
 historical missions without a preview remain readable with a null preview/reconciliation.
 
+The read-only `GET /v1/missions/proposals/{proposal_id}/shadow-preview` endpoint rebuilds this
+preview from the tenant-scoped persisted proposal and reports readiness checks. It never confirms a
+proposal, creates a mission or task, enters a queue, resolves credentials, or invokes a provider.
+
 ### 5.3 Canonical outcome-graph lineage
 
 Every new composition records a read-only `GraphLineage` snapshot in

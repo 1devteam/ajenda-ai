@@ -679,6 +679,8 @@ and a deliverable lifecycle snapshot that is reconciled against materialized art
 previews now capture the planned graph and expected artifacts before admission, and the worker-owned
 read-model refresh compares those expectations with later governed runtime artifacts. These records
 remain read models and grant no runtime authority; missing or unexpected artifacts remain visible.
+The read-only proposal shadow-preview endpoint validates those server-owned expectations before
+confirmation without creating runtime work.
 
 Semantic selection is versioned and provenance-backed. It exposes active lattice components such as
 `shared_business`, `gtm.core`, business-family domains, and industry overlays. This vocabulary guides
