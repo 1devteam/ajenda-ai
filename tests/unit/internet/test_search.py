@@ -4,7 +4,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from backend.services.internet.modes import InternetAccessMode, is_reserved_mode, is_shipped_mode
-from backend.services.internet.search import public_search
+from backend.services.internet.search import DuckDuckGoInstantAnswerProvider, public_search
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 
 
@@ -49,7 +49,12 @@ def test_public_search_parses_ddg_payload() -> None:
         "backend.services.internet.search.get_default_network_egress_authority",
         return_value=authority,
     ):
-        bundle = public_search(query="HubSpot CRM", limit=5, timeout_seconds=10.0)
+        bundle = public_search(
+            query="HubSpot CRM",
+            limit=5,
+            timeout_seconds=10.0,
+            provider=DuckDuckGoInstantAnswerProvider(),
+        )
 
     assert bundle.real is True
     assert bundle.access_mode == InternetAccessMode.PUBLIC_SEARCH
