@@ -124,6 +124,31 @@ def test_shadow_preview_is_tenant_scoped() -> None:
     assert shadow.status_code == 404
 
 
+def test_counterfactual_plans_are_read_only_comparisons() -> None:
+    tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    app = _build_app(tenant_id)
+    with (
+        patch.object(composition_module, "require_route_permission", return_value=None),
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
+    ):
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        cred_repo_cls.return_value.list_for_tenant.return_value = []
+        client = TestClient(app)
+        compose = client.post("/v1/missions/compose", json={"instruction": ROOFING_INSTRUCTION})
+        proposal_id = compose.json()["proposal_id"]
+        response = client.get(f"/v1/missions/proposals/{proposal_id}/counterfactual-plans")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["proposal_id"] == proposal_id
+    assert body["grants_execution_authority"] is False
+    plans = body["plan_set"]["plans"]
+    assert {plan["strategy"] for plan in plans} == {"selected", "read_only_projection"}
+    assert all(plan["executable"] is False for plan in plans)
+    assert body["plan_set"]["selected_plan_id"].endswith(":selected")
+
+
 def test_confirm_creates_mission_plan_graph_not_queue() -> None:
     tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
     mission_id = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")

@@ -681,6 +681,9 @@ read-model refresh compares those expectations with later governed runtime artif
 remain read models and grant no runtime authority; missing or unexpected artifacts remain visible.
 The read-only proposal shadow-preview endpoint validates those server-owned expectations before
 confirmation without creating runtime work.
+The counterfactual-plan endpoint compares the selected plan with a side-effect-free projection using
+deterministic evidence, cost, latency, risk, and completeness estimates; all candidates remain
+non-executable read models.
 
 Semantic selection is versioned and provenance-backed. It exposes active lattice components such as
 `shared_business`, `gtm.core`, business-family domains, and industry overlays. This vocabulary guides

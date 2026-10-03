@@ -266,6 +266,11 @@ The read-only `GET /v1/missions/proposals/{proposal_id}/shadow-preview` endpoint
 preview from the tenant-scoped persisted proposal and reports readiness checks. It never confirms a
 proposal, creates a mission or task, enters a queue, resolves credentials, or invokes a provider.
 
+`GET /v1/missions/proposals/{proposal_id}/counterfactual-plans` provides a bounded comparison
+artifact: the selected composition and a read-only projection with side-effecting actions removed.
+Each candidate carries deterministic evidence, cost, latency, risk, and completeness estimates and
+is explicitly non-executable. These estimates inform review; they do not become runtime authority.
+
 ### 5.3 Canonical outcome-graph lineage
 
 Every new composition records a read-only `GraphLineage` snapshot in

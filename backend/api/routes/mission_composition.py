@@ -2,6 +2,7 @@
 
 POST /v1/missions/compose — read-only proposal (no runtime).
 GET /v1/missions/proposals/{proposal_id}/shadow-preview — read-only plan validation.
+GET /v1/missions/proposals/{proposal_id}/counterfactual-plans — read-only plan comparison.
 POST /v1/missions/proposals/{proposal_id}/confirm — intake + plan + graph only.
 """
 
@@ -18,6 +19,7 @@ from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
 from backend.services.mission_composition.contracts import MissionCompositionRecord
+from backend.services.mission_composition.counterfactual_plans import build_counterfactual_plan_set
 from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.mission_composition.service import (
     MissionCompositionError,
@@ -83,6 +85,15 @@ class ShadowPreviewResponse(BaseModel):
     checks: list[dict[str, Any]]
     planned_task_count: int = 0
     runtime_work_created: bool = False
+    grants_execution_authority: bool = False
+    authority_class: str = "read_model"
+
+
+class CounterfactualPlanResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: str
+    plan_set: dict[str, Any]
     grants_execution_authority: bool = False
     authority_class: str = "read_model"
 
@@ -209,6 +220,28 @@ def read_shadow_preview(
         status="ready_for_confirmation" if record.ready_to_start else "blocked",
         preview=preview.model_dump(mode="json"),
         checks=checks,
+    )
+
+
+@router.get("/proposals/{proposal_id}/counterfactual-plans", response_model=CounterfactualPlanResponse)
+def read_counterfactual_plans(
+    proposal_id: str,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> CounterfactualPlanResponse:
+    """Compare bounded plan projections without creating executable work."""
+
+    require_route_permission(request=request, db=db, permission=Permission.MISSION_CREATE, tenant_id=tenant_id)
+    record = get_proposal(tenant_id=str(tenant_id), proposal_id=proposal_id, db=db)
+    if record is None:
+        raise HTTPException(status_code=404, detail="proposal not found for tenant")
+    plan_set = build_counterfactual_plan_set(record)
+    return CounterfactualPlanResponse(
+        proposal_id=record.proposal_id,
+        plan_set=plan_set.model_dump(mode="json"),
+        grants_execution_authority=False,
+        authority_class="read_model",
     )
 
 
