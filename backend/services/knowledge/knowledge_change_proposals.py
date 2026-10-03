@@ -41,7 +41,7 @@ class KnowledgeChangeProposal(BaseModel):
         "not_available"
     )
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
-    status: Literal["proposed", "review_required", "accepted", "rejected", "superseded", "rolled_back"] = (
+    status: Literal["proposed", "review_required", "accepted", "rejected", "applied", "superseded", "rolled_back"] = (
         "review_required"
     )
     superseded_by_proposal_id: str | None = None
@@ -78,7 +78,7 @@ def proposal_from_record(record: KnowledgeChangeProposalRecord) -> KnowledgeChan
         record.runtime_reconciliation,
     )
     lifecycle_status = cast(
-        Literal["proposed", "review_required", "accepted", "rejected", "superseded", "rolled_back"],
+        Literal["proposed", "review_required", "accepted", "rejected", "applied", "superseded", "rolled_back"],
         record.status,
     )
     return KnowledgeChangeProposal(

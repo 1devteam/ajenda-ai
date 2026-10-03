@@ -18,6 +18,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.knowledge_change_proposal import KnowledgeChangeProposalRecord
 from backend.domain.worker_lease import WorkerLease
 from backend.repositories.audit_event_repository import AuditEventRepository
+from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.knowledge_change_proposal_repository import KnowledgeChangeProposalRepository
@@ -29,6 +30,11 @@ from backend.services.knowledge.knowledge_change_proposals import (
     KnowledgeChangeProposalSet,
     build_knowledge_change_proposals,
     proposal_from_record,
+)
+from backend.services.knowledge.tenant_knowledge_application import (
+    TenantKnowledgeApplicationError,
+    TenantKnowledgeApplicationResult,
+    TenantKnowledgeApplicationService,
 )
 from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
 from backend.services.mission_composition.deliverable_runtime_state import load_deliverable_runtime_state
@@ -54,6 +60,13 @@ class KnowledgeChangeProposalReviewRequest(BaseModel):
     status: str = Field(pattern="^(accepted|rejected|superseded|rolled_back)$")
     superseding_proposal_id: str | None = Field(default=None, max_length=160)
     rollback_of_proposal_id: str | None = Field(default=None, max_length=160)
+    note: str = Field(min_length=1, max_length=2_000)
+
+
+class TenantKnowledgeApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approved_fact: dict[str, object] = Field(min_length=1)
     note: str = Field(min_length=1, max_length=2_000)
 
 
@@ -219,6 +232,48 @@ def review_knowledge_change_proposal(
         db.rollback()
         raise HTTPException(status_code=409, detail="knowledge-change proposal review failed") from exc
     return KnowledgeChangeProposalSet(mission_id=mission_id, proposals=(proposal_from_record(record),))
+
+
+@router.post(
+    "/{mission_id}/knowledge-change-proposals/{proposal_id}/apply-tenant-private",
+    response_model=TenantKnowledgeApplicationResult,
+)
+def apply_tenant_private_knowledge_proposal(
+    mission_id: uuid.UUID,
+    proposal_id: str,
+    body: TenantKnowledgeApplyRequest,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> TenantKnowledgeApplicationResult:
+    """Apply one accepted tenant-private fact through the profile authority owner."""
+
+    require_route_permission(request=request, db=db, permission=Permission.OUTCOME_REVIEW_MANAGE, tenant_id=tenant_id)
+    tenant_scope = str(tenant_id)
+    proposal = KnowledgeChangeProposalRepository(db).get(tenant_id=tenant_scope, proposal_id=proposal_id)
+    if proposal is None or proposal.mission_id != mission_id:
+        raise HTTPException(status_code=404, detail="knowledge-change proposal not found for tenant")
+    profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=tenant_scope)
+    if profile is None:
+        raise HTTPException(status_code=409, detail="active tenant business profile is required")
+    actor_id = str(getattr(getattr(request.state, "principal", None), "subject_id", "unknown"))
+    try:
+        result = TenantKnowledgeApplicationService().apply(
+            db,
+            proposal=proposal,
+            profile=profile,
+            approved_fact=dict(body.approved_fact),
+            actor_id=actor_id,
+            note=body.note,
+        )
+        db.commit()
+        return result
+    except TenantKnowledgeApplicationError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="tenant knowledge application failed") from exc
 
 
 def _draft_artifact_ids(tasks: list[ExecutionTask]) -> tuple[str, ...]:

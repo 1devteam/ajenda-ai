@@ -282,6 +282,12 @@ The lifecycle store now records explicit review decisions, supersession links, r
 provenance, and append-only audit events. These records are governance state only; “accepted” means
 approved for a future application workflow, not applied to composition or runtime.
 
+The tenant-private application owner is `TenantKnowledgeApplicationService`. It accepts only an
+accepted proposal plus an operator-supplied structured fact, writes through the tenant Business
+Profile repository, records prior-fact provenance, emits an audit event, and marks the proposal
+`applied`. It cannot modify shared vocabulary, grant runtime authority, enqueue work, or resolve
+credentials.
+
 ### 5.3 Canonical outcome-graph lineage
 
 Every new composition records a read-only `GraphLineage` snapshot in

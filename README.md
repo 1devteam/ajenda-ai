@@ -694,6 +694,9 @@ An explicit `POST .../materialize` stores the proposal lifecycle in the tenant-s
 `knowledge_change_proposals` table and emits an append-only audit event. Review decisions are
 recorded through `POST .../{proposal_id}/review`; accepted, rejected, superseded, and rolled-back
 states remain provenance-linked and still do not apply knowledge automatically.
+The only application owner is the tenant-private profile service. It requires an accepted proposal,
+an active matching tenant profile, an operator-supplied structured fact, and an audit note. It writes
+through `BusinessProfileRepository`; shared candidates and free-form suggestions fail closed.
 
 Semantic selection is versioned and provenance-backed. It exposes active lattice components such as
 `shared_business`, `gtm.core`, business-family domains, and industry overlays. This vocabulary guides
