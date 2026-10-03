@@ -173,6 +173,33 @@ def test_refresh_marks_conflicting_duplicate_artifacts_contradictory() -> None:
     assert state["lifecycle"]["contradiction_codes"] == ["conflicting_artifact:introduction_drafts"]
 
 
+def test_refresh_marks_runtime_work_for_blocked_coverage_contradictory() -> None:
+    instruction = "Find five dental companies in Austin using local fixture data only and return company name."
+    request = extract_deliverable_request(instruction)
+    assert request is not None
+    intent = interpret_instruction(instruction)
+    coverage = assess_coverage(intent)
+    assert coverage.status == "unsupported_scope"
+    state = build_deliverable_runtime_state(
+        request,
+        coverage_assessment=coverage,
+        epistemic_context=build_epistemic_context(intent, coverage),
+    )
+    assert state is not None
+    metadata = {"mission_intake": {"context": {"composition": {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: state}}}}
+    task = _task(
+        artifact="prospect_candidates",
+        payload=[{"company": "Impossible Dental", "real": False}],
+        task_id="00000000-0000-0000-0000-000000000093",
+    )
+
+    updated, _ = refresh_deliverable_completion_metadata(metadata, [task])
+
+    lifecycle = updated["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]["lifecycle"]
+    assert lifecycle["state"] == "contradictory"
+    assert lifecycle["contradiction_codes"] == ["runtime_work_created_for_blocked_coverage"]
+
+
 def test_refresh_marks_shadow_reconciliation_contradictory_for_conflicting_artifacts() -> None:
     request = extract_deliverable_request("Return drafts.")
     assert request is not None

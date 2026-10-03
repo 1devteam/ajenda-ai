@@ -42,6 +42,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Product-catalog projection is tenant-isolated, idempotent, and durable in the internal CRM account shelf
 - Deterministic coverage assessment is attached to composition and carried into the deliverable lifecycle lineage; unsupported and over-capacity fixture scopes fail closed before runtime
 - Epistemic context and deliverable lifecycle reconciliation preserve source, freshness, contradiction, coverage, and uncertainty-budget metadata through artifact refresh and read-model projection; budget excesses block epistemic reconciliation without changing runtime authority
+- Deliverable refresh marks runtime work created for unsupported or over-capacity coverage as contradictory instead of allowing a false current/completed state
 - Semantic lattice vocabulary is versioned and provenance-backed across shared GTM/business, business-family, and industry overlays; advertising remains declarative and catalog-only until provider proof exists
 
 ### 2.2 Tenant isolation and auth

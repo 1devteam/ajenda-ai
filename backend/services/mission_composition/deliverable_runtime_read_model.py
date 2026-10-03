@@ -61,9 +61,20 @@ def refresh_deliverable_completion_metadata(
     completion = evaluate_deliverable_completion(state.projection, artifacts)
     now = datetime.now(UTC)
     conflicts = conflicting_materialized_artifact_keys(tasks)
-    if conflicts:
+    blocked_coverage = (
+        state.lifecycle.coverage_assessment is not None
+        and state.lifecycle.coverage_assessment.status
+        in {
+            "unsupported_scope",
+            "insufficient_capacity",
+        }
+    )
+    coverage_runtime_contradiction = blocked_coverage and bool(tasks or artifacts)
+    if conflicts or coverage_runtime_contradiction:
         lifecycle_state: DeliverableLifecycleState = "contradictory"
         contradiction_codes = tuple(f"conflicting_artifact:{key}" for key in conflicts)
+        if coverage_runtime_contradiction:
+            contradiction_codes += ("runtime_work_created_for_blocked_coverage",)
     elif not artifacts:
         lifecycle_state = "planned"
         contradiction_codes = ()
@@ -101,7 +112,7 @@ def refresh_deliverable_completion_metadata(
             tasks=tasks,
             artifacts=artifacts,
             completion=completion,
-            contradiction_codes=tuple(f"conflicting_artifact:{key}" for key in conflicts),
+            contradiction_codes=contradiction_codes,
         )
         if state.shadow_preview is not None
         else state.runtime_reconciliation

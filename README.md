@@ -676,7 +676,9 @@ Ajenda's composition layer now records more than selected actions. A mission can
 coverage assessment (known fixture scope/capacity or explicitly unknown provider/CRM capacity), an
 epistemic context (source class, confidence, freshness, missing evidence, contradiction state, and
 an explicit uncertainty budget),
-and a deliverable lifecycle snapshot that is reconciled against materialized artifacts. Durable shadow
+and a deliverable lifecycle snapshot that is reconciled against materialized artifacts. Blocked coverage
+cannot silently coexist with materialized runtime work: such drift is surfaced as a contradictory
+lifecycle state. Durable shadow
 previews now capture the planned graph and expected artifacts before admission, and the worker-owned
 read-model refresh compares those expectations with later governed runtime artifacts. These records
 remain read models and grant no runtime authority; missing or unexpected artifacts remain visible.
