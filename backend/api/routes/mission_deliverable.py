@@ -21,7 +21,12 @@ from backend.repositories.lineage_record_repository import LineageRecordReposito
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.services.document_artifacts import read_artifact
+from backend.services.knowledge.knowledge_change_proposals import (
+    KnowledgeChangeProposalSet,
+    build_knowledge_change_proposals,
+)
 from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
+from backend.services.mission_composition.deliverable_runtime_state import load_deliverable_runtime_state
 from backend.services.mission_composition.profile_deliverable import (
     ProfileDeliverableRead,
     assemble_profile_deliverable,
@@ -36,6 +41,49 @@ from backend.services.mission_runtime_evidence_projection import (
 )
 
 router = APIRouter(prefix="/missions", tags=["missions"])
+
+
+def _runtime_state_from_metadata(metadata: object) -> object | None:
+    if not isinstance(metadata, dict):
+        return None
+    intake = metadata.get("mission_intake")
+    if not isinstance(intake, dict):
+        return None
+    context = intake.get("context")
+    if not isinstance(context, dict):
+        return None
+    composition = context.get("composition")
+    if not isinstance(composition, dict):
+        return None
+    return composition.get("deliverable_runtime_state")
+
+
+@router.get("/{mission_id}/knowledge-change-proposals", response_model=KnowledgeChangeProposalSet)
+def read_knowledge_change_proposals(
+    mission_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> KnowledgeChangeProposalSet:
+    """Expose evidence-backed knowledge suggestions without applying them."""
+
+    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_VIEW, tenant_id=tenant_id)
+    tenant_scope = str(tenant_id)
+    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_scope)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="mission not found for tenant")
+    reviews = OutcomeReviewRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_scope)
+    metadata = mission.metadata_json if isinstance(mission.metadata_json, dict) else {}
+    try:
+        runtime_state = load_deliverable_runtime_state(_runtime_state_from_metadata(metadata))
+    except ValidationError as exc:
+        raise HTTPException(status_code=409, detail="mission deliverable runtime state is invalid") from exc
+    return build_knowledge_change_proposals(
+        tenant_id=tenant_scope,
+        mission_id=mission_id,
+        reviews=reviews,
+        runtime_state=runtime_state,
+    )
 
 
 def _draft_artifact_ids(tasks: list[ExecutionTask]) -> tuple[str, ...]:

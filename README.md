@@ -685,13 +685,19 @@ The counterfactual-plan endpoint compares the selected plan with a side-effect-f
 deterministic evidence, cost, latency, risk, and completeness estimates; all candidates remain
 non-executable read models.
 
+Completed outcome reviews can also be projected through
+`GET /v1/missions/{mission_id}/knowledge-change-proposals`. These are deterministic,
+tenant-scoped suggestions with evidence and reconciliation lineage. They are review-only: they do
+not write the knowledge ledger, mutate shared vocabulary, register handlers, grant permissions, or
+create runtime work. Shared-taxonomy candidates always remain explicitly human-reviewable.
+
 Semantic selection is versioned and provenance-backed. It exposes active lattice components such as
 `shared_business`, `gtm.core`, business-family domains, and industry overlays. This vocabulary guides
 interpretation and job composition only; `ActionRegistry`, `TaskDispatcher`, `WorkerRuntimeService`,
 tenant scope, credentials, approvals, and provider effects remain authoritative elsewhere.
 
 The current semantic layer is intentionally not the finished lattice resolver. Multi-parent merge
-semantics, tenant-private terminology overrides, epistemic budgets, counterfactual planning, governed
+semantics, tenant-private terminology overrides, epistemic budgets, governed application of
 knowledge-change proposals, and recurring cross-stage reconciliation remain subsequent work.
 
 ---

@@ -13,6 +13,7 @@ from backend.auth.principal import Principal, PrincipalType
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
+from backend.domain.outcome_review import OutcomeReview
 from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
 from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
@@ -178,7 +179,35 @@ def test_profile_route_returns_dedicated_profile_deliverable(monkeypatch) -> Non
     assert body["profile_brief"]["facts"]["business_name"] == "Acme"
     assert body["missing_fields"] == ["description"]
     assert body["complete"] is True
-    assert body["grants_execution_authority"] is False
+
+
+def test_knowledge_change_proposals_are_read_only_and_tenant_scoped(monkeypatch) -> None:
+    tenant_id = uuid.uuid4()
+    mission = _mission(tenant_id=str(tenant_id), instruction="Return company name.")
+    _, _, _, review_repo = _repositories(monkeypatch, mission=mission, tasks=[])
+    review_repo.list_for_mission.return_value = [
+        OutcomeReview(
+            id=uuid.uuid4(),
+            tenant_id=str(tenant_id),
+            mission_id=mission.id,
+            evidence_references=[{"evidence_id": "e1", "artifact_id": "artifact-1"}],
+            review_status="completed",
+            review_decision="inconclusive",
+            reviewer_type="human",
+            reviewer_source="test",
+            review_summary="A repeated terminology mismatch was observed.",
+            structured_findings=[{"knowledge_key": "tenant.gtm.aliases", "suggested_change": "Add alias"}],
+        )
+    ]
+    client = TestClient(_build_app(tenant_id), raise_server_exceptions=False)
+
+    response = client.get(f"/v1/missions/{mission.id}/knowledge-change-proposals")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["proposals"][0]["target_key"] == "tenant.gtm.aliases"
+    assert body["proposals"][0]["grants_execution_authority"] is False
+    assert body["proposals"][0]["authority_class"] == "read_model"
 
 
 def test_route_resolves_current_draft_review_state_through_tenant_scope(monkeypatch) -> None:
