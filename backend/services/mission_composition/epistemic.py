@@ -6,8 +6,11 @@ retrieve data, evaluate providers, resolve credentials, or grant authority.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from backend.services.mission_composition.contracts import (
     CoverageAssessment,
+    EpistemicBudget,
     EpistemicContext,
     EpistemicContradictionStatus,
     EpistemicSourceClass,
@@ -68,6 +71,30 @@ def build_epistemic_context(
     if coverage.mode == "local_fixture":
         confidence_basis.append("fixture_catalog_scope")
 
+    if coverage.mode == "local_fixture":
+        tolerance: Literal["strict", "standard", "exploratory"] = "strict"
+        max_missing_evidence = 0
+    elif coverage.mode in {"public_or_provider", "internal_crm"}:
+        tolerance = "standard"
+        max_missing_evidence = 1
+    else:
+        tolerance = "exploratory"
+        max_missing_evidence = 2
+    budget = EpistemicBudget(
+        tolerance=tolerance,
+        max_missing_evidence=max_missing_evidence,
+        minimum_confidence=0.7 if intent.interpretation_ready else 0.0,
+    )
+    budget_excesses: list[str] = []
+    if len(missing) > budget.max_missing_evidence:
+        budget_excesses.append(f"missing_evidence:{len(missing)}>{budget.max_missing_evidence}")
+    if unresolved > budget.max_unresolved_contradictions:
+        budget_excesses.append(f"unresolved_contradictions:{unresolved}>{budget.max_unresolved_contradictions}")
+    if confidence < budget.minimum_confidence:
+        budget_excesses.append(f"confidence:{confidence:.2f}<{budget.minimum_confidence:.2f}")
+    if "unknown" in sources and not budget.allow_unknown_sources:
+        budget_excesses.append("unknown_sources")
+
     return EpistemicContext(
         source_classes=tuple(sorted(sources)),
         confidence=confidence,
@@ -77,4 +104,7 @@ def build_epistemic_context(
         unresolved_contradiction_count=unresolved,
         required_evidence=tuple(dict.fromkeys(required)),
         missing_evidence=tuple(dict.fromkeys(missing)),
+        budget=budget,
+        budget_status="exceeded" if budget_excesses else "within_budget",
+        budget_excesses=tuple(budget_excesses),
     )

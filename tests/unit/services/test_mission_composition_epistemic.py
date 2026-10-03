@@ -22,6 +22,8 @@ def test_external_context_requires_runtime_observation() -> None:
     assert "public_observation" in context.source_classes
     assert "runtime_source_observation" in context.required_evidence
     assert "runtime_source_observation" in context.missing_evidence
+    assert context.budget.tolerance == "standard"
+    assert context.budget_status == "within_budget"
 
 
 def test_unresolved_contradictions_are_visible() -> None:
@@ -43,6 +45,17 @@ def test_unresolved_contradictions_are_visible() -> None:
     assert context.contradiction_status == "unresolved"
     assert context.unresolved_contradiction_count >= 1
     assert "contradiction_resolution" in context.missing_evidence
+    assert context.budget_status == "exceeded"
+    assert any("unresolved_contradictions" in item for item in context.budget_excesses)
+
+
+def test_supported_fixture_uses_strict_zero_missing_evidence_budget() -> None:
+    intent = interpret_instruction("Find five software development companies in Austin using local fixture data only.")
+    context = build_epistemic_context(intent, assess_coverage(intent))
+
+    assert context.budget.tolerance == "strict"
+    assert context.budget.max_missing_evidence == 0
+    assert context.budget_status == "within_budget"
 
 
 def test_composition_record_contains_epistemic_context() -> None:

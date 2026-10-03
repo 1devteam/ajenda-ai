@@ -483,6 +483,13 @@ class MissionCompositionService:
             preferred_credential_by_integration=preferred_creds,
             credential_type_by_id=type_by_id,
         )
+        if epistemic_context.budget_status == "exceeded":
+            missing.append(
+                {
+                    "kind": "epistemic_budget_exceeded",
+                    "message": "; ".join(epistemic_context.budget_excesses),
+                }
+            )
         semantic_selection = build_semantic_selection(
             instruction=raw_instruction,
             requested_outcomes=intent.requested_outcomes,

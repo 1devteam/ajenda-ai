@@ -674,7 +674,8 @@ from comparison, runtime evidence, and honest reconciliation—not from the grap
 
 Ajenda's composition layer now records more than selected actions. A mission can carry a deterministic
 coverage assessment (known fixture scope/capacity or explicitly unknown provider/CRM capacity), an
-epistemic context (source class, confidence, freshness, missing evidence, and contradiction state),
+epistemic context (source class, confidence, freshness, missing evidence, contradiction state, and
+an explicit uncertainty budget),
 and a deliverable lifecycle snapshot that is reconciled against materialized artifacts. Durable shadow
 previews now capture the planned graph and expected artifacts before admission, and the worker-owned
 read-model refresh compares those expectations with later governed runtime artifacts. These records
@@ -704,8 +705,8 @@ interpretation and job composition only; `ActionRegistry`, `TaskDispatcher`, `Wo
 tenant scope, credentials, approvals, and provider effects remain authoritative elsewhere.
 
 The current semantic layer is intentionally bounded. Multi-parent merge semantics and tenant-private
-terminology overrides are implemented as read-only composition inputs. Epistemic budgets and recurring
-cross-stage reconciliation remain subsequent work; governed tenant-private application is limited to
+terminology overrides and epistemic budgets are implemented as read-only composition inputs. Recurring
+cross-stage reconciliation remains subsequent work; governed tenant-private application is limited to
 the explicit profile-service owner described above.
 
 ---

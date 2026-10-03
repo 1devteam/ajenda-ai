@@ -41,7 +41,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Queue claim convergence releases recent payloads during the DB commit-visibility window and quarantines stale taskless payloads instead of requeueing them indefinitely
 - Product-catalog projection is tenant-isolated, idempotent, and durable in the internal CRM account shelf
 - Deterministic coverage assessment is attached to composition and carried into the deliverable lifecycle lineage; unsupported and over-capacity fixture scopes fail closed before runtime
-- Epistemic context and deliverable lifecycle reconciliation preserve source, freshness, contradiction, and coverage metadata through artifact refresh and read-model projection
+- Epistemic context and deliverable lifecycle reconciliation preserve source, freshness, contradiction, coverage, and uncertainty-budget metadata through artifact refresh and read-model projection
 - Semantic lattice vocabulary is versioned and provenance-backed across shared GTM/business, business-family, and industry overlays; advertising remains declarative and catalog-only until provider proof exists
 
 ### 2.2 Tenant isolation and auth

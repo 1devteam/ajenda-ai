@@ -93,6 +93,8 @@ EpistemicSourceClass = Literal[
 ]
 EpistemicFreshness = Literal["not_observed", "current", "stale", "unknown"]
 EpistemicContradictionStatus = Literal["none", "unresolved", "resolved", "unknown"]
+EpistemicBudgetTolerance = Literal["strict", "standard", "exploratory"]
+EpistemicBudgetStatus = Literal["within_budget", "exceeded"]
 
 # Canonical business outcomes owned by the interpreter → job catalog boundary.
 CanonicalOutcome = Literal[
@@ -437,6 +439,22 @@ class CoverageAssessment(BaseModel):
         return self.status in {"supported", "supported_with_limits", "unknown"}
 
 
+class EpistemicBudget(BaseModel):
+    """Read-only uncertainty envelope for composition and evaluation claims."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    tolerance: EpistemicBudgetTolerance = "standard"
+    max_missing_evidence: int = Field(default=1, ge=0, le=40)
+    max_unresolved_contradictions: int = Field(default=0, ge=0, le=20)
+    minimum_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    allow_unknown_sources: bool = True
+    source_reference: str = Field(default="Ajenda deterministic epistemic budget", max_length=240)
+    authority_class: Literal["declarative", "read_model"] = "read_model"
+    grants_execution_authority: Literal[False] = False
+
+
 class EpistemicContext(BaseModel):
     """Read-only knowledge state used to constrain composition claims."""
 
@@ -451,6 +469,9 @@ class EpistemicContext(BaseModel):
     unresolved_contradiction_count: int = Field(default=0, ge=0, le=100)
     required_evidence: tuple[str, ...] = Field(default=(), max_length=40)
     missing_evidence: tuple[str, ...] = Field(default=(), max_length=40)
+    budget: EpistemicBudget = Field(default_factory=EpistemicBudget)
+    budget_status: EpistemicBudgetStatus = "within_budget"
+    budget_excesses: tuple[str, ...] = Field(default=(), max_length=20)
     authority_class: Literal["declarative", "read_model"] = "read_model"
     grants_execution_authority: Literal[False] = False
 
