@@ -1,6 +1,6 @@
 # Ajenda AI — Documentation Index
 
-**Last aligned with `main`:** 2026-09-25
+**Last aligned with `main`:** 2026-10-03
 
 When docs conflict with code, **code + tests win**. Start with the canonical set below.
 
@@ -41,6 +41,7 @@ When docs conflict with code, **code + tests win**. Start with the canonical set
 |----------|---------|
 | [`validation/live-runtime-matrix.md`](validation/live-runtime-matrix.md) | Release-gating scenarios |
 | [`validation/live-runtime-proof-release-gate.md`](validation/live-runtime-proof-release-gate.md) | Live runtime proof |
+| [`validation/outcome-loop-checkpoint-2026-10-03.md`](validation/outcome-loop-checkpoint-2026-10-03.md) | Coverage, epistemic, lifecycle, and blocked-coverage runtime checkpoint |
 | [`deployment/RUNTIME_LIMITS.md`](deployment/RUNTIME_LIMITS.md) | Runtime limits |
 | [`deployment/STAGING_PROOF.md`](deployment/STAGING_PROOF.md) | Staging runtime proof contract |
 | [`../ops/runbooks/paid-customer-loop-staging.md`](../ops/runbooks/paid-customer-loop-staging.md) | Paid customer loop staging runbook |
