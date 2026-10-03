@@ -18,6 +18,7 @@ from backend.services.mission_composition.contracts import (
     EpistemicContext,
     EpistemicContradictionStatus,
     EpistemicFreshness,
+    GraphLineage,
 )
 from backend.services.mission_composition.deliverable_contract import DeliverableRequest
 from backend.services.mission_composition.deliverable_projection import (
@@ -64,6 +65,7 @@ class DeliverableArtifactLifecycle(BaseModel):
     # Snapshot composition applicability in the same lineage envelope as the
     # materialized deliverable; this does not grant runtime authority.
     coverage_assessment: CoverageAssessment | None = None
+    graph_lineage: GraphLineage = Field(default_factory=GraphLineage)
     grants_execution_authority: Literal[False] = False
 
     @model_validator(mode="after")
@@ -110,6 +112,7 @@ def build_deliverable_runtime_state(
     minimum_rows: int = 0,
     minimum_rows_by_artifact: dict[str, int] | None = None,
     shadow_preview: ShadowPreview | None = None,
+    graph_lineage: GraphLineage | None = None,
 ) -> dict[str, object] | None:
     """Build JSON-safe durable state from the canonical interpreted request."""
 
@@ -138,6 +141,7 @@ def build_deliverable_runtime_state(
             epistemic_missing_evidence=(epistemic_context.missing_evidence if epistemic_context else ()),
             epistemic_reconciliation=epistemic_reconciliation,
             coverage_assessment=coverage_assessment,
+            graph_lineage=graph_lineage or GraphLineage(),
         ),
     )
     return state.model_dump(mode="json")

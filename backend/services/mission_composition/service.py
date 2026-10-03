@@ -777,6 +777,7 @@ class MissionCompositionService:
                 coverage_assessment=record.coverage_assessment,
                 epistemic_context=record.epistemic_context,
             ),
+            graph_lineage=record.composition_provenance.graph_lineage,
         )
         intake = build_mission_intake_metadata(
             success_criteria=success_criteria,
@@ -1174,6 +1175,7 @@ class MissionCompositionService:
                     coverage_assessment=record.coverage_assessment,
                     epistemic_context=record.epistemic_context,
                 ),
+                graph_lineage=record.composition_provenance.graph_lineage,
             )
             context["composition"] = {
                 "proposal_id": record.proposal_id,

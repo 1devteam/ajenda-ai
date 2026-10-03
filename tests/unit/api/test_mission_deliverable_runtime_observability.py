@@ -137,6 +137,8 @@ def test_observability_projects_composition_coverage_and_epistemic_context() -> 
     assert read.epistemic_context is not None
     assert "local_fixture" in read.epistemic_context.source_classes
     assert read.epistemic_context.grants_execution_authority is False
+    assert read.graph_lineage is not None
+    assert read.graph_lineage.semantic_owner == "mission_composition.semantic_vocabulary"
 
 
 def test_observability_rejects_coverage_lineage_drift() -> None:
@@ -365,6 +367,21 @@ def test_mission_read_exposes_tenant_scoped_deliverable_runtime_state(monkeypatc
         "epistemic_reconciliation": "not_available",
         "epistemic_missing_evidence": [],
         "coverage_assessment": None,
+        "graph_lineage": {
+            "schema_version": 1,
+            "lineage_version": "1.0.0",
+            "semantic_owner": "mission_composition.semantic_vocabulary",
+            "semantic_version": "1.0.0",
+            "semantic_source_reference": "Ajenda shared semantic vocabulary",
+            "epistemic_owner": "mission_composition.epistemic",
+            "epistemic_version": "1.0.0",
+            "epistemic_source_reference": "Ajenda epistemic context builder",
+            "operational_owner": "mission_composition.plan_compiler",
+            "operational_version": "1.0.0",
+            "operational_source_reference": "Ajenda governed task graph compiler",
+            "authority_class": "read_model",
+            "grants_execution_authority": False,
+        },
         "epistemic_context": None,
         "semantic_selection": None,
         "semantic_reconciliation": "not_available",

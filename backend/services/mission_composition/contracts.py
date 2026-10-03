@@ -761,6 +761,26 @@ class AllowedActionsProvenance(BaseModel):
     resolver_version: str = Field(default=CAPABILITY_RESOLVER_VERSION, max_length=40)
 
 
+class GraphLineage(BaseModel):
+    """Canonical ownership/version snapshot for the three composition graphs."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    lineage_version: str = Field(default="1.0.0", max_length=40)
+    semantic_owner: Literal["mission_composition.semantic_vocabulary"] = "mission_composition.semantic_vocabulary"
+    semantic_version: str = Field(default="1.0.0", max_length=40)
+    semantic_source_reference: str = Field(default="Ajenda shared semantic vocabulary", max_length=240)
+    epistemic_owner: Literal["mission_composition.epistemic"] = "mission_composition.epistemic"
+    epistemic_version: str = Field(default="1.0.0", max_length=40)
+    epistemic_source_reference: str = Field(default="Ajenda epistemic context builder", max_length=240)
+    operational_owner: Literal["mission_composition.plan_compiler"] = "mission_composition.plan_compiler"
+    operational_version: str = Field(default="1.0.0", max_length=40)
+    operational_source_reference: str = Field(default="Ajenda governed task graph compiler", max_length=240)
+    authority_class: Literal["declarative", "read_model"] = "read_model"
+    grants_execution_authority: Literal[False] = False
+
+
 class CompositionProvenance(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -774,6 +794,7 @@ class CompositionProvenance(BaseModel):
     know_how_version: str | None = Field(default=None, max_length=40)
     components_active: list[str] = Field(default_factory=lambda: ["regex_core"], max_length=20)
     semantic_selection: SemanticSelection | None = None
+    graph_lineage: GraphLineage = Field(default_factory=GraphLineage)
 
     @model_validator(mode="after")
     def _know_how_reference_is_complete(self) -> CompositionProvenance:

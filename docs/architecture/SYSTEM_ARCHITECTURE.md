@@ -262,6 +262,22 @@ incomplete, drifted, or contradictory outcomes, including missing and unexpected
 comparison is persisted beside completion and is exposed through the existing mission read model;
 historical missions without a preview remain readable with a null preview/reconciliation.
 
+### 5.3 Canonical outcome-graph lineage
+
+Every new composition records a read-only `GraphLineage` snapshot in
+`CompositionProvenance` and carries it into the durable deliverable lifecycle. The snapshot names
+the canonical owners and semantic versions of the three graphs:
+
+- semantic: `mission_composition.semantic_vocabulary`;
+- epistemic: `mission_composition.epistemic`;
+- operational: `mission_composition.plan_compiler`.
+
+Historical records that predate this field remain readable through the versioned default lineage;
+they retain their original know-how and graph/materialization references. The lineage is provenance,
+not admission authority: it cannot create tasks, resolve credentials, dispatch actions, or call
+providers. The compatibility manifest is
+`docs/contracts/outcome-graph-ownership.v1.json`.
+
 ---
 
 ## 6. End-to-end paid customer loop (staging-ready)

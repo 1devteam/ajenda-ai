@@ -283,6 +283,9 @@ def test_composition_projects_replayable_intelligence_envelope_without_authority
     assert all(item.grants_execution_authority is False for item in envelope.algorithm_results)
     assert not any(gap.blocking for gap in envelope.layer_gaps)
     assert record.composition_provenance.grants_execution_authority is False
+    assert record.composition_provenance.graph_lineage.semantic_owner == "mission_composition.semantic_vocabulary"
+    assert record.composition_provenance.graph_lineage.epistemic_owner == "mission_composition.epistemic"
+    assert record.composition_provenance.graph_lineage.operational_owner == "mission_composition.plan_compiler"
     assert record.composition_provenance.semantic_selection is not None
     assert "prospect" in record.composition_provenance.semantic_selection.concepts
     assert not record.composition_provenance.semantic_selection.conflicts

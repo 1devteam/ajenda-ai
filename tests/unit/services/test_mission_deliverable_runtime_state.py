@@ -115,6 +115,8 @@ def test_runtime_state_records_coverage_reconciliation_snapshot() -> None:
     lifecycle = state["lifecycle"]
     assert lifecycle["coverage_assessment"] == coverage.model_dump(mode="json")
     assert lifecycle["coverage_assessment"]["grants_execution_authority"] is False
+    assert lifecycle["graph_lineage"]["semantic_owner"] == "mission_composition.semantic_vocabulary"
+    assert lifecycle["graph_lineage"]["operational_owner"] == "mission_composition.plan_compiler"
 
 
 def test_lifecycle_effective_state_detects_expired_current_observation() -> None:

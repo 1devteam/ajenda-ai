@@ -635,7 +635,9 @@ hypothesis or execute the experiment.
 Canonical ownership and compatibility for the three outcome graphs are declared in
 [`outcome-graph-ownership.v1.json`](docs/contracts/outcome-graph-ownership.v1.json) and checked by
 `python scripts/validation/outcome_graph_ownership_check.py`. This manifest is governance metadata;
-it does not grant any graph runtime authority.
+it does not grant any graph runtime authority. New composition artifacts also persist the same
+ownership/version snapshot as `GraphLineage`; older records remain readable with compatibility
+defaults and preserve their original know-how/materialization provenance.
 
 ### What the GRAFT+ shift has taught us
 

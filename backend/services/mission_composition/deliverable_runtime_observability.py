@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from backend.services.mission_composition.contracts import CoverageAssessment, EpistemicContext
+from backend.services.mission_composition.contracts import CoverageAssessment, EpistemicContext, GraphLineage
 from backend.services.mission_composition.deliverable_completion import DeliverableCompletion
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
 from backend.services.mission_composition.deliverable_runtime_state import (
@@ -46,6 +46,7 @@ class DeliverableRuntimeStateRead(BaseModel):
     semantic_selection: SemanticSelection | None = None
     semantic_reconciliation: Literal["not_available", "aligned", "blocked"] = "not_available"
     coverage_assessment: CoverageAssessment | None = None
+    graph_lineage: GraphLineage | None = None
     epistemic_context: EpistemicContext | None = None
     shadow_preview: ShadowPreview | None = None
     runtime_reconciliation: RuntimeReconciliation | None = None
@@ -184,6 +185,7 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
         semantic_selection=semantic,
         semantic_reconciliation=semantic_reconciliation,
         coverage_assessment=coverage,
+        graph_lineage=state.lifecycle.graph_lineage,
         epistemic_context=epistemic,
         shadow_preview=state.shadow_preview,
         runtime_reconciliation=state.runtime_reconciliation,
