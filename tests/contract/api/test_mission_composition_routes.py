@@ -127,6 +127,39 @@ def test_shadow_preview_is_tenant_scoped() -> None:
     assert shadow.status_code == 404
 
 
+def test_shadow_preview_retrieval_is_stable_for_owner_and_isolated_for_other_tenant() -> None:
+    tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    other_tenant = uuid.UUID("22222222-2222-2222-2222-222222222222")
+    app = _build_app(tenant_id)
+    other_app = _build_app(other_tenant)
+    with (
+        patch.object(composition_module, "require_route_permission", return_value=None),
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
+    ):
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        cred_repo_cls.return_value.list_for_tenant.return_value = []
+        client = TestClient(app)
+        compose = client.post("/v1/missions/compose", json={"instruction": ROOFING_INSTRUCTION})
+        assert compose.status_code == 200, compose.text
+        proposal_id = compose.json()["proposal_id"]
+
+        first = client.get(f"/v1/missions/proposals/{proposal_id}/shadow-preview")
+        second = client.get(f"/v1/missions/proposals/{proposal_id}/shadow-preview")
+        other = TestClient(other_app).get(f"/v1/missions/proposals/{proposal_id}/shadow-preview")
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert other.status_code == 404
+    first_preview = dict(first.json()["preview"])
+    second_preview = dict(second.json()["preview"])
+    first_preview.pop("created_at", None)
+    second_preview.pop("created_at", None)
+    assert first_preview == second_preview
+    assert first.json()["runtime_work_created"] is False
+    assert second.json()["runtime_work_created"] is False
+
+
 def test_counterfactual_plans_are_read_only_comparisons() -> None:
     tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
     app = _build_app(tenant_id)
