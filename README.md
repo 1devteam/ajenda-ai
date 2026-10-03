@@ -684,6 +684,10 @@ read-model refresh compares those expectations with later governed runtime artif
 remain read models and grant no runtime authority; missing or unexpected artifacts remain visible.
 The read-only proposal shadow-preview endpoint validates those server-owned expectations before
 confirmation without creating runtime work.
+The October 3, 2026 outcome-loop checkpoint proves supported fixture execution, unsupported and
+over-capacity fail-closed composition, and insufficient-public-evidence fail-closed runtime behavior.
+It also verifies that materialized work cannot remain silently current when coverage was blocked; see
+[`outcome-loop-checkpoint-2026-10-03.md`](docs/validation/outcome-loop-checkpoint-2026-10-03.md).
 The counterfactual-plan endpoint compares the selected plan with a side-effect-free projection using
 deterministic evidence, cost, latency, risk, and completeness estimates; all candidates remain
 non-executable read models.

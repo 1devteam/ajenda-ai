@@ -1,6 +1,6 @@
 # Ajenda AI — Project State Report
 
-**Date:** October 2, 2026
+**Date:** October 3, 2026
 **Branch:** `main`  
 **Alembic head:** `0038_knowledge_retrieval`
 **Architecture map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md)
@@ -43,6 +43,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - Deterministic coverage assessment is attached to composition and carried into the deliverable lifecycle lineage; unsupported and over-capacity fixture scopes fail closed before runtime
 - Epistemic context and deliverable lifecycle reconciliation preserve source, freshness, contradiction, coverage, and uncertainty-budget metadata through artifact refresh and read-model projection; budget excesses block epistemic reconciliation without changing runtime authority
 - Deliverable refresh marks runtime work created for unsupported or over-capacity coverage as contradictory instead of allowing a false current/completed state
+- Checkpoint runtime proof covers supported, unsupported, over-capacity, and insufficient-public-evidence missions; see [`outcome-loop-checkpoint-2026-10-03.md`](validation/outcome-loop-checkpoint-2026-10-03.md)
 - Semantic lattice vocabulary is versioned and provenance-backed across shared GTM/business, business-family, and industry overlays; advertising remains declarative and catalog-only until provider proof exists
 
 ### 2.2 Tenant isolation and auth
