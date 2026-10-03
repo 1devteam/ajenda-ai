@@ -33,6 +33,19 @@ class SemanticConcept(BaseModel):
     grants_execution_authority: Literal[False] = False
 
 
+class TenantSemanticOverride(BaseModel):
+    """Tenant-owned terminology alias; never mutates shared vocabulary."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    concept_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=120)
+    aliases: tuple[str, ...] = Field(min_length=1, max_length=20)
+    source_reference: str = Field(min_length=1, max_length=240)
+    version: str = Field(pattern=r"^[1-9]\d*\.\d+\.\d+$", max_length=40)
+    scope: Literal["tenant_private"] = "tenant_private"
+    grants_execution_authority: Literal[False] = False
+
+
 class SemanticJobBinding(BaseModel):
     """Read-only link between a semantic concept and canonical business jobs."""
 
@@ -84,6 +97,7 @@ class SemanticSelection(BaseModel):
     component_job_guidance: tuple[SemanticComponentJobGuidance, ...] = Field(default=(), max_length=30)
     concepts: tuple[str, ...] = Field(default=(), max_length=40)
     concept_provenance: tuple[SemanticConcept, ...] = Field(default=(), max_length=40)
+    tenant_overrides: tuple[TenantSemanticOverride, ...] = Field(default=(), max_length=30)
     matched_terms: tuple[str, ...] = Field(default=(), max_length=40)
     bindings: tuple[SemanticJobBinding, ...] = Field(default=(), max_length=40)
     conflicts: tuple[str, ...] = Field(default=(), max_length=20)
@@ -714,6 +728,8 @@ def build_semantic_selection(
     instruction: str,
     requested_outcomes: Iterable[str],
     selected_job_keys: Iterable[str],
+    tenant_overrides: Iterable[TenantSemanticOverride] = (),
+    tenant_override_conflicts: Iterable[str] = (),
 ) -> SemanticSelection:
     """Derive deterministic concept/job provenance without changing authority."""
 
@@ -723,6 +739,29 @@ def build_semantic_selection(
     terms: list[str] = []
     bindings: list[SemanticJobBinding] = []
     conflicts: list[str] = []
+    tenant_override_items = tuple(tenant_overrides)
+    conflicts.extend(str(item) for item in tenant_override_conflicts)
+    tenant_aliases: dict[str, str] = {}
+    for override in tenant_override_items:
+        if override.concept_id not in SHARED_BUSINESS_CONCEPTS_BY_ID:
+            conflicts.append(f"tenant semantic override references unknown concept: {override.concept_id}")
+            continue
+        for alias in override.aliases:
+            normalized_alias = normalize_concept_text(alias)
+            shared_concept_id = _ALIASES.get(normalized_alias)
+            if shared_concept_id is not None and shared_concept_id != override.concept_id:
+                conflicts.append(
+                    f"tenant semantic alias conflict: {normalized_alias!r} maps to "
+                    f"shared concept {shared_concept_id} and tenant concept {override.concept_id}"
+                )
+                continue
+            prior = tenant_aliases.get(normalized_alias)
+            if prior is not None and prior != override.concept_id:
+                conflicts.append(
+                    f"tenant semantic alias conflict: {normalized_alias!r} maps to {prior} and {override.concept_id}"
+                )
+                continue
+            tenant_aliases[normalized_alias] = override.concept_id
     component_candidates: set[str] = {"shared_business"}
     if requested_outcomes or selected:
         component_candidates.add("gtm.core")
@@ -780,6 +819,16 @@ def build_semantic_selection(
         if normalized_match not in terms:
             terms.append(normalized_match)
 
+    for alias, concept_id in tenant_aliases.items():
+        if not re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized_instruction):
+            continue
+        if concept_id not in concepts:
+            concepts.append(concept_id)
+        if alias not in terms:
+            terms.append(alias)
+        concept = SHARED_BUSINESS_CONCEPTS_BY_ID[concept_id]
+        component_candidates.update(concept.applicable_domains)
+
     normalized_components = {_COMPONENT_DOMAIN_ALIASES.get(component, component) for component in component_candidates}
     active_components, component_conflicts = _compose_lattice_components(normalized_components)
     conflicts.extend(component_conflicts)
@@ -801,6 +850,7 @@ def build_semantic_selection(
         component_job_guidance=component_job_guidance,
         concepts=tuple(concepts),
         concept_provenance=concept_provenance,
+        tenant_overrides=tenant_override_items,
         matched_terms=tuple(terms),
         bindings=tuple(bindings),
         conflicts=tuple(dict.fromkeys(conflicts)),

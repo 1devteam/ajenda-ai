@@ -703,9 +703,10 @@ Semantic selection is versioned and provenance-backed. It exposes active lattice
 interpretation and job composition only; `ActionRegistry`, `TaskDispatcher`, `WorkerRuntimeService`,
 tenant scope, credentials, approvals, and provider effects remain authoritative elsewhere.
 
-The current semantic layer is intentionally not the finished lattice resolver. Multi-parent merge
-semantics, tenant-private terminology overrides, epistemic budgets, governed application of
-knowledge-change proposals, and recurring cross-stage reconciliation remain subsequent work.
+The current semantic layer is intentionally bounded. Multi-parent merge semantics and tenant-private
+terminology overrides are implemented as read-only composition inputs. Epistemic budgets and recurring
+cross-stage reconciliation remain subsequent work; governed tenant-private application is limited to
+the explicit profile-service owner described above.
 
 ---
 

@@ -73,7 +73,7 @@ This report reflects implementation-backed truth on `main`. For visual flows, se
 - External connectors fail closed without credentials; simulation requires explicit non-production opt-in and remains disabled in production
 - Gmail query composition preserves sender and material `for` clauses, translates supported time windows, and rejects known unsupported explicit operators
 - Explicit HubSpot sourcing remains connector-bound and unsupported CRM discovery scopes are rejected instead of falling back
-- Semantic overlays currently guide interpretation and composition provenance; multi-parent merge semantics and tenant-private vocabulary overrides remain future work
+- Semantic overlays use versioned multi-parent composition; approved tenant-private terminology overrides guide only that tenant's interpretation and remain isolated from shared vocabulary
 - Local fixture research remains `real=false` with `fixture://` evidence identities at discovery and verification stages
 - Read-only browser artifacts preserve request-vetting, DNS-pin, allowed-host, engine, and ephemeral-context provenance
 

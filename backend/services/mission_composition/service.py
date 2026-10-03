@@ -71,7 +71,10 @@ from backend.services.mission_composition.proposal_store import (
     mark_superseded,
     put_proposal,
 )
-from backend.services.mission_composition.semantic_vocabulary import build_semantic_selection
+from backend.services.mission_composition.semantic_vocabulary import (
+    TenantSemanticOverride,
+    build_semantic_selection,
+)
 from backend.services.mission_composition.shadow_preview import build_shadow_preview
 from backend.services.mission_composition.structured_planner import (
     PlannerRequest,
@@ -213,6 +216,35 @@ def _profile_context(profile: Any) -> dict[str, Any]:
     context.update(normalized)
     context["profile_id"] = str(getattr(profile, "id", ""))
     return context
+
+
+def _tenant_semantic_overrides(profile: Any) -> tuple[tuple[TenantSemanticOverride, ...], tuple[str, ...]]:
+    """Read approved tenant aliases without changing the shared vocabulary."""
+
+    if profile is None:
+        return (), ()
+    facts = getattr(profile, "approved_facts", None) or {}
+    if not isinstance(facts, dict) or "semantic_terminology_overrides" not in facts:
+        return (), ()
+    raw = facts.get("semantic_terminology_overrides")
+    if not isinstance(raw, list):
+        return (), ("tenant semantic terminology overrides must be a list",)
+
+    profile_id = str(getattr(profile, "id", "unknown"))
+    overrides: list[TenantSemanticOverride] = []
+    conflicts: list[str] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            conflicts.append(f"tenant semantic override {index} must be an object")
+            continue
+        payload = dict(item)
+        payload.setdefault("source_reference", f"business_profile:{profile_id}")
+        payload.setdefault("version", "1.0.0")
+        try:
+            overrides.append(TenantSemanticOverride.model_validate(payload))
+        except ValueError as exc:
+            conflicts.append(f"tenant semantic override {index} is invalid: {str(exc)[:240]}")
+    return tuple(overrides), tuple(conflicts)
 
 
 def _acceptance_score_threshold(intent: MissionIntent) -> int:
@@ -388,6 +420,7 @@ class MissionCompositionService:
         connected_ids, connected_integrations, preferred_creds, type_by_id = _connected_sets(self._db, tenant_id)
         coverage_assessment = assess_coverage(intent)
         epistemic_context = build_epistemic_context(intent, coverage_assessment)
+        tenant_semantic_overrides, tenant_override_conflicts = _tenant_semantic_overrides(profile)
 
         jobs = route_jobs_for_intent(intent)
         know_how = select_vertical_know_how(intent.requested_outcomes)
@@ -454,6 +487,8 @@ class MissionCompositionService:
             instruction=raw_instruction,
             requested_outcomes=intent.requested_outcomes,
             selected_job_keys=(job.job_key for job in jobs),
+            tenant_overrides=tenant_semantic_overrides,
+            tenant_override_conflicts=tenant_override_conflicts,
         )
         for conflict in semantic_selection.conflicts:
             missing.append({"kind": "semantic_conflict", "message": conflict})
