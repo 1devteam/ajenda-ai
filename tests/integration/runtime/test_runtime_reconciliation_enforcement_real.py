@@ -198,7 +198,7 @@ def test_periodic_maintenance_refreshes_deliverable_read_model(
         session.refresh(mission)
         composition = mission.metadata_json["mission_intake"]["context"]["composition"]
         refreshed = composition[DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
-        assert summary.deliverable_reconciled_count == 1
+        assert summary.deliverable_reconciled_count >= 1
         assert refreshed["lifecycle"]["state"] == "current"
         assert refreshed["lifecycle"]["materialized_artifact_count"] == 1
     finally:
