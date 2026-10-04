@@ -171,11 +171,16 @@ _OUTCOME_VERBS = frozenset(
         "recommend",
         "recover",
         "reduce",
+        "read",
         "research",
         "return",
         "review",
         "route",
         "score",
+        "check",
+        "list",
+        "show",
+        "query",
         "summarize",
         "summarise",
         "surface",
@@ -379,6 +384,26 @@ def _content_words(text: str) -> list[str]:
     return [token for token in tokens if token not in _STOPWORDS and len(token) > 1]
 
 
+def _contains_measurement_marker(text: str) -> bool:
+    """Match measurement markers without treating substrings as evidence.
+
+    Markers such as ``all`` and ``in`` are meaningful words, not arbitrary
+    substrings.  Substring matching made a location like ``Dallas`` satisfy
+    the ``all`` marker while equivalent locations such as ``Austin`` did not.
+    Phrase and symbolic markers retain their existing substring semantics.
+    """
+
+    lowered = text.lower()
+    for marker in _MEASURABLE_MARKERS:
+        normalized = marker.strip()
+        if normalized and normalized.isalnum():
+            if re.search(rf"\b{re.escape(normalized)}\b", lowered):
+                return True
+        elif marker in lowered:
+            return True
+    return False
+
+
 def _contains_outcome_signal(text: str) -> bool:
     lowered = text.lower()
     if any(char.isdigit() for char in text):
@@ -386,7 +411,7 @@ def _contains_outcome_signal(text: str) -> bool:
     words = _content_words(text)
     if any(word in _OUTCOME_VERBS for word in words):
         return True
-    if any(marker in lowered for marker in _MEASURABLE_MARKERS):
+    if _contains_measurement_marker(lowered):
         return True
     return False
 
@@ -395,7 +420,7 @@ def _is_measurable_text(text: str) -> bool:
     lowered = text.lower()
     if any(char.isdigit() for char in text):
         return True
-    if any(marker in lowered for marker in _MEASURABLE_MARKERS):
+    if _contains_measurement_marker(lowered):
         return True
     words = _content_words(text)
     return any(word in _OUTCOME_VERBS for word in words) and len(words) >= 3

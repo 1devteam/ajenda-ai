@@ -55,6 +55,27 @@ def test_validate_accepts_bounded_internal_crm_records_mission() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "objective",
+    [
+        "Read three plumbing companies in Austin from internal CRM.",
+        "Read three HVAC companies in Dallas from internal CRM.",
+    ],
+)
+def test_validate_accepts_natural_internal_crm_read_verbs_without_location_bias(objective: str) -> None:
+    validate_mission_intake_prompt(
+        objective=objective,
+        success_criteria=[
+            {
+                "description": "Requested CRM records are returned with source evidence",
+                "evidence": ["crm_records artifact"],
+            }
+        ],
+        scope_limits=["the requested companies only"],
+        allowed_actions=["record.search"],
+    )
+
+
 def test_validate_accepts_short_explicit_safety_constraint() -> None:
     validate_mission_intake_prompt(
         objective=("Observe the web page at https://example.com and return its title and visible text."),
