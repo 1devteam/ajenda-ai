@@ -268,6 +268,29 @@ def test_hubspot_source_research_does_not_dual_route_web_and_crm() -> None:
         assert "scope" in str(exc).lower() or "company" in str(exc).lower()
 
 
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "Read three HVAC companies in Dallas from internal CRM.",
+        "List three HVAC companies in Dallas from Ajenda internal CRM.",
+        "Show three HVAC companies in Dallas from the internal Ajenda CRM.",
+    ],
+)
+def test_source_qualified_internal_crm_read_language_maps_to_local_read_job(instruction: str) -> None:
+    intent = interpret_instruction(instruction)
+
+    assert intent.requested_outcomes == ["read_crm"]
+    assert intent.interpretation_ready is True
+    assert "internal_crm_source" in intent.context_requirements
+    assert not intent.unmatched_material_clauses
+
+    jobs = route_jobs_for_intent(intent)
+    assert [job.job_key for job in jobs] == ["crm.read_records"]
+    selections, missing = resolve_jobs(jobs, intent=intent)
+    assert missing == []
+    assert selections[0].action_name == "record.search"
+
+
 def test_hubspot_source_named_competitor_discovery_fails_closed() -> None:
     intent = interpret_instruction("Research five competitors of Acme Roofing in Austin from HubSpot CRM records.")
     assert intent.target_entities[0].type == "competitor_set"

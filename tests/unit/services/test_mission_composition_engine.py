@@ -165,6 +165,15 @@ def test_business_income_review_uses_know_how_artifact_projection() -> None:
     assert all("business_review_report" in binding["artifact_keys"] for binding in projection["bindings"])
 
 
+def test_pure_crm_read_does_not_require_qualification_artifacts() -> None:
+    intent = interpret_instruction("Read three HVAC companies in Dallas from internal CRM.")
+
+    assert intent.requested_outcomes == ["read_crm"]
+    runtime_request = _runtime_deliverable_request(intent)
+    assert runtime_request is not None
+    assert [field.field_key for field in runtime_request.fields] == ["company_name"]
+
+
 def test_interpreter_preserves_software_rnd_target_and_profile_context() -> None:
     instruction = (
         "Use 1DevTeam's approved business profile to research software and R&D developer companies in Austin, "

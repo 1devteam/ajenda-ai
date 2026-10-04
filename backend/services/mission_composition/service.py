@@ -141,9 +141,10 @@ def _runtime_deliverable_request(intent: MissionIntent) -> DeliverableRequest | 
             )
         )
     if "read_crm" in outcomes or "qualify_prospects" in outcomes:
+        fields.append(DeliverableFieldRequirement(field_key="company_name", source_text="company name"))
+    if "qualify_prospects" in outcomes:
         fields.extend(
             (
-                DeliverableFieldRequirement(field_key="company_name", source_text="company name"),
                 DeliverableFieldRequirement(field_key="qualification_score", source_text="qualification score"),
                 DeliverableFieldRequirement(field_key="qualification_reasons", source_text="qualification reasons"),
                 DeliverableFieldRequirement(field_key="qualification_evidence", source_text="qualification evidence"),

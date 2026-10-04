@@ -161,6 +161,11 @@ _INTERNAL_CRM_READ_PATTERNS = (
     r"\b(?:ajenda(?:['\u2019]s)?\s+crm|ajenda\s+internal\s+crm|internal\s+(?:ajenda\s+)?crm)\b[^.!?]{0,100}\b(?:records?|companies|contacts?|deals?|pipeline)\b",
     r"\b(?:review|inspect|summarize|compare|rank)\b[^.!?]{0,120}\b(?:ajenda(?:['\u2019]s)?\s+internal\s+records?|internal\s+records?)\b",
     r"\b(?:find|search|research|identify|qualify)\b[^.!?]{0,120}\bfrom\s+(?:the\s+)?internal\s+(?:ajenda\s+)?crm\b",
+    # Natural read requests may lead with "read", "check", or "list" and
+    # use the internal CRM as a source qualifier. Keep this a read outcome;
+    # it must never imply a CRM write or provider call.
+    r"\b(?:read|check|list|show|query|review|inspect|summarize|compare|rank)\b[^.!?]{0,120}\bfrom\s+(?:the\s+)?(?:ajenda\s+)?internal\s+crm\b",
+    r"\b(?:read|check|list|show|query|review|inspect|summarize|compare|rank)\b[^.!?]{0,120}\bfrom\s+(?:the\s+)?internal\s+(?:ajenda\s+)?crm\b",
 )
 _CRM_READ_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\b[^.!?]{0,48}\b(?:read|check|search|query|list|show)\b[^.!?]{0,48}\b(?:hubspot|crm)\b",
@@ -1266,7 +1271,10 @@ def interpret_instruction(
         and not crm_write_requested
         and not _contains_any(lower, _INTERNAL_CRM_READ_NEGATION_PATTERNS)
     )
-    internal_crm_as_source = re.search(r"\bfrom\s+(?:the\s+)?internal\s+(?:ajenda\s+)?crm\b", lower) is not None
+    internal_crm_as_source = (
+        re.search(r"\bfrom\s+(?:the\s+)?internal\s+(?:ajenda\s+)?crm\b", lower) is not None
+        or re.search(r"\bfrom\s+(?:the\s+)?ajenda\s+internal\s+crm\b", lower) is not None
+    )
     explicit_hubspot_record_read = bool(re.search(r"\buse\s+(?:the\s+)?(?:hubspot|crm)\s+records?\b", lower))
     wants_crm_read = (
         (
