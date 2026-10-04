@@ -30,6 +30,8 @@ def test_web_research_runs_without_external_plugins() -> None:
     # Explicit company-only target must not invent a domain from tenant profile.
     assert result.output["company"] == "Acme Manufacturing"
     assert result.output["domain"] is None
+    assert set(result.output["source_partitions"]) == {"tenant_internal", "public_search"}
+    assert result.output["source_partitions"]["public_search"]["candidate_count"] == 0
 
 
 def test_public_search_directory_hits_are_forwarded_only_to_observation(monkeypatch) -> None:
@@ -64,6 +66,9 @@ def test_public_search_directory_hits_are_forwarded_only_to_observation(monkeypa
     assert result.output["prospect_candidates"][0]["identity_status"] == "unverified"
     assert result.output["rejected_public_candidates"] == 1
     assert result.output["research_gap"] == "public search returned no verified individual company identities"
+    assert result.output["source"] == "ddgs"
+    assert result.output["public_prospect_candidates"][0]["source_scope"] == "public_search"
+    assert result.output["public_prospect_candidates"][0]["evidence_class"] == "public_candidate_unverified"
 
 
 def test_web_research_matches_market_tokens_on_tenant_accounts(monkeypatch) -> None:
@@ -107,6 +112,9 @@ def test_web_research_matches_market_tokens_on_tenant_accounts(monkeypatch) -> N
     )
     assert result.output["prospect_count"] == 1
     assert result.output["prospect_candidates"][0]["company"] == "Dallas Comfort HVAC"
+    assert result.output["source"] == "ajenda_brain"
+    assert result.output["source_partitions"]["tenant_internal"]["candidate_count"] == 1
+    assert result.output["source_partitions"]["public_search"]["result_count"] == 0
 
 
 def test_local_fixture_research_preserves_source_ids_for_all_contacts(monkeypatch) -> None:
@@ -169,6 +177,8 @@ def test_local_fixture_research_preserves_source_ids_for_all_contacts(monkeypatc
     assert all(candidate["real"] is False for candidate in result.output["prospect_candidates"])
     assert all(candidate["source"] == "local_fixture" for candidate in result.output["prospect_candidates"])
     assert all(candidate["evidence_class"] == "fixture" for candidate in result.output["prospect_candidates"])
+    assert all(candidate["source_scope"] == "local_fixture" for candidate in result.output["prospect_candidates"])
+    assert result.output["source_partitions"]["tenant_internal"]["evidence_class"] == "fixture"
     assert all(
         candidate["identity_evidence_urls"] == [f"fixture://{candidate['id']}"]
         for candidate in result.output["prospect_candidates"]

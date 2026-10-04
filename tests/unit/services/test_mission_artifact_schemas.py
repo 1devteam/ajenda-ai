@@ -26,6 +26,7 @@ def test_prospect_candidates_schema_exposes_explicit_research_fields() -> None:
         "product_description",
         "research_summary",
         "sources",
+        "research_source",
     ]
     assert [field.json_path for field in schema.fields] == [
         "$[].company",
@@ -33,13 +34,20 @@ def test_prospect_candidates_schema_exposes_explicit_research_fields() -> None:
         "$[].product_description",
         "$[].research_summary",
         "$[].sources",
+        "$[].source",
     ]
     assert all(field.scope == "per_item" for field in schema.fields)
     assert all(
         field.required_when_item_exists
         for field in schema.fields
         if field.deliverable_field
-        not in {"company_name", "qualification_dimensions", "disqualifiers", "recommended_next_action"}
+        not in {
+            "company_name",
+            "qualification_dimensions",
+            "disqualifiers",
+            "recommended_next_action",
+            "research_source",
+        }
     )
     assert schema.grants_execution_authority is False
 

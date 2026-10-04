@@ -72,6 +72,14 @@ PROSPECT_CANDIDATES_SCHEMA = CompositionArtifactSchema(
             json_path="$[].sources",
             scope="per_item",
         ),
+        ArtifactFieldProjection(
+            deliverable_field="research_source",
+            json_path="$[].source",
+            scope="per_item",
+            # Source partitioning was added after the original discovery
+            # artifact contract; historical rows remain readable.
+            required_when_item_exists=False,
+        ),
     ),
 )
 
@@ -105,6 +113,12 @@ VERIFIED_PROSPECT_CANDIDATES_SCHEMA = CompositionArtifactSchema(
             deliverable_field="research_summary", json_path="$[].research_summary", scope="per_item"
         ),
         ArtifactFieldProjection(deliverable_field="sources", json_path="$[].sources", scope="per_item"),
+        ArtifactFieldProjection(
+            deliverable_field="research_source",
+            json_path="$[].source",
+            scope="per_item",
+            required_when_item_exists=False,
+        ),
     ),
 )
 

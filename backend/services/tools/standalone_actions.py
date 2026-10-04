@@ -448,6 +448,8 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         search_error = "; ".join(dict.fromkeys(search_errors)) or None
 
     prospect_candidates: list[dict[str, Any]] = []
+    internal_prospect_candidates: list[dict[str, Any]] = []
+    public_prospect_candidates: list[dict[str, Any]] = []
     seen_companies: set[str] = set()
     verified_public_candidate_count = 0
     candidate_records = (
@@ -470,12 +472,15 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         if not isinstance(record, dict):
             continue
         prospect = _prospect_from_record(record, source="internal_record", query=payload.query)
+        prospect["source_scope"] = "tenant_internal"
+        prospect["evidence_class"] = "tenant_owned_record"
         if payload.local_fixture_only:
             fixture_id = str(record.get("id") or prospect.get("id") or "unknown")
             prospect.update(
                 {
                     "real": False,
                     "source": "local_fixture",
+                    "source_scope": "local_fixture",
                     "evidence_class": "fixture",
                     "identity_evidence_urls": [f"fixture://{fixture_id}"],
                 }
@@ -507,6 +512,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             continue
         seen_companies.add(key)
         prospect_candidates.append(prospect)
+        internal_prospect_candidates.append(prospect)
         if len(prospect_candidates) >= payload.limit:
             break
     if len(prospect_candidates) < payload.limit:
@@ -519,19 +525,24 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                 # stage. It is source evidence, not a completed prospect; the
                 # intermediate output contract prevents it from materializing.
                 prospect["identity_status"] = "unverified"
+                prospect["evidence_class"] = "public_candidate_unverified"
             else:
                 verified_public_candidate_count += 1
+                prospect["evidence_class"] = "public_observed"
+            prospect["source_scope"] = "public_search"
             key = prospect["company"].lower()
             if key in seen_companies:
                 continue
             seen_companies.add(key)
             prospect_candidates.append(prospect)
+            public_prospect_candidates.append(prospect)
             if len(prospect_candidates) >= public_search_limit:
                 break
     else:
         rejected_public_candidates = 0
 
     business_context = resolve_business_context(context)
+    tenant_internal_records = internal_matches + list(crm_search.results or [])
     output = {
         "query": payload.query,
         "company": company,
@@ -541,6 +552,11 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "profile_company": profile_company,
         "profile_domain": profile_domain,
         "prospect_candidates": prospect_candidates,
+        # Keep the combined list for existing downstream bindings, but expose
+        # source partitions explicitly so mixed internal/public research cannot
+        # be interpreted as one undifferentiated evidence source.
+        "internal_prospect_candidates": internal_prospect_candidates,
+        "public_prospect_candidates": public_prospect_candidates,
         "prospect_count": len(prospect_candidates),
         "internal_records": internal_matches[: payload.limit],
         "internal_count": len(internal_matches),
@@ -550,6 +566,27 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "search_queries": list(query_variants) if payload.include_public_search else [],
         "rejected_public_candidates": rejected_public_candidates,
         "verified_public_candidate_count": verified_public_candidate_count,
+        "source_partitions": {
+            "tenant_internal": {
+                "record_count": len(tenant_internal_records),
+                "candidate_count": len(internal_prospect_candidates),
+                "verified_candidate_count": sum(
+                    1 for candidate in internal_prospect_candidates if candidate.get("identity_status") == "verified"
+                ),
+                "evidence_class": "fixture" if payload.local_fixture_only else "tenant_owned_record",
+                "provider_observed": False,
+                "authority": "tenant_record_store",
+            },
+            "public_search": {
+                "result_count": len(web_results),
+                "candidate_count": len(public_prospect_candidates),
+                "verified_candidate_count": verified_public_candidate_count,
+                "unverified_candidate_count": max(0, len(public_prospect_candidates) - verified_public_candidate_count),
+                "evidence_class": "public_observed" if public_search_real else "public_candidate",
+                "provider_observed": public_search_real,
+                "authority": "external_search_provider",
+            },
+        },
         "research_gap": (
             "public search returned no verified individual company identities"
             if payload.include_public_search and verified_public_candidate_count == 0 and web_results
@@ -563,9 +600,16 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "access_mode": "public_search" if payload.include_public_search else "internal_research",
         "business_context_source": business_context.source,
         "source": (
-            "ajenda_brain"
+            "mixed_internal_and_public"
+            if (internal_prospect_candidates and public_prospect_candidates)
+            # Preserve the historical top-level source values for single-source
+            # artifacts; source_partitions and per-item source_scope carry the
+            # unambiguous provenance contract for new consumers.
+            else "ajenda_brain"
             if internal_matches or crm_search.results
-            else ("ddgs" if public_search_real else "ajenda_brain")
+            else "ddgs"
+            if public_search_real
+            else "ajenda_brain"
         ),
         # ``real`` means real-world observation, never merely that code ran.
         # Local fixtures remain explicit synthetic proof data.
