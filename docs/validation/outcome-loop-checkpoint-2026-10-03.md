@@ -86,3 +86,17 @@ An adversarial internal-CRM runtime attempt also exposed a separate deliverable 
 CRM-read job cannot satisfy requested website and qualification-score fields. The mission failed
 closed with the CRM artifact retained; the fix is to request fields that the selected job produces or
 compose the qualifying/enrichment jobs explicitly, not to weaken completion validation.
+
+## CRM deliverable/job alignment — October 5, 2026
+
+The composition resolver now treats typed qualification fields in a CRM deliverable request as
+an explicit requirement for the governed `sales.qualify_prospects` business job. A request for
+CRM records plus qualification score therefore composes the existing `crm.read_records` and
+`sales.qualify_prospects` jobs, while a pure CRM read remains read-only and does not acquire
+qualification or public-research work. This is composition guidance only: it creates no tasks,
+does not dispatch actions, resolve credentials, or grant runtime authority.
+
+The change closes the mismatch found during the adversarial internal-CRM attempt without
+loosening artifact validation or fabricating qualification data. The original deployment
+capture remains evidence of the prior fail-closed behavior; a rebuilt runtime proof is still
+required before claiming live CRM qualification success.

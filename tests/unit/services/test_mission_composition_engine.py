@@ -1013,6 +1013,19 @@ def test_direct_crm_record_read_does_not_route_web_discovery() -> None:
     assert intent.target_entities[0].name == "roofing prospects in Austin"
 
 
+def test_crm_deliverable_score_expands_to_governed_qualification_job() -> None:
+    intent = interpret_instruction(
+        "Find three HVAC companies from Ajenda internal CRM records and return company name, website, and qualification score."
+    )
+
+    assert "read_crm" in intent.requested_outcomes
+    assert "qualify_prospects" in intent.requested_outcomes
+    jobs = route_jobs_for_intent(intent)
+    assert "crm.read_records" in {job.job_key for job in jobs}
+    assert "sales.qualify_prospects" in {job.job_key for job in jobs}
+    assert "research.discover_prospects" not in {job.job_key for job in jobs}
+
+
 def test_crm_record_for_extracts_named_company() -> None:
     intent = interpret_instruction(
         "Read the approved HubSpot CRM record for Acme Roofing and produce a research report."

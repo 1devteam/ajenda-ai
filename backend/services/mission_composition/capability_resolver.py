@@ -226,6 +226,24 @@ def route_jobs_for_intent(intent: MissionIntent) -> list[BusinessJob]:
     if not outcomes:
         return []
 
+    # A typed deliverable requirement is part of the requested outcome
+    # contract. If the operator asks for qualification scores or dimensions,
+    # include the governed qualification job even when the prose omitted the
+    # verb "qualify". This expands composition only; it does not select an
+    # action, create work, or grant runtime authority.
+    deliverable = intent.deliverable_request
+    if deliverable is not None:
+        qualification_fields = {
+            "qualification_score",
+            "qualification_evidence",
+            "qualification_reasons",
+            "qualification_dimensions",
+            "disqualifiers",
+            "recommended_next_action",
+        }
+        if qualification_fields.intersection(field.field_key for field in deliverable.fields):
+            outcomes.add("qualify_prospects")
+
     selected: list[BusinessJob] = []
     selected_keys: set[str] = set()
     available = _intent_input_sources(intent)
