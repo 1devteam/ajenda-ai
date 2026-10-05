@@ -197,7 +197,32 @@ def test_approve_suggestion_as_is_writes_approved_fact_and_resolution() -> None:
     assert updated_profile.provenance["service_area"]["decision"] == "approved"
     assert updated_suggestion.status == "approved"
     assert updated_suggestion.resolution["approved_fact"] == {"value": "Dallas"}
+    assert updated_suggestion.resolution["application_binding"]["approved_fact_digest"]
+    assert updated_suggestion.resolution["application_binding"]["application_digest"]
     session.flush.assert_called_once()
+
+
+def test_proposal_binding_rejects_changed_suggestion_before_application() -> None:
+    profile = _profile()
+    suggestion = _suggestion()
+    suggestion.id = uuid.uuid4()
+    session = MagicMock()
+    repo = BusinessProfileRepository(session)
+    repo.add_suggestion(suggestion)
+    suggestion.suggested_fact = {"value": "Mutated after review"}
+
+    try:
+        repo.approve_suggestion_as_is(
+            profile=profile,
+            suggestion=suggestion,
+            resolved_at=datetime(2026, 6, 3, tzinfo=UTC),
+            actor_id="user-1",
+        )
+    except ValueError as exc:
+        assert str(exc) == "business profile proposal binding is invalid"
+    else:
+        raise AssertionError("expected changed proposal to fail closed")
+    assert profile.approved_facts == {}
 
 
 def test_approve_suggestion_preserves_superseded_profile_fact_and_provenance() -> None:

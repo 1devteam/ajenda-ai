@@ -100,6 +100,12 @@ Example durable facts:
 
 When Ajenda detects a possible profile update, it should present a lightweight suggestion rather than interrupting the mission with a heavy form.
 
+Every persisted suggestion carries a server-generated proposal binding. Approval records a second
+application binding containing the proposal digest, tenant/profile/category identity, the exact
+approved fact digest, the prior profile state digests, and the approval decision. If the proposal
+content changes after review, application fails closed. These bindings provide provenance and
+tamper evidence; they do not grant runtime authority or bypass the normal profile permission gate.
+
 Choice behavior:
 
 | User choice | System action |

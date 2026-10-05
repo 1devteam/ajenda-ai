@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
+from backend.services.business_profile_binding import build_application_binding, ensure_proposal_binding
 
 
 class BusinessProfileRepository:
@@ -95,6 +96,7 @@ class BusinessProfileRepository:
         return profile
 
     def add_suggestion(self, suggestion: BusinessProfileSuggestion) -> BusinessProfileSuggestion:
+        ensure_proposal_binding(suggestion)
         self._session.add(suggestion)
         self._session.flush()
         self._session.refresh(suggestion)
@@ -209,6 +211,14 @@ class BusinessProfileRepository:
         category = suggestion.suggested_category
         previous_fact = approved_facts.get(category)
         previous_provenance = provenance.get(category)
+        application_binding = build_application_binding(
+            suggestion=suggestion,
+            profile=profile,
+            approved_fact=approved_fact,
+            previous_fact=previous_fact,
+            previous_provenance=previous_provenance,
+            decision=resolution_status,
+        )
 
         approved_facts[category] = approved_fact
         provenance[category] = {
@@ -216,6 +226,7 @@ class BusinessProfileRepository:
             "suggestion_id": str(suggestion.id),
             "resolved_at": resolved_at.isoformat(),
             "decision": resolution_status,
+            "application_binding": application_binding,
         }
 
         profile.approved_facts = approved_facts
@@ -228,6 +239,7 @@ class BusinessProfileRepository:
             "actor_id": actor_id,
             "decision": resolution_status,
             "approved_fact": approved_fact,
+            "application_binding": application_binding,
         }
         if previous_fact is not None:
             suggestion.resolution["superseded_fact"] = previous_fact
