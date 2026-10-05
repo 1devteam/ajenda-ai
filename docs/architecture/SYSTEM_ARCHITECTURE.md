@@ -274,19 +274,21 @@ is explicitly non-executable. These estimates inform review; they do not become 
 Completed tenant outcome reviews can be projected as review-only knowledge-change proposals at
 `GET /v1/missions/{mission_id}/knowledge-change-proposals`. The projection requires evidence,
 preserves review and artifact lineage, and reports runtime reconciliation state. It has a persistence
-owner for governance state but no application owner yet: proposals cannot mutate shared semantic vocabulary or tenant facts,
-register runtime handlers, resolve credentials, or enqueue work. A future application workflow must
-define explicit human approval, provenance, rollback, and audit semantics.
+owner for governance state; the tenant-private application owner is separate and cannot mutate shared
+semantic vocabulary, register runtime handlers, resolve credentials, or enqueue work.
 
 The lifecycle store now records explicit review decisions, supersession links, rollback lineage,
 provenance, and append-only audit events. These records are governance state only; “accepted” means
 approved for a future application workflow, not applied to composition or runtime.
 
 The tenant-private application owner is `TenantKnowledgeApplicationService`. It accepts only an
-accepted proposal plus an operator-supplied structured fact, writes through the tenant Business
-Profile repository, records prior-fact provenance, emits an audit event, and marks the proposal
-`applied`. It cannot modify shared vocabulary, grant runtime authority, enqueue work, or resolve
-credentials.
+accepted proposal whose canonical fact binding matches the submitted structured fact, writes through
+the tenant Business Profile repository, records prior-fact provenance, emits an audit event, and marks
+the proposal `applied`. A mismatched fact fails closed. Business-profile review rollback and actual
+application reversion are separate governed transitions: review rollback changes governance state
+without changing profile truth, while application reversion performs a compensating mutation only when
+the original fact and application provenance are unchanged. Neither transition modifies shared
+vocabulary, grants runtime authority, enqueues work, or resolves credentials.
 
 ### 5.3 Canonical outcome-graph lineage
 

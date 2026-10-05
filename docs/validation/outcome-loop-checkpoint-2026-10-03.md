@@ -115,3 +115,14 @@ qualification mission for three HVAC records. It produced `crm_records` and
 `qualified_prospects` artifacts through two queued tasks, with runtime completeness `1.0`, no
 contradictions, no first divergence, and all algorithm authority flags false. Capture:
 `/tmp/crm-qualification-runtime-fixed.json`.
+
+## Governance rollback hardening — October 5, 2026
+
+Business-profile governance now distinguishes review rollback from application reversion. The
+`review_rolled_back` state records that a review decision was withdrawn without changing the already
+applied profile fact. The separate `application_reverted` transition requires the original proposal
+application digest, exact approved-fact digest, and profile provenance binding to remain unchanged;
+otherwise it fails closed. Reversion restores the prior fact/provenance snapshot (or removes a newly
+introduced category), records a compensating audit event, and synchronizes tenant internal records.
+Migration `0048_profile_reversion` adds both states and downgrades them safely to `approved` for
+legacy schemas. This preserves historical lineage and does not grant runtime authority.
