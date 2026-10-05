@@ -54,3 +54,22 @@ The hardening layer following this checkpoint is now implemented:
 Future work is calibration from accumulated runtime evidence, richer semantic/business-goal
 comparison, and provider/tenant capacity expansion. These remain bounded follow-ups rather than
 unlabeled confidence or optimization claims.
+
+## Epistemic lineage hardening — October 5, 2026
+
+The deliverable lifecycle now preserves the epistemic lineage snapshot that informed composition:
+source classes, confidence, confidence semantics, confidence basis, and required evidence. The
+read-only mission projection verifies each value against the canonical composition context and
+fails closed on drift. This is additive and backward-compatible with historical lifecycle records;
+records written before these fields are read with empty/default lineage values.
+
+Runtime proof is captured in `/tmp/original-checklist-epistemic-lineage-runtime.json`: a supported
+fixture composition projects its source lineage, while a forged source-class change is blocked.
+This does not make policy confidence a measured probability and does not grant runtime authority.
+
+The same pass re-ran the public operator path. A supported five-record software/Austin mission
+completed through composition, confirmation, launch, queue, lease, worker, evidence, and deliverable;
+the runtime projection reported five selected nodes, five task flows, twelve execution events, no
+contradictions, and no first divergence. Unsupported dental/Austin and over-capacity HVAC/Dallas
+requests remained `gaps_open` with no mission ID or queued runtime work. Captures:
+`/tmp/original-checklist-supported-runtime.json` and `/tmp/live-coverage-failclosed-v2.json`.

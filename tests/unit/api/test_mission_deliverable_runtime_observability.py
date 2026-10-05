@@ -368,6 +368,11 @@ def test_mission_read_exposes_tenant_scoped_deliverable_runtime_state(monkeypatc
         "epistemic_missing_evidence": [],
         "epistemic_budget_status": "within_budget",
         "epistemic_budget_excesses": [],
+        "epistemic_source_classes": [],
+        "epistemic_confidence": None,
+        "epistemic_confidence_semantics": None,
+        "epistemic_confidence_basis": [],
+        "epistemic_required_evidence": [],
         "coverage_assessment": None,
         "graph_lineage": {
             "schema_version": 1,

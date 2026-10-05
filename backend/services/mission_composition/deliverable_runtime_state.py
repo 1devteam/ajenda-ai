@@ -59,6 +59,12 @@ class DeliverableArtifactLifecycle(BaseModel):
     contradiction_codes: tuple[str, ...] = ()
     supersedes_artifact_id: str | None = None
     epistemic_context_schema_version: int | None = Field(default=None, ge=1)
+    # Read-only lineage snapshots explaining what knowledge informed the artifact.
+    epistemic_source_classes: tuple[str, ...] = ()
+    epistemic_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    epistemic_confidence_semantics: str | None = None
+    epistemic_confidence_basis: tuple[str, ...] = ()
+    epistemic_required_evidence: tuple[str, ...] = ()
     epistemic_freshness: EpistemicFreshness | None = None
     epistemic_contradiction_status: EpistemicContradictionStatus | None = None
     epistemic_missing_evidence: tuple[str, ...] = ()
@@ -143,6 +149,11 @@ def build_deliverable_runtime_state(
         shadow_preview=shadow_preview,
         lifecycle=DeliverableArtifactLifecycle(
             epistemic_context_schema_version=(epistemic_context.schema_version if epistemic_context else None),
+            epistemic_source_classes=(epistemic_context.source_classes if epistemic_context else ()),
+            epistemic_confidence=(epistemic_context.confidence if epistemic_context else None),
+            epistemic_confidence_semantics=(epistemic_context.confidence_semantics if epistemic_context else None),
+            epistemic_confidence_basis=(epistemic_context.confidence_basis if epistemic_context else ()),
+            epistemic_required_evidence=(epistemic_context.required_evidence if epistemic_context else ()),
             epistemic_freshness=(epistemic_context.freshness if epistemic_context else None),
             epistemic_contradiction_status=(epistemic_context.contradiction_status if epistemic_context else None),
             epistemic_missing_evidence=(epistemic_context.missing_evidence if epistemic_context else ()),

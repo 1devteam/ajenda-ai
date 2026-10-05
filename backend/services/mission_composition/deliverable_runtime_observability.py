@@ -50,6 +50,11 @@ class DeliverableRuntimeStateRead(BaseModel):
     epistemic_missing_evidence: tuple[str, ...] = ()
     epistemic_budget_status: EpistemicBudgetStatus = "within_budget"
     epistemic_budget_excesses: tuple[str, ...] = ()
+    epistemic_source_classes: tuple[str, ...] = ()
+    epistemic_confidence: float | None = None
+    epistemic_confidence_semantics: str | None = None
+    epistemic_confidence_basis: tuple[str, ...] = ()
+    epistemic_required_evidence: tuple[str, ...] = ()
     semantic_selection: SemanticSelection | None = None
     semantic_reconciliation: Literal["not_available", "aligned", "blocked"] = "not_available"
     coverage_assessment: CoverageAssessment | None = None
@@ -132,6 +137,16 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
             raise ValueError("deliverable lifecycle epistemic budget status does not match composition context")
         if state.lifecycle.epistemic_budget_excesses != epistemic.budget_excesses:
             raise ValueError("deliverable lifecycle epistemic budget excesses do not match composition context")
+        if state.lifecycle.epistemic_source_classes != epistemic.source_classes:
+            raise ValueError("deliverable lifecycle epistemic sources do not match composition context")
+        if state.lifecycle.epistemic_confidence != epistemic.confidence:
+            raise ValueError("deliverable lifecycle epistemic confidence does not match composition context")
+        if state.lifecycle.epistemic_confidence_semantics != epistemic.confidence_semantics:
+            raise ValueError("deliverable lifecycle epistemic confidence semantics do not match composition context")
+        if state.lifecycle.epistemic_confidence_basis != epistemic.confidence_basis:
+            raise ValueError("deliverable lifecycle epistemic confidence basis does not match composition context")
+        if state.lifecycle.epistemic_required_evidence != epistemic.required_evidence:
+            raise ValueError("deliverable lifecycle epistemic required evidence does not match composition context")
 
     if state.lifecycle.coverage_assessment is not None:
         if coverage is None:
@@ -195,6 +210,11 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
         epistemic_missing_evidence=state.lifecycle.epistemic_missing_evidence,
         epistemic_budget_status=state.lifecycle.epistemic_budget_status,
         epistemic_budget_excesses=state.lifecycle.epistemic_budget_excesses,
+        epistemic_source_classes=state.lifecycle.epistemic_source_classes,
+        epistemic_confidence=state.lifecycle.epistemic_confidence,
+        epistemic_confidence_semantics=state.lifecycle.epistemic_confidence_semantics,
+        epistemic_confidence_basis=state.lifecycle.epistemic_confidence_basis,
+        epistemic_required_evidence=state.lifecycle.epistemic_required_evidence,
         semantic_selection=semantic,
         semantic_reconciliation=semantic_reconciliation,
         coverage_assessment=coverage,

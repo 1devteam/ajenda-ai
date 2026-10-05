@@ -143,6 +143,11 @@ def test_refresh_preserves_epistemic_reconciliation_metadata() -> None:
     assert completion is not None
     lifecycle = updated["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]["lifecycle"]
     assert lifecycle["epistemic_context_schema_version"] == epistemic.schema_version
+    assert lifecycle["epistemic_source_classes"] == list(epistemic.source_classes)
+    assert lifecycle["epistemic_confidence"] == epistemic.confidence
+    assert lifecycle["epistemic_confidence_semantics"] == epistemic.confidence_semantics
+    assert lifecycle["epistemic_confidence_basis"] == list(epistemic.confidence_basis)
+    assert lifecycle["epistemic_required_evidence"] == list(epistemic.required_evidence)
     assert lifecycle["epistemic_freshness"] == epistemic.freshness
     assert lifecycle["epistemic_contradiction_status"] == epistemic.contradiction_status
     assert lifecycle["epistemic_missing_evidence"] == list(epistemic.missing_evidence)
@@ -150,6 +155,36 @@ def test_refresh_preserves_epistemic_reconciliation_metadata() -> None:
     assert lifecycle["epistemic_budget_excesses"] == list(epistemic.budget_excesses)
     assert lifecycle["epistemic_reconciliation"] == "aligned"
     assert lifecycle["coverage_assessment"] == coverage.model_dump(mode="json")
+
+
+def test_read_projection_rejects_epistemic_source_lineage_drift() -> None:
+    instruction = (
+        "Find five software development companies in Austin using local fixture data only and return company name."
+    )
+    request = extract_deliverable_request(instruction)
+    assert request is not None
+    intent = interpret_instruction(instruction)
+    coverage = assess_coverage(intent)
+    epistemic = build_epistemic_context(intent, coverage)
+    state = build_deliverable_runtime_state(request, coverage_assessment=coverage, epistemic_context=epistemic)
+    assert state is not None
+    state["lifecycle"]["epistemic_source_classes"] = ["public_observation"]
+    metadata = {
+        "mission_intake": {
+            "context": {
+                "composition": {
+                    DELIVERABLE_RUNTIME_STATE_METADATA_KEY: state,
+                    "coverage_assessment": coverage.model_dump(mode="json"),
+                    "epistemic_context": epistemic.model_dump(mode="json"),
+                }
+            }
+        }
+    }
+
+    import pytest
+
+    with pytest.raises(ValueError, match="epistemic sources"):
+        build_deliverable_runtime_state_read(metadata)
 
 
 def test_refresh_marks_conflicting_duplicate_artifacts_contradictory() -> None:
