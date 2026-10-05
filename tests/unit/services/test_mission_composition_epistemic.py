@@ -13,6 +13,9 @@ def test_fixture_context_is_explicit_and_not_runtime_observed() -> None:
     assert "local_fixture" in context.source_classes
     assert context.freshness == "not_observed"
     assert context.grants_execution_authority is False
+    assert context.confidence_semantics == "policy_estimate"
+    assert context.budget.estimate_semantics == "policy_estimate"
+    assert context.budget.calibration_reference == "uncalibrated_policy_v1"
 
 
 def test_external_context_requires_runtime_observation() -> None:

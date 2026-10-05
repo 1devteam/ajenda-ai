@@ -95,6 +95,7 @@ EpistemicFreshness = Literal["not_observed", "current", "stale", "unknown"]
 EpistemicContradictionStatus = Literal["none", "unresolved", "resolved", "unknown"]
 EpistemicBudgetTolerance = Literal["strict", "standard", "exploratory"]
 EpistemicBudgetStatus = Literal["within_budget", "exceeded"]
+EpistemicEstimateSemantics = Literal["policy_estimate", "observed_calibration"]
 
 # Canonical business outcomes owned by the interpreter → job catalog boundary.
 CanonicalOutcome = Literal[
@@ -440,7 +441,7 @@ class CoverageAssessment(BaseModel):
 
 
 class EpistemicBudget(BaseModel):
-    """Read-only uncertainty envelope for composition and evaluation claims."""
+    """Read-only uncertainty envelope using explicit policy estimates."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -449,6 +450,8 @@ class EpistemicBudget(BaseModel):
     max_missing_evidence: int = Field(default=1, ge=0, le=40)
     max_unresolved_contradictions: int = Field(default=0, ge=0, le=20)
     minimum_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    estimate_semantics: EpistemicEstimateSemantics = "policy_estimate"
+    calibration_reference: str = Field(default="uncalibrated_policy_v1", max_length=120)
     allow_unknown_sources: bool = True
     source_reference: str = Field(default="Ajenda deterministic epistemic budget", max_length=240)
     authority_class: Literal["declarative", "read_model"] = "read_model"
@@ -463,6 +466,7 @@ class EpistemicContext(BaseModel):
     schema_version: int = Field(default=1, ge=1)
     source_classes: tuple[EpistemicSourceClass, ...] = Field(default=("unknown",), max_length=12)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    confidence_semantics: EpistemicEstimateSemantics = "policy_estimate"
     confidence_basis: tuple[str, ...] = Field(default=(), max_length=20)
     freshness: EpistemicFreshness = "not_observed"
     contradiction_status: EpistemicContradictionStatus = "none"

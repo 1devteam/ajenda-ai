@@ -62,6 +62,8 @@ def build_epistemic_context(
         if unresolved:
             missing.append("contradiction_resolution")
 
+    # This is an interpretation-policy estimate until runtime calibration
+    # exists; it is not a measured probability.
     confidence = intent.minimum_field_confidence
     if confidence is None:
         confidence = min((item.confidence for item in intent.interpretation_evidence), default=0.0)
@@ -98,6 +100,7 @@ def build_epistemic_context(
     return EpistemicContext(
         source_classes=tuple(sorted(sources)),
         confidence=confidence,
+        confidence_semantics="policy_estimate",
         confidence_basis=tuple(confidence_basis),
         freshness="not_observed",
         contradiction_status=contradiction_status,

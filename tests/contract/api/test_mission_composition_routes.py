@@ -183,6 +183,9 @@ def test_counterfactual_plans_are_read_only_comparisons() -> None:
     assert {plan["strategy"] for plan in plans} == {"selected", "read_only_projection"}
     assert all(plan["executable"] is False for plan in plans)
     assert body["plan_set"]["selected_plan_id"].endswith(":selected")
+    assert body["plan_set"]["comparison_semantics"] == "heuristic_comparison"
+    assert all(plan["estimate_semantics"] == "heuristic_estimate" for plan in plans)
+    assert all("uncalibrated" in plan["calibration_reference"] for plan in plans)
 
 
 def test_confirm_creates_mission_plan_graph_not_queue() -> None:

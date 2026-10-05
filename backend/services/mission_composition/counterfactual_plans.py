@@ -12,7 +12,7 @@ RiskLevel = Literal["low", "medium", "high"]
 
 
 class CounterfactualPlan(BaseModel):
-    """A bounded plan estimate; it is never admitted to runtime."""
+    """A bounded heuristic plan estimate; it is never admitted to runtime."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -23,6 +23,9 @@ class CounterfactualPlan(BaseModel):
     evidence_score: float = Field(ge=0.0, le=1.0)
     estimated_cost_units: int = Field(ge=0)
     estimated_latency_units: int = Field(ge=0)
+    estimate_semantics: Literal["heuristic_estimate", "observed_calibration"] = "heuristic_estimate"
+    estimate_basis: tuple[str, ...] = ("action_count", "side_effect_class")
+    calibration_reference: str = Field(default="uncalibrated_plan_heuristics_v1", max_length=120)
     risk_level: RiskLevel
     completeness: Literal["full", "partial"]
     executable: Literal[False] = False
@@ -38,6 +41,7 @@ class CounterfactualPlanSet(BaseModel):
     proposal_id: str = Field(min_length=1, max_length=80)
     plans: tuple[CounterfactualPlan, ...] = Field(min_length=1, max_length=4)
     selected_plan_id: str
+    comparison_semantics: Literal["heuristic_comparison", "observed_calibration"] = "heuristic_comparison"
     authority_class: Literal["read_model"] = "read_model"
     grants_execution_authority: Literal[False] = False
 
@@ -77,7 +81,7 @@ def build_counterfactual_plan_set(record: MissionCompositionRecord) -> Counterfa
         estimated_latency_units=max(1, full_count),
         risk_level=_risk(selected_actions, record),
         completeness="full" if record.ready_to_start else "partial",
-        notes=("Estimate derived from the server-owned composition plan.",),
+        notes=("Heuristic estimate from the server-owned composition plan; not observed provider cost or latency.",),
     )
     projection = CounterfactualPlan(
         plan_id=f"{record.proposal_id}:read-only",
@@ -92,10 +96,12 @@ def build_counterfactual_plan_set(record: MissionCompositionRecord) -> Counterfa
         notes=(
             "Projection removes side-effecting actions for comparison only.",
             "Projection is not executable and cannot satisfy omitted side-effect outputs.",
+            "Cost and latency are heuristic units until runtime calibration exists.",
         ),
     )
     return CounterfactualPlanSet(
         proposal_id=record.proposal_id,
         plans=(selected, projection),
         selected_plan_id=selected.plan_id,
+        comparison_semantics="heuristic_comparison",
     )
