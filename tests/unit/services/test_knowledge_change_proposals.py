@@ -3,8 +3,9 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from backend.domain.knowledge_change_proposal import KnowledgeChangeProposalRecord
 from backend.domain.outcome_review import OutcomeReview
-from backend.services.knowledge.knowledge_change_proposals import build_knowledge_change_proposals
+from backend.services.knowledge.knowledge_change_proposals import build_knowledge_change_proposals, proposal_from_record
 from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
 from backend.services.mission_composition.deliverable_runtime_state import (
     build_deliverable_runtime_state,
@@ -86,3 +87,23 @@ def test_shared_candidate_remains_review_only() -> None:
     )
     assert result.proposals[0].scope == "shared_candidate"
     assert result.proposals[0].status == "review_required"
+
+
+def test_rolled_back_proposal_exposes_review_only_effect_without_claiming_reversion() -> None:
+    record = KnowledgeChangeProposalRecord(
+        tenant_id="tenant-a",
+        proposal_id="proposal-1",
+        mission_id=uuid.uuid4(),
+        review_id=uuid.uuid4(),
+        scope="tenant_private",
+        target_key="tenant.gtm.aliases",
+        suggested_change="Remove stale alias",
+        rationale="Observed contradiction",
+        runtime_reconciliation="aligned",
+        status="rolled_back",
+        provenance={"rollback_effect": "review_only"},
+        created_at=datetime(2026, 10, 4, tzinfo=UTC),
+    )
+    proposal = proposal_from_record(record)
+    assert proposal.status == "rolled_back"
+    assert proposal.rollback_effect == "review_only"

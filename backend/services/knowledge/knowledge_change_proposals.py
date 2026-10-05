@@ -46,6 +46,7 @@ class KnowledgeChangeProposal(BaseModel):
     )
     superseded_by_proposal_id: str | None = None
     rollback_of_proposal_id: str | None = None
+    rollback_effect: Literal["not_applicable", "review_only", "application_reverted"] = "not_applicable"
     provenance: dict[str, Any] = Field(default_factory=dict)
     authority_class: Literal["read_model"] = "read_model"
     grants_execution_authority: Literal[False] = False
@@ -81,6 +82,13 @@ def proposal_from_record(record: KnowledgeChangeProposalRecord) -> KnowledgeChan
         Literal["proposed", "review_required", "accepted", "rejected", "applied", "superseded", "rolled_back"],
         record.status,
     )
+    raw_rollback_effect = (record.provenance or {}).get("rollback_effect", "not_applicable")
+    rollback_effect = cast(
+        Literal["not_applicable", "review_only", "application_reverted"],
+        raw_rollback_effect
+        if raw_rollback_effect in {"not_applicable", "review_only", "application_reverted"}
+        else "review_only",
+    )
     return KnowledgeChangeProposal(
         proposal_id=record.proposal_id,
         tenant_id=record.tenant_id,
@@ -97,6 +105,7 @@ def proposal_from_record(record: KnowledgeChangeProposalRecord) -> KnowledgeChan
         status=lifecycle_status,
         superseded_by_proposal_id=record.superseded_by_proposal_id,
         rollback_of_proposal_id=record.rollback_of_proposal_id,
+        rollback_effect=rollback_effect,
         provenance=dict(record.provenance or {}),
         generated_at=record.created_at,
     )

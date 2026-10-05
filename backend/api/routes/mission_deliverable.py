@@ -224,6 +224,7 @@ def review_knowledge_change_proposal(
             provenance={
                 "review_note": body.note,
                 "reviewed_at": datetime.now(UTC).isoformat(),
+                **({"rollback_effect": "review_only"} if body.status == "rolled_back" else {}),
                 **(
                     {
                         "accepted_fact": body.accepted_fact,
