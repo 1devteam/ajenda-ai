@@ -120,6 +120,7 @@ def test_unknown_request_item_survives_projection_and_keeps_it_incomplete() -> N
     assert by_field["website"].artifact_keys == (
         "verified_prospect_candidates",
         "prospect_candidates",
+        "qualified_prospects",
         "researched_prospects",
         "enriched_prospects",
     )
@@ -140,6 +141,7 @@ def test_remaining_revops_fields_are_bound_to_typed_artifact_contracts() -> None
     assert by_field["website"].artifact_keys == (
         "verified_prospect_candidates",
         "prospect_candidates",
+        "qualified_prospects",
         "researched_prospects",
         "enriched_prospects",
     )

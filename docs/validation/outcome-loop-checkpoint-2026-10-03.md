@@ -100,3 +100,18 @@ The change closes the mismatch found during the adversarial internal-CRM attempt
 loosening artifact validation or fabricating qualification data. The original deployment
 capture remains evidence of the prior fail-closed behavior; a rebuilt runtime proof is still
 required before claiming live CRM qualification success.
+
+## Live CRM qualification proof and projection repair — October 5, 2026
+
+The rebuilt API/worker stack exposed a second, concrete projection gap: CRM retrieval and
+qualification both completed, but the deliverable remained incomplete because the
+`qualified_prospects` artifact contract did not declare its preserved source `website` field.
+The typed schema now projects that field as backward-compatible optional provenance, so historical
+qualification artifacts remain readable while new CRM qualification requests can be completed
+only when the website is actually present.
+
+After rebuilding the API and worker images, the public operator path completed an internal-CRM
+qualification mission for three HVAC records. It produced `crm_records` and
+`qualified_prospects` artifacts through two queued tasks, with runtime completeness `1.0`, no
+contradictions, no first divergence, and all algorithm authority flags false. Capture:
+`/tmp/crm-qualification-runtime-fixed.json`.

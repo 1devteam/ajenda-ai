@@ -170,6 +170,15 @@ QUALIFIED_PROSPECTS_SCHEMA = CompositionArtifactSchema(
             scope="per_item",
         ),
         ArtifactFieldProjection(
+            # CRM-backed qualification preserves the source website. Keep the
+            # field optional for historical qualification artifacts that were
+            # produced before this projection was declared.
+            deliverable_field="website",
+            json_path="$[].website",
+            scope="per_item",
+            required_when_item_exists=False,
+        ),
+        ArtifactFieldProjection(
             deliverable_field="qualification_score",
             json_path="$[].score",
             scope="per_item",

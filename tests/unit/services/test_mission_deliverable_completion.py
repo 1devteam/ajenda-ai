@@ -21,6 +21,7 @@ def _projection(text: str):
 def _qualified_row() -> dict[str, object]:
     return {
         "company": "Acme HVAC",
+        "website": "https://acme.example",
         "score": 84,
         "reasons": ["five employees verified", "Phoenix HVAC fit"],
         "qualification_evidence": {

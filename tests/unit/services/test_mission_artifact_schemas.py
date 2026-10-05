@@ -69,6 +69,7 @@ def test_qualified_prospects_schema_exposes_qualification_deliverable_fields() -
     assert schema.producer_job == "sales.qualify_prospects"
     assert [field.deliverable_field for field in schema.fields] == [
         "company_name",
+        "website",
         "qualification_score",
         "qualification_reasons",
         "qualification_dimensions",
@@ -80,6 +81,7 @@ def test_qualified_prospects_schema_exposes_qualification_deliverable_fields() -
     ]
     assert [field.json_path for field in schema.fields] == [
         "$[].company",
+        "$[].website",
         "$[].score",
         "$[].reasons",
         "$[].qualification_dimensions",
@@ -93,7 +95,8 @@ def test_qualified_prospects_schema_exposes_qualification_deliverable_fields() -
     assert all(
         field.required_when_item_exists
         for field in schema.fields
-        if field.deliverable_field not in {"qualification_dimensions", "disqualifiers", "recommended_next_action"}
+        if field.deliverable_field
+        not in {"website", "qualification_dimensions", "disqualifiers", "recommended_next_action"}
     )
     assert schema.grants_execution_authority is False
 
