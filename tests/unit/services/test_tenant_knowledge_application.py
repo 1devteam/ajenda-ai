@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from unittest.mock import MagicMock
 
@@ -14,6 +16,7 @@ from backend.services.knowledge.tenant_knowledge_application import (
 
 
 def _proposal(*, scope: str = "tenant_private", status: str = "accepted") -> KnowledgeChangeProposalRecord:
+    accepted_fact = {"value": "alias"}
     return KnowledgeChangeProposalRecord(
         tenant_id="tenant-a",
         proposal_id="knowledge-change-v1:test",
@@ -27,6 +30,12 @@ def _proposal(*, scope: str = "tenant_private", status: str = "accepted") -> Kno
         source_artifact_ids=["artifact-1"],
         runtime_reconciliation="aligned",
         status=status,
+        provenance={
+            "accepted_fact": accepted_fact,
+            "accepted_fact_sha256": hashlib.sha256(
+                json.dumps(accepted_fact, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+        },
     )
 
 
@@ -77,3 +86,31 @@ def test_application_writes_profile_with_provenance_and_audit(monkeypatch) -> No
     proposal_repo.transition.assert_called_once()
     assert proposal_repo.transition.call_args.kwargs["status"] == "applied"
     audit_repo.append.assert_called_once()
+
+
+def test_application_rejects_fact_that_does_not_match_accepted_binding() -> None:
+    profile = BusinessProfile(id=uuid.uuid4(), tenant_id="tenant-a", status="active")
+    with pytest.raises(TenantKnowledgeApplicationError, match="does not match"):
+        TenantKnowledgeApplicationService().apply(
+            MagicMock(),
+            proposal=_proposal(),
+            profile=profile,
+            approved_fact={"value": "different"},
+            actor_id="operator-1",
+            note="approved explicitly",
+        )
+
+
+def test_application_rejects_legacy_accepted_proposal_without_binding() -> None:
+    profile = BusinessProfile(id=uuid.uuid4(), tenant_id="tenant-a", status="active")
+    proposal = _proposal()
+    proposal.provenance = {}
+    with pytest.raises(TenantKnowledgeApplicationError, match="missing its bound fact"):
+        TenantKnowledgeApplicationService().apply(
+            MagicMock(),
+            proposal=proposal,
+            profile=profile,
+            approved_fact={"value": "alias"},
+            actor_id="operator-1",
+            note="approved explicitly",
+        )

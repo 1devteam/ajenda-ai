@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -60,6 +62,22 @@ class TenantKnowledgeApplicationService:
         if not note.strip():
             raise TenantKnowledgeApplicationError("application note is required")
 
+        provenance = dict(proposal.provenance or {})
+        accepted_fact = provenance.get("accepted_fact")
+        accepted_fact_hash = provenance.get("accepted_fact_sha256")
+        if not isinstance(accepted_fact, dict) or not accepted_fact:
+            raise TenantKnowledgeApplicationError("accepted proposal is missing its bound fact payload")
+        expected_hash = hashlib.sha256(
+            json.dumps(accepted_fact, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        if accepted_fact_hash != expected_hash:
+            raise TenantKnowledgeApplicationError("accepted proposal fact binding is invalid")
+        submitted_hash = hashlib.sha256(
+            json.dumps(approved_fact, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        if submitted_hash != expected_hash or approved_fact != accepted_fact:
+            raise TenantKnowledgeApplicationError("approved_fact does not match the accepted proposal payload")
+
         applied_at = datetime.now(UTC)
         BusinessProfileRepository(session).upsert_approved_fact(
             profile=profile,
@@ -72,6 +90,7 @@ class TenantKnowledgeApplicationService:
                 "review_id": str(proposal.review_id),
                 "source_artifact_ids": list(proposal.source_artifact_ids or []),
                 "application_note": note,
+                "accepted_fact_sha256": expected_hash,
             },
         )
         KnowledgeChangeProposalRepository(session).transition(

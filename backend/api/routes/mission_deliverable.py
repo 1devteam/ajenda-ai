@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -60,7 +62,14 @@ class KnowledgeChangeProposalReviewRequest(BaseModel):
     status: str = Field(pattern="^(accepted|rejected|superseded|rolled_back)$")
     superseding_proposal_id: str | None = Field(default=None, max_length=160)
     rollback_of_proposal_id: str | None = Field(default=None, max_length=160)
+    accepted_fact: dict[str, object] | None = None
     note: str = Field(min_length=1, max_length=2_000)
+
+    @model_validator(mode="after")
+    def require_bound_fact_for_acceptance(self) -> KnowledgeChangeProposalReviewRequest:
+        if self.status == "accepted" and not self.accepted_fact:
+            raise ValueError("accepted_fact is required when accepting a tenant-private proposal")
+        return self
 
 
 class TenantKnowledgeApplyRequest(BaseModel):
@@ -212,7 +221,20 @@ def review_knowledge_change_proposal(
             record=record,
             status=body.status,
             actor_id=actor_id,
-            provenance={"review_note": body.note, "reviewed_at": datetime.now(UTC).isoformat()},
+            provenance={
+                "review_note": body.note,
+                "reviewed_at": datetime.now(UTC).isoformat(),
+                **(
+                    {
+                        "accepted_fact": body.accepted_fact,
+                        "accepted_fact_sha256": hashlib.sha256(
+                            json.dumps(body.accepted_fact, sort_keys=True, separators=(",", ":")).encode()
+                        ).hexdigest(),
+                    }
+                    if body.status == "accepted" and body.accepted_fact is not None
+                    else {}
+                ),
+            },
             superseded_by_proposal_id=body.superseding_proposal_id,
             rollback_of_proposal_id=body.rollback_of_proposal_id,
         )
