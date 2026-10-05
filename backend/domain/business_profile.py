@@ -12,7 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from backend.db.base import Base
 
 BUSINESS_PROFILE_SCHEMA_VERSION = 1
-BUSINESS_PROFILE_SUGGESTION_SCHEMA_VERSION = 1
+BUSINESS_PROFILE_SUGGESTION_SCHEMA_VERSION = 2
 
 
 def utcnow() -> datetime:
@@ -72,7 +72,7 @@ class BusinessProfileSuggestion(Base):
     __tablename__ = "business_profile_suggestions"
     __table_args__ = (
         sa.CheckConstraint(
-            "status IN ('pending', 'approved', 'edited', 'declined', 'dismissed', 'superseded')",
+            "status IN ('pending', 'approved', 'edited', 'declined', 'dismissed', 'superseded', 'review_rolled_back', 'application_reverted')",
             name="ck_business_profile_suggestions_status",
         ),
         sa.Index(

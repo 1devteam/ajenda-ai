@@ -275,6 +275,108 @@ def test_approve_suggestion_with_edit_writes_edited_fact_not_original() -> None:
     assert updated_suggestion.resolution["approved_fact"] == {"value": "Fort Worth"}
 
 
+def test_review_rollback_does_not_mutate_profile_truth() -> None:
+    profile = _profile()
+    suggestion = _suggestion()
+    suggestion.status = "approved"
+    suggestion.resolution = {"approved_fact": {"value": "Dallas"}}
+    session = MagicMock()
+
+    result = BusinessProfileRepository(session).rollback_suggestion_review(
+        suggestion=suggestion,
+        rolled_back_at=datetime(2026, 6, 3, tzinfo=UTC),
+        actor_id="reviewer-1",
+    )
+
+    assert result.status == "review_rolled_back"
+    assert profile.approved_facts == {}
+    assert result.resolution["review_rollback"]["actor_id"] == "reviewer-1"
+
+
+def test_application_revert_restores_previous_profile_truth() -> None:
+    profile = _profile()
+    suggestion = _suggestion()
+    suggestion.id = uuid.uuid4()
+    session = MagicMock()
+    repo = BusinessProfileRepository(session)
+    repo.add_suggestion(suggestion)
+    repo.approve_suggestion_as_is(
+        profile=profile,
+        suggestion=suggestion,
+        resolved_at=datetime(2026, 6, 3, tzinfo=UTC),
+        actor_id="user-1",
+    )
+
+    updated_profile, updated_suggestion = repo.revert_suggestion_application(
+        profile=profile,
+        suggestion=suggestion,
+        reverted_at=datetime(2026, 6, 4, tzinfo=UTC),
+        actor_id="reviewer-1",
+    )
+
+    assert "service_area" not in updated_profile.approved_facts
+    assert updated_suggestion.status == "application_reverted"
+    assert updated_suggestion.resolution["application_reversion"]["actor_id"] == "reviewer-1"
+
+
+def test_application_revert_remains_available_after_review_rollback() -> None:
+    profile = _profile()
+    suggestion = _suggestion()
+    suggestion.id = uuid.uuid4()
+    session = MagicMock()
+    repo = BusinessProfileRepository(session)
+    repo.add_suggestion(suggestion)
+    repo.approve_suggestion_as_is(
+        profile=profile,
+        suggestion=suggestion,
+        resolved_at=datetime(2026, 6, 3, tzinfo=UTC),
+        actor_id="user-1",
+    )
+    repo.rollback_suggestion_review(
+        suggestion=suggestion,
+        rolled_back_at=datetime(2026, 6, 4, tzinfo=UTC),
+        actor_id="reviewer-1",
+    )
+
+    updated_profile, updated_suggestion = repo.revert_suggestion_application(
+        profile=profile,
+        suggestion=suggestion,
+        reverted_at=datetime(2026, 6, 5, tzinfo=UTC),
+        actor_id="reviewer-2",
+    )
+
+    assert "service_area" not in updated_profile.approved_facts
+    assert updated_suggestion.status == "application_reverted"
+
+
+def test_application_revert_fails_if_profile_changed_after_approval() -> None:
+    profile = _profile()
+    suggestion = _suggestion()
+    suggestion.id = uuid.uuid4()
+    session = MagicMock()
+    repo = BusinessProfileRepository(session)
+    repo.add_suggestion(suggestion)
+    repo.approve_suggestion_as_is(
+        profile=profile,
+        suggestion=suggestion,
+        resolved_at=datetime(2026, 6, 3, tzinfo=UTC),
+        actor_id="user-1",
+    )
+    profile.approved_facts["service_area"] = {"value": "New value"}
+
+    try:
+        repo.revert_suggestion_application(
+            profile=profile,
+            suggestion=suggestion,
+            reverted_at=datetime(2026, 6, 4, tzinfo=UTC),
+            actor_id="reviewer-1",
+        )
+    except ValueError as exc:
+        assert str(exc) == "business profile application changed after approval"
+    else:
+        raise AssertionError("expected changed profile application to fail closed")
+
+
 def test_decline_suggestion_does_not_write_approved_profile_fact() -> None:
     profile = _profile()
     suggestion = _suggestion()

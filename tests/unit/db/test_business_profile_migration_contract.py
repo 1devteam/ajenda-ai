@@ -11,7 +11,7 @@ def test_business_profile_migration_is_current_head_and_short_revision_id() -> N
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0047_knowledge_apply"]
+    assert heads == ["0048_profile_reversion"]
     assert len(heads[0]) <= 32
 
 
@@ -35,3 +35,12 @@ def test_business_profile_migration_contains_profile_and_suggestion_contracts() 
     assert "tenant_business_profile_suggestion_isolation" in migration
     assert "admin_bypass" in migration
     assert "def downgrade" in migration
+
+
+def test_business_profile_reversion_migration_preserves_legacy_statuses_and_downgrade() -> None:
+    migration = Path("alembic/versions/0048_business_profile_reversion_states.py").read_text(encoding="utf-8")
+
+    assert "review_rolled_back" in migration
+    assert "application_reverted" in migration
+    assert "UPDATE business_profile_suggestions SET status = 'approved'" in migration
+    assert 'down_revision = "0047_knowledge_apply"' in migration

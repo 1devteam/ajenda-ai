@@ -34,7 +34,16 @@ from backend.services.vertical_ops.plan_templates import get_vertical_mission_te
 
 router = APIRouter(prefix="/business-profile", tags=["business-profile"])
 
-SuggestionStatus = Literal["pending", "approved", "edited", "declined", "dismissed", "superseded"]
+SuggestionStatus = Literal[
+    "pending",
+    "approved",
+    "edited",
+    "declined",
+    "dismissed",
+    "superseded",
+    "review_rolled_back",
+    "application_reverted",
+]
 
 MAX_PROFILE_JSON_BYTES = 16_384
 MAX_PROFILE_JSON_DEPTH = 8
@@ -704,3 +713,79 @@ def dismiss_business_profile_suggestion(
         mission_id=updated_suggestion.mission_id,
     )
     return BusinessProfileSuggestionResolutionRead(profile=None, suggestion=_suggestion_to_read(updated_suggestion))
+
+
+@router.post("/suggestions/{suggestion_id}/review-rollback", response_model=BusinessProfileSuggestionResolutionRead)
+def rollback_business_profile_suggestion_review(
+    suggestion_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> BusinessProfileSuggestionResolutionRead:
+    """Record review rollback without changing already-applied profile truth."""
+    require_route_permission(request=request, db=db, permission=Permission.BUSINESS_PROFILE_MANAGE, tenant_id=tenant_id)
+    tenant_scope = str(tenant_id)
+    repo = BusinessProfileRepository(db)
+    suggestion = _get_pending_suggestion_or_404(repo, suggestion_id=suggestion_id, tenant_id=tenant_scope)
+    try:
+        updated = repo.rollback_suggestion_review(
+            suggestion=suggestion,
+            rolled_back_at=_utcnow(),
+            actor_id=_actor_id(request),
+        )
+    except ValueError as exc:
+        raise _resolve_value_error(exc) from exc
+    _append_business_profile_audit_event(
+        db=db,
+        tenant_id=tenant_scope,
+        action="business_profile_suggestion_review_rolled_back",
+        actor_id=_actor_id(request),
+        details="Business Profile suggestion review was rolled back; profile truth was not changed.",
+        payload={"suggestion_id": str(updated.id), "rollback_type": "review_rolled_back"},
+        mission_id=updated.mission_id,
+    )
+    return BusinessProfileSuggestionResolutionRead(profile=None, suggestion=_suggestion_to_read(updated))
+
+
+@router.post("/suggestions/{suggestion_id}/application-revert", response_model=BusinessProfileSuggestionResolutionRead)
+def revert_business_profile_suggestion_application(
+    suggestion_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> BusinessProfileSuggestionResolutionRead:
+    """Apply a compensating profile mutation for one unchanged application."""
+    require_route_permission(request=request, db=db, permission=Permission.BUSINESS_PROFILE_MANAGE, tenant_id=tenant_id)
+    tenant_scope = str(tenant_id)
+    repo = BusinessProfileRepository(db)
+    suggestion = _get_pending_suggestion_or_404(repo, suggestion_id=suggestion_id, tenant_id=tenant_scope)
+    profile = repo.get_active_profile_for_tenant(tenant_id=tenant_scope)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="active business profile not found")
+    try:
+        updated_profile, updated = repo.revert_suggestion_application(
+            profile=profile,
+            suggestion=suggestion,
+            reverted_at=_utcnow(),
+            actor_id=_actor_id(request),
+        )
+    except ValueError as exc:
+        raise _resolve_value_error(exc) from exc
+    _sync_profile_internal_records(db=db, tenant_id=tenant_scope, profile=updated_profile)
+    _append_business_profile_audit_event(
+        db=db,
+        tenant_id=tenant_scope,
+        action="business_profile_suggestion_application_reverted",
+        actor_id=_actor_id(request),
+        details="Business Profile application was reverted with a verified compensating mutation.",
+        payload={
+            "profile_id": str(updated_profile.id),
+            "suggestion_id": str(updated.id),
+            "rollback_type": "application_reverted",
+        },
+        mission_id=updated.mission_id,
+    )
+    return BusinessProfileSuggestionResolutionRead(
+        profile=_profile_to_read(updated_profile, tenant_id=tenant_scope),
+        suggestion=_suggestion_to_read(updated),
+    )
