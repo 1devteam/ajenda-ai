@@ -73,3 +73,16 @@ the runtime projection reported five selected nodes, five task flows, twelve exe
 contradictions, and no first divergence. Unsupported dental/Austin and over-capacity HVAC/Dallas
 requests remained `gaps_open` with no mission ID or queued runtime work. Captures:
 `/tmp/original-checklist-supported-runtime.json` and `/tmp/live-coverage-failclosed-v2.json`.
+
+## Tenant CRM capacity slice — October 5, 2026
+
+Composition now accepts an optional tenant-scoped internal CRM capacity snapshot. When a DB-backed
+composition has an internal-CRM source, the existing `TenantInternalRecordRepository` counts active
+account records and records supported, limited, or insufficient capacity in the read-only coverage
+assessment. Without that snapshot, internal CRM remains `unknown`; public/provider capacity is never
+inferred from CRM data. No credentials, providers, tasks, or queue work are touched by this check.
+
+An adversarial internal-CRM runtime attempt also exposed a separate deliverable mismatch: a simple
+CRM-read job cannot satisfy requested website and qualification-score fields. The mission failed
+closed with the CRM artifact retained; the fix is to request fields that the selected job produces or
+compose the qualifying/enrichment jobs explicitly, not to weaken completion validation.

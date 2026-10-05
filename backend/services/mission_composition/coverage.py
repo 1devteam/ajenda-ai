@@ -21,6 +21,12 @@ from backend.services.mission_composition.contracts import (
 COVERAGE_SCHEMA_VERSION = 1
 
 
+def coverage_mode_for_intent(intent: MissionIntent) -> CoverageMode:
+    """Return the source mode without performing any source lookup."""
+
+    return _source_mode(intent)
+
+
 def _source_mode(intent: MissionIntent) -> CoverageMode:
     text = intent.raw_instruction.casefold()
     if re.search(r"\blocal\s+(?:test\s+)?fixtures?\b|\bfixture\s+data\s+only\b", text):
@@ -53,11 +59,33 @@ def _fixture_capacity(industry: str, location: str) -> int:
     )
 
 
-def assess_coverage(intent: MissionIntent) -> CoverageAssessment:
+def assess_coverage(intent: MissionIntent, *, internal_capacity: int | None = None) -> CoverageAssessment:
     """Assess known applicability/capacity without touching runtime state."""
 
     mode = _source_mode(intent)
     requested = intent.requested_quantity or intent.qualification_quantity or 3
+    if mode == "internal_crm" and internal_capacity is not None:
+        _, _, scope_key = _scope(intent)
+        if internal_capacity < requested:
+            return CoverageAssessment(
+                mode=mode,
+                status="insufficient_capacity",
+                scope_key=scope_key,
+                requested_quantity=requested,
+                available_quantity=internal_capacity,
+                reasons=("requested_quantity_exceeds_tenant_internal_crm_capacity",),
+                source_reference="tenant_internal_records.account",
+            )
+        internal_status: CoverageStatus = "supported_with_limits" if internal_capacity == requested else "supported"
+        return CoverageAssessment(
+            mode=mode,
+            status=internal_status,
+            scope_key=scope_key,
+            requested_quantity=requested,
+            available_quantity=internal_capacity,
+            reasons=("tenant_internal_crm_capacity_known_at_composition",),
+            source_reference="tenant_internal_records.account",
+        )
     if mode in {"internal_crm", "public_or_provider", "unknown"}:
         return CoverageAssessment(
             mode=mode,

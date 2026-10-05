@@ -33,6 +33,7 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.provider_runtime_credential_repository import (
     ProviderRuntimeCredentialRepository,
 )
+from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.business_profile_record_sync import build_profile_brief
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.contracts import (
@@ -43,7 +44,7 @@ from backend.services.mission_composition.contracts import (
     MissionIntent,
     is_ranking_only_instruction,
 )
-from backend.services.mission_composition.coverage import assess_coverage
+from backend.services.mission_composition.coverage import assess_coverage, coverage_mode_for_intent
 from backend.services.mission_composition.deliverable_contract import (
     DeliverableFieldRequirement,
     DeliverableRequest,
@@ -417,7 +418,13 @@ class MissionCompositionService:
 
         charter = _load_charter(self._db, tenant_id)
         connected_ids, connected_integrations, preferred_creds, type_by_id = _connected_sets(self._db, tenant_id)
-        coverage_assessment = assess_coverage(intent)
+        internal_capacity: int | None = None
+        if self._db is not None and coverage_mode_for_intent(intent) == "internal_crm":
+            internal_capacity = TenantInternalRecordRepository(self._db).count_records(
+                tenant_id=tenant_id,
+                record_type="account",
+            )
+        coverage_assessment = assess_coverage(intent, internal_capacity=internal_capacity)
         epistemic_context = build_epistemic_context(intent, coverage_assessment)
         tenant_semantic_overrides, tenant_override_conflicts = _tenant_semantic_overrides(profile)
 

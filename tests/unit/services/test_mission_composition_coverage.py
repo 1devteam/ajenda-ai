@@ -46,6 +46,30 @@ def test_public_and_internal_sources_remain_unknown_until_runtime_observation() 
     assert internal.ready is True
 
 
+def test_internal_crm_capacity_snapshot_is_explicit_and_fail_closed() -> None:
+    intent = _intent("Review five companies from Ajenda internal CRM records.")
+
+    supported = assess_coverage(intent, internal_capacity=5)
+    assert supported.mode == "internal_crm"
+    assert supported.status == "supported_with_limits"
+    assert supported.available_quantity == 5
+    assert supported.source_reference == "tenant_internal_records.account"
+    assert supported.grants_execution_authority is False
+
+    insufficient = assess_coverage(intent, internal_capacity=2)
+    assert insufficient.status == "insufficient_capacity"
+    assert insufficient.ready is False
+    assert insufficient.available_quantity == 2
+
+
+def test_public_capacity_never_uses_internal_snapshot() -> None:
+    public = assess_coverage(_intent("Find five HVAC companies in Dallas."), internal_capacity=50)
+
+    assert public.mode == "public_or_provider"
+    assert public.status == "unknown"
+    assert public.available_quantity is None
+
+
 def test_composition_record_exposes_coverage_without_granting_authority() -> None:
     record = MissionCompositionService(db=None).compose(
         tenant_id="tenant-coverage",
