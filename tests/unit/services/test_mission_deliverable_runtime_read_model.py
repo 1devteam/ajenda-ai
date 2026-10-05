@@ -209,7 +209,7 @@ def test_refresh_marks_conflicting_duplicate_artifacts_contradictory() -> None:
 
 
 def test_refresh_marks_runtime_work_for_blocked_coverage_contradictory() -> None:
-    instruction = "Find five dental companies in Austin using local fixture data only and return company name."
+    instruction = "Find five dental companies in Seattle using local fixture data only and return company name."
     request = extract_deliverable_request(instruction)
     assert request is not None
     intent = interpret_instruction(instruction)

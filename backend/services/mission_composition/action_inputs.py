@@ -7,6 +7,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from backend.services.ajenda_demo_fixtures import local_fixture_scope_keys
 from backend.services.mission_composition.contracts import MissionIntent, is_ranking_only_instruction
 
 _DEFAULT_PROSPECT_COUNT = 3
@@ -607,18 +608,13 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
             re.search(r"\blocal\s+(?:test\s+)?fixtures?\b|\bfixture\s+data\s+only\b", source, re.IGNORECASE)
         )
         if local_fixture_only and entity and entity.industry and entity.location:
-            fixture_scope_supported = (entity.industry.casefold(), entity.location.casefold()) in {
-                ("software", "austin"),
-                ("software development", "austin"),
-                ("hvac", "dallas"),
-                ("roofing", "austin"),
-                ("plumbing", "austin"),
-                ("professional services", "austin"),
-            }
+            fixture_scope_supported = (
+                " ".join(entity.industry.casefold().split()),
+                " ".join(entity.location.casefold().split()),
+            ) in local_fixture_scope_keys()
             if not fixture_scope_supported:
                 raise ValueError(
-                    "local prospect fixtures support software development in Austin, HVAC in Dallas, "
-                    "roofing in Austin, plumbing in Austin, and professional services in Austin; "
+                    "local prospect fixtures require a configured industry/location scope; "
                     "requested fixture scope is unavailable"
                 )
         internal_crm_only = _ajenda_internal_crm_only(intent)

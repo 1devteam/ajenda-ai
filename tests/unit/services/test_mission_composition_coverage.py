@@ -20,8 +20,28 @@ def test_supported_fixture_scope_reports_capacity() -> None:
     assert assessment.ready is True
 
 
+def test_lattice_industry_fixture_scopes_report_known_capacity() -> None:
+    for industry in (
+        "advertising",
+        "electrical",
+        "landscaping",
+        "pest control",
+        "legal",
+        "dental",
+        "recruiting",
+        "SaaS",
+        "e-commerce",
+    ):
+        assessment = assess_coverage(
+            _intent(f"Find three {industry} companies in Austin using local fixture data only.")
+        )
+        assert assessment.status == "supported_with_limits", industry
+        assert assessment.available_quantity == 3
+        assert assessment.ready is True
+
+
 def test_unsupported_fixture_scope_blocks_before_runtime() -> None:
-    assessment = assess_coverage(_intent("Find five dental companies in Austin using local fixture data only."))
+    assessment = assess_coverage(_intent("Find five dental companies in Seattle using local fixture data only."))
 
     assert assessment.status == "unsupported_scope"
     assert assessment.available_quantity == 0
@@ -73,7 +93,7 @@ def test_public_capacity_never_uses_internal_snapshot() -> None:
 def test_composition_record_exposes_coverage_without_granting_authority() -> None:
     record = MissionCompositionService(db=None).compose(
         tenant_id="tenant-coverage",
-        instruction="Find five dental companies in Austin using local fixture data only.",
+        instruction="Find five dental companies in Seattle using local fixture data only.",
     )
 
     assert record.coverage_assessment is not None

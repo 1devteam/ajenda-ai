@@ -71,7 +71,7 @@ def test_unsupported_local_fixture_scope_is_a_compile_gap() -> None:
 
     assert record.ready_to_start is False
     assert any(
-        "local prospect fixtures support software development in Austin" in (step.compile_gap or "")
+        "local prospect fixtures require a configured industry/location scope" in (step.compile_gap or "")
         for step in record.planned_steps
     )
 
@@ -98,6 +98,28 @@ def test_professional_services_fixture_scope_compiles_without_public_search() ->
     research = next(step for step in record.planned_steps if step.action_name == "web.research")
     assert research.tool_input["local_fixture_only"] is True
     assert research.tool_input["include_public_search"] is False
+
+
+def test_declared_lattice_industries_compile_from_fixture_catalog() -> None:
+    for industry in (
+        "advertising",
+        "electrical",
+        "landscaping",
+        "pest control",
+        "legal",
+        "dental",
+        "recruiting",
+        "SaaS",
+        "e-commerce",
+    ):
+        record = MissionCompositionService(db=None).compose(
+            tenant_id="tenant",
+            instruction=f"Research three {industry} companies in Austin using local fixture data only.",
+        )
+        assert record.ready_to_start is True, industry
+        research = next(step for step in record.planned_steps if step.action_name == "web.research")
+        assert research.tool_input["local_fixture_only"] is True
+        assert research.tool_input["include_public_search"] is False
 
 
 def test_ajenda_internal_crm_source_disables_public_search() -> None:

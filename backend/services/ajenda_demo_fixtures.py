@@ -142,6 +142,96 @@ def supplemental_demo_records() -> dict[str, dict[str, dict[str, Any]]]:
                 ("South Congress Consulting", "soco-consulting.example", "hello@soco-consulting.example"),
             ),
         ),
+        (
+            "austin-advertising",
+            "advertising",
+            "Austin",
+            (
+                ("Capital Ad Studio", "capitaladstudio.example", "hello@capitaladstudio.example"),
+                ("Lone Star Media", "lonestarmedia.example", "hello@lonestarmedia.example"),
+                ("South Congress Growth", "soco-growth.example", "hello@soco-growth.example"),
+            ),
+        ),
+        (
+            "austin-electrical",
+            "electrical",
+            "Austin",
+            (
+                ("Austin Circuit Works", "austincircuit.example", "hello@austincircuit.example"),
+                ("Capital Electric Co", "capitalelectric.example", "hello@capitalelectric.example"),
+                ("Hill Country Power", "hillcountrypower.example", "hello@hillcountrypower.example"),
+            ),
+        ),
+        (
+            "austin-landscaping",
+            "landscaping",
+            "Austin",
+            (
+                ("Greenbelt Landscapes", "greenbeltlandscapes.example", "hello@greenbeltlandscapes.example"),
+                ("Barton Grounds", "bartongrounds.example", "hello@bartongrounds.example"),
+                ("Oak Hill Outdoor Care", "oakhilloutdoor.example", "hello@oakhilloutdoor.example"),
+            ),
+        ),
+        (
+            "austin-pest-control",
+            "pest control",
+            "Austin",
+            (
+                ("Capital Pest Defense", "capitalpest.example", "hello@capitalpest.example"),
+                ("Lone Star Termite", "lonestartermite.example", "hello@lonestartermite.example"),
+                ("South Austin Pest Team", "southaustinpest.example", "hello@southaustinpest.example"),
+            ),
+        ),
+        (
+            "austin-legal",
+            "legal",
+            "Austin",
+            (
+                ("Austin Counsel Group", "austincounsel.example", "hello@austincounsel.example"),
+                ("Capitol Legal Partners", "capitollegal.example", "hello@capitollegal.example"),
+                ("Barton Practice Law", "bartonpractice.example", "hello@bartonpractice.example"),
+            ),
+        ),
+        (
+            "austin-dental",
+            "dental",
+            "Austin",
+            (
+                ("Austin Family Dental", "austinfamilydental.example", "hello@austinfamilydental.example"),
+                ("Capitol Smile Care", "capitolsmile.example", "hello@capitolsmile.example"),
+                ("Barton Dental Studio", "bartondental.example", "hello@bartondental.example"),
+            ),
+        ),
+        (
+            "austin-recruiting",
+            "recruiting",
+            "Austin",
+            (
+                ("Capital Talent Partners", "capitaltalent.example", "hello@capitaltalent.example"),
+                ("Lone Star Search", "lonestarsearch.example", "hello@lonestarsearch.example"),
+                ("Barton Recruiting", "bartonrecruiting.example", "hello@bartonrecruiting.example"),
+            ),
+        ),
+        (
+            "austin-saas",
+            "SaaS",
+            "Austin",
+            (
+                ("Austin Cloud Systems", "austincloud.example", "hello@austincloud.example"),
+                ("Capital Workflow Software", "capitalworkflow.example", "hello@capitalworkflow.example"),
+                ("Barton Platform Labs", "bartonplatform.example", "hello@bartonplatform.example"),
+            ),
+        ),
+        (
+            "austin-ecommerce",
+            "e-commerce",
+            "Austin",
+            (
+                ("Austin Market House", "austinmarkethouse.example", "hello@austinmarkethouse.example"),
+                ("Capital Retail Co", "capitalretail.example", "hello@capitalretail.example"),
+                ("Barton Goods", "bartongoods.example", "hello@bartongoods.example"),
+            ),
+        ),
     ):
         for index, (name, domain, email) in enumerate(entries, start=1):
             account_id = f"fixture-{scope_key}-{index}"
@@ -180,6 +270,23 @@ def supplemental_demo_records() -> dict[str, dict[str, dict[str, Any]]]:
             }
         },
     }
+
+
+def local_fixture_scope_keys() -> frozenset[tuple[str, str]]:
+    """Return normalized industry/location scopes backed by fixture accounts."""
+
+    scopes = {
+        (
+            " ".join(str(record.get("industry", "")).casefold().split()),
+            " ".join(str(record.get("location", "")).casefold().split()),
+        )
+        for record in supplemental_demo_records().get("account", {}).values()
+        if record.get("source") == "local_fixture" and record.get("industry") and record.get("location")
+    }
+    # Preserve the established interpreter alias without duplicating records.
+    if ("software development", "austin") in scopes:
+        scopes.add(("software", "austin"))
+    return frozenset(scopes)
 
 
 def build_in_memory_demo_records() -> dict[str, dict[str, dict[str, Any]]]:
