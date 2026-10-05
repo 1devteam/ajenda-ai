@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from backend.services.mission_composition.semantic_lattice.resolver import (
+    build_semantic_selection as build_modular_semantic_selection,
+)
 from backend.services.mission_composition.semantic_vocabulary import (
     ALL_SEMANTIC_CONCEPTS,
     SHARED_BUSINESS_CONCEPTS,
@@ -58,6 +61,18 @@ def test_semantic_selection_records_outcome_to_job_provenance() -> None:
         "outreach",
     }
     assert selection.grants_execution_authority is False
+
+
+def test_modular_resolver_preserves_existing_selection_contract() -> None:
+    kwargs = {
+        "instruction": "Research HVAC companies offering heat pump maintenance plans in Dallas.",
+        "requested_outcomes": ("research_prospects",),
+        "selected_job_keys": ("research.discover_prospects",),
+    }
+    legacy = build_semantic_selection(**kwargs)
+    modular = build_modular_semantic_selection(**kwargs)
+    assert modular == legacy
+    assert modular.grants_execution_authority is False
 
 
 def test_semantic_selection_exposes_industry_overlay_terms() -> None:

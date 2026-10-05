@@ -71,10 +71,8 @@ from backend.services.mission_composition.proposal_store import (
     mark_superseded,
     put_proposal,
 )
-from backend.services.mission_composition.semantic_vocabulary import (
-    TenantSemanticOverride,
-    build_semantic_selection,
-)
+from backend.services.mission_composition.semantic_lattice.resolver import build_semantic_selection
+from backend.services.mission_composition.semantic_vocabulary import TenantSemanticOverride
 from backend.services.mission_composition.shadow_preview import build_shadow_preview
 from backend.services.mission_composition.structured_planner import (
     PlannerRequest,
