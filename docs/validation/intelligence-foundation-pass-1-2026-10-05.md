@@ -36,12 +36,18 @@ or an explicit internal capacity snapshot is supplied.
 - Changed-file impact: 6 files, 28 changed nodes, 206 impacted tests, 4
   invariants, 0 unmapped files; risk domain `action-contract`.
 - Canonical graph regenerated: 1,619 nodes and 4,659 edges.
+- Rebuilt API live proof artifact: `/tmp/pass1-live-coverage.json`.
+  - dental/Austin, three requested: `supported_with_limits`, proposal ready,
+    no authority granted.
+  - dental/Seattle, three requested: `unsupported_scope`, proposal blocked,
+    no mission queued.
+  - HVAC/Dallas, five requested: `insufficient_capacity` (three available),
+    proposal blocked, no mission queued.
 
-The rebuilt Docker live-proof image was not completed in this pass because its
-Chromium dependency installation was intentionally stopped. Therefore this
-document does not claim a new live runtime artifact; the existing live proof
-remains valid for the previously supported scopes. A rebuilt-stack proof for a
-new scope is the next runtime verification step.
+The API image was rebuilt and restarted for this proof. The worker image was
+not rebuilt because this slice only exercises composition-time coverage and no
+queue work was admitted; worker-backed proof remains part of the next runtime
+campaign.
 
 ## Deliberately deferred
 
