@@ -149,3 +149,30 @@ def test_reconciliation_detects_semantic_duplicate_conflict() -> None:
     assert result.status == "contradictory"
     assert result.semantic_status == "blocked"
     assert result.semantic_mismatch_codes == ("conflicting_duplicate:verified_prospect_candidates",)
+
+
+def test_reconciliation_detects_conflicting_identity_content_across_artifacts() -> None:
+    preview = build_shadow_preview(
+        proposal_id="proposal-1",
+        preview_id="preview-1",
+        task_graph={"nodes": [], "metadata": {}},
+        planned_artifact_keys=("prospect_candidates", "verified_prospect_candidates"),
+        coverage_assessment=None,
+        epistemic_context=None,
+    )
+    first = _prospect("Acme")
+    second = {**_prospect("Acme"), "website": "https://different.example"}
+
+    result = reconcile_shadow_preview(
+        preview,
+        tasks=[_task(status="completed", action="web.research")],
+        artifacts=(
+            MaterializedArtifact(artifact_key="prospect_candidates", payload=[first]),
+            MaterializedArtifact(artifact_key="verified_prospect_candidates", payload=[second]),
+        ),
+        completion=_completion(complete=True),
+    )
+
+    assert result.status == "contradictory"
+    assert result.semantic_status == "blocked"
+    assert result.semantic_mismatch_codes == ("conflicting_identity_website:acme",)

@@ -128,6 +128,44 @@ def build_shadow_preview(
     )
 
 
+def _semantic_content_mismatches(artifacts: tuple[MaterializedArtifact, ...]) -> tuple[str, ...]:
+    """Find deterministic identity contradictions inside typed row artifacts.
+
+    Structural/schema validation can prove that fields exist, but it cannot
+    prove that two rows referring to the same named business agree on stable
+    identity evidence.  This read-only check compares only identity fields
+    already emitted by artifact contracts; it never invents or normalizes
+    runtime authority.
+    """
+
+    identities: dict[str, dict[str, set[str]]] = {}
+    for artifact in artifacts:
+        if not isinstance(artifact.payload, list):
+            continue
+        for row in artifact.payload:
+            if not isinstance(row, dict):
+                continue
+            raw_name = row.get("company") or row.get("company_name")
+            if not isinstance(raw_name, str) or not raw_name.strip():
+                continue
+            identity = " ".join(raw_name.casefold().split())
+            values = identities.setdefault(identity, {"websites": set(), "statuses": set()})
+            raw_website = row.get("website") or row.get("domain")
+            if isinstance(raw_website, str) and raw_website.strip():
+                values["websites"].add(raw_website.strip().casefold().rstrip("/"))
+            raw_status = row.get("identity_status")
+            if isinstance(raw_status, str) and raw_status.strip():
+                values["statuses"].add(raw_status.strip().casefold())
+
+    mismatches: list[str] = []
+    for identity, values in sorted(identities.items()):
+        if len(values["websites"]) > 1:
+            mismatches.append(f"conflicting_identity_website:{identity}")
+        if len(values["statuses"]) > 1:
+            mismatches.append(f"conflicting_identity_status:{identity}")
+    return tuple(mismatches)
+
+
 def reconcile_shadow_preview(
     preview: ShadowPreview,
     *,
@@ -179,7 +217,7 @@ def reconcile_shadow_preview(
         "blocked" if evidence_mismatch_codes else ("aligned" if artifacts else "not_available")
     )
 
-    semantic_mismatch_codes: list[str] = []
+    semantic_mismatch_codes: list[str] = list(_semantic_content_mismatches(artifacts))
     payloads_by_key: dict[str, str] = {}
     for artifact in artifacts:
         payload_fingerprint = repr(artifact.payload)
