@@ -14,10 +14,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.domain.execution_task import ExecutionTask
 from backend.services.mission_composition.contracts import CoverageAssessment, EpistemicContext
-from backend.services.mission_composition.deliverable_completion import DeliverableCompletion, MaterializedArtifact
+from backend.services.mission_composition.deliverable_completion import (
+    DeliverableCompletion,
+    MaterializedArtifact,
+    validate_materialized_artifact,
+)
 
 ShadowPreviewLifecycle = Literal["current", "superseded", "stale", "contradictory"]
 ReconciliationStatus = Literal["not_run", "aligned", "incomplete", "drifted", "contradictory"]
+ReconciliationLayerStatus = Literal["not_available", "aligned", "blocked", "drifted"]
 
 
 class ShadowPreview(BaseModel):
@@ -44,7 +49,7 @@ class ShadowPreview(BaseModel):
 
 
 class RuntimeReconciliation(BaseModel):
-    """Comparison of a shadow preview with governed runtime observations."""
+    """Layered comparison of a shadow preview with governed runtime observations."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -59,6 +64,13 @@ class RuntimeReconciliation(BaseModel):
     completed_task_count: int = Field(default=0, ge=0)
     completed_deliverable: bool = False
     contradiction_codes: tuple[str, ...] = Field(default=(), max_length=80)
+    structural_status: ReconciliationLayerStatus = "not_available"
+    schema_status: ReconciliationLayerStatus = "not_available"
+    evidence_status: ReconciliationLayerStatus = "not_available"
+    semantic_status: ReconciliationLayerStatus = "not_available"
+    outcome_status: ReconciliationLayerStatus = "not_available"
+    semantic_mismatch_codes: tuple[str, ...] = Field(default=(), max_length=80)
+    evidence_mismatch_codes: tuple[str, ...] = Field(default=(), max_length=80)
     authority_class: Literal["read_model"] = "read_model"
     grants_execution_authority: Literal[False] = False
 
@@ -132,10 +144,64 @@ def reconcile_shadow_preview(
     missing = tuple(sorted(set(expected) - set(observed)))
     unexpected = tuple(sorted(set(observed) - set(expected)))
     completed = sum(1 for task in tasks if str(task.status) == "completed")
-    detected_contradictions = tuple(contradiction_codes) + tuple(
-        ["runtime_artifact_conflict"]
-        if completion.fields and any(field.status == "invalid_artifact" for field in completion.fields)
-        else []
+    structural_status: ReconciliationLayerStatus
+    if not tasks and not artifacts:
+        structural_status = "not_available"
+    elif missing:
+        structural_status = "blocked"
+    elif unexpected:
+        structural_status = "drifted"
+    else:
+        structural_status = "aligned"
+
+    expected_artifacts = {artifact.artifact_key for artifact in artifacts if artifact.artifact_key in expected}
+    schema_errors: list[str] = []
+    for artifact in artifacts:
+        if artifact.artifact_key not in expected:
+            continue
+        validation = validate_materialized_artifact(artifact)
+        if not validation.valid:
+            schema_errors.extend(f"{artifact.artifact_key}:{error}" for error in validation.errors)
+    schema_status: ReconciliationLayerStatus
+    if not expected_artifacts:
+        schema_status = "not_available"
+    elif schema_errors:
+        schema_status = "blocked"
+    else:
+        schema_status = "aligned"
+
+    evidence_mismatch_codes: list[str] = []
+    if preview.missing_evidence:
+        evidence_mismatch_codes.append("preview_missing_required_evidence")
+    if completion.fields and any(field.status in {"invalid_artifact", "unproven"} for field in completion.fields):
+        evidence_mismatch_codes.append("completion_evidence_unproven")
+    evidence_status: ReconciliationLayerStatus = (
+        "blocked" if evidence_mismatch_codes else ("aligned" if artifacts else "not_available")
+    )
+
+    semantic_mismatch_codes: list[str] = []
+    payloads_by_key: dict[str, str] = {}
+    for artifact in artifacts:
+        payload_fingerprint = repr(artifact.payload)
+        prior = payloads_by_key.get(artifact.artifact_key)
+        if prior is not None and prior != payload_fingerprint:
+            semantic_mismatch_codes.append(f"conflicting_duplicate:{artifact.artifact_key}")
+        payloads_by_key[artifact.artifact_key] = payload_fingerprint
+    semantic_status: ReconciliationLayerStatus = (
+        "blocked" if semantic_mismatch_codes else ("aligned" if expected_artifacts else "not_available")
+    )
+    outcome_status: ReconciliationLayerStatus = (
+        "aligned" if completion.complete else ("blocked" if artifacts or tasks else "not_available")
+    )
+    detected_contradictions = (
+        tuple(contradiction_codes)
+        + tuple(
+            ["runtime_artifact_conflict"]
+            if completion.fields and any(field.status == "invalid_artifact" for field in completion.fields)
+            else []
+        )
+        + tuple(f"schema_invalid:{error}" for error in schema_errors)
+        + tuple(semantic_mismatch_codes)
     )
     if detected_contradictions:
         status: ReconciliationStatus = "contradictory"
@@ -158,4 +224,11 @@ def reconcile_shadow_preview(
         completed_task_count=completed,
         completed_deliverable=completion.complete,
         contradiction_codes=detected_contradictions,
+        structural_status=structural_status,
+        schema_status=schema_status,
+        evidence_status=evidence_status,
+        semantic_status=semantic_status,
+        outcome_status=outcome_status,
+        semantic_mismatch_codes=tuple(dict.fromkeys(semantic_mismatch_codes)),
+        evidence_mismatch_codes=tuple(dict.fromkeys(evidence_mismatch_codes)),
     )

@@ -1,7 +1,7 @@
 # Outcome-loop runtime checkpoint — October 3, 2026
 
 **Status:** complete for this checkpoint
-**Branch/commit:** `main` / `99ab8d8e`
+**Branch/commit:** `main` / see the latest hardening commit on `main`
 **Source-of-truth order:** implementation, tests, and runtime artifacts outrank this report.
 
 This checkpoint exercised the coverage, epistemic, lifecycle, and governed-runtime boundary through
@@ -42,6 +42,15 @@ tenant-scoped persistence and read-only observability APIs.
 
 ## Remaining scope
 
-Complete semantic/epistemic coverage, multi-tenant freshness proofs, recurring reconciliation, and
-shadow execution remain separate implementation slices and require their own runtime artifacts and
-GRAFT+ review.
+The hardening layer following this checkpoint is now implemented:
+
+- semantic lattice definitions, resolver, and tenant overlays are modularized;
+- epistemic and counterfactual values are explicitly labeled as policy/heuristic estimates;
+- shadow reconciliation reports structural, schema, evidence, semantic, and outcome layers;
+- duplicate artifact content conflicts are visible and fail closed;
+- runtime maintenance batches mission/task reads instead of scanning each mission independently;
+- structured lexical classification is available alongside the deterministic regex core.
+
+Future work is calibration from accumulated runtime evidence, richer semantic/business-goal
+comparison, and provider/tenant capacity expansion. These remain bounded follow-ups rather than
+unlabeled confidence or optimization claims.

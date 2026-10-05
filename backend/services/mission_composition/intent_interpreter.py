@@ -31,6 +31,7 @@ from backend.services.mission_composition.contracts import (
 )
 from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
 from backend.services.mission_composition.interpretation.fuzzy import fuzzy_outcome_candidates
+from backend.services.mission_composition.interpretation.lexical import classify_lexical_frame
 from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
 
 _COMPONENTS_ACTIVE = ("regex_core", "ability_vocab")
@@ -1219,6 +1220,8 @@ def interpret_instruction(
 
     profile_context = profile_context or {}
     lower = text.lower()
+    lexical_frame = classify_lexical_frame(text)
+    components_active.append("structured_lexical_frame")
     legacy_business_income_review = re.search(
         r"\breview\s+my\s+business\b.{0,120}\b(?:increase|grow|improve)\s+(?:my\s+)?income\b",
         lower,
@@ -1267,7 +1270,7 @@ def interpret_instruction(
         lower, _CRM_NEGATION_PATTERNS
     )
     internal_crm_read = (
-        _contains_any(lower, _INTERNAL_CRM_READ_PATTERNS)
+        (lexical_frame.internal_crm_read or _contains_any(lower, _INTERNAL_CRM_READ_PATTERNS))
         and not crm_write_requested
         and not _contains_any(lower, _INTERNAL_CRM_READ_NEGATION_PATTERNS)
     )

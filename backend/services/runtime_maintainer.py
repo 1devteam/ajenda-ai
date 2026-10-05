@@ -378,28 +378,28 @@ class RuntimeMaintainer:
         messages, credentials, approvals, or provider authority.
         """
 
-        tenant_ids = set(self._session.scalars(select(ExecutionTask.tenant_id)).all())
+        tenant_ids = set(self._session.scalars(select(ExecutionTask.tenant_id).distinct()).all())
+        if not tenant_ids:
+            return 0
+        # Batch the read side of reconciliation once per maintenance pass.
+        # This preserves tenant filtering while avoiding tenant → mission →
+        # task N+1 queries as mission volume grows.
+        missions = list(self._session.scalars(select(Mission).where(Mission.tenant_id.in_(tenant_ids))).all())
+        tasks_by_mission: dict[object, list[ExecutionTask]] = {}
+        for task in self._session.scalars(select(ExecutionTask).where(ExecutionTask.tenant_id.in_(tenant_ids))).all():
+            tasks_by_mission.setdefault(task.mission_id, []).append(task)
         reconciled = 0
-        for tenant_id in tenant_ids:
-            missions = self._session.scalars(select(Mission).where(Mission.tenant_id == tenant_id)).all()
-            for mission in missions:
-                metadata = dict(mission.metadata_json or {})
-                refreshed, _completion = refresh_deliverable_completion_metadata(
-                    metadata,
-                    list(
-                        self._session.scalars(
-                            select(ExecutionTask).where(
-                                ExecutionTask.tenant_id == tenant_id,
-                                ExecutionTask.mission_id == mission.id,
-                            )
-                        )
-                    ),
-                )
-                if refreshed == mission.metadata_json:
-                    continue
-                mission.metadata_json = refreshed
-                self._session.add(mission)
-                reconciled += 1
+        for mission in missions:
+            metadata = dict(mission.metadata_json or {})
+            refreshed, _completion = refresh_deliverable_completion_metadata(
+                metadata,
+                tasks_by_mission.get(mission.id, []),
+            )
+            if refreshed == mission.metadata_json:
+                continue
+            mission.metadata_json = refreshed
+            self._session.add(mission)
+            reconciled += 1
         if reconciled:
             self._session.flush()
             self._session.commit()
