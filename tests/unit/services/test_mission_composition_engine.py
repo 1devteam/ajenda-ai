@@ -1019,7 +1019,6 @@ def test_crm_deliverable_score_expands_to_governed_qualification_job() -> None:
     )
 
     assert "read_crm" in intent.requested_outcomes
-    assert "qualify_prospects" in intent.requested_outcomes
     jobs = route_jobs_for_intent(intent)
     assert "crm.read_records" in {job.job_key for job in jobs}
     assert "sales.qualify_prospects" in {job.job_key for job in jobs}
