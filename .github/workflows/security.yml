@@ -80,11 +80,17 @@ jobs:
       - name: Run pip-audit against application dependency set
         # PYSEC-2026-1325 (ecdsa Minerva timing): transitive via python-jose; upstream
         # documents side-channels as out of scope with no planned fix. Keep visible in
-        # description output via --desc; ignore only this unfixable advisory so the
-        # gate still fails closed on new vulns.
+        # description output via --desc; ignore only narrowly adjudicated advisories
+        # so the gate still fails closed on new vulns.
+        #
+        # CVE-2026-85394 (python-jose DER public-key/HMAC algorithm confusion):
+        # upstream has no patched release. Ajenda does not use a mixed HMAC/asymmetric
+        # decode allow-list: customer sessions are HS256-only, while JWKS/OIDC paths
+        # are RS256/ES256-only. Unit tests assert those algorithm boundaries.
         run: >
           pip-audit -r audit-requirements.txt --desc on
           --ignore-vuln PYSEC-2026-1325
+          --ignore-vuln CVE-2026-85394
 
   # ─────────────────────────────────────────────────────────────────────────
   # Job 3: npm-audit — scan frontend dependency graph for known vulnerabilities
