@@ -76,6 +76,7 @@ def test_validate_requires_verified_email() -> None:
     ):
         validator.validate("token")
 
+
 def test_id_token_validator_never_allows_hmac_for_jwks() -> None:
     validator = IdTokenValidator(
         jwks_uri="https://idp.example.com/jwks",
