@@ -77,4 +77,3 @@ def test_session_validation_is_hs256_only(monkeypatch) -> None:
     service.validate_access_token("header.payload.signature")
 
     assert observed["algorithms"] == ["HS256"]
-
