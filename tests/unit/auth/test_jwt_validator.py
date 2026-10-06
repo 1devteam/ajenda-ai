@@ -99,6 +99,7 @@ def test_jwtvalidator_fails_closed_when_jwks_unavailable(monkeypatch) -> None:
     with pytest.raises(JwtValidationError, match="temporarily unavailable"):
         validator.validate_and_extract_claims("header.payload.sig")
 
+
 def test_jwtvalidator_never_allows_hmac_for_jwks(monkeypatch) -> None:
     validator = JwtValidator(
         jwks_uri="https://example.com/.well-known/jwks.json",
