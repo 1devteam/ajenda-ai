@@ -57,6 +57,7 @@ def test_validate_rejects_expired_token() -> None:
     with pytest.raises(JwtValidationError):
         service.validate_access_token(token)
 
+
 def test_session_validation_is_hs256_only(monkeypatch) -> None:
     service = SessionTokenService(signing_secret="s" * 32, access_ttl_seconds=120)
     observed: dict[str, object] = {}
