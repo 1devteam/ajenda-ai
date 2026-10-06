@@ -117,4 +117,3 @@ def test_jwtvalidator_never_allows_hmac_for_jwks(monkeypatch) -> None:
 
     assert observed["algorithms"] == ["RS256", "ES256"]
     assert "HS256" not in observed["algorithms"]
-
