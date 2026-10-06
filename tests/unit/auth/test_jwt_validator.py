@@ -98,3 +98,23 @@ def test_jwtvalidator_fails_closed_when_jwks_unavailable(monkeypatch) -> None:
 
     with pytest.raises(JwtValidationError, match="temporarily unavailable"):
         validator.validate_and_extract_claims("header.payload.sig")
+
+def test_jwtvalidator_never_allows_hmac_for_jwks(monkeypatch) -> None:
+    validator = JwtValidator(
+        jwks_uri="https://example.com/.well-known/jwks.json",
+        issuer="https://example.com/",
+        audience="ajenda-api",
+    )
+    monkeypatch.setattr(validator._cache, "get_keys", lambda: [{"kid": "k1", "kty": "RSA"}])
+    observed: dict[str, object] = {}
+
+    def fake_decode(token, key, *, algorithms, audience, issuer, options):
+        observed["algorithms"] = algorithms
+        return {"sub": "user-1", "tenant_id": "tenant-a"}
+
+    monkeypatch.setattr("backend.auth.jwt_validator.jwt.decode", fake_decode)
+    validator.validate_and_extract_claims("header.payload.sig")
+
+    assert observed["algorithms"] == ["RS256", "ES256"]
+    assert "HS256" not in observed["algorithms"]
+
