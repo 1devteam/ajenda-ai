@@ -97,4 +97,3 @@ def test_id_token_validator_never_allows_hmac_for_jwks() -> None:
 
     assert decode_mock.call_args.kwargs["algorithms"] == ["RS256", "ES256"]
     assert "HS256" not in decode_mock.call_args.kwargs["algorithms"]
-
