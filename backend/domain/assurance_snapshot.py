@@ -25,6 +25,7 @@ class AssuranceSnapshot(Base):
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
     mission_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("missions.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    observation_fingerprint: Mapped[str] = mapped_column(String(80), nullable=False)
     first_divergence: Mapped[str | None] = mapped_column(String(500), nullable=True)
     finding_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     findings: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
@@ -53,4 +54,10 @@ class AssuranceMetricState(Base):
     first_divergence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     calibration_sample_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     calibration_aligned_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    tenant_failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
