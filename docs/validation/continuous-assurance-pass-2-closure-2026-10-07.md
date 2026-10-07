@@ -2,7 +2,8 @@
 
 **Closure date:** 2026-10-07  
 **Implementation PR:** #565  
-**Merged implementation SHA:** `d90d8cdf5828a148eaf682562049117cdd92cde8`
+**Merged implementation SHA:** `d90d8cdf5828a148eaf682562049117cdd92cde8`  
+**Closure PR:** #566
 
 ## Exit result
 
@@ -69,7 +70,7 @@ The #565 implementation head passed all required repository proof lanes before m
 
 The live runtime proof starts the independent assurance service, executes a worker-backed operator mission proof, runs a one-shot assurance cycle against persisted runtime evidence, verifies assurance metrics at the API surface, and verifies the Prometheus scrape target.
 
-The closure PR adds the dedicated restart/resume integration proof required to close the remaining Pass 2 evidence gap.
+The closure PR adds the dedicated restart/resume integration proof required to close the remaining Pass 2 evidence gap. Its full integration lane passed 266 tests with 2 credential-gated provider tests skipped.
 
 ## Epistemic calibration boundary
 
@@ -95,7 +96,7 @@ During #565, G.R.A.F.T./CI also identified:
 - ordinary lint/import-order hygiene;
 - incomplete graph mapping for several assurance, deployment, migration, and documentation surfaces.
 
-For this closure change, the predicted blast radius is intentionally narrow:
+For this closure change, the predicted blast radius was intentionally narrow:
 
 - assurance integration proof;
 - Pass 2 roadmap state;
@@ -104,7 +105,9 @@ For this closure change, the predicted blast radius is intentionally narrow:
 
 No runtime authority, provider, credential, queue, worker execution, business-state, onboarding, billing, or UI behavior is intended to change.
 
-Any unmapped proof/documentation surface reported by the closure PR remains a G.R.A.F.T. representation gap, not permission to infer zero architectural significance.
+The closure G.R.A.F.T. run reported graph SHA-256 `886520e59825a98f1e569618dd39ac162320eb574acef3155c88b50fd7143fc3`, zero affected semantic nodes, zero upstream consumers, zero downstream dependencies, zero relevant invariants, and three unmapped changed files. All three unmapped files are documentation surfaces: the completion roadmap, this closure record, and the G.R.A.F.T. effectiveness ledger. The changed assurance integration test was not reported as unmapped.
+
+That actual result matches the predicted authority boundary: no production runtime behavior changed. The lack of semantic graph impact is therefore supported by the test/documentation-only diff, while the three unmapped documentation files remain explicit G.R.A.F.T. representation gaps rather than permission to infer zero architectural significance.
 
 ## Deferred beyond Pass 2
 
@@ -122,6 +125,6 @@ Those are owned by Passes 3–7 or ongoing operations.
 
 ## Completion statement
 
-Pass 2 is complete when the closure PR's restart/resume proof and required repository checks are green.
+Pass 2 is complete once #566's final required repository checks are green and the PR is merged.
 
-At that point Ajenda has a tenant-safe, durable, recurring, read-only assurance layer that can independently detect incomplete evidence, drift, contradiction, first divergence, and calibration observations without manufacturing runtime authority.
+The restart/resume proof itself is green in the full integration lane. After merge, Ajenda has a tenant-safe, durable, recurring, read-only assurance layer that can independently detect incomplete evidence, drift, contradiction, first divergence, and calibration observations without manufacturing runtime authority.
