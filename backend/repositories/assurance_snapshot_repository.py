@@ -29,6 +29,23 @@ class AssuranceSnapshotRepository:
         )
         return list(self._session.scalars(stmt))
 
+    def latest_for_mission(
+        self,
+        *,
+        tenant_id: str,
+        mission_id: uuid.UUID,
+    ) -> AssuranceSnapshot | None:
+        stmt = (
+            select(AssuranceSnapshot)
+            .where(
+                AssuranceSnapshot.tenant_id == tenant_id,
+                AssuranceSnapshot.mission_id == mission_id,
+            )
+            .order_by(desc(AssuranceSnapshot.observed_at))
+            .limit(1)
+        )
+        return self._session.scalar(stmt)
+
     def list_for_mission(
         self,
         *,
