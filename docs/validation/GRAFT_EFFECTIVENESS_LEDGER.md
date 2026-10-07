@@ -62,3 +62,33 @@ Runtime joining was valuable; canonical mapping of validation/operator proof sur
 
 This is a concrete avoided implementation defect: architectural tracing changed the implementation
 choice before code crossed the wrong authority boundary.
+
+## 2026-10-06 — Pass 2 PR proof failures (#565)
+
+**Helped**
+
+- The PR invariant classifier correctly rejected the migration because the changed surface lacked a
+  migration-contract proof under `tests/unit/db/`. That was a real evidence obligation, not a
+  product-runtime defect.
+- Graph-selected proof executed enough of the affected unit surface to expose the repeated-observation
+  fixture defect in `test_unchanged_observation_reuses_latest_snapshot` before merge.
+- The failure separated a test-harness assumption from service behavior: one reconciliation performs
+  four scalar reads when there are no tasks, so a second reconciliation required eight mocked scalar
+  results.
+- Reviewing the migration proof requirement also exposed stale current-head assertions in existing
+  migration contract tests before full CI reached them; those were advanced to
+  `0049_continuous_assurance` in the same coherence repair.
+
+**Hindered / graph gap**
+
+- The impact report listed 12 unmapped changed files. Those files cannot contribute normal
+  upstream/downstream graph evidence, so the reported blast radius is incomplete until those
+  deployment, documentation, migration, or assurance surfaces are modeled.
+- The lint failure was ordinary import-order hygiene and added no architectural information.
+
+**Result**
+
+G.R.A.F.T. materially improved first-pass closure by catching one missing proof obligation and one
+test-fixture defect, but unmapped-file coverage remains a measurable representation gap. The repair
+did not require changing Pass 2 runtime authority or assurance semantics.
+
