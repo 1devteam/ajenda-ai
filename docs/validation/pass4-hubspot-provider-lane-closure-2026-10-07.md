@@ -117,4 +117,4 @@ The post-run graph was regenerated against the final changed-file set:
 - Native provider-side idempotency guarantees, because HubSpot CRM v3 exposes no native idempotency endpoint in this lane.
 - Provider fault-injection campaigns that require a controlled HubSpot timeout/5xx or downstream persistence failure after a successful remote mutation.
 
-Final branch SHA: `e5dc8e0b` (full SHA recorded at PR handoff).
+Final branch SHA: `330833c653abf2817fdce95d564037794e6b18f4`.
