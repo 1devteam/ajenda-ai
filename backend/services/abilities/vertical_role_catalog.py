@@ -26,7 +26,7 @@ from backend.domain.compliance import (
     is_supported_jurisdiction,
 )
 from backend.services.abilities.manifest import AbilityRiskLevel
-from backend.services.business_profile_categories import BUSINESS_PROFILE_CATEGORY_FIELDS
+from backend.services.business_profile.categories import BUSINESS_PROFILE_CATEGORY_FIELDS
 from backend.services.tools.schemas import SideEffectClass
 
 _CANONICAL_PERMISSIONS: frozenset[str] = frozenset(item.value for item in Permission)
