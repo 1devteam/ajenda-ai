@@ -324,12 +324,21 @@ def main() -> int:
         raise ProofFailure(f"launch returned blockers: {launched['blockers']}")
 
     deadline = time.monotonic() + TIMEOUT_SECONDS
+    approved_task_ids: set[str] = set()
     deliverable: dict[str, Any] | None = None
     lifecycle: dict[str, Any] | None = None
     runtime_evidence: dict[str, Any] | None = None
     while time.monotonic() < deadline:
         lifecycle = request("GET", API_BASE, f"/v1/missions/{mission_id}/lifecycle", headers=headers)
         runtime_evidence = request("GET", API_BASE, f"/v1/missions/{mission_id}/runtime-evidence", headers=headers)
+        if SCENARIO == PASS3_SCENARIO:
+            approve_pending_pass3_tasks(
+                tenant_id=tenant_id,
+                machine_headers=headers,
+                owner_headers=owner_headers,
+                mission_id=mission_id,
+                approved_task_ids=approved_task_ids,
+            )
         mission_state = (lifecycle.get("mission") or {}).get("status")
         if mission_state in {"failed", "blocked", "cancelled", "dead_lettered"}:
             if RUNTIME_EVIDENCE_OUTPUT:
@@ -420,6 +429,8 @@ def main() -> int:
         expected=404,
     )
 
+    if SCENARIO == PASS3_SCENARIO and not approved_task_ids:
+        raise ProofFailure("Pass 3 mission never exercised the independent side-effect approval boundary")
     if task_state.get("all_succeeded") is not True:
         raise ProofFailure(f"mission tasks did not all succeed: {task_state}")
     if completion.get("artifact_complete") is not True or completion.get("complete") is not True:
@@ -436,6 +447,7 @@ def main() -> int:
         json.dumps(
             {
                 "ok": True,
+                "scenario": SCENARIO,
                 "instruction": INSTRUCTION,
                 "tenant_id": tenant_id,
                 "proposal_id": proposal_id,
@@ -450,6 +462,7 @@ def main() -> int:
                 "runtime_reconciliation_semantic_status": reconciliation.get("semantic_status"),
                 "blocked_coverage_cases": ["unsupported_scope", "insufficient_capacity"],
                 "cross_tenant_runtime_evidence_denied": True,
+                "independent_human_approval_task_ids": sorted(approved_task_ids),
                 "runtime_evidence_output": RUNTIME_EVIDENCE_OUTPUT,
             },
             sort_keys=True,
