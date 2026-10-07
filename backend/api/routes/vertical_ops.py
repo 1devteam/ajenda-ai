@@ -29,7 +29,7 @@ from backend.queue.base import QueueAdapter
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.services.abilities.role_contracts import RoleName
-from backend.services.business_profile_categories import missing_profile_categories
+from backend.services.business_profile.categories import missing_profile_categories
 from backend.services.operating_charter import (
     OperatingCharterViolation,
     assert_action_allowed,

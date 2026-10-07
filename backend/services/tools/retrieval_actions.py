@@ -6,8 +6,8 @@ from typing import Any
 from backend.db.tenant_session import activate_tenant_session
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
-from backend.services.business_context_resolver import resolve_business_context
-from backend.services.business_profile_record_sync import build_profile_brief
+from backend.services.business_profile.context_resolver import resolve_business_context
+from backend.services.business_profile.record_sync import build_profile_brief
 from backend.services.data_plane.memory_chunk_store import resolve_memory_chunk_store
 from backend.services.ontology.product_knowledge import product_catalog_hits
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry

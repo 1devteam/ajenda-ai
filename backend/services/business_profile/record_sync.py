@@ -13,7 +13,7 @@ from backend.domain.business_profile_projection import (
     PROFILE_RECORD_SOURCE,
 )
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
-from backend.services.business_profile_categories import profile_category_for_field
+from backend.services.business_profile.categories import profile_category_for_field
 from backend.services.ontology.product_knowledge import ProductKnowledge
 
 

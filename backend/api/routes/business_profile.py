@@ -25,11 +25,11 @@ from backend.domain.business_profile import (
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.mission_repository import MissionRepository
-from backend.services.business_profile_categories import (
+from backend.services.business_profile.categories import (
     BUSINESS_PROFILE_CATEGORY_FIELDS,
     missing_profile_categories,
 )
-from backend.services.business_profile_record_sync import sync_profile_to_internal_records
+from backend.services.business_profile.record_sync import sync_profile_to_internal_records
 from backend.services.vertical_ops.plan_templates import get_vertical_mission_template
 
 router = APIRouter(prefix="/business-profile", tags=["business-profile"])

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session as OrmSession
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID, PROFILE_CONTACT_RECORD_ID
 from backend.repositories.business_profile_repository import BusinessProfileRepository
-from backend.services.business_profile_record_sync import read_profile_list, read_profile_text
+from backend.services.business_profile.record_sync import read_profile_list, read_profile_text
 from backend.services.tools.schemas import ActionRuntimeContext
 
 BUSINESS_CONTEXT_CACHE_KEY = "business_context"

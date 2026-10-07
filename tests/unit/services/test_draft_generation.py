@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
-from backend.services.business_context_resolver import BusinessContext
+from backend.services.business_profile.context_resolver import BusinessContext
 from backend.services.draft_generation import generate_and_persist_draft
 from backend.services.llm.contracts import LlmGenerateResult
 from backend.services.tools.schemas import ActionRuntimeContext

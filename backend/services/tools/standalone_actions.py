@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.services.business_context_resolver import default_company_and_domain, resolve_business_context
+from backend.services.business_profile.context_resolver import default_company_and_domain, resolve_business_context
 from backend.services.internet import fetch_public_page, search_bundle_as_legacy_dict
 from backend.services.internet.search import DuckDuckGoInstantAnswerProvider
 from backend.services.network_egress import NetworkEgressError, get_default_network_egress_authority

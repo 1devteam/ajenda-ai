@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID, PROFILE_CONTACT_RECORD_ID
-from backend.services.business_profile_categories import missing_profile_categories, profile_category_for_field
-from backend.services.business_profile_record_sync import (
+from backend.services.business_profile.categories import missing_profile_categories, profile_category_for_field
+from backend.services.business_profile.record_sync import (
     build_profile_account_record,
     build_profile_contact_record,
 )
@@ -50,7 +50,7 @@ def test_build_profile_records_return_none_without_identity_facts() -> None:
 
 
 def test_profile_brief_exposes_business_first_categories() -> None:
-    from backend.services.business_profile_record_sync import build_profile_brief
+    from backend.services.business_profile.record_sync import build_profile_brief
 
     brief = build_profile_brief(
         approved_facts={

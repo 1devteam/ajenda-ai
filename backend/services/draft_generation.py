@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.services.business_context_resolver import BusinessContext, resolve_business_context
+from backend.services.business_profile.context_resolver import BusinessContext, resolve_business_context
 from backend.services.document_artifacts import SUPPORTED_ARTIFACT_TYPES, persist_artifact
 from backend.services.llm.contracts import LlmGenerateRequest
 from backend.services.llm.factory import generate_text

@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.db.tenant_session import activate_tenant_session
 from backend.repositories.business_profile_repository import BusinessProfileRepository
-from backend.services.business_context_resolver import (
+from backend.services.business_profile.context_resolver import (
     BUSINESS_CONTEXT_CACHE_KEY,
     default_company_and_domain,
     resolve_business_context,
