@@ -171,6 +171,29 @@ def test_acceptance_requires_internal_crm_readback_evidence() -> None:
     assert reasons == []
 
 
+def test_acceptance_does_not_mix_source_crm_rows_with_persisted_rows() -> None:
+    met, reasons = evaluate_mission_acceptance(
+        tasks=[
+            _task({"crm_records": [{"id": "account-1", "company": "Acme"}]}),
+            _task(
+                {
+                    "internal_crm_records": [{"id": "contact-1", "company": "Acme"}],
+                    "crm_readback_records": [{"record_id": "contact-1", "verified": True}],
+                    "crm_projection_records": [{"contact_id": "contact-1", "opportunity_id": "opp-1"}],
+                }
+            ),
+        ],
+        contract={
+            "internal_crm_records_min": 1,
+            "internal_crm_readback_required": True,
+            "internal_crm_opportunities_min": 1,
+        },
+    )
+
+    assert met is True
+    assert reasons == []
+
+
 def test_acceptance_requires_internal_crm_opportunity_projection() -> None:
     output = {
         "internal_crm_records": [{"id": "contact-1", "company": "Acme"}],

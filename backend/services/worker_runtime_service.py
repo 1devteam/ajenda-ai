@@ -684,6 +684,7 @@ class WorkerRuntimeService:
                     MissionState.PLANNED.value,
                     MissionState.APPROVED.value,
                     MissionState.QUEUED.value,
+                    MissionState.PAUSED.value,
                 }:
                     transition_mission(mission, MissionState.RUNNING)
                     self._session.add(mission)
@@ -804,6 +805,7 @@ class WorkerRuntimeService:
                     MissionState.PLANNED.value,
                     MissionState.APPROVED.value,
                     MissionState.QUEUED.value,
+                    MissionState.PAUSED.value,
                 }:
                     transition_mission(mission, MissionState.RUNNING)
             transition_mission(mission, target)

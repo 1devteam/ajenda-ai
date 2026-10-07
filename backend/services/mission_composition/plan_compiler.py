@@ -74,6 +74,8 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
         return None
     if action_name == "record.write" and output_name in {"qualified_prospects", "observed_contacts"}:
         return f"$.input.context.{output_name}"
+    if action_name == "record.write" and output_name == "enriched_prospects":
+        return "$.input.context.enriched_prospects"
     if action_name == "record.write" and output_name == "prospect_candidates":
         return None
     if action_name in {"record.write", "sales.log_activity"}:
@@ -145,6 +147,17 @@ def _dependency_jobs_for_selection(
         and "crm.read_records" in selected_keys
     ):
         dependencies = ["crm.read_records", *dependencies]
+    if (
+        intent is not None
+        and job.job_key == "crm.internal_persistence"
+        and "enrich_contacts" in set(intent.requested_outcomes)
+        and "gtm.enrich_contacts" in selected_keys
+    ):
+        # Explicit enrichment is part of the persistence payload, not an
+        # unconsumed side branch. Keep the dependency conditional on the
+        # requested outcome so missions that do not ask for enrichment retain
+        # the smaller governed write graph.
+        dependencies.append("gtm.enrich_contacts")
     return list(dict.fromkeys(dependencies))
 
 

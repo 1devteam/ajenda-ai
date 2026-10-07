@@ -67,6 +67,40 @@ def test_rollup_marks_mission_completed_when_all_tasks_done() -> None:
     assert mission.status == MissionState.COMPLETED.value
 
 
+def test_rollup_resumes_review_hold_before_completing_mission() -> None:
+    tenant_id = "tenant-review-hold"
+    mission_id = uuid.uuid4()
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="complete reviewed CRM write",
+        status=MissionState.PAUSED.value,
+        metadata_json={
+            "runtime_reconciliation": {
+                "aligned": False,
+                "reason": "review_hold_without_active_tasks",
+            }
+        },
+    )
+    mission.id = mission_id
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.COMPLETED.value,
+    )
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task])  # type: ignore[method-assign]
+    service._audit.append = MagicMock()  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch(
+        "backend.services.worker_runtime_service.MissionRepository",
+        return_value=repo,
+    ):
+        service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
+
+    assert mission.status == MissionState.COMPLETED.value
+
+
 def test_rollup_marks_running_when_siblings_open() -> None:
     tenant_id = "tenant-1"
     mission_id = uuid.uuid4()

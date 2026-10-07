@@ -963,6 +963,42 @@ def test_internal_crm_source_never_becomes_a_write_or_unbound_branch() -> None:
     )
 
 
+def test_internal_crm_source_survives_a_governed_write_request() -> None:
+    instruction = (
+        "Review the three HVAC companies already saved in Ajenda internal CRM, qualify them, "
+        "enrich the contacts, persist the qualified prospects to Ajenda internal CRM, "
+        "read back every saved record, and return the qualified prospects. Do not send messages."
+    )
+    intent = interpret_instruction(instruction)
+
+    assert "internal_crm_source" in intent.context_requirements
+    assert "read_crm" in intent.requested_outcomes
+    assert "persist_internal_crm" in intent.requested_outcomes
+    assert "research_prospects" not in intent.requested_outcomes
+
+    jobs = route_jobs_for_intent(intent)
+    assert "research.discover_prospects" not in {job.job_key for job in jobs}
+    assert "crm.read_records" in {job.job_key for job in jobs}
+
+    selections, missing = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    assert missing == []
+    steps = compile_planned_steps(selections, intent=intent)
+    assert [step.action_name for step in steps] == [
+        "record.search",
+        "research.observe_contacts",
+        "sales.qualify",
+        "gtm.lead_enrich",
+        "record.write",
+    ]
+    assert all(step.action_name not in {"web.search", "web.research", "sales.research"} for step in steps)
+    write = steps[-1]
+    assert any(
+        binding["output_path"] == "$.enriched_prospects"
+        and binding["input_path"] == "$.input.context.enriched_prospects"
+        for binding in write.input_bindings
+    )
+
+
 def test_scoped_crm_prospect_phrase_routes_to_qualification() -> None:
     intent = interpret_instruction(
         "Review the approved business profile and internal CRM records. Score the two Austin software studio prospects "

@@ -175,6 +175,10 @@ _CRM_READ_NEGATION_PATTERNS = (
 _INTERNAL_CRM_READ_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\b[^.!?]{0,80}\b(?:read|review|inspect|summarize|compare|rank)\b[^.!?]{0,80}\b(?:ajenda(?:['\u2019]s)?\s+(?:internal\s+)?crm|internal\s+(?:ajenda\s+)?crm|internal\s+records?)\b",
 )
+_CRM_READBACK_VERIFICATION_PATTERN = re.compile(
+    r"\bread\s+back\b[^.!?]{0,80}\b(?:saved|persisted)\s+(?:crm\s+)?records?\b",
+    re.IGNORECASE,
+)
 _SALESFORCE_QUERY_PATTERNS = (
     r"\b(?:query|check|read|search|list|show|summarize)\b.{0,48}\bsalesforce\b",
     r"\bsalesforce\b.{0,48}\b(?:accounts?|contacts?|leads?|opportunities|records?|pipeline)\b",
@@ -1063,13 +1067,13 @@ def _classify_clause(
     )
     internal_crm_read = (
         _contains_any(lower, _INTERNAL_CRM_READ_PATTERNS)
-        and not crm_write_requested
         and not _contains_any(lower, _INTERNAL_CRM_READ_NEGATION_PATTERNS)
+        and not _CRM_READBACK_VERIFICATION_PATTERN.search(lower)
     )
     crm_read = (
         (internal_crm_read or (_contains_any(lower, _CRM_READ_PATTERNS) and not internal_crm_requested))
         and (internal_crm_read or not _contains_any(lower, _CRM_READ_NEGATION_PATTERNS))
-        and not crm_write_requested
+        and (internal_crm_read or not crm_write_requested)
         and (internal_crm_read or not _contains_any(lower, _CRM_NEGATION_PATTERNS))
     )
     salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
@@ -1270,14 +1274,26 @@ def interpret_instruction(
         lower, _CRM_NEGATION_PATTERNS
     )
     internal_crm_read = (
-        (lexical_frame.internal_crm_read or _contains_any(lower, _INTERNAL_CRM_READ_PATTERNS))
-        and not crm_write_requested
-        and not _contains_any(lower, _INTERNAL_CRM_READ_NEGATION_PATTERNS)
-    )
+        lexical_frame.internal_crm_read or _contains_any(lower, _INTERNAL_CRM_READ_PATTERNS)
+    ) and not _contains_any(lower, _INTERNAL_CRM_READ_NEGATION_PATTERNS)
     internal_crm_as_source = (
         re.search(r"\bfrom\s+(?:the\s+)?internal\s+(?:ajenda\s+)?crm\b", lower) is not None
         or re.search(r"\bfrom\s+(?:the\s+)?ajenda\s+internal\s+crm\b", lower) is not None
+        or re.search(r"\b(?:already\s+)?saved\s+in\s+(?:the\s+)?(?:ajenda\s+)?internal\s+crm\b", lower) is not None
     )
+    explicit_internal_crm_read = bool(
+        re.search(
+            r"\b(?:review|inspect|read|check|list|query|summarize|compare|rank)\b"
+            r"[^.!?]{0,120}\b(?:ajenda(?:['\u2019]s)?\s+crm|ajenda\s+internal\s+crm|internal\s+(?:ajenda\s+)?crm)\b",
+            lower,
+        )
+    )
+    if crm_write_requested and internal_crm_requested and not explicit_internal_crm_read:
+        internal_crm_read = False
+    # Read-back after a governed persistence is an acceptance/effect-verification
+    # obligation of the write lane, not a second user-requested CRM read job.
+    if _CRM_READBACK_VERIFICATION_PATTERN.search(lower) and not internal_crm_as_source:
+        internal_crm_read = False
     explicit_hubspot_record_read = bool(re.search(r"\buse\s+(?:the\s+)?(?:hubspot|crm)\s+records?\b", lower))
     wants_crm_read = (
         (
@@ -1288,7 +1304,7 @@ def interpret_instruction(
             )
         )
         and (internal_crm_read or not _contains_any(lower, _CRM_READ_NEGATION_PATTERNS))
-        and not crm_write_requested
+        and (internal_crm_read or explicit_hubspot_record_read or not crm_write_requested)
         and (internal_crm_read or explicit_hubspot_record_read or not _contains_any(lower, _CRM_NEGATION_PATTERNS))
     )
     wants_salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
@@ -1307,7 +1323,7 @@ def interpret_instruction(
     # truth.  This prevents resolver fallback to public web discovery when the
     # adapter cannot represent an unsupported CRM scope (for example a market
     # wide location filter).
-    if internal_crm_read and "internal_crm_source" not in context_requirements:
+    if (internal_crm_read or internal_crm_as_source) and "internal_crm_source" not in context_requirements:
         context_requirements.append("internal_crm_source")
     elif direct_crm_record_read and not explicit_research_verb and "hubspot_source" not in context_requirements:
         context_requirements.append("hubspot_source")
@@ -1499,6 +1515,8 @@ def interpret_instruction(
         outcomes = [o for o in outcomes if o != "read_crm"]
         if "hubspot_source" not in context_requirements:
             context_requirements.append("hubspot_source")
+    if _CRM_READBACK_VERIFICATION_PATTERN.search(lower) and not internal_crm_as_source:
+        outcomes = [o for o in outcomes if o != "read_crm"]
     if wants_salesforce_query and "query_salesforce" not in outcomes:
         outcomes.append("query_salesforce")
         evidence.append(
