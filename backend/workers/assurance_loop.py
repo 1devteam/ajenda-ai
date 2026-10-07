@@ -25,6 +25,7 @@ def run_once(runtime: DatabaseRuntime) -> int:
         admin_session.close()
 
     records_all: list[AssuranceSnapshot] = []
+    tenant_failure_count = 0
     for tenant_id in tenant_ids:
         session = runtime.session_factory()
         try:
@@ -34,6 +35,7 @@ def run_once(runtime: DatabaseRuntime) -> int:
             records_all.extend(records)
         except Exception:
             session.rollback()
+            tenant_failure_count += 1
             logger.exception("continuous_assurance_tenant_failed", extra={"tenant_id": tenant_id})
         finally:
             session.close()
@@ -49,15 +51,17 @@ def run_once(runtime: DatabaseRuntime) -> int:
         state.first_divergence_count = sum(record.first_divergence is not None for record in records_all)
         state.calibration_sample_count = sum(record.calibration_eligible for record in records_all)
         state.calibration_aligned_count = sum(record.calibration_outcome_aligned is True for record in records_all)
+        state.tenant_failure_count = tenant_failure_count
         metrics_session.add(state)
         metrics_session.commit()
-        if state.contradictory_count or state.drifted_count:
+        if state.contradictory_count or state.drifted_count or state.tenant_failure_count:
             logger.warning(
                 "continuous_assurance_findings_present",
                 extra={
                     "contradictory_count": state.contradictory_count,
                     "drifted_count": state.drifted_count,
                     "first_divergence_count": state.first_divergence_count,
+                    "tenant_failure_count": state.tenant_failure_count,
                 },
             )
     except Exception:
