@@ -127,7 +127,7 @@ log "stopping prior compose services while preserving persistent database volume
 compose down --remove-orphans >/dev/null 2>&1 || true
 
 log "starting compose services"
-compose up -d --build db redis migrate api worker frontend prometheus otel-collector
+compose up -d --build db redis migrate api worker assurance frontend prometheus otel-collector
 
 log "checking compose service state"
 compose ps
@@ -176,11 +176,16 @@ if (( proof_status != 0 )); then
   fail "operator mission proof failed; joined GRAFT artifact preserved at $GRAFT_RUNTIME_IMPACT"
 fi
 
+log "running one continuous-assurance cycle against persisted runtime evidence"
+compose exec -T assurance python -m backend.workers.assurance_loop --once
+
 log "checking live observability metrics"
 metrics_body="$(curl_body "$API_BASE_URL/v1/observability/metrics")"
 assert_body_contains "$metrics_body" "ajenda_tasks_completed"
 assert_body_contains "$metrics_body" "ajenda_active_leases"
 assert_body_contains "$metrics_body" "ajenda_worker_utilization"
+assert_body_contains "$metrics_body" "ajenda_assurance_snapshot_count"
+assert_body_contains "$metrics_body" "ajenda_assurance_contradictory_count"
 
 log "checking Prometheus readiness and scrape target health"
 wait_for_http_ok "$PROMETHEUS_BASE_URL/-/ready"
