@@ -26,6 +26,7 @@ class MetricsSnapshot:
     assurance_first_divergence_count: int = 0
     assurance_calibration_sample_count: int = 0
     assurance_calibration_aligned_count: int = 0
+    assurance_tenant_failure_count: int = 0
     tenant_id: str | None = None  # for per-tenant labels in observability (PR4)
 
 
@@ -54,6 +55,7 @@ class ObservabilityMetrics:
         assurance_first_divergence_count: int = 0,
         assurance_calibration_sample_count: int = 0,
         assurance_calibration_aligned_count: int = 0,
+        assurance_tenant_failure_count: int = 0,
         tenant_id: str | None = None,
     ) -> MetricsSnapshot:
         return MetricsSnapshot(
@@ -78,5 +80,6 @@ class ObservabilityMetrics:
             assurance_first_divergence_count=assurance_first_divergence_count,
             assurance_calibration_sample_count=assurance_calibration_sample_count,
             assurance_calibration_aligned_count=assurance_calibration_aligned_count,
+            assurance_tenant_failure_count=assurance_tenant_failure_count,
             tenant_id=tenant_id,
         )
