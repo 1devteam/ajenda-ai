@@ -11,7 +11,7 @@
     "mutates_runtime": false,
     "grants_execution_authority": false,
     "grants_merge_authority": false,
-    "production_move_authorized": false
+    "production_move_authorized": true
   },
   "graph_observation": {
     "classification": "ambiguous",
@@ -47,7 +47,7 @@
     }
   },
   "interpreter_resolution": {
-    "type": "missing_service_neighborhood",
+    "type": "materialized_service_neighborhood",
     "proposed_service_package": "backend/services/business_profile",
     "projected_members": [
       {
@@ -111,6 +111,26 @@
     "architectural_blast_radius",
     "lint_and_mypy",
     "unit_test_discovery",
+    "impacted_test_mapping",
+    "static_cycles",
+    "cross_boundary_edges"
+  ],
+  "materialization": {
+    "status": "materialized_on_branch",
+    "branch": "graft-business-profile-neighborhood",
+    "production_files_moved": 4,
+    "unit_tests_moved": 1,
+    "compatibility_shims": 0,
+    "import_rewrites": "complete_for_known_graph_and_code_search_references",
+    "legacy_module_references_remaining": 0
+  },
+  "post_materialization_required_comparison": [
+    "graph_integrity",
+    "graph_selected_proof",
+    "architectural_blast_radius",
+    "lint_and_mypy",
+    "unit_test_discovery",
+    "integration_test_discovery",
     "impacted_test_mapping",
     "static_cycles",
     "cross_boundary_edges"
