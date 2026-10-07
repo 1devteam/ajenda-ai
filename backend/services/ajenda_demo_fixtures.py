@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from backend.repositories.business_profile_repository import BusinessProfileRepository
-from backend.services.business_profile_record_sync import (
+from backend.services.business_profile.record_sync import (
     build_profile_account_record,
     build_profile_contact_record,
     sync_profile_to_internal_records,
