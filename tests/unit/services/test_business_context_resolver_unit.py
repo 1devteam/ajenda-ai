@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock
 
-from backend.services.business_context_resolver import BusinessContext, default_company_and_domain
+from backend.services.business_profile.context_resolver import BusinessContext, default_company_and_domain
 from backend.services.tools.schemas import ActionRuntimeContext
 
 
