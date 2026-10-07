@@ -221,9 +221,7 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             company = str(prospect.get("company") or inp.company or f"prospect-{index + 1}")[:160]
             domain = str(prospect.get("domain") or inp.domain or domain_seed or "").strip() or None
             existing = [item for item in (prospect.get("contacts") or []) if isinstance(item, dict)]
-            observed = [
-                item for item in (prospect.get("observed_contacts") or []) if isinstance(item, dict)
-            ]
+            observed = [item for item in (prospect.get("observed_contacts") or []) if isinstance(item, dict)]
             normalized_observed: list[dict[str, Any]] = []
             for item in observed:
                 contact = dict(item)
