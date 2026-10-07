@@ -146,7 +146,7 @@ def test_unchanged_observation_reuses_latest_snapshot(monkeypatch) -> None:
         metadata_json={},
     )
     session = MagicMock()
-    session.scalars.side_effect = [[], [], [], [], []]
+    session.scalars.side_effect = [[] for _ in range(8)]
     runtime = SimpleNamespace(
         contradictions=[],
         missing_evidence=[],
