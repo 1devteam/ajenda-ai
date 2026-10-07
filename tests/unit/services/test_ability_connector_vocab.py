@@ -268,6 +268,20 @@ def test_hubspot_source_research_does_not_dual_route_web_and_crm() -> None:
         assert "scope" in str(exc).lower() or "company" in str(exc).lower()
 
 
+def test_hubspot_named_company_source_binds_external_research_input() -> None:
+    intent = interpret_instruction(
+        "Research one company named HubSpot from HubSpot CRM records, qualify it, "
+        "enrich its contacts, and save the qualified contact to HubSpot CRM."
+    )
+
+    assert intent.target_entities[0].name == "HubSpot"
+    assert "hubspot_source" in intent.context_requirements
+    payload = build_action_input(action_name="sales.research", intent=intent)
+    assert payload["lead"]["company"] == "HubSpot"
+    assert payload["context"]["require_external_crm"] is True
+    assert payload["context"]["crm_source"] == "hubspot"
+
+
 @pytest.mark.parametrize(
     "instruction",
     [

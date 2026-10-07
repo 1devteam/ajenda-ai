@@ -256,6 +256,7 @@ def _acceptance_score_threshold(intent: MissionIntent) -> int:
         intent.qualification_quantity is not None
         or "observe_contacts" in intent.requested_outcomes
         or "internal_crm_source" in set(intent.context_requirements)
+        or "hubspot_source" in set(intent.context_requirements)
     ):
         return 5
     return 7

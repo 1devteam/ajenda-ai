@@ -304,6 +304,15 @@ class ExecutionCoordinator:
             task_id=task.id,
             now=datetime.now(UTC).isoformat(),
         )
+        reconciliation = metadata.get("runtime_reconciliation")
+        if isinstance(reconciliation, dict) and reconciliation.get("reason") == "review_hold_without_active_tasks":
+            metadata["runtime_reconciliation"] = {
+                **reconciliation,
+                "status": "aligned",
+                "reason": "reviewed_task_admitted",
+                "pending_review_task_count": 0,
+                "reconciled_at": datetime.now(UTC).isoformat(),
+            }
         MissionRepository(self._session).update_metadata(mission=mission, metadata_json=metadata)
         self._session.flush()
 

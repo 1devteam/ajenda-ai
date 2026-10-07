@@ -538,8 +538,54 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         inspected.extend(str(item["id"]) for item in related if item.get("id"))
         inspected.extend(str(item["id"]) for item in search.results if isinstance(item, dict) and item.get("id"))
 
-    # Keep the direct-action response shape while adding the declared multi-prospect
-    # artifact for sales.research_context. Existing single-lead callers remain valid.
+    # Keep the direct-action response shape while emitting the declared discovery
+    # artifact consumed by observe/qualify/enrich. The provider payload is
+    # normalized from observed CRM properties; no contact or business fact is
+    # synthesized when HubSpot did not return it.
+    prospect_candidates: list[dict[str, Any]] = []
+    for researched in researched_prospects:
+        candidate = dict(researched)
+        matches = [item for item in (researched.get("crm_matches") or []) if isinstance(item, dict)]
+        match = matches[0] if matches else {}
+        raw_properties = match.get("properties")
+        properties = raw_properties if isinstance(raw_properties, dict) else {}
+        provider_id = str(match.get("id") or "").strip()
+        company = str(properties.get("name") or candidate.get("company") or "").strip()
+        domain = str(properties.get("domain") or candidate.get("domain") or "").strip() or None
+        website = str(properties.get("website") or "").strip() or (f"https://{domain}" if domain else None)
+        product_description = str(properties.get("description") or "").strip()
+        if not product_description:
+            product_description = "No product description was provided by HubSpot CRM."
+        research_summary = (
+            f"Observed HubSpot CRM company record {provider_id or company}. "
+            f"Provider properties were read through the governed CRM adapter."
+        )
+        source_reference = f"hubspot://companies/{provider_id}" if provider_id else "hubspot://companies/search"
+        candidate.update(
+            {
+                "id": provider_id or candidate.get("id"),
+                "prospect_id": provider_id or candidate.get("prospect_id") or company,
+                "company": company,
+                "domain": domain,
+                "website": website,
+                "product_description": product_description,
+                "research_summary": research_summary,
+                "sources": [source_reference],
+                "source": "external_crm",
+                "research_source": "external_crm",
+                "research_real": True,
+                "real": True,
+                "identity_status": "verified",
+                "provider_record_id": provider_id or None,
+                "provider_properties": properties,
+            }
+        )
+        if isinstance(match.get("contacts"), list):
+            candidate["contacts"] = [item for item in match["contacts"] if isinstance(item, dict)]
+        prospect_candidates.append(candidate)
+
+    # Existing single-lead callers remain valid while composed runtime nodes
+    # consume the canonical prospect_candidates artifact.
     first_target = targets[0] if targets else {}
     unique_sources = list(dict.fromkeys(sources))
     output: dict[str, Any] = {
@@ -548,6 +594,7 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         "crm_matches": crm_matches,
         "research_notes": research_notes,
         "researched_prospects": researched_prospects,
+        "prospect_candidates": prospect_candidates,
         "real": True,
         "plugin_required": any_external,
         "source": unique_sources[0] if len(unique_sources) == 1 else "mixed",
@@ -567,6 +614,9 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
             output["idempotency_key"] = invocation.idempotency_key
 
     inspected = list(dict.fromkeys(inspected))
+    # ActionResult.provider is the registry owner and must remain the
+    # registered ``ajenda_brain`` provider. External HubSpot provenance is
+    # carried in the result payload/evidence source fields above.
     provider = "ajenda_brain"
     side_effect_class = (
         SideEffectClass.EXTERNAL_READ if invocation.credential_reference is not None else SideEffectClass.INTERNAL_READ
@@ -767,9 +817,16 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
         fit_points += 10
         reasons.append("sourced from research world-state")
     score = min(fit_points, 100)
+    provider_record_basis = context.get("provider_source") == "hubspot"
     dimensions = {
         "business_fit": 10
-        if (lead.get("company") or account_id) and (lead.get("industry") or lead.get("location") or account_id)
+        if (lead.get("company") or account_id)
+        and (
+            lead.get("industry")
+            or lead.get("location")
+            or account_id
+            or (provider_record_basis and lead.get("identity_status") == "verified")
+        )
         else 5
         if (lead.get("company") or account_id)
         else 0,
@@ -803,11 +860,17 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
         identity_verified
         if ranking_only
         else (
-            score_10 >= threshold_10 and identity_verified
-            if mission_scoring
-            else contactable and lead.get("identity_status") != "unverified"
+            identity_verified and contactable
+            if provider_record_basis
+            else (
+                score_10 >= threshold_10 and identity_verified
+                if mission_scoring
+                else contactable and lead.get("identity_status") != "unverified"
+            )
         )
     )
+    if qualified and provider_record_basis:
+        reasons.append("verified HubSpot identity and observed contactability")
     if not qualified and (not contactable or lead.get("identity_status") == "unverified"):
         reasons.append("not qualified without an observed or supplied contact")
     if lead.get("identity_status") == "unverified":

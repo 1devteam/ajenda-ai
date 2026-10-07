@@ -119,10 +119,17 @@ def test_crm_research_and_upsert_happy_path_via_adapter_contract(
         status_code=200,
         body='{"id":"999","created":true,"record_type":"contact","hubspot_object_type":"contacts"}',
     )
+    readback_authority = _egress_spy(
+        status_code=200,
+        body='{"id":"999","record_type":"contact","hubspot_object_type":"contacts",'
+        '"properties":{"email":"buyer@example.com","firstname":"Jane"}}',
+    )
 
     combined_authority = MagicMock()
 
     def _route_request(**kwargs):
+        if "/records/" in str(kwargs.get("url", "")):
+            return readback_authority.request(**kwargs)
         if str(kwargs.get("method", "GET")).upper() == "POST":
             return upsert_authority.request(**kwargs)
         return search_authority.request(**kwargs)

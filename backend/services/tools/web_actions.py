@@ -685,6 +685,84 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     }
                 )
             continue
+        if str(payload.context.get("source") or "") == "external_crm":
+            # Provider-backed CRM observations are already authoritative API
+            # observations. Do not route them through public web fetching or
+            # synthesize a contact when HubSpot returned none.
+            provider_id = str(prospect.get("provider_record_id") or prospect.get("id") or "").strip()
+            source_url = (
+                f"hubspot://companies/{provider_id}"
+                if provider_id
+                else f"hubspot://companies/{prospect.get('company') or 'search'}"
+            )
+            contacts = [item for item in (prospect.get("contacts") or []) if isinstance(item, dict)]
+            pages.append(
+                {
+                    "url": source_url,
+                    "real": True,
+                    "status_code": None,
+                    "title": prospect.get("company"),
+                    "error": None,
+                    "company": prospect.get("company"),
+                    "domain": prospect.get("domain"),
+                    "identity_status": "verified",
+                    "source_reliability": "hubspot_crm",
+                    "identity_evidence_urls": [source_url],
+                    "evidence_class": "external_crm_observation",
+                }
+            )
+            if not contacts:
+                unobserved.append(
+                    {
+                        "company": prospect.get("company"),
+                        "reason": "no_contact_in_external_crm",
+                        "prospect_id": prospect.get("prospect_id"),
+                    }
+                )
+                continue
+            observed_contacts_for_prospect: list[dict[str, object]] = []
+            for contact in contacts:
+                contact_map = contact if isinstance(contact, dict) else {}
+                contact_id = str(contact_map.get("id") or "").strip()
+                raw_contact_properties = contact_map.get("properties")
+                contact_properties = raw_contact_properties if isinstance(raw_contact_properties, dict) else {}
+                email = str(contact_properties.get("email") or contact_map.get("email") or "").strip()
+                phone = str(contact_properties.get("phone") or contact_map.get("phone") or "").strip()
+                contact_observation = {
+                    "id": contact_id or None,
+                    "kind": "email" if email else "phone" if phone else "contact",
+                    "value": email or phone or contact_id,
+                    "email": email or None,
+                    "phone": phone or None,
+                    "source_url": (f"hubspot://contacts/{contact_id}" if contact_id else source_url),
+                    "real": True,
+                    "via": "external_crm",
+                    "company": prospect.get("company"),
+                    "domain": prospect.get("domain"),
+                    "website": prospect.get("website"),
+                    "product_description": prospect.get("product_description"),
+                    "research_summary": prospect.get("research_summary"),
+                    "sources": prospect.get("sources") if isinstance(prospect.get("sources"), list) else [],
+                    "prospect_id": prospect.get("prospect_id"),
+                    "identity_status": "verified",
+                    "identity_evidence_urls": [source_url],
+                    "evidence_class": "external_crm_observation",
+                }
+                observed_contacts_for_prospect.append(contact_observation)
+                observed_contacts.append(contact_observation)
+            verified_prospect_candidates.append(
+                {
+                    **prospect,
+                    "real": True,
+                    "source": "external_crm",
+                    "identity_status": "verified",
+                    "identity_evidence_urls": [source_url],
+                    "observed_contacts": observed_contacts_for_prospect,
+                    "contacts": observed_contacts_for_prospect,
+                    "sources": prospect.get("sources") if isinstance(prospect.get("sources"), list) else [source_url],
+                }
+            )
+            continue
         if url is None:
             unobserved.append(
                 {

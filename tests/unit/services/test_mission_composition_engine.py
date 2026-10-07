@@ -626,6 +626,16 @@ def test_action_inputs_use_structured_quantity_not_prose() -> None:
     assert payload2["limit"] == 5
 
 
+def test_explicit_one_quantity_is_not_replaced_by_default() -> None:
+    intent = interpret_instruction(
+        "Research one company named HubSpot from HubSpot CRM records, qualify it, "
+        "and save the qualified contact to HubSpot CRM."
+    )
+
+    assert intent.requested_quantity == 1
+    assert intent.quantity_provenance == "explicit"
+
+
 def test_route_jobs_expands_dependencies_transitively() -> None:
     intent = interpret_instruction("Draft personalized introductions for three strong prospects. Do not send messages.")
     jobs = route_jobs_for_intent(intent)

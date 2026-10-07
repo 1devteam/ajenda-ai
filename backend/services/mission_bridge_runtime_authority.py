@@ -15,7 +15,7 @@ from backend.repositories.capability_adapter_repository import CapabilityAdapter
 from backend.repositories.capability_repository import CapabilityRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.services.tools.action_registry import ActionDefinition, get_default_action_registry
-from backend.services.tools.schemas import SideEffectClass, ToolInvocation
+from backend.services.tools.schemas import CredentialReference, SideEffectClass, ToolInvocation
 
 _BRIDGE_CAPABILITY_VERSION = "1.0.0"
 
@@ -79,11 +79,23 @@ def _tool_input_from_graph_node(node: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _credential_reference_from_graph_node(node: dict[str, Any]) -> dict[str, Any] | None:
+    input_contract = node.get("input_contract")
+    if not isinstance(input_contract, dict):
+        return None
+    credential_reference = input_contract.get("credential_reference")
+    if isinstance(credential_reference, dict):
+        return dict(credential_reference)
+    credential_reference = node.get("credential_reference")
+    return dict(credential_reference) if isinstance(credential_reference, dict) else None
+
+
 def _effective_side_effect_for_bridge(
     *,
     definition: ActionDefinition,
     action_name: str,
     tool_input: dict[str, Any],
+    credential_reference: dict[str, Any] | None = None,
 ) -> SideEffectClass:
     """Resolve the strongest side-effect this bridge adapter must authorize.
 
@@ -92,7 +104,12 @@ def _effective_side_effect_for_bridge(
     action default, or capability validation rejects the task.
     """
     try:
-        invocation = ToolInvocation(action=action_name, input=tool_input or {})
+        reference = CredentialReference.model_validate(credential_reference) if credential_reference else None
+        invocation = ToolInvocation(
+            action=action_name,
+            input=tool_input or {},
+            credential_reference=reference,
+        )
         resolved = definition.side_effect_for(invocation)
     except Exception:
         resolved = definition.side_effect_class
@@ -132,6 +149,7 @@ def _ensure_bridge_authority(
     action_name: str,
     approved_by: str,
     tool_input: dict[str, Any] | None = None,
+    credential_reference: dict[str, Any] | None = None,
 ) -> tuple[Capability, CapabilityAdapter]:
     registry = get_default_action_registry()
     try:
@@ -143,6 +161,7 @@ def _ensure_bridge_authority(
         definition=definition,
         action_name=action_name,
         tool_input=tool_input or {},
+        credential_reference=credential_reference,
     )
     required_classification = _adapter_side_effect_classification(side_effect_class)
     capability_name = _bridge_capability_name(action_name)
@@ -279,6 +298,7 @@ def provision_bridge_runtime_authority(
             action_name=action_name,
             approved_by=admitted_by,
             tool_input=_tool_input_from_graph_node(node),
+            credential_reference=_credential_reference_from_graph_node(node),
         )
         node_authorities.append(
             {

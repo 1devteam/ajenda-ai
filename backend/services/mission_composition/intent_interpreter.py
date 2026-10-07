@@ -222,6 +222,12 @@ _HUBSPOT_COMPANY_RECORD_FOR = re.compile(
     r"(?=$|[,;.]|\s+\band\b|\s+\bthen\b)",
     re.IGNORECASE,
 )
+_HUBSPOT_COMPANY_NAMED = re.compile(
+    r"\b(?:company|account|record)\s+(?:named|called)\s+"
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5}?)"
+    r"(?=$|[,;.?!]|\s+\b(?:from|in|on|and|then)\b)",
+    re.IGNORECASE,
+)
 # Read-oriented calendar only. Imperative "schedule a meeting" is not events_read.
 _CALENDAR_PATTERNS = (
     r"\bcalend[ae]r\b",
@@ -351,8 +357,9 @@ _PUBLISH_RESULT_BASED = re.compile(
     r"\b(?:post|publish|share)\s+(?:the\s+)?(?:results?|findings?|them)\b",
     re.IGNORECASE,
 )
-_COUNT_PATTERN = re.compile(r"\b(\d+|three|two|four|five|ten)\b", re.IGNORECASE)
+_COUNT_PATTERN = re.compile(r"\b(\d+|one|three|two|four|five|ten)\b", re.IGNORECASE)
 _WORD_COUNTS = {
+    "one": 1,
     "two": 2,
     "three": 3,
     "four": 4,
@@ -704,6 +711,7 @@ def _extract_connector_company(text: str) -> list[TargetEntity]:
         _HUBSPOT_COMPANY_AFTER.search(text)
         or _HUBSPOT_COMPANY_BEFORE.search(text)
         or _HUBSPOT_COMPANY_RECORD_FOR.search(text)
+        or _HUBSPOT_COMPANY_NAMED.search(text)
     )
     if match is None:
         return []
@@ -1086,7 +1094,9 @@ def _classify_clause(
     ):
         return [], False, True
     # "from HubSpot CRM records" is a source qualifier for prospect research, not only CRM read.
-    hubspot_as_source = bool(re.search(r"\bfrom\s+hubspot\b", lower) or re.search(r"\bcompanies\b.*\bhubspot\b", lower))
+    hubspot_as_source = bool(
+        re.search(r"\bfrom\s+(?:the\s+)?hubspot\b", lower) or re.search(r"\bcompanies\b.*\bhubspot\b", lower)
+    )
     explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?|companies\s+in)\b", lower))
     if _contains_any(lower, _RESEARCH_PATTERNS) and (
         not connector_read or explicit_prospect_research or hubspot_as_source

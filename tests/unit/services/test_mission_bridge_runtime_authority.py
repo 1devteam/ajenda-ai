@@ -11,6 +11,7 @@ from backend.domain.mission import MISSION_TASK_GRAPH_METADATA_KEY
 from backend.services.mission_bridge_runtime_authority import (
     _action_from_graph_node,
     _bridge_capability_name,
+    _credential_reference_from_graph_node,
     _effective_side_effect_for_bridge,
     provision_bridge_runtime_authority,
 )
@@ -43,6 +44,36 @@ def test_crm_bridge_persists_external_read_for_explicit_crm_context() -> None:
         )
         == SideEffectClass.EXTERNAL_READ
     )
+
+
+def test_crm_bridge_persists_external_write_for_graph_credential_reference() -> None:
+    definition = get_default_action_registry(rebuild=True).get("gtm.crm_upsert")
+    assert (
+        _effective_side_effect_for_bridge(
+            definition=definition,
+            action_name="gtm.crm_upsert",
+            tool_input={"record_type": "contact", "data": {"email": "real@example.com"}},
+            credential_reference={
+                "credential_id": "hubspot-crm",
+                "provider": "external_crm",
+                "credential_type": "api_key",
+            },
+        )
+        == SideEffectClass.EXTERNAL_WRITE
+    )
+
+
+def test_graph_credential_reference_is_read_from_input_contract() -> None:
+    assert _credential_reference_from_graph_node(
+        {
+            "input_contract": {
+                "credential_reference": {
+                    "credential_id": "hubspot-crm",
+                    "provider": "external_crm",
+                }
+            }
+        }
+    ) == {"credential_id": "hubspot-crm", "provider": "external_crm"}
 
 
 def test_provision_bridge_runtime_authority_requires_task_graph() -> None:

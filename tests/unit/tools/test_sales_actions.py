@@ -668,6 +668,39 @@ def test_sales_research_hubspot_adapter_source_counts_as_external_plugin() -> No
     assert "via external plugin" in result.summary
 
 
+def test_hubspot_provider_qualification_requires_verified_contactability() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="sales.qualify",
+            input={
+                "lead": {"company": "HubSpot", "source": "mission_composition"},
+                "prospects": [
+                    {
+                        "company": "HubSpot",
+                        "domain": "hubspot.com",
+                        "source_url": "hubspot://contacts/real",
+                        "source": "external_crm",
+                        "identity_status": "verified",
+                        "contacts": [{"email": "real@hubspot.com", "real": True}],
+                    }
+                ],
+                "context": {
+                    "binding_required": True,
+                    "provider_source": "hubspot",
+                    "mission_specific_scoring": True,
+                    "qualification_threshold_10": 7,
+                },
+            },
+        ),
+        _context(),
+    )
+
+    assert result.output["qualified_prospects"][0]["qualified"] is True
+    assert result.output["qualified_prospects"][0]["score_10"] == 5
+    assert "verified HubSpot identity" in result.output["qualified_prospects"][0]["reasons"][-1]
+
+
 def test_sales_research_local_path_uses_ajenda_brain() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(

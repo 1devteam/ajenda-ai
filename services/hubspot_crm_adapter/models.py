@@ -29,3 +29,11 @@ class UpsertResponse(BaseModel):
     created: bool
     properties: dict[str, Any]
     source: Literal["hubspot"] = "hubspot"
+
+
+class ReadResponse(BaseModel):
+    record_type: str
+    hubspot_object_type: str
+    id: str
+    properties: dict[str, Any]
+    source: Literal["hubspot"] = "hubspot"
