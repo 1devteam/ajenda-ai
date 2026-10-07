@@ -34,7 +34,7 @@ from backend.repositories.provider_runtime_credential_repository import (
     ProviderRuntimeCredentialRepository,
 )
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
-from backend.services.business_profile_record_sync import build_profile_brief
+from backend.services.business_profile.record_sync import build_profile_brief
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.contracts import (
     COMPOSITION_SCHEMA_VERSION,
