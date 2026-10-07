@@ -547,3 +547,47 @@ def test_gtm_crm_upsert_simulated_without_credential(mock_complete: MagicMock) -
     assert result.output["source"] == "ajenda_brain"
     assert result.side_effect_class.value == "internal_write"
     mock_complete.assert_called_once()
+
+
+def test_gtm_lead_enrich_consumes_governed_observed_contacts() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="gtm.lead_enrich",
+            input={
+                "prospects": [
+                    {
+                        "prospect_id": "acct-1",
+                        "company": "Observed HVAC",
+                        "domain": "observed-hvac.example",
+                        "observed_contacts": [
+                            {
+                                "prospect_id": "acct-1",
+                                "kind": "email",
+                                "value": "owner@observed-hvac.example",
+                                "real": True,
+                                "source": "tenant_internal_record",
+                            }
+                        ],
+                    }
+                ],
+                "context": {"binding_required": True},
+            },
+        ),
+        _context(),
+    )
+
+    enriched = result.output["enriched_prospects"][0]
+    assert enriched["enrichment_real"] is True
+    assert enriched["enrichment_mode"] == "passthrough_observed"
+    assert enriched["contacts"] == [
+        {
+            "prospect_id": "acct-1",
+            "kind": "email",
+            "value": "owner@observed-hvac.example",
+            "real": True,
+            "source": "tenant_internal_record",
+            "email": "owner@observed-hvac.example",
+        }
+    ]
+    assert result.output["simulated"] is False
