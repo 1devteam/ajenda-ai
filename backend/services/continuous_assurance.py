@@ -7,6 +7,8 @@ queue state, approvals, providers, or runtime authority.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from sqlalchemy import select
@@ -157,14 +159,11 @@ class ContinuousAssuranceService:
         )
         calibration_outcome_aligned = status == "aligned" if calibration_eligible else None
 
-        snapshot = AssuranceSnapshot(
-            tenant_id=tenant_id,
-            mission_id=mission.id,
-            status=status,
-            first_divergence=runtime.first_divergence,
-            finding_count=len(findings),
-            findings=findings,
-            runtime_summary={
+        observation_payload = {
+            "status": status,
+            "first_divergence": runtime.first_divergence,
+            "findings": findings,
+            "runtime_summary": {
                 "mission_status": runtime.mission_status,
                 "node_count": len(runtime.nodes),
                 "edge_count": len(runtime.edges),
@@ -173,11 +172,32 @@ class ContinuousAssuranceService:
                 "task_flow_count": len(runtime.task_flows),
                 "record_flow_count": len(runtime.record_flows),
             },
-            reconciliation_summary={
+            "reconciliation_summary": {
                 "runtime_reconciliation": reconciliation_status,
                 "semantic_reconciliation": semantic_status,
                 "lifecycle_state": lifecycle_state,
             },
+            "epistemic_confidence": epistemic_confidence,
+            "calibration_eligible": calibration_eligible,
+            "calibration_outcome_aligned": calibration_outcome_aligned,
+        }
+        fingerprint = "sha256:" + hashlib.sha256(
+            json.dumps(observation_payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        ).hexdigest()
+        latest = self._snapshots.latest_for_mission(tenant_id=tenant_id, mission_id=mission.id)
+        if latest is not None and latest.observation_fingerprint == fingerprint:
+            return latest
+
+        snapshot = AssuranceSnapshot(
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            status=status,
+            observation_fingerprint=fingerprint,
+            first_divergence=runtime.first_divergence,
+            finding_count=len(findings),
+            findings=findings,
+            runtime_summary=observation_payload["runtime_summary"],
+            reconciliation_summary=observation_payload["reconciliation_summary"],
             epistemic_confidence=epistemic_confidence,
             calibration_eligible=calibration_eligible,
             calibration_outcome_aligned=calibration_outcome_aligned,
