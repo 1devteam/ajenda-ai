@@ -200,7 +200,6 @@ def tenant_reliability_summary(
 
 
 
-
 class AssuranceSnapshotRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -291,9 +290,7 @@ def assurance_summary(
         first_divergence_count=sum(row.first_divergence is not None for row in latest),
         calibration_sample_count=len(calibration),
         calibration_aligned_count=calibration_aligned,
-        calibration_alignment_rate=(
-            round(calibration_aligned / len(calibration), 4) if calibration else None
-        ),
+        calibration_alignment_rate=(round(calibration_aligned / len(calibration), 4) if calibration else None),
     )
 
 
