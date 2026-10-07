@@ -1,4 +1,4 @@
-from backend.services.business_profile_record_sync import build_profile_account_record, build_profile_brief
+from backend.services.business_profile.record_sync import build_profile_account_record, build_profile_brief
 from backend.services.ontology.product_knowledge import (
     AJENDA_PRODUCT_KNOWLEDGE,
     product_catalog_hits,
