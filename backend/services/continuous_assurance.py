@@ -25,7 +25,6 @@ from backend.repositories.assurance_snapshot_repository import AssuranceSnapshot
 from backend.services import mission_runtime_evidence_projection
 from backend.services.mission_composition import deliverable_runtime_observability
 
-
 _STATUS_RANK = {
     "aligned": 0,
     "incomplete": 1,
