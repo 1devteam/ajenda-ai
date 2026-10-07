@@ -11,7 +11,7 @@ def test_restored_rls_migration_is_single_current_head() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0048_profile_reversion"]
+    assert heads == ["0049_continuous_assurance"]
     assert len(heads[0]) <= 32
 
 
