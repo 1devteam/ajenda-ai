@@ -1,4 +1,4 @@
-from backend.domain.assurance_snapshot import AssuranceSnapshot
+from backend.domain.assurance_snapshot import AssuranceMetricState, AssuranceSnapshot
 from backend.domain.audit_event import AuditEvent
 from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
 from backend.domain.capability import Capability
@@ -29,6 +29,7 @@ from backend.domain.worker_lease import WorkerLease
 from backend.domain.workforce_fleet import WorkforceFleet
 
 __all__ = [
+    "AssuranceMetricState",
     "AssuranceSnapshot",
     "AuditEvent",
     "BusinessProfile",
