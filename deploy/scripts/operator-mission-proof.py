@@ -138,8 +138,12 @@ def create_tenant_session(*, org_name: str) -> tuple[str, str, str]:
     )
     access_token = require_string(login, "access_token", "tenant-owner password login")
     me = request("GET", API_BASE, "/v1/auth/me", headers=human_auth(tenant_id, access_token))
-    if me.get("principal_type") != "user" or "tenant_owner" not in (me.get("roles") or []):
-        raise ProofFailure(f"password login did not yield tenant_owner human principal: {json.dumps(me, sort_keys=True)}")
+    permissions = {str(item) for item in (me.get("permissions") or [])}
+    if me.get("principal_type") != "user" or "outcome_review:manage" not in permissions:
+        raise ProofFailure(
+            "password login did not yield an independently authorized human reviewer: "
+            f"{json.dumps(me, sort_keys=True)}"
+        )
     return tenant_id, api_key, access_token
 
 
