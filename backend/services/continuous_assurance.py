@@ -120,9 +120,22 @@ class ContinuousAssuranceService:
             evidence=evidence,
             audit_events=audits,
         )
-        runtime_state = build_deliverable_runtime_state_read(mission.metadata_json)
+        runtime_state_error: str | None = None
+        try:
+            runtime_state = build_deliverable_runtime_state_read(mission.metadata_json)
+        except ValueError as exc:
+            runtime_state = None
+            runtime_state_error = str(exc)
 
         findings: list[dict[str, Any]] = []
+        if runtime_state_error is not None:
+            findings.append(
+                {
+                    "category": "runtime_state_invalid",
+                    "code": runtime_state_error[:500],
+                    "severity": "error",
+                }
+            )
         for code in runtime.contradictions:
             findings.append({"category": "runtime_contradiction", "code": code, "severity": "error"})
         for code in runtime.missing_evidence:
@@ -147,7 +160,7 @@ class ContinuousAssuranceService:
                     findings.append({"category": "semantic_drift", "code": code, "severity": "warning"})
 
         status = self._status(
-            runtime_contradictions=bool(runtime.contradictions),
+            runtime_contradictions=bool(runtime.contradictions) or runtime_state_error is not None,
             missing_evidence=bool(runtime.missing_evidence),
             reconciliation_status=reconciliation_status,
             lifecycle_state=lifecycle_state,
