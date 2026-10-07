@@ -667,3 +667,68 @@ def test_sales_create_followup_task_preserves_record_write_payload_shape() -> No
         "title": "Follow up",
         "due": "2026-06-06",
     }
+
+
+def test_record_write_persists_real_bound_enrichment_without_execution_context() -> None:
+    context = _context()
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="record.write",
+            input={
+                "record_type": "contact",
+                "context": {
+                    "source": "mission_composition",
+                    "qualified_prospects": [
+                        {
+                            "prospect_id": "acct-pass3-1",
+                            "company": "Pass 3 HVAC",
+                            "domain": "pass3-hvac.example",
+                            "score_10": 8,
+                            "qualified": True,
+                            "reasons": ["strong fit"],
+                        }
+                    ],
+                    "observed_contacts": [],
+                    "enriched_prospects": [
+                        {
+                            "prospect_id": "acct-pass3-1",
+                            "company": "Pass 3 HVAC",
+                            "domain": "pass3-hvac.example",
+                            "enrichment_real": True,
+                            "enrichment_mode": "passthrough_observed",
+                            "contacts": [
+                                {
+                                    "email": "owner@pass3-hvac.example",
+                                    "real": True,
+                                    "simulated": False,
+                                    "source": "tenant_internal_record",
+                                },
+                                {
+                                    "email": "contact@pass3-hvac.example",
+                                    "real": False,
+                                    "simulated": True,
+                                    "source": "local_gtm_heuristic",
+                                },
+                            ],
+                            "context": {"binding_required": True, "transient": "do-not-persist"},
+                        }
+                    ],
+                },
+            },
+        ),
+        context,
+    )
+
+    persisted = result.output["internal_crm_records"][0]
+    assert persisted["enrichment_real"] is True
+    assert persisted["enrichment_mode"] == "passthrough_observed"
+    assert persisted["contacts"] == [
+        {
+            "email": "owner@pass3-hvac.example",
+            "real": True,
+            "simulated": False,
+            "source": "tenant_internal_record",
+        }
+    ]
+    assert "context" not in persisted
+    assert result.output["crm_readback_records"][0]["verified"] is True
