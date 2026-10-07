@@ -324,8 +324,30 @@ def main() -> int:
     queued_task_ids = launched.get("queued_task_ids")
     if not isinstance(queued_task_ids, list) or not queued_task_ids:
         raise ProofFailure(f"launch returned no queued task IDs: {json.dumps(launched, sort_keys=True)}")
-    if launched.get("blockers"):
-        raise ProofFailure(f"launch returned blockers: {launched['blockers']}")
+    blockers = launched.get("blockers") or []
+    if blockers:
+        if SCENARIO != PASS3_SCENARIO:
+            raise ProofFailure(f"launch returned blockers: {blockers}")
+        unexpected = [
+            item
+            for item in blockers
+            if not isinstance(item, dict)
+            or item.get("code") != "policy_review_required"
+            or item.get("state") != "pending_review"
+        ]
+        if unexpected:
+            raise ProofFailure(f"Pass 3 launch returned unexpected blockers: {unexpected}")
+        pending_review_task_ids = launched.get("pending_review_task_ids") or []
+        blocked_task_ids = {
+            str(item.get("task_id") or "")
+            for item in blockers
+            if isinstance(item, dict) and item.get("task_id")
+        }
+        if not blocked_task_ids or blocked_task_ids != {str(item) for item in pending_review_task_ids}:
+            raise ProofFailure(
+                "Pass 3 launch did not expose the reviewed task consistently across blockers and pending_review_task_ids: "
+                f"{json.dumps(launched, sort_keys=True)}"
+            )
 
     deadline = time.monotonic() + TIMEOUT_SECONDS
     approved_task_ids: set[str] = set()
