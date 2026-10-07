@@ -147,9 +147,7 @@ def test_assurance_restart_resumes_from_durable_history_without_runtime_mutation
 
         with session_factory() as read_session:
             first_rows = list(
-                read_session.scalars(
-                    select(AssuranceSnapshot).where(AssuranceSnapshot.mission_id == mission_id)
-                )
+                read_session.scalars(select(AssuranceSnapshot).where(AssuranceSnapshot.mission_id == mission_id))
             )
             assert len(first_rows) == 1
             first_snapshot_id = first_rows[0].id
@@ -166,9 +164,7 @@ def test_assurance_restart_resumes_from_durable_history_without_runtime_mutation
 
         with session_factory() as read_session:
             unchanged_rows = list(
-                read_session.scalars(
-                    select(AssuranceSnapshot).where(AssuranceSnapshot.mission_id == mission_id)
-                )
+                read_session.scalars(select(AssuranceSnapshot).where(AssuranceSnapshot.mission_id == mission_id))
             )
             assert [row.id for row in unchanged_rows] == [first_snapshot_id]
 
