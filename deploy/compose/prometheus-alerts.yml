@@ -39,6 +39,15 @@ groups:
 
   - name: ajenda-continuous-assurance
     rules:
+      - alert: AjendaAssuranceTenantScanFailures
+        expr: ajenda_assurance_tenant_failure_count > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ajenda continuous assurance failed to scan one or more tenants.
+          description: At least one tenant assurance scan failed in the latest cycle; findings may be stale.
+
       - alert: AjendaAssuranceContradictionsPresent
         expr: ajenda_assurance_contradictory_count > 0
         for: 2m
