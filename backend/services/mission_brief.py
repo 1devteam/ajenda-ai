@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from backend.domain.business_profile import BusinessProfile
 from backend.domain.compliance import is_supported_compliance_category, is_supported_jurisdiction
-from backend.services.business_profile_categories import profile_category_for_field
+from backend.services.business_profile.categories import profile_category_for_field
 
 MISSION_BRIEF_SCHEMA_VERSION = 1
 MAX_MISSION_BRIEF_JSON_BYTES = 24_576
