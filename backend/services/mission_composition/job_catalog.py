@@ -391,11 +391,21 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         credential_policy="none",
         evidence_requirements=("action_result_evidence", "readback_evidence"),
         dependencies=(
-            JobDependency(job_key="research.discover_prospects", kind="hard"),
+            JobDependency(
+                job_key="research.discover_prospects",
+                kind="conditional",
+                required_when_missing=("prospect_candidates",),
+                satisfied_by=("crm_record", "prior_artifact"),
+            ),
             JobDependency(job_key="research.observe_sources", kind="hard"),
             JobDependency(job_key="sales.qualify_prospects", kind="hard"),
+            # Enrichment is not forced for every CRM persistence mission, but
+            # when the operator explicitly requests it the persisted CRM state
+            # must consume the enriched artifact instead of allowing enrichment
+            # to become an unconsumed side branch.
+            JobDependency(job_key="gtm.enrich_contacts", kind="optional"),
         ),
-        depends_on_jobs=("research.discover_prospects", "research.observe_sources", "sales.qualify_prospects"),
+        depends_on_jobs=(),
     ),
     BusinessJob(
         job_key="crm.pipeline_maintenance",
