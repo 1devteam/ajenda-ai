@@ -81,6 +81,104 @@ def require_string(payload: dict[str, Any], key: str, context: str) -> str:
 def create_tenant_session(*, org_name: str) -> tuple[str, str]:
     """Create one isolated proof tenant through the public onboarding boundary."""
 
+    email = f"operator-proof-{uuid.uuid4().hex[:10]}@example.com"
+    signup = request(
+        "POST",
+        API_BASE,
+        "/v1/onboarding/signup",
+        body={"org_name": org_name, "email": email},
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+        expected=201,
+    )
+    if not signup.get("verification_code"):
+        raise ProofFailure(
+            "signup omitted verification_code; staging proof requires "
+            "AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN=true or a test mailbox delivery path"
+        )
+    verification_code = require_string(signup, "verification_code", "signup")
+    verification = request(
+        "POST",
+        API_BASE,
+        "/v1/onboarding/verify-email",
+        body={"email": email, "code": verification_code},
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+    )
+    tenant_id = require_string(verification, "tenant_id", "email verification")
+    bootstrap_key = require_string(verification, "api_key", "email verification")
+    promoted = request(
+        "POST",
+        API_BASE,
+        "/v1/onboarding/promote-bootstrap-key",
+        headers={**auth(tenant_id, bootstrap_key), "Idempotency-Key": str(uuid.uuid4())},
+    )
+    api_key = require_string(promoted, "api_key", "bootstrap promotion")
+    return tenant_id, api_key
+
+
+def assert_blocked_composition(
+    *,
+    headers: dict[str, str],
+    instruction: str,
+    expected_status: str,
+) -> None:
+    """Prove unsupported/over-capacity requests stop before runtime authority."""
+
+    proposal = request(
+        "POST",
+        API_BASE,
+        "/v1/missions/compose",
+        body={"instruction": instruction},
+        headers=headers,
+    )
+    coverage = proposal.get("coverage_assessment")
+    if not isinstance(coverage, dict):
+        raise ProofFailure(f"blocked composition omitted coverage assessment: {json.dumps(proposal, sort_keys=True)}")
+    if coverage.get("status") != expected_status:
+        raise ProofFailure(
+            f"blocked composition expected coverage {expected_status!r}, "
+            f"got {coverage.get('status')!r}: {json.dumps(proposal, sort_keys=True)}"
+        )
+    if coverage.get("grants_execution_authority") is not False:
+        raise ProofFailure("blocked coverage assessment granted execution authority")
+    if proposal.get("ready_to_start") is not False:
+        raise ProofFailure(f"blocked composition became ready to start: {json.dumps(proposal, sort_keys=True)}")
+
+
+def seed_internal_crm_fixture(*, api_base: str, headers: dict[str, str]) -> None:
+    """Create proof-owned CRM rows through the public CRM API.
+
+    The operator proof must exercise the same tenant-scoped write boundary as
+    a real operator. It must not insert rows directly into Postgres.
+    """
+
+    for index in range(1, 4):
+        company = f"Operator Proof HVAC {index}"
+        request(
+            "PUT",
+            api_base,
+            f"/v1/crm/records/account/operator-proof-hvac-{index}",
+            body={
+                "data": {
+                    "name": company,
+                    "company": company,
+                    "website": f"https://operator-proof-hvac-{index}.example.com",
+                    "domain": f"operator-proof-hvac-{index}.example.com",
+                    "industry": "HVAC",
+                    "location": "Dallas",
+                    "description": "Commercial HVAC maintenance and installation",
+                    "automation_opportunity": "Automated lead intake and service follow-up",
+                    "intent": "Evaluating workflow automation",
+                }
+            },
+            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        )
+
+
+def main() -> int:
+    frontend = urllib.request.urlopen(f"{FRONTEND_BASE}/", timeout=30).read().decode("utf-8")
+    if 'id="root"' not in frontend:
+        raise ProofFailure("frontend root page did not contain the SPA mount point")
+
     tenant_id, api_key = create_tenant_session(org_name="Ajenda Operator Proof")
     headers = auth(tenant_id, api_key)
 
