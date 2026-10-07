@@ -548,10 +548,7 @@ def test_record_write_default_bindings_include_enrichment_when_selected() -> Non
         ],
     )
 
-    assert {
-        (item["output_path"], item["input_path"])
-        for item in bindings
-    } == {
+    assert {(item["output_path"], item["input_path"]) for item in bindings} == {
         ("$.observed_contacts", "$.input.context.observed_contacts"),
         ("$.qualified_prospects", "$.input.context.qualified_prospects"),
         ("$.enriched_prospects", "$.input.context.enriched_prospects"),
