@@ -23,11 +23,13 @@ from sqlalchemy.orm import Session
 from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_db_session, get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
+from backend.domain.assurance_snapshot import AssuranceMetricState, AssuranceSnapshot
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
 from backend.metrics.prometheus_exporter import PrometheusExporter
 from backend.observability.metrics import MetricsSnapshot
+from backend.repositories.assurance_snapshot_repository import AssuranceSnapshotRepository
 from backend.services.observability_service import ObservabilityService
 
 logger = logging.getLogger("ajenda.observability")
@@ -107,6 +109,7 @@ def _collect_snapshot(session: Session) -> MetricsSnapshot:
     total_leases = active_leases + released_leases
     worker_utilization = round(active_leases / total_leases, 4) if total_leases > 0 else 0.0
 
+    assurance = session.get(AssuranceMetricState, 1)
     return MetricsSnapshot(
         tasks_queued=tasks_queued,
         tasks_completed=tasks_completed,
@@ -116,6 +119,14 @@ def _collect_snapshot(session: Session) -> MetricsSnapshot:
         active_leases=active_leases,
         queued_tasks=tasks_queued,  # alias for backward compat
         worker_utilization=worker_utilization,
+        assurance_snapshot_count=assurance.snapshot_count if assurance is not None else 0,
+        assurance_incomplete_count=assurance.incomplete_count if assurance is not None else 0,
+        assurance_drifted_count=assurance.drifted_count if assurance is not None else 0,
+        assurance_contradictory_count=assurance.contradictory_count if assurance is not None else 0,
+        assurance_first_divergence_count=assurance.first_divergence_count if assurance is not None else 0,
+        assurance_calibration_sample_count=assurance.calibration_sample_count if assurance is not None else 0,
+        assurance_calibration_aligned_count=assurance.calibration_aligned_count if assurance is not None else 0,
+        assurance_tenant_failure_count=assurance.tenant_failure_count if assurance is not None else 0,
     )
 
 
@@ -185,6 +196,100 @@ def tenant_reliability_summary(
             dead_lettered_tasks=snapshot.dead_letter_count,
             recovery_success_ratio=round(recovery_success_ratio, 4),
         ),
+    )
+
+
+class AssuranceSnapshotRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: _uuid.UUID
+    mission_id: _uuid.UUID
+    status: str
+    first_divergence: str | None
+    finding_count: int
+    findings: list[dict[str, object]]
+    runtime_summary: dict[str, object]
+    reconciliation_summary: dict[str, object]
+    epistemic_confidence: float | None
+    calibration_eligible: bool
+    calibration_outcome_aligned: bool | None
+    observed_at: str
+    authority_class: str = "read_model"
+    grants_execution_authority: bool = False
+
+
+class AssuranceSummaryRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mission_count: int
+    aligned_count: int
+    incomplete_count: int
+    drifted_count: int
+    contradictory_count: int
+    first_divergence_count: int
+    calibration_sample_count: int
+    calibration_aligned_count: int
+    calibration_alignment_rate: float | None
+    authority_class: str = "read_model"
+    grants_execution_authority: bool = False
+
+
+@router.get("/observability/assurance/history", response_model=list[AssuranceSnapshotRead])
+def assurance_history(
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    session: Session = Depends(get_tenant_db_session),
+    limit: int = 100,
+) -> list[AssuranceSnapshotRead]:
+    """Return append-only tenant assurance history without runtime mutation."""
+
+    require_route_permission(request=request, db=session, permission=Permission.RUNTIME_VIEW, tenant_id=tenant_id)
+    rows = AssuranceSnapshotRepository(session).list_for_tenant(tenant_id=str(tenant_id), limit=limit)
+    return [
+        AssuranceSnapshotRead(
+            snapshot_id=row.id,
+            mission_id=row.mission_id,
+            status=row.status,
+            first_divergence=row.first_divergence,
+            finding_count=row.finding_count,
+            findings=list(row.findings or []),
+            runtime_summary=dict(row.runtime_summary or {}),
+            reconciliation_summary=dict(row.reconciliation_summary or {}),
+            epistemic_confidence=row.epistemic_confidence,
+            calibration_eligible=row.calibration_eligible,
+            calibration_outcome_aligned=row.calibration_outcome_aligned,
+            observed_at=row.observed_at.isoformat(),
+        )
+        for row in rows
+    ]
+
+
+@router.get("/observability/assurance/summary", response_model=AssuranceSummaryRead)
+def assurance_summary(
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    session: Session = Depends(get_tenant_db_session),
+) -> AssuranceSummaryRead:
+    """Return metrics from the latest assurance observation for each tenant mission."""
+
+    require_route_permission(request=request, db=session, permission=Permission.RUNTIME_VIEW, tenant_id=tenant_id)
+    rows = AssuranceSnapshotRepository(session).list_for_tenant(tenant_id=str(tenant_id), limit=500)
+    latest_by_mission: dict[_uuid.UUID, AssuranceSnapshot] = {}
+    for row in rows:
+        latest_by_mission.setdefault(row.mission_id, row)
+    latest = list(latest_by_mission.values())
+    calibration = [row for row in latest if row.calibration_eligible]
+    calibration_aligned = sum(row.calibration_outcome_aligned is True for row in calibration)
+    return AssuranceSummaryRead(
+        mission_count=len(latest),
+        aligned_count=sum(row.status == "aligned" for row in latest),
+        incomplete_count=sum(row.status == "incomplete" for row in latest),
+        drifted_count=sum(row.status == "drifted" for row in latest),
+        contradictory_count=sum(row.status == "contradictory" for row in latest),
+        first_divergence_count=sum(row.first_divergence is not None for row in latest),
+        calibration_sample_count=len(calibration),
+        calibration_aligned_count=calibration_aligned,
+        calibration_alignment_rate=(round(calibration_aligned / len(calibration), 4) if calibration else None),
     )
 
 

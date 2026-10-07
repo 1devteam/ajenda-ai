@@ -8,7 +8,10 @@ This plan intentionally groups work by one authoritative layer and one proof sur
 merge provider integrations, onboarding/billing, presentation, or runtime-authority changes into
 the intelligence-foundation pass.
 
+
 ## Pass 1 — Intelligence foundation
+
+**Status: complete — 2026-10-06.** See `docs/validation/intelligence-foundation-pass-1-closure-2026-10-06.md`.
 
 Semantic lattice coverage, epistemic provenance/freshness, coverage and capacity assessment, shadow
 preview/reconciliation, contradiction handling, and adversarial mission proof. No provider,
@@ -20,7 +23,10 @@ Exit proof:
 
 is deterministic, tenant-safe, evidence-backed, and free of unexplained artifact contradictions.
 
+
 ## Pass 2 — Continuous assurance
+
+**Status: active implementation.**
 
 Independent recurring reconciliation, durable tenant-scoped findings, first-divergence history,
 metrics/alerts, queue/lease/evidence/artifact comparisons, and operational runbooks. The monitor is

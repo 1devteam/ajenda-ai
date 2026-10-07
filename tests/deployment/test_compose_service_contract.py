@@ -16,6 +16,7 @@ REQUIRED_SERVICES = frozenset(
         "frontend",
         "api",
         "worker",
+        "assurance",
         "migrate",
         "db",
         "redis",
@@ -24,13 +25,14 @@ REQUIRED_SERVICES = frozenset(
     }
 )
 
-ENV_FILE_SERVICES = ("api", "worker", "migrate")
+ENV_FILE_SERVICES = ("api", "worker", "assurance", "migrate")
 LIVE_PROOF_STARTED_SERVICES = (
     "db",
     "redis",
     "migrate",
     "api",
     "worker",
+    "assurance",
     "frontend",
     "prometheus",
     "otel-collector",

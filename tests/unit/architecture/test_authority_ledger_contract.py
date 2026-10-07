@@ -143,6 +143,17 @@ def test_graft_runtime_read_models_are_not_runtime_authoritative() -> None:
         assert "authority_class: runtime_authoritative" not in blocks[entry_id]
 
 
+def test_continuous_assurance_is_read_model_only() -> None:
+    blocks = {block.splitlines()[0].removeprefix("id: "): block for block in _ledger_blocks()}
+    block = blocks["continuous_assurance_observation_contract"]
+
+    assert "authority_class: read_model" in block
+    assert "assurance_observation_persistence_only" in block
+    assert "append tenant-scoped assurance history" in block
+    assert "create, queue, claim, start, retry, cancel, or complete runtime work" in block
+    assert "promote execution authority" in block
+
+
 def test_graft_coverage_reconciliation_and_promotion_controls_are_declared() -> None:
     blocks = {block.splitlines()[0].removeprefix("id: "): block for block in _ledger_blocks()}
 

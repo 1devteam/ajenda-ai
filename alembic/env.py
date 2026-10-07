@@ -8,6 +8,7 @@ from sqlalchemy import create_engine, engine_from_config, pool
 from alembic import context
 from backend.db.base import Base
 from backend.domain import (  # noqa: F401
+    AssuranceSnapshot,
     AuditEvent,
     BusinessProfile,
     BusinessProfileSuggestion,

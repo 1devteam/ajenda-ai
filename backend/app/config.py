@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     worker_poll_interval_seconds: float = Field(default=2.0, alias="AJENDA_WORKER_POLL_INTERVAL_SECONDS")
     worker_tenant_mode: Literal["single", "multi"] = Field(default="single", alias="AJENDA_WORKER_TENANT_MODE")
     worker_tenant_refresh_seconds: float = Field(default=30.0, alias="AJENDA_WORKER_TENANT_REFRESH_SECONDS")
+    assurance_interval_seconds: float = Field(default=300.0, ge=30.0, alias="AJENDA_ASSURANCE_INTERVAL_SECONDS")
     # Dynamic worker identity: prefer POD_NAME (K8s), fall back to hostname+pid
     worker_identity: str = Field(
         default_factory=lambda: os.getenv("POD_NAME") or f"{socket.gethostname()}-{os.getpid()}",

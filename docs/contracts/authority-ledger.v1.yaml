@@ -1588,6 +1588,33 @@ authority_entries:
       - tests/unit/validation/test_graft_runtime_reconciliation.py
       - tests/unit/validation/test_graft_drift_controls.py
 
+  - id: continuous_assurance_observation_contract
+    area: recurring tenant-scoped runtime assurance and empirical calibration observation
+    owner: evidence-observability-governance
+    source_of_truth:
+      - backend/services/continuous_assurance.py
+      - backend/domain/assurance_snapshot.py
+      - backend/workers/assurance_loop.py
+      - docs/operations/CONTINUOUS_ASSURANCE_RUNBOOK.md
+    route_scope:
+      - GET /v1/observability/assurance/history
+      - GET /v1/observability/assurance/summary
+    authority_class: read_model
+    side_effect_class: assurance_observation_persistence_only
+    allowed_side_effects:
+      - read tenant-scoped mission, task, lease, lineage, evidence, artifact, and reconciliation state
+      - append tenant-scoped assurance history
+      - update aggregate non-tenant operational assurance metrics
+      - record empirical calibration observations without changing confidence policy
+    forbidden_side_effects:
+      - create, queue, claim, start, retry, cancel, or complete runtime work
+      - mutate mission, task, lease, business fact, knowledge, credential, approval, provider, or external-effect state
+      - synthesize evidence, resolve contradictions, or promote execution authority
+    required_proofs:
+      - tests/unit/services/test_continuous_assurance.py
+      - tests/integration/assurance/test_continuous_assurance_real.py
+      - tests/unit/architecture/test_authority_ledger_contract.py
+
   - id: graft_future_authority_promotion_contract
     area: future GRAFT+ authority promotion guard
     owner: architecture-runtime-governance
