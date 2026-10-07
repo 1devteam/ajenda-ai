@@ -11,11 +11,14 @@ from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.governance_event import GovernanceEvent
+from backend.domain.mission import MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY
 from backend.queue.base import QueueAdapter, QueueMessage
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.governance_event_repository import GovernanceEventRepository
+from backend.repositories.mission_repository import MissionRepository
 from backend.runtime.transitions import transition_task
+from backend.services.mission_bridge.queue_admission import record_reviewed_task_admission
 from backend.services.policy_guardian import PolicyGuardian
 from backend.services.runtime_governor import RuntimeGovernor
 from backend.services.tools.action_registry import get_default_action_registry
@@ -247,6 +250,8 @@ class ExecutionCoordinator:
         if not admission.ok:
             raise ValueError(admission.reason or "reviewed task failed runtime admission")
 
+        self._record_reviewed_queue_admission(task=task, tenant_id=tenant_id)
+
         self._governance.append(
             GovernanceEvent(
                 tenant_id=tenant_id,
@@ -278,6 +283,29 @@ class ExecutionCoordinator:
         )
         self._session.flush()
         return CoordinationResult(ok=True, task_id=task.id, state=task.status)
+
+    def _record_reviewed_queue_admission(self, *, task: ExecutionTask, tenant_id: str) -> None:
+        """Persist the canonical receipt after the coordinator enqueues a review."""
+
+        if task.mission_id is None:
+            return
+        mission = MissionRepository(self._session).lock_for_tenant(
+            mission_id=task.mission_id,
+            tenant_id=tenant_id,
+        )
+        if mission is None:
+            raise ValueError("reviewed task mission is not owned by tenant")
+        metadata = dict(mission.metadata_json or {})
+        receipt = metadata.get(MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY)
+        if not isinstance(receipt, dict):
+            raise ValueError("mission runtime queue admission receipt is missing")
+        metadata[MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY] = record_reviewed_task_admission(
+            receipt,
+            task_id=task.id,
+            now=datetime.now(UTC).isoformat(),
+        )
+        MissionRepository(self._session).update_metadata(mission=mission, metadata_json=metadata)
+        self._session.flush()
 
     def _bind_side_effect_invocation_for_approval(
         self,

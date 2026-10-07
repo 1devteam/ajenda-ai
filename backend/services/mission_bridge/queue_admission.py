@@ -57,6 +57,47 @@ def runtime_queue_admission_status(*, admitted_task_ids: list[str], blockers: li
     return "blocked"
 
 
+def record_reviewed_task_admission(metadata: dict[str, Any], *, task_id: UUID, now: str) -> dict[str, Any]:
+    """Reconcile one successful human-reviewed enqueue into the receipt.
+
+    Review approval is a second admission event for the same materialized
+    mission graph.  Keep this update tenant/mission scoped, idempotent, and
+    limited to the exact reviewed task; unrelated blockers remain evidence.
+    """
+
+    updated = dict(metadata)
+    task_id_str = str(task_id)
+    queued = [str(item) for item in updated.get("queued_execution_task_ids", []) if isinstance(item, str)]
+    if task_id_str not in queued:
+        queued.append(task_id_str)
+    admitted = [str(item) for item in updated.get("admitted_execution_task_ids", []) if isinstance(item, str)]
+    if task_id_str not in admitted:
+        admitted.append(task_id_str)
+    pending = [
+        str(item)
+        for item in updated.get("pending_review_execution_task_ids", [])
+        if isinstance(item, str) and str(item) != task_id_str
+    ]
+    blockers = [
+        dict(blocker)
+        for blocker in updated.get("blockers", [])
+        if isinstance(blocker, dict) and str(blocker.get("task_id") or "") != task_id_str
+    ]
+    blocked = [str(blocker["task_id"]) for blocker in blockers if isinstance(blocker.get("task_id"), str)]
+    updated.update(
+        {
+            "queued_execution_task_ids": queued,
+            "admitted_execution_task_ids": admitted,
+            "pending_review_execution_task_ids": pending,
+            "blocked_execution_task_ids": blocked,
+            "blockers": blockers,
+            "admission_status": runtime_queue_admission_status(admitted_task_ids=admitted, blockers=blockers),
+            "updated_at": now,
+        }
+    )
+    return updated
+
+
 def build_runtime_queue_admission_metadata(
     *,
     mission_id: UUID,

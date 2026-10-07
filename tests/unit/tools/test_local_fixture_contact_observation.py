@@ -53,3 +53,33 @@ def test_observe_contacts_preserves_internal_crm_identity_without_contact_fields
     assert result.output["verified_prospect_candidates"][0]["source"] == "internal_crm"
     assert result.output["verified_prospect_candidates"][0]["identity_status"] == "verified"
     assert result.output["observed_contacts"] == []
+
+
+def test_observe_contacts_preserves_real_internal_crm_contact_evidence() -> None:
+    result = research_observe_contacts(
+        ToolInvocation(
+            action="research.observe_contacts",
+            input={
+                "prospects": [
+                    {
+                        "prospect_id": "crm-2",
+                        "company": "CRM HVAC Co",
+                        "contacts": [{"id": "contact-2", "email": "owner@crm-hvac.test", "real": True}],
+                    }
+                ],
+                "requested_quantity": 1,
+                "binding_required": True,
+                "local_fixture_only": True,
+                "context": {"source": "internal_crm"},
+            },
+        ),
+        ActionRuntimeContext(tenant_id=str(uuid4()), task_id=uuid4(), worker_id=str(uuid4()), lease_id=str(uuid4())),
+    )
+
+    assert result.output["accept_met"] is True
+    assert result.output["observed_contacts"][0]["value"] == "owner@crm-hvac.test"
+    assert result.output["observed_contacts"][0]["real"] is True
+    assert result.output["observed_contacts"][0]["via"] == "internal_crm"
+    candidate = result.output["verified_prospect_candidates"][0]
+    assert candidate["product_description"] == "Tenant-owned internal CRM company record."
+    assert candidate["research_summary"] == "Tenant-owned internal CRM company record."

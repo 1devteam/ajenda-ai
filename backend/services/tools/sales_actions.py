@@ -106,6 +106,17 @@ def record_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         normalized.setdefault("company", record.get("name") or record.get("title"))
         normalized.setdefault("source", "internal_record")
         normalized.setdefault("identity_status", "verified")
+        if payload.record_type == "account":
+            # Bind observation to tenant-owned CRM relationships rather than
+            # inventing contact data or falling back to public discovery.
+            related_contacts = _provider(context).search_records(
+                tenant_id=context.tenant_id,
+                record_type="contact",
+                filters={"account_id": str(record.get("id") or "")},
+                limit=50,
+            )
+            if related_contacts:
+                normalized["contacts"] = related_contacts
         crm_records.append(normalized)
     output = {
         "record_type": payload.record_type,
@@ -203,7 +214,10 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
 
     composition_context = payload.context.get("source") == "mission_composition"
     if composition_context:
-        prospects = [dict(item) for item in payload.context.get("qualified_prospects", []) if isinstance(item, dict)]
+        enriched = [dict(item) for item in payload.context.get("enriched_prospects", []) if isinstance(item, dict)]
+        prospects = enriched or [
+            dict(item) for item in payload.context.get("qualified_prospects", []) if isinstance(item, dict)
+        ]
         if not prospects:
             raise ValueError("record.write requires at least one qualified prospect")
     else:
@@ -265,11 +279,12 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                         task_id=str(context.task_id),
                         commit=False,
                     )
+                    persisted_record_id = str(written.get("id") or record_id)
                     crm = LightCrmRecordService(session=session)
                     opportunities = crm.list_records(
                         tenant_id=context.tenant_id,
                         record_type="opportunity",
-                        filters={"contact_id": record_id},
+                        filters={"contact_id": persisted_record_id},
                         limit=1,
                     )
                     # The durable projection may be created by the workflow hook
@@ -283,11 +298,18 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                             for item in crm.list_records(
                                 tenant_id=context.tenant_id,
                                 record_type="opportunity",
-                                query=record_id,
+                                query=persisted_record_id,
                                 limit=10,
                             )
-                            if str(item.get("contact_id") or "") == record_id
+                            if str(item.get("contact_id") or "") == persisted_record_id
                         ][:1]
+                    if not opportunities:
+                        opportunity = crm.ensure_opportunity_for_contact(
+                            tenant_id=context.tenant_id,
+                            contact=written,
+                        )
+                        if opportunity is not None:
+                            opportunities = [opportunity]
                     timeline = crm.list_timeline(
                         tenant_id=context.tenant_id,
                         record_type=payload.record_type,
@@ -296,7 +318,7 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                     )
                     projections.append(
                         {
-                            "contact_id": str(written.get("id") or record_id),
+                            "contact_id": persisted_record_id,
                             "account_id": written.get("account_id"),
                             "opportunity_id": opportunities[0].get("id") if opportunities else None,
                             "activity_ids": [item.get("id") for item in timeline if item.get("id")],

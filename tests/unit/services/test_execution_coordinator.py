@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from backend.domain.enums import ExecutionTaskState
+from backend.domain.mission import MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY
 from backend.queue.base import QueueOperationResult
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.tools.schemas import side_effect_authorized, tool_invocation_sha256
@@ -38,6 +39,19 @@ def _task(*, tenant_id: str, status: str = ExecutionTaskState.PLANNED.value) -> 
 
 def _coordinator_with_task(*, task: SimpleNamespace, queue: MagicMock | None = None) -> ExecutionCoordinator:
     session = MagicMock()
+    session.scalar.return_value = SimpleNamespace(
+        id=task.mission_id,
+        tenant_id=task.tenant_id,
+        metadata_json={
+            MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY: {
+                "queued_execution_task_ids": [],
+                "admitted_execution_task_ids": [],
+                "pending_review_execution_task_ids": [str(task.id)],
+                "blocked_execution_task_ids": [str(task.id)],
+                "blockers": [{"task_id": str(task.id), "code": "pending_review"}],
+            }
+        },
+    )
     queue = queue or MagicMock()
     coordinator = ExecutionCoordinator(session, queue)
     coordinator._tasks = MagicMock()
@@ -157,6 +171,37 @@ def test_approve_review_queues_pending_review_task() -> None:
     queue.enqueue_task.assert_called_once()
     assert coordinator._governance.append.call_args.args[0].event_type == "human_review_approved"
     assert coordinator._audit.append.call_count == 2
+    receipt = coordinator._session.scalar.return_value.metadata_json[MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY]
+    assert receipt["admitted_execution_task_ids"] == [str(task.id)]
+    assert receipt["pending_review_execution_task_ids"] == []
+
+
+def test_reviewed_queue_admission_receipt_is_not_updated_when_enqueue_fails() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PENDING_REVIEW.value)
+    queue = MagicMock()
+    queue.enqueue_task.return_value = QueueOperationResult(ok=False, reason="redis unavailable")
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+
+    with pytest.raises(ValueError, match="redis unavailable"):
+        coordinator.approve_review_and_queue(tenant_id=tenant_id, task_id=task.id, actor="admin-test")
+
+    coordinator._session.scalar.assert_not_called()
+
+
+def test_reviewed_queue_admission_fails_closed_when_receipt_is_missing() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PENDING_REVIEW.value)
+    queue = MagicMock()
+    queue.enqueue_task.return_value = QueueOperationResult(ok=True)
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+    coordinator._session.scalar.return_value.metadata_json = {}
+
+    with pytest.raises(ValueError, match="runtime queue admission receipt is missing"):
+        coordinator.approve_review_and_queue(tenant_id=tenant_id, task_id=task.id, actor="admin-test")
+
+    queue.enqueue_task.assert_called_once()
+    assert coordinator._governance.append.call_count == 0
 
 
 def test_side_effect_task_requires_review_then_approval_issues_exact_action_grant() -> None:

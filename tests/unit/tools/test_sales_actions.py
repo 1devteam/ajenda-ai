@@ -50,8 +50,15 @@ def test_record_search_exposes_verified_internal_crm_prospects() -> None:
                     "id": "acct-1",
                     "name": "Example HVAC",
                     "website": "https://example-hvac.test",
-                }
-            }
+                },
+            },
+            "contact": {
+                "contact-1": {
+                    "id": "contact-1",
+                    "account_id": "acct-1",
+                    "email": "owner@example-hvac.test",
+                },
+            },
         },
     )
 
@@ -63,6 +70,7 @@ def test_record_search_exposes_verified_internal_crm_prospects() -> None:
     assert normalized["company"] == "Example HVAC"
     assert normalized["source"] == "internal_record"
     assert normalized["identity_status"] == "verified"
+    assert normalized["contacts"][0]["email"] == "owner@example-hvac.test"
     assert result.output["records"] != result.output["crm_records"]
 
 
@@ -404,6 +412,44 @@ def test_internal_crm_record_write_is_idempotent_and_readback_verified() -> None
     assert first.records_changed == second.records_changed
     assert second.output["readback_verified_count"] == 1
     assert second.output["crm_readback_records"][0]["verified"] is True
+
+
+def test_internal_crm_record_write_consumes_enriched_prospects() -> None:
+    from backend.services.tools.local_records import reset_default_local_record_provider
+
+    reset_default_local_record_provider()
+    registry = get_default_action_registry(rebuild=True)
+    context = _context()
+    result = registry.invoke(
+        ToolInvocation(
+            action="record.write",
+            input={
+                "record_type": "contact",
+                "context": {
+                    "source": "mission_composition",
+                    "qualified_prospects": [
+                        {"prospect_id": "prospect-1", "company": "Acme HVAC", "domain": "acme.test"}
+                    ],
+                    "enriched_prospects": [
+                        {
+                            "prospect_id": "prospect-1",
+                            "company": "Acme HVAC",
+                            "domain": "acme.test",
+                            "contacts": [{"email": "owner@acme.test", "real": True}],
+                            "enrichment_real": True,
+                            "enrichment_mode": "passthrough_observed",
+                        }
+                    ],
+                },
+            },
+        ),
+        context,
+    )
+
+    persisted = result.output["internal_crm_records"][0]
+    assert persisted["enrichment_real"] is True
+    assert persisted["enrichment_mode"] == "passthrough_observed"
+    assert persisted["contacts"][0]["email"] == "owner@acme.test"
 
 
 def test_internal_crm_record_write_rejects_unqualified_candidates() -> None:

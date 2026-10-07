@@ -525,29 +525,60 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         if payload.local_fixture_only:
             internal_crm_source = payload.context.get("source") == "internal_crm"
             fixture_contacts: list[dict[str, object]] = []
-            for key, kind in (
-                ("email", "email"),
-                ("phone", "phone"),
-                ("contact_email", "email"),
-                ("contact_phone", "phone"),
-            ):
-                value = prospect.get(key)
-                if isinstance(value, str) and value.strip():
-                    fixture_contacts.append(
-                        {
-                            "kind": kind,
-                            "value": value.strip(),
-                            "source_url": f"fixture://{prospect.get('prospect_id') or prospect.get('company')}",
-                            "real": False,
-                            "via": "local_fixture",
-                        }
-                    )
+            contact_source = "internal_crm" if internal_crm_source else "local_fixture"
+            contact_real = internal_crm_source
+            raw_contacts = prospect.get("contacts") if internal_crm_source else None
+            if isinstance(raw_contacts, list):
+                for contact in raw_contacts:
+                    if not isinstance(contact, dict):
+                        continue
+                    for key, kind in (("email", "email"), ("phone", "phone")):
+                        value = contact.get(key)
+                        if isinstance(value, str) and value.strip():
+                            fixture_contacts.append(
+                                {
+                                    "kind": kind,
+                                    "value": value.strip(),
+                                    "source_url": f"crm://{contact.get('id') or prospect.get('prospect_id') or prospect.get('company')}",
+                                    "real": contact_real,
+                                    "via": contact_source,
+                                }
+                            )
+            if not fixture_contacts:
+                for key, kind in (
+                    ("email", "email"),
+                    ("phone", "phone"),
+                    ("contact_email", "email"),
+                    ("contact_phone", "phone"),
+                ):
+                    value = prospect.get(key)
+                    if isinstance(value, str) and value.strip():
+                        fixture_contacts.append(
+                            {
+                                "kind": kind,
+                                "value": value.strip(),
+                                "source_url": (
+                                    f"crm://{prospect.get('prospect_id') or prospect.get('company')}"
+                                    if internal_crm_source
+                                    else f"fixture://{prospect.get('prospect_id') or prospect.get('company')}"
+                                ),
+                                "real": contact_real,
+                                "via": contact_source,
+                            }
+                        )
             if not fixture_contacts and internal_crm_source:
                 # Tenant-owned CRM identity is already authoritative.  A
                 # missing phone/email is an evidence gap for qualification,
                 # not a reason to discard the company itself.
                 company = prospect.get("company") or prospect.get("name")
                 source_url = f"crm://{prospect.get('prospect_id') or prospect.get('id') or company}"
+                product_description = str(prospect.get("product_description") or prospect.get("description") or "")
+                research_summary = str(
+                    prospect.get("research_summary")
+                    or prospect.get("automation_opportunity")
+                    or product_description
+                    or "Tenant-owned internal CRM company record."
+                )
                 pages.append(
                     {
                         "url": source_url,
@@ -560,12 +591,15 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                         "identity_status": "verified",
                         "source_reliability": "tenant_internal_crm",
                         "identity_evidence_urls": [],
+                        "evidence_class": "tenant_internal_crm",
                     }
                 )
                 verified_prospect_candidates.append(
                     {
                         **prospect,
                         "company": company,
+                        "product_description": product_description,
+                        "research_summary": research_summary,
                         "real": True,
                         "source": "internal_crm",
                         "identity_status": "verified",
@@ -579,26 +613,40 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                 unobserved.append(
                     {
                         "company": prospect.get("company"),
-                        "reason": "no_contact_in_local_fixture",
+                        "reason": "no_contact_in_internal_crm"
+                        if internal_crm_source
+                        else "no_contact_in_local_fixture",
                         "prospect_id": prospect.get("prospect_id"),
                     }
                 )
                 continue
             source_url = str(fixture_contacts[0]["source_url"])
             fixture_identity_evidence = [source_url]
+            product_description = str(
+                prospect.get("product_description")
+                or prospect.get("description")
+                or prospect.get("automation_opportunity")
+                or "Tenant-owned internal CRM company record."
+            )
+            research_summary = str(
+                prospect.get("research_summary")
+                or prospect.get("automation_opportunity")
+                or product_description
+                or "Tenant-owned internal CRM company record."
+            )
             pages.append(
                 {
                     "url": source_url,
-                    "real": False,
+                    "real": contact_real,
                     "status_code": None,
                     "title": prospect.get("company"),
                     "error": None,
                     "company": prospect.get("company"),
                     "domain": prospect.get("domain"),
                     "identity_status": "verified",
-                    "source_reliability": "local_fixture",
+                    "source_reliability": "tenant_internal_crm" if internal_crm_source else "local_fixture",
                     "identity_evidence_urls": fixture_identity_evidence,
-                    "evidence_class": "fixture",
+                    "evidence_class": "tenant_internal_crm" if internal_crm_source else "fixture",
                 }
             )
             # Local fixtures are authoritative test data. Promote the
@@ -608,11 +656,13 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             verified_prospect_candidates.append(
                 {
                     **prospect,
-                    "real": False,
-                    "source": "local_fixture",
+                    "real": contact_real,
+                    "source": contact_source,
+                    "product_description": product_description,
+                    "research_summary": research_summary,
                     "identity_status": "verified",
                     "identity_evidence_urls": fixture_identity_evidence,
-                    "evidence_class": "fixture",
+                    "evidence_class": "tenant_internal_crm" if internal_crm_source else "fixture",
                     "sources": prospect.get("sources") if isinstance(prospect.get("sources"), list) else [],
                 }
             )
@@ -629,7 +679,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                         "prospect_id": prospect.get("prospect_id"),
                         "identity_status": "verified",
                         "identity_evidence_urls": fixture_identity_evidence,
-                        "evidence_class": "fixture",
+                        "evidence_class": "tenant_internal_crm" if internal_crm_source else "fixture",
                         "contact_role_status": "verified" if prospect.get("role") else "unverified",
                         "contact_role_evidence": "bound prospect role" if prospect.get("role") else None,
                     }
@@ -867,8 +917,9 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                 # Identity verification is independent of contact extraction.
                 # A real official company page remains a verified prospect even
                 # when its contact details are absent or rendered by JavaScript.
-                research_summary = prospect.get("research_summary")
-                if not isinstance(research_summary, str) or not research_summary.strip():
+                raw_research_summary = prospect.get("research_summary")
+                research_summary = raw_research_summary if isinstance(raw_research_summary, str) else ""
+                if not research_summary.strip():
                     raw_signals = prospect.get("signals")
                     signals = (
                         [str(signal).strip() for signal in raw_signals if isinstance(signal, str) and signal.strip()]
@@ -876,9 +927,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                         else []
                     )
                     research_summary = " ".join(signals)
-                product_description = prospect.get("product_description")
-                if not isinstance(product_description, str):
-                    product_description = ""
+                raw_product_description = prospect.get("product_description")
+                product_description = raw_product_description if isinstance(raw_product_description, str) else ""
                 website = str(prospect.get("website") or prospect.get("url") or snapshot.url or "").strip()
                 verified_prospect_candidates.append(
                     {
@@ -916,8 +966,9 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                 unobserved.append({**page_record, "reason": "no_contact_on_page"})
             continue
 
-        research_summary = prospect.get("research_summary")
-        if not isinstance(research_summary, str) or not research_summary.strip():
+        raw_research_summary = prospect.get("research_summary")
+        research_summary = raw_research_summary if isinstance(raw_research_summary, str) else ""
+        if not research_summary.strip():
             raw_signals = prospect.get("signals")
             signals = (
                 [str(signal).strip() for signal in raw_signals if isinstance(signal, str) and signal.strip()]
@@ -925,9 +976,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                 else []
             )
             research_summary = " ".join(signals)
-        product_description = prospect.get("product_description")
-        if not isinstance(product_description, str):
-            product_description = ""
+        raw_product_description = prospect.get("product_description")
+        product_description = raw_product_description if isinstance(raw_product_description, str) else ""
         website = str(prospect.get("website") or prospect.get("url") or snapshot.url or "").strip()
 
         # A verified official page is itself a verified company artifact. It

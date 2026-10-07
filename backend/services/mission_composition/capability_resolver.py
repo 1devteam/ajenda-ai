@@ -280,6 +280,17 @@ def route_jobs_for_intent(intent: MissionIntent) -> list[BusinessJob]:
         for dep in deps:
             if dep.job_key in selected_keys:
                 continue
+            if (
+                "internal_crm_source" in {str(item) for item in intent.context_requirements}
+                and job.job_key == "crm.internal_persistence"
+                and dep.job_key == "research.discover_prospects"
+            ):
+                # Existing tenant-owned CRM records are the source of truth for
+                # this lane. Persistence still depends on observation and
+                # qualification, but must not manufacture a public-discovery
+                # prerequisite merely because the generic CRM write template
+                # also supports market-research missions.
+                continue
             if not _dependency_should_expand(dep, available=available):
                 continue
             dep_job = BUSINESS_JOBS_BY_KEY.get(dep.job_key)

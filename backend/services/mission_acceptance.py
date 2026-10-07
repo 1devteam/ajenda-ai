@@ -139,7 +139,14 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
                 f"produced {len(opportunities)}"
             )
 
-    crm_records = unique_records("internal_crm_records", "crm_records", "records", "internal_records")
+    # The source-search stage may also emit ``crm_records`` (for example,
+    # account rows used to bind contact observation).  For persistence
+    # acceptance, prefer the producer's explicit persisted-record contract so
+    # read-back and projection evidence are compared against the records that
+    # were actually written, not against upstream source rows.
+    crm_records = unique_records("internal_crm_records")
+    if not crm_records:
+        crm_records = unique_records("crm_records", "records", "internal_records")
     crm_min = int(contract.get("internal_crm_records_min", 0) or 0)
     if len(crm_records) < crm_min:
         reasons.append(f"required at least {crm_min} persisted internal CRM records, produced {len(crm_records)}")
