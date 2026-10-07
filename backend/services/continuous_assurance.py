@@ -22,12 +22,8 @@ from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.domain.worker_lease import WorkerLease
 from backend.repositories.assurance_snapshot_repository import AssuranceSnapshotRepository
-from backend.services.mission_composition.deliverable_runtime_observability import (
-    build_deliverable_runtime_state_read,
-)
-from backend.services.mission_runtime_evidence_projection import (
-    build_mission_runtime_evidence_projection,
-)
+from backend.services.mission_composition.deliverable_runtime_observability import build_deliverable_runtime_state_read
+from backend.services.mission_runtime_evidence_projection import build_mission_runtime_evidence_projection
 
 
 _STATUS_RANK = {
