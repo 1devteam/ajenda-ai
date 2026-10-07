@@ -77,6 +77,29 @@ def upgrade() -> None:
         )
     )
 
+    op.create_table(
+        "assurance_metric_state",
+        sa.Column("id", sa.Integer(), primary_key=True, nullable=False),
+        sa.Column("snapshot_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("aligned_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("incomplete_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("drifted_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("contradictory_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("first_divergence_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("calibration_sample_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("calibration_aligned_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.CheckConstraint("id = 1", name="ck_assurance_metric_state_singleton"),
+    )
+    op.execute(
+        sa.text(
+            "INSERT INTO assurance_metric_state "
+            "(id, snapshot_count, aligned_count, incomplete_count, drifted_count, contradictory_count, "
+            "first_divergence_count, calibration_sample_count, calibration_aligned_count) "
+            "VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0)"
+        )
+    )
+
 
 def downgrade() -> None:
     conn = op.get_bind()
@@ -86,4 +109,5 @@ def downgrade() -> None:
     op.drop_index("ix_assurance_snapshots_mission_observed", table_name="assurance_snapshots")
     op.drop_index("ix_assurance_snapshots_tenant_status", table_name="assurance_snapshots")
     op.drop_index("ix_assurance_snapshots_tenant_observed", table_name="assurance_snapshots")
+    op.drop_table("assurance_metric_state")
     op.drop_table("assurance_snapshots")
