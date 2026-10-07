@@ -8,9 +8,9 @@ from typing import Any
 
 from backend.db.tenant_session import activate_tenant_session
 from backend.services.internet import InternetAccessMode, fetch_public_page
-from backend.services.light_crm.records import LightCrmRecordService
 from backend.services.internet.browser_session import browser_session_as_dict, run_browser_session
 from backend.services.internet.open_write import execute_open_write
+from backend.services.light_crm.records import LightCrmRecordService
 from backend.services.ontology.evidence_lineage import (
     EvidenceLineage,
     EvidenceLineageResolution,
