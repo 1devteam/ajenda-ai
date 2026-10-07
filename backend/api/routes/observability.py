@@ -126,6 +126,7 @@ def _collect_snapshot(session: Session) -> MetricsSnapshot:
         assurance_first_divergence_count=assurance.first_divergence_count if assurance is not None else 0,
         assurance_calibration_sample_count=assurance.calibration_sample_count if assurance is not None else 0,
         assurance_calibration_aligned_count=assurance.calibration_aligned_count if assurance is not None else 0,
+        assurance_tenant_failure_count=assurance.tenant_failure_count if assurance is not None else 0,
     )
 
 
