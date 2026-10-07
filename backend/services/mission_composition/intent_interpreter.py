@@ -1270,9 +1270,8 @@ def interpret_instruction(
         lower, _CRM_NEGATION_PATTERNS
     )
     internal_crm_read = (
-        (lexical_frame.internal_crm_read or _contains_any(lower, _INTERNAL_CRM_READ_PATTERNS))
-        and not _contains_any(lower, _INTERNAL_CRM_READ_NEGATION_PATTERNS)
-    )
+        lexical_frame.internal_crm_read or _contains_any(lower, _INTERNAL_CRM_READ_PATTERNS)
+    ) and not _contains_any(lower, _INTERNAL_CRM_READ_NEGATION_PATTERNS)
     internal_crm_as_source = (
         re.search(r"\bfrom\s+(?:the\s+)?internal\s+(?:ajenda\s+)?crm\b", lower) is not None
         or re.search(r"\bfrom\s+(?:the\s+)?ajenda\s+internal\s+crm\b", lower) is not None
