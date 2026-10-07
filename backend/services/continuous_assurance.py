@@ -117,7 +117,9 @@ class ContinuousAssuranceService:
         )
         runtime_state_error: str | None = None
         try:
-            runtime_state = deliverable_runtime_observability.build_deliverable_runtime_state_read(mission.metadata_json)
+            runtime_state = deliverable_runtime_observability.build_deliverable_runtime_state_read(
+                mission.metadata_json
+            )
         except ValueError as exc:
             runtime_state = None
             runtime_state_error = str(exc)
@@ -189,9 +191,12 @@ class ContinuousAssuranceService:
             "calibration_eligible": calibration_eligible,
             "calibration_outcome_aligned": calibration_outcome_aligned,
         }
-        fingerprint = "sha256:" + hashlib.sha256(
-            json.dumps(observation_payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
-        ).hexdigest()
+        fingerprint = (
+            "sha256:"
+            + hashlib.sha256(
+                json.dumps(observation_payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+            ).hexdigest()
+        )
         latest = self._snapshots.latest_for_mission(tenant_id=tenant_id, mission_id=mission.id)
         if latest is not None and latest.observation_fingerprint == fingerprint:
             return latest
