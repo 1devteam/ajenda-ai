@@ -227,7 +227,7 @@ def test_local_fixture_contact_match_is_not_promoted_to_prospect(monkeypatch) ->
 
 def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> None:
     """Open research about a third party must not report tenant profile as company/domain."""
-    from backend.services.business_context_resolver import BusinessContext
+    from backend.services.business_profile.context_resolver import BusinessContext
     from backend.services.tools import standalone_actions
 
     profile = BusinessContext(
@@ -280,7 +280,7 @@ def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> 
 
 def test_web_research_does_not_mix_explicit_company_with_profile_domain(monkeypatch) -> None:
     """Codex P2: explicit prospect target must not inherit tenant profile domain."""
-    from backend.services.business_context_resolver import BusinessContext
+    from backend.services.business_profile.context_resolver import BusinessContext
     from backend.services.tools import standalone_actions
 
     profile = BusinessContext(
