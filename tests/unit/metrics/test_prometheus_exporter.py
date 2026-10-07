@@ -73,3 +73,32 @@ def test_prometheus_exporter_renders_tenant_label_when_provided() -> None:
     assert 'ajenda_stage_budget_limit{stage="runtime",budget_kind="cost_usd",tenant_id="tenant-123"}' in output
     # banned tenant_id is allowed intentionally for per-tenant
     assert 'tenant_id="tenant-123"' in output
+
+def test_assurance_metrics_are_exported() -> None:
+    snapshot = MetricsSnapshot(
+        tasks_queued=0,
+        tasks_completed=1,
+        tasks_failed=0,
+        dead_letter_count=0,
+        lease_expirations=0,
+        active_leases=0,
+        queued_tasks=0,
+        worker_utilization=0.0,
+        assurance_snapshot_count=4,
+        assurance_incomplete_count=1,
+        assurance_drifted_count=2,
+        assurance_contradictory_count=1,
+        assurance_first_divergence_count=1,
+        assurance_calibration_sample_count=3,
+        assurance_calibration_aligned_count=2,
+    )
+    rendered = PrometheusExporter().render(snapshot)
+
+    assert "ajenda_assurance_snapshot_count 4" in rendered
+    assert "ajenda_assurance_incomplete_count 1" in rendered
+    assert "ajenda_assurance_drifted_count 2" in rendered
+    assert "ajenda_assurance_contradictory_count 1" in rendered
+    assert "ajenda_assurance_first_divergence_count 1" in rendered
+    assert "ajenda_assurance_calibration_sample_count 3" in rendered
+    assert "ajenda_assurance_calibration_aligned_count 2" in rendered
+
