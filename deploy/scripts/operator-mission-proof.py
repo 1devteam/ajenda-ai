@@ -219,6 +219,51 @@ def seed_internal_crm_fixture(*, api_base: str, headers: dict[str, str]) -> None
         )
 
 
+def approve_pending_pass3_tasks(
+    *,
+    tenant_id: str,
+    machine_headers: dict[str, str],
+    owner_headers: dict[str, str],
+    mission_id: str,
+    approved_task_ids: set[str],
+) -> None:
+    """Exercise independent human approval without expanding machine authority."""
+
+    queue = request("GET", API_BASE, "/v1/review-queue/tasks", headers=owner_headers)
+    for item in queue.get("items") or []:
+        if not isinstance(item, dict) or str(item.get("mission_id") or "") != mission_id:
+            continue
+        task_id = str(item.get("task_id") or "").strip()
+        if not task_id or task_id in approved_task_ids:
+            continue
+
+        approval_body = {
+            "approval_expires_at": (datetime.now(UTC) + timedelta(minutes=10)).isoformat(),
+        }
+
+        denied = request(
+            "POST",
+            API_BASE,
+            f"/v1/review-queue/tasks/{task_id}/approve",
+            body=approval_body,
+            headers=machine_headers,
+            expected=403,
+        )
+        if "permission" not in json.dumps(denied).lower():
+            raise ProofFailure(f"machine approval denial did not expose an authorization reason: {denied}")
+
+        approved = request(
+            "POST",
+            API_BASE,
+            f"/v1/review-queue/tasks/{task_id}/approve",
+            body=approval_body,
+            headers=owner_headers,
+        )
+        if approved.get("status") != "queued":
+            raise ProofFailure(f"tenant-owner approval did not queue reviewed task {task_id}: {approved}")
+        approved_task_ids.add(task_id)
+
+
 def main() -> int:
     frontend = urllib.request.urlopen(f"{FRONTEND_BASE}/", timeout=30).read().decode("utf-8")
     if 'id="root"' not in frontend:
