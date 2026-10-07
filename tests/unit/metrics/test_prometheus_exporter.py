@@ -91,6 +91,7 @@ def test_assurance_metrics_are_exported() -> None:
         assurance_first_divergence_count=1,
         assurance_calibration_sample_count=3,
         assurance_calibration_aligned_count=2,
+        assurance_tenant_failure_count=1,
     )
     rendered = PrometheusExporter().render(snapshot)
 
@@ -101,4 +102,5 @@ def test_assurance_metrics_are_exported() -> None:
     assert "ajenda_assurance_first_divergence_count 1" in rendered
     assert "ajenda_assurance_calibration_sample_count 3" in rendered
     assert "ajenda_assurance_calibration_aligned_count 2" in rendered
+    assert "ajenda_assurance_tenant_failure_count 1" in rendered
 
