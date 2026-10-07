@@ -22,12 +22,8 @@ from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.domain.worker_lease import WorkerLease
 from backend.repositories.assurance_snapshot_repository import AssuranceSnapshotRepository
-from backend.services.mission_composition.deliverable_runtime_observability import (
-    build_deliverable_runtime_state_read,
-)
-from backend.services.mission_runtime_evidence_projection import (
-    build_mission_runtime_evidence_projection,
-)
+from backend.services import mission_runtime_evidence_projection
+from backend.services.mission_composition import deliverable_runtime_observability
 
 
 _STATUS_RANK = {
@@ -109,7 +105,7 @@ class ContinuousAssuranceService:
             )
         )
 
-        runtime = build_mission_runtime_evidence_projection(
+        runtime = mission_runtime_evidence_projection.build_mission_runtime_evidence_projection(
             mission_id=mission.id,
             tenant_id=tenant_id,
             mission_status=mission.status,
@@ -122,7 +118,7 @@ class ContinuousAssuranceService:
         )
         runtime_state_error: str | None = None
         try:
-            runtime_state = build_deliverable_runtime_state_read(mission.metadata_json)
+            runtime_state = deliverable_runtime_observability.build_deliverable_runtime_state_read(mission.metadata_json)
         except ValueError as exc:
             runtime_state = None
             runtime_state_error = str(exc)
