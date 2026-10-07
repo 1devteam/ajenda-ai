@@ -60,7 +60,7 @@ def _source(node: dict[str, Any]) -> str:
 def _service_package(source: str) -> str | None:
     if not source.startswith(SERVICE_ROOT):
         return None
-    remainder = source[len(SERVICE_ROOT):]
+    remainder = source[len(SERVICE_ROOT) :]
     parts = [part for part in remainder.split("/") if part]
     if len(parts) < 2:
         return None
@@ -70,7 +70,7 @@ def _service_package(source: str) -> str | None:
 def _is_flat_service(source: str) -> bool:
     if not source.startswith(SERVICE_ROOT) or not source.endswith(".py"):
         return False
-    remainder = source[len(SERVICE_ROOT):]
+    remainder = source[len(SERVICE_ROOT) :]
     return "/" not in remainder and remainder != "__init__.py"
 
 
@@ -147,11 +147,7 @@ def _affinity(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     scores: Counter[str] = Counter()
     evidence: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    node_packages = {
-        member_id: package
-        for package, members in packages.items()
-        for member_id in members
-    }
+    node_packages = {member_id: package for package, members in packages.items() for member_id in members}
 
     for edge in incident.get(node_id, []):
         edge_type = str(edge.get("type") or "")
