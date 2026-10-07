@@ -6,7 +6,9 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.services.internet import InternetAccessMode, fetch_public_page
+from backend.services.light_crm.records import LightCrmRecordService
 from backend.services.internet.browser_session import browser_session_as_dict, run_browser_session
 from backend.services.internet.open_write import execute_open_write
 from backend.services.ontology.evidence_lineage import (
@@ -543,11 +545,64 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                         }
                     )
             if not fixture_contacts and internal_crm_source:
-                # Tenant-owned CRM identity is already authoritative.  A
-                # missing phone/email is an evidence gap for qualification,
-                # not a reason to discard the company itself.
+                # Tenant-owned CRM identity is already authoritative. Resolve
+                # any tenant-scoped contacts linked to the account through the
+                # same read-only CRM service; never invent a mailbox.
+                account_id = str(prospect.get("id") or prospect.get("prospect_id") or "").strip()
+                if account_id and callable(context.session_factory):
+                    session = context.session_factory()
+                    try:
+                        activate_tenant_session(session, context.tenant_id)
+                        crm = LightCrmRecordService(session=session)
+                        linked_contacts = crm.list_records(
+                            tenant_id=context.tenant_id,
+                            record_type="contact",
+                            filters={"account_id": account_id},
+                            limit=20,
+                        )
+                    finally:
+                        session.close()
+                    for contact in linked_contacts:
+                        email = str(contact.get("email") or "").strip()
+                        phone = str(contact.get("phone") or "").strip()
+                        if email:
+                            fixture_contacts.append(
+                                {
+                                    "kind": "email",
+                                    "value": email,
+                                    "source_url": f"crm://contact/{contact.get('id') or account_id}",
+                                    "real": True,
+                                    "via": "tenant_internal_crm",
+                                }
+                            )
+                        if phone:
+                            fixture_contacts.append(
+                                {
+                                    "kind": "phone",
+                                    "value": phone,
+                                    "source_url": f"crm://contact/{contact.get('id') or account_id}",
+                                    "real": True,
+                                    "via": "tenant_internal_crm",
+                                }
+                            )
+
                 company = prospect.get("company") or prospect.get("name")
                 source_url = f"crm://{prospect.get('prospect_id') or prospect.get('id') or company}"
+                product_description = str(
+                    prospect.get("product_description")
+                    or prospect.get("description")
+                    or prospect.get("products_services")
+                    or ""
+                )[:1000]
+                research_summary = str(
+                    prospect.get("research_summary")
+                    or prospect.get("summary")
+                    or prospect.get("automation_opportunity")
+                    or prospect.get("intent")
+                    or product_description
+                    or ""
+                )[:1000]
+                sources = prospect.get("sources") if isinstance(prospect.get("sources"), list) else []
                 pages.append(
                     {
                         "url": source_url,
@@ -562,18 +617,36 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                         "identity_evidence_urls": [],
                     }
                 )
-                verified_prospect_candidates.append(
-                    {
-                        **prospect,
+                candidate = {
+                    **prospect,
+                    "company": company,
+                    "product_description": product_description,
+                    "research_summary": research_summary,
+                    "real": True,
+                    "source": "internal_crm",
+                    "identity_status": "verified",
+                    "identity_evidence_urls": [],
+                    "sources": sources,
+                    "observed_contacts": [],
+                }
+                verified_prospect_candidates.append(candidate)
+                for item in fixture_contacts:
+                    contact = {
+                        **item,
                         "company": company,
-                        "real": True,
-                        "source": "internal_crm",
+                        "domain": prospect.get("domain"),
+                        "website": str(prospect.get("website") or prospect.get("url") or ""),
+                        "product_description": product_description,
+                        "research_summary": research_summary,
+                        "sources": sources,
+                        "prospect_id": prospect.get("prospect_id"),
                         "identity_status": "verified",
                         "identity_evidence_urls": [],
-                        "sources": [],
-                        "observed_contacts": [],
+                        "contact_role_status": "unverified",
+                        "contact_role_evidence": None,
                     }
-                )
+                    observed_contacts.append(contact)
+                    candidate["observed_contacts"].append(contact)
                 continue
             if not fixture_contacts:
                 unobserved.append(
