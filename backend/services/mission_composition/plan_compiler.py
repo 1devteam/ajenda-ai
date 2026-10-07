@@ -72,7 +72,11 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
         return "$.input.context.upstream"
     if action_name == "knowledge.retrieve_current":
         return None
-    if action_name == "record.write" and output_name in {"qualified_prospects", "observed_contacts"}:
+    if action_name == "record.write" and output_name in {
+        "qualified_prospects",
+        "observed_contacts",
+        "enriched_prospects",
+    }:
         return f"$.input.context.{output_name}"
     if action_name == "record.write" and output_name == "prospect_candidates":
         return None
