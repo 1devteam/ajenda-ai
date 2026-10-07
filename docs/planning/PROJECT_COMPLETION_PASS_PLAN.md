@@ -26,11 +26,12 @@ is deterministic, tenant-safe, evidence-backed, and free of unexplained artifact
 
 ## Pass 2 — Continuous assurance
 
-**Status: active implementation.**
+**Status: complete — 2026-10-07.** See `docs/validation/continuous-assurance-pass-2-closure-2026-10-07.md`.
 
 Independent recurring reconciliation, durable tenant-scoped findings, first-divergence history,
-metrics/alerts, queue/lease/evidence/artifact comparisons, and operational runbooks. The monitor is
-read-only and cannot create tasks, mutate business facts, or promote authority.
+runtime-derived calibration observations, metrics/alerts, queue/lease/evidence/artifact comparisons,
+restart/resume proof, and operational runbooks are complete. The monitor is read-only and cannot
+create tasks, mutate business facts, or promote authority.
 
 ## Pass 3 — Internal capability lane
 

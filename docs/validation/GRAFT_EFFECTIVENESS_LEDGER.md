@@ -92,3 +92,37 @@ G.R.A.F.T. materially improved first-pass closure by catching one missing proof 
 test-fixture defect, but unmapped-file coverage remains a measurable representation gap. The repair
 did not require changing Pass 2 runtime authority or assurance semantics.
 
+
+
+## 2026-10-07 — Pass 2 closure proof
+
+**Predicted blast radius**
+
+- assurance integration proof only;
+- Pass 2 roadmap/closure documentation;
+- no runtime-authority, provider, credential, queue, worker-execution, onboarding, billing, or UI behavior changes.
+
+**Closure criterion**
+
+The graph-selected and repository-required proof should confirm that restart/resume behavior depends on durable assurance history rather than process memory, while preserving the existing read-only authority boundary. Any graph expansion beyond the changed assurance proof and documentation surfaces should be treated as evidence to inspect, not silently dismissed.
+
+**Actual result**
+
+- Closure PR: #566.
+- Canonical graph SHA-256: `886520e59825a98f1e569618dd39ac162320eb574acef3155c88b50fd7143fc3`.
+- Affected semantic nodes: 0.
+- Upstream consumers: 0.
+- Downstream dependencies: 0.
+- Relevant invariants: 0.
+- Unmapped changed files: 3, all documentation:
+  - `docs/planning/PROJECT_COMPLETION_PASS_PLAN.md`;
+  - `docs/validation/GRAFT_EFFECTIVENESS_LEDGER.md`;
+  - `docs/validation/continuous-assurance-pass-2-closure-2026-10-07.md`.
+- The changed assurance integration test is represented sufficiently for the graph run to avoid classifying it as an unmapped changed file.
+- Architecture — Selective Proof Shadow passed.
+- Architecture — PR Invariant Classifier passed.
+- The full integration suite passed 266 tests with 2 credential-gated provider tests skipped, proving the new restart/resume path against real Postgres.
+
+**Result**
+
+The prediction was accurate at the authority/product boundary: no production runtime behavior changed. G.R.A.F.T. correctly treated the documentation as unmapped rather than inventing dependencies. The graph selected no additional semantic proof bundle because the implementation change is proof/documentation-only; the repository's full CI integration lane supplied the substantive restart/resume evidence.
