@@ -92,3 +92,20 @@ G.R.A.F.T. materially improved first-pass closure by catching one missing proof 
 test-fixture defect, but unmapped-file coverage remains a measurable representation gap. The repair
 did not require changing Pass 2 runtime authority or assurance semantics.
 
+
+
+## 2026-10-07 — Pass 2 closure proof
+
+**Predicted blast radius**
+
+- assurance integration proof only;
+- Pass 2 roadmap/closure documentation;
+- no runtime-authority, provider, credential, queue, worker-execution, onboarding, billing, or UI behavior changes.
+
+**Closure criterion**
+
+The graph-selected and repository-required proof should confirm that restart/resume behavior depends on durable assurance history rather than process memory, while preserving the existing read-only authority boundary. Any graph expansion beyond the changed assurance proof and documentation surfaces should be treated as evidence to inspect, not silently dismissed.
+
+**Result**
+
+Pending closure-PR proof. This entry must be finalized with the actual G.R.A.F.T./CI result before merge.
