@@ -185,6 +185,23 @@ def seed_internal_crm_fixture(*, api_base: str, headers: dict[str, str]) -> None
             },
             headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
         )
+        request(
+            "PUT",
+            api_base,
+            f"/v1/crm/records/contact/operator-proof-hvac-contact-{index}",
+            body={
+                "data": {
+                    "name": f"Owner {index}",
+                    "company": company,
+                    "account_id": f"operator-proof-hvac-{index}",
+                    "email": f"owner{index}@operator-proof-hvac-{index}.example.com",
+                    "role": "Owner",
+                    "source": "operator_proof",
+                    "real": True,
+                }
+            },
+            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        )
 
 
 def main() -> int:
