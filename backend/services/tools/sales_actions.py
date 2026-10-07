@@ -262,9 +262,7 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                         real_contacts = [
                             dict(item)
                             for item in raw_contacts
-                            if isinstance(item, dict)
-                            and item.get("real") is True
-                            and item.get("simulated") is not True
+                            if isinstance(item, dict) and item.get("real") is True and item.get("simulated") is not True
                         ]
                         if real_contacts:
                             enrichment_overlay["contacts"] = real_contacts
