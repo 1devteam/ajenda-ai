@@ -138,6 +138,7 @@ def test_reconcile_mission_records_first_divergence_and_semantic_drift(monkeypat
     assert snapshot.finding_count == 1
     assert snapshot.findings[0]["category"] == "semantic_drift"
 
+
 def test_unchanged_observation_reuses_latest_snapshot(monkeypatch) -> None:
     mission = SimpleNamespace(
         id=uuid.uuid4(),
@@ -188,4 +189,3 @@ def test_unchanged_observation_reuses_latest_snapshot(monkeypatch) -> None:
 
     assert second is first
     assert service._snapshots.append.call_count == 1
-
