@@ -75,3 +75,26 @@ def test_validate_requires_verified_email() -> None:
         pytest.raises(JwtValidationError, match="not verified"),
     ):
         validator.validate("token")
+
+
+def test_id_token_validator_never_allows_hmac_for_jwks() -> None:
+    validator = IdTokenValidator(
+        jwks_uri="https://idp.example.com/jwks",
+        issuer="https://idp.example.com",
+        audience="client-id",
+    )
+    with (
+        patch.object(validator._cache, "get_keys", return_value=[{"kid": "k1", "kty": "RSA"}]),
+        patch(
+            "backend.auth.id_token_validator.jwt.decode",
+            return_value={
+                "sub": "user-1",
+                "email": "owner@example.com",
+                "email_verified": True,
+            },
+        ) as decode_mock,
+    ):
+        validator.validate("token")
+
+    assert decode_mock.call_args.kwargs["algorithms"] == ["RS256", "ES256"]
+    assert "HS256" not in decode_mock.call_args.kwargs["algorithms"]
