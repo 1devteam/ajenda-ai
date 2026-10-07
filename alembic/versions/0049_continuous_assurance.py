@@ -19,6 +19,7 @@ def upgrade() -> None:
         sa.Column("tenant_id", sa.String(length=128), nullable=False),
         sa.Column("mission_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("missions.id"), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
+        sa.Column("observation_fingerprint", sa.String(length=80), nullable=False),
         sa.Column("first_divergence", sa.String(length=500), nullable=True),
         sa.Column("finding_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("findings", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
@@ -88,6 +89,7 @@ def upgrade() -> None:
         sa.Column("first_divergence_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("calibration_sample_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("calibration_aligned_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("tenant_failure_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.CheckConstraint("id = 1", name="ck_assurance_metric_state_singleton"),
     )
@@ -95,8 +97,8 @@ def upgrade() -> None:
         sa.text(
             "INSERT INTO assurance_metric_state "
             "(id, snapshot_count, aligned_count, incomplete_count, drifted_count, contradictory_count, "
-            "first_divergence_count, calibration_sample_count, calibration_aligned_count) "
-            "VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0)"
+            "first_divergence_count, calibration_sample_count, calibration_aligned_count, tenant_failure_count) "
+            "VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0, 0)"
         )
     )
 
