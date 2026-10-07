@@ -11,6 +11,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.services.tools.mission_input_binding import (
     DependencyNotReadyError,
     apply_input_bindings,
+    default_bindings_for_action,
     index_mission_tasks_by_node_key,
     pending_dependency_keys,
 )
@@ -535,3 +536,23 @@ def test_bind_raises_dependency_not_ready() -> None:
             task=draft,
             mission_tasks=[research, draft],
         )
+
+
+def test_record_write_default_bindings_include_enrichment_when_selected() -> None:
+    bindings = default_bindings_for_action(
+        action_name="record.write",
+        dependency_keys=[
+            "ability-research-observe_contacts",
+            "ability-sales-qualify",
+            "ability-gtm-lead_enrich",
+        ],
+    )
+
+    assert {
+        (item["output_path"], item["input_path"])
+        for item in bindings
+    } == {
+        ("$.observed_contacts", "$.input.context.observed_contacts"),
+        ("$.qualified_prospects", "$.input.context.qualified_prospects"),
+        ("$.enriched_prospects", "$.input.context.enriched_prospects"),
+    }
