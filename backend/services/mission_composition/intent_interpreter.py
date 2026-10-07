@@ -1269,9 +1269,24 @@ def interpret_instruction(
     crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
         lower, _CRM_NEGATION_PATTERNS
     )
+    raw_internal_crm_read = lexical_frame.internal_crm_read or _contains_any(lower, _INTERNAL_CRM_READ_PATTERNS)
+    explicit_internal_crm_source_read = bool(
+        re.search(
+            r"\b(?:review|inspect|summari[sz]e|compare|rank|read|check|list|show|query)\b"
+            r"[^.!?]{0,120}\b(?:ajenda(?:['\u2019]s)?\s+(?:internal\s+)?crm|internal\s+(?:ajenda\s+)?crm)\b",
+            lower,
+        )
+        or re.search(
+            r"\b(?:find|search|research|identify|qualify|read|check|list|show|query|review|inspect|summari[sz]e|compare|rank)\b"
+            r"[^.!?]{0,120}\bfrom\s+(?:the\s+)?(?:ajenda\s+)?internal\s+crm\b",
+            lower,
+        )
+    )
     internal_crm_read = (
-        lexical_frame.internal_crm_read or _contains_any(lower, _INTERNAL_CRM_READ_PATTERNS)
-    ) and not _contains_any(lower, _INTERNAL_CRM_READ_NEGATION_PATTERNS)
+        raw_internal_crm_read
+        and not _contains_any(lower, _INTERNAL_CRM_READ_NEGATION_PATTERNS)
+        and (not crm_write_requested or explicit_internal_crm_source_read)
+    )
     internal_crm_as_source = (
         re.search(r"\bfrom\s+(?:the\s+)?internal\s+(?:ajenda\s+)?crm\b", lower) is not None
         or re.search(r"\bfrom\s+(?:the\s+)?ajenda\s+internal\s+crm\b", lower) is not None
