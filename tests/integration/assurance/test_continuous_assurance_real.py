@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.assurance_snapshot import AssuranceSnapshot
@@ -65,6 +65,23 @@ def test_continuous_assurance_persists_tenant_history_without_mutating_mission(p
     )
     assert [row.id for row in own_rows] == [snapshot.id]
 
+    # Testcontainers connects as the database owner/superuser, which bypasses
+    # PostgreSQL RLS even when FORCE ROW LEVEL SECURITY is enabled. Prove the
+    # policy through a non-bypass role so this assertion exercises the same
+    # boundary as an ordinary application role instead of producing a false
+    # negative from the privileged test harness.
+    rls_role = f"assurance_rls_test_{uuid.uuid4().hex}"
+    pg_session.execute(text(f'CREATE ROLE "{rls_role}" NOLOGIN'))
+    pg_session.execute(text(f'GRANT USAGE ON SCHEMA public TO "{rls_role}"'))
+    pg_session.execute(text(f'GRANT SELECT ON assurance_snapshots TO "{rls_role}"'))
+    pg_session.execute(text(f'SET LOCAL ROLE "{rls_role}"'))
+
+    activate_tenant_session(pg_session, tenant_id)
+    role_scoped_own_rows = list(pg_session.scalars(select(AssuranceSnapshot)))
+    assert [row.id for row in role_scoped_own_rows] == [snapshot.id]
+
     activate_tenant_session(pg_session, other_tenant_id)
     cross_tenant_rows = list(pg_session.scalars(select(AssuranceSnapshot)))
     assert cross_tenant_rows == []
+
+    pg_session.execute(text("RESET ROLE"))
