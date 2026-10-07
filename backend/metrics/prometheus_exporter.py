@@ -59,6 +59,8 @@ class PrometheusExporter:
             f"ajenda_assurance_calibration_sample_count {snapshot.assurance_calibration_sample_count}",
             "# TYPE ajenda_assurance_calibration_aligned_count gauge",
             f"ajenda_assurance_calibration_aligned_count {snapshot.assurance_calibration_aligned_count}",
+            "# TYPE ajenda_assurance_tenant_failure_count gauge",
+            f"ajenda_assurance_tenant_failure_count {snapshot.assurance_tenant_failure_count}",
             "# HELP ajenda_stage_budget_limit Observed stage budget limits (observe-only scaffolding).",
             "# TYPE ajenda_stage_budget_limit gauge",
             f'ajenda_stage_budget_limit{{stage="runtime",budget_kind="cost_usd"{"," + tenant_label if tenant_label else ""}}} {snapshot.stage_budget_limit_cost_usd}',
