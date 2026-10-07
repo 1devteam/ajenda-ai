@@ -199,7 +199,6 @@ def tenant_reliability_summary(
     )
 
 
-
 class AssuranceSnapshotRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
