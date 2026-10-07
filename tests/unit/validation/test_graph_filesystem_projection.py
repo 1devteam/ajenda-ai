@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import json
+import warnings
 from pathlib import Path
 
 VALIDATION_DIR = Path(__file__).resolve().parents[3] / "scripts/validation"
@@ -67,3 +69,25 @@ def test_projection_requires_post_move_graph_comparison() -> None:
     assert "top_betweenness" in next_step["required_comparison"]
     assert "top_transitive_consumers" in next_step["required_comparison"]
     assert "proof_selection" in next_step["required_comparison"]
+
+
+def test_projection_exposes_ambiguous_candidates_for_machine_interpretation() -> None:
+    artifact = MODULE.build_projection()
+    ambiguous = [
+        {
+            "source": item["source"],
+            "primary_node": item["primary_node"],
+            "current_boundary": item["current_boundary"],
+            "projection": item["projection"],
+            "package_affinity": item["package_affinity"][:5],
+            "risk": item["risk"],
+        }
+        for item in artifact["candidate_files"]
+        if item["projection"]["status"] == "ambiguous"
+    ]
+
+    assert ambiguous
+    warnings.warn(
+        "GRAFT_AMBIGUOUS_CANDIDATES=" + json.dumps(ambiguous, sort_keys=True, separators=(",", ":")),
+        stacklevel=1,
+    )
