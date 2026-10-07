@@ -84,6 +84,10 @@ def auth(tenant_id: str, api_key: str) -> dict[str, str]:
     return {"X-Tenant-Id": tenant_id, "X-Api-Key": api_key}
 
 
+def human_auth(tenant_id: str, access_token: str) -> dict[str, str]:
+    return {"X-Tenant-Id": tenant_id, "Authorization": f"Bearer {access_token}"}
+
+
 def require_string(payload: dict[str, Any], key: str, context: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
@@ -91,17 +95,18 @@ def require_string(payload: dict[str, Any], key: str, context: str) -> str:
     return value.strip()
 
 
-def create_tenant_session(*, org_name: str) -> tuple[str, str]:
-    """Create one isolated proof tenant through the public onboarding boundary."""
+def create_tenant_session(*, org_name: str) -> tuple[str, str, str]:
+    """Create machine execution plus independent human-review authority."""
 
     email = f"operator-proof-{uuid.uuid4().hex[:10]}@example.com"
+    owner_password = f"Proof-{uuid.uuid4().hex}-Aa1!"
     signup = request(
         "POST",
         API_BASE,
         "/v1/onboarding/signup",
-        body={"org_name": org_name, "email": email},
+        body={"org_name": org_name, "email": email, "password": owner_password},
         headers={"Idempotency-Key": str(uuid.uuid4())},
-        expected=201,
+        expected=(201, 202),
     )
     if not signup.get("verification_code"):
         raise ProofFailure(
@@ -125,7 +130,17 @@ def create_tenant_session(*, org_name: str) -> tuple[str, str]:
         headers={**auth(tenant_id, bootstrap_key), "Idempotency-Key": str(uuid.uuid4())},
     )
     api_key = require_string(promoted, "api_key", "bootstrap promotion")
-    return tenant_id, api_key
+    login = request(
+        "POST",
+        API_BASE,
+        "/v1/auth/password",
+        body={"email": email, "password": owner_password, "tenant_id": tenant_id},
+    )
+    access_token = require_string(login, "access_token", "tenant-owner password login")
+    me = request("GET", API_BASE, "/v1/auth/me", headers=human_auth(tenant_id, access_token))
+    if me.get("principal_type") != "user" or "tenant_owner" not in (me.get("roles") or []):
+        raise ProofFailure(f"password login did not yield tenant_owner human principal: {json.dumps(me, sort_keys=True)}")
+    return tenant_id, api_key, access_token
 
 
 def assert_blocked_composition(
