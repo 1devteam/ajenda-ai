@@ -539,3 +539,38 @@ def test_observe_contacts_uses_declared_industry_for_non_hvac_research() -> None
         result = research_observe_contacts(invocation, _context())
 
     assert result.output["verified_prospect_candidates"][0]["identity_status"] == "verified"
+
+
+def test_observe_contacts_internal_crm_normalizes_required_verified_artifact_fields() -> None:
+    from backend.services.tools.web_actions import research_observe_contacts
+
+    invocation = ToolInvocation(
+        action="research.observe_contacts",
+        input={
+            "prospects": [
+                {
+                    "id": "acct-pass3",
+                    "prospect_id": "acct-pass3",
+                    "company": "Pass 3 HVAC",
+                    "website": "https://pass3-hvac.example",
+                    "domain": "pass3-hvac.example",
+                    "description": "Commercial HVAC maintenance and installation",
+                    "automation_opportunity": "Automated lead intake and service follow-up",
+                    "identity_status": "verified",
+                }
+            ],
+            "requested_quantity": 1,
+            "local_fixture_only": True,
+            "binding_required": True,
+            "context": {"source": "internal_crm"},
+        },
+    )
+
+    result = research_observe_contacts(invocation, _context())
+    candidate = result.output["verified_prospect_candidates"][0]
+
+    assert candidate["company"] == "Pass 3 HVAC"
+    assert candidate["product_description"] == "Commercial HVAC maintenance and installation"
+    assert candidate["research_summary"] == "Automated lead intake and service follow-up"
+    assert candidate["identity_status"] == "verified"
+    assert candidate["source"] == "internal_crm"
