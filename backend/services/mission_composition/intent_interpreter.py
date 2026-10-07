@@ -1271,7 +1271,6 @@ def interpret_instruction(
     )
     internal_crm_read = (
         (lexical_frame.internal_crm_read or _contains_any(lower, _INTERNAL_CRM_READ_PATTERNS))
-        and not crm_write_requested
         and not _contains_any(lower, _INTERNAL_CRM_READ_NEGATION_PATTERNS)
     )
     internal_crm_as_source = (
@@ -1288,7 +1287,7 @@ def interpret_instruction(
             )
         )
         and (internal_crm_read or not _contains_any(lower, _CRM_READ_NEGATION_PATTERNS))
-        and not crm_write_requested
+        and (internal_crm_read or not crm_write_requested)
         and (internal_crm_read or explicit_hubspot_record_read or not _contains_any(lower, _CRM_NEGATION_PATTERNS))
     )
     wants_salesforce_query = _contains_any(lower, _SALESFORCE_QUERY_PATTERNS)
