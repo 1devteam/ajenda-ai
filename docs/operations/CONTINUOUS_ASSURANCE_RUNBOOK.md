@@ -37,7 +37,7 @@ It then records:
 - epistemic confidence when present;
 - calibration eligibility and whether the observed outcome aligned.
 
-Calibration observations are evidence samples only. They do not rewrite epistemic policy confidence.
+Calibration observations are evidence samples only. They do not rewrite epistemic policy confidence. Unchanged mission observations are fingerprinted and not appended again, preventing recurring scans from biasing calibration history.
 
 ## Operator surfaces
 
@@ -55,9 +55,11 @@ Prometheus metrics:
 - `ajenda_assurance_first_divergence_count`
 - `ajenda_assurance_calibration_sample_count`
 - `ajenda_assurance_calibration_aligned_count`
+- `ajenda_assurance_tenant_failure_count`
 
 Alerts:
 
+- `AjendaAssuranceTenantScanFailures` — critical;
 - `AjendaAssuranceContradictionsPresent` — critical;
 - `AjendaAssuranceDriftPresent` — warning;
 - `AjendaAssuranceFirstDivergencePresent` — warning.
