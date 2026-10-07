@@ -284,10 +284,11 @@ jobs:
       AJENDA_PROOF_COMPOSE_ENV_FILE: deploy/compose/.env.prod
       AJENDA_PROOF_COMPOSE_PROJECT_NAME: ajenda-ai
       AJENDA_OPERATOR_MISSION_PROOF: "1"
-      # Deterministic fixture lane proves the deployed queue/worker/artifact
-      # path without pretending a fresh tenant has a public-search provider.
-      AJENDA_OPERATOR_PROOF_INSTRUCTION: "Find five software development companies in Austin using local fixture data only."
-      AJENDA_OPERATOR_PROOF_EXPECTED_PROSPECT_COUNT: "5"
+      # Pass 3 proves the internal customer-value lane with an independent
+      # tenant-owner approval boundary; no external provider credential is used.
+      AJENDA_OPERATOR_PROOF_SCENARIO: "pass3_internal_crm"
+      AJENDA_OPERATOR_PROOF_INSTRUCTION: "Review the three HVAC companies already saved in Ajenda internal CRM, qualify them, enrich the contacts, persist the qualified prospects to Ajenda internal CRM, and return company name, website, qualification score, and qualification evidence for each. Read back every saved record. Do not send messages."
+      AJENDA_OPERATOR_PROOF_EXPECTED_PROSPECT_COUNT: "3"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -307,6 +308,7 @@ jobs:
           env_path = Path("deploy/compose/.env.prod")
           worker_tenant_id = uuid4()
           postgres_password = f"ci-{uuid4().hex}"
+          session_signing_secret = f"ci-session-{uuid4().hex}{uuid4().hex}"
           env_path.write_text(
               "\n".join(
                   [
@@ -328,6 +330,8 @@ jobs:
                       "AJENDA_OIDC_AUDIENCE=ajenda-api",
                       "AJENDA_OIDC_JWKS_URI=http://localhost:8080/realms/ajenda/protocol/openid-connect/certs",
                       "AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN=true",
+                      "AJENDA_PASSWORD_LOGIN_ENABLED=true",
+                      f"AJENDA_SESSION_SIGNING_SECRET={session_signing_secret}",
                       "AJENDA_WORKER_TENANT_MODE=multi",
                       f"AJENDA_WORKER_TENANT_ID={worker_tenant_id}",
                       "AJENDA_RATE_LIMIT_REQUESTS=10000",
