@@ -36,3 +36,33 @@ groups:
         annotations:
           summary: Ajenda dead-letter entries present.
           description: Dead-letter queue contains one or more tasks for at least 2 minutes.
+
+  - name: ajenda-continuous-assurance
+    rules:
+      - alert: AjendaAssuranceContradictionsPresent
+        expr: ajenda_assurance_contradictory_count > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ajenda continuous assurance found runtime contradictions.
+          description: One or more latest mission assurance observations are contradictory.
+
+      - alert: AjendaAssuranceDriftPresent
+        expr: ajenda_assurance_drifted_count > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Ajenda continuous assurance found runtime drift.
+          description: One or more latest mission assurance observations are drifted.
+
+      - alert: AjendaAssuranceFirstDivergencePresent
+        expr: ajenda_assurance_first_divergence_count > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Ajenda continuous assurance recorded first divergence.
+          description: At least one latest mission assurance observation contains a first-divergence marker.
+
