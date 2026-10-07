@@ -55,7 +55,7 @@ Prometheus metrics:
 - `ajenda_assurance_first_divergence_count`
 - `ajenda_assurance_calibration_sample_count`
 - `ajenda_assurance_calibration_aligned_count`
-- `ajenda_assurance_tenant_failure_count`
+- `ajenda_assurance_scan_failure_count`
 
 Alerts:
 
