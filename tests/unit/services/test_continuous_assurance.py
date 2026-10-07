@@ -61,11 +61,11 @@ def test_reconcile_mission_persists_assurance_only_without_mutating_mission(monk
         runtime_reconciliation=reconciliation,
     )
     monkeypatch.setattr(
-        "backend.services.continuous_assurance.build_mission_runtime_evidence_projection",
+        "backend.services.continuous_assurance.mission_runtime_evidence_projection.build_mission_runtime_evidence_projection",
         lambda **_: runtime,
     )
     monkeypatch.setattr(
-        "backend.services.continuous_assurance.build_deliverable_runtime_state_read",
+        "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
         lambda _: runtime_state,
     )
 
@@ -119,11 +119,11 @@ def test_reconcile_mission_records_first_divergence_and_semantic_drift(monkeypat
         runtime_reconciliation=reconciliation,
     )
     monkeypatch.setattr(
-        "backend.services.continuous_assurance.build_mission_runtime_evidence_projection",
+        "backend.services.continuous_assurance.mission_runtime_evidence_projection.build_mission_runtime_evidence_projection",
         lambda **_: runtime,
     )
     monkeypatch.setattr(
-        "backend.services.continuous_assurance.build_deliverable_runtime_state_read",
+        "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
         lambda _: runtime_state,
     )
     service = ContinuousAssuranceService(session)
@@ -170,11 +170,11 @@ def test_unchanged_observation_reuses_latest_snapshot(monkeypatch) -> None:
         runtime_reconciliation=reconciliation,
     )
     monkeypatch.setattr(
-        "backend.services.continuous_assurance.build_mission_runtime_evidence_projection",
+        "backend.services.continuous_assurance.mission_runtime_evidence_projection.build_mission_runtime_evidence_projection",
         lambda **_: runtime,
     )
     monkeypatch.setattr(
-        "backend.services.continuous_assurance.build_deliverable_runtime_state_read",
+        "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
         lambda _: runtime_state,
     )
     service = ContinuousAssuranceService(session)
