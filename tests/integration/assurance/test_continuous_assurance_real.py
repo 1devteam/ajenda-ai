@@ -58,11 +58,7 @@ def test_continuous_assurance_persists_tenant_history_without_mutating_mission(p
     assert mission.status == "completed"
     assert mission.metadata_json == {"sentinel": "unchanged"}
 
-    own_rows = list(
-        pg_session.scalars(
-            select(AssuranceSnapshot).where(AssuranceSnapshot.tenant_id == tenant_id)
-        )
-    )
+    own_rows = list(pg_session.scalars(select(AssuranceSnapshot).where(AssuranceSnapshot.tenant_id == tenant_id)))
     assert [row.id for row in own_rows] == [snapshot.id]
 
     # Testcontainers connects as the database owner/superuser, which bypasses
