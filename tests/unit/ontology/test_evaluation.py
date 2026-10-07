@@ -121,6 +121,7 @@ def test_analysis_evaluate_goal_progress_action() -> None:
             input={
                 "goal": {
                     "goal_id": "g-qualify",
+                    "objective_key": "increase_qualification_score",
                     "name": "Qualify opportunity",
                     "subject_refs": [{"object_type": "opportunity", "object_id": "opp_123"}],
                     "target_date": "2026-08-31",
@@ -162,6 +163,10 @@ def test_analysis_evaluate_goal_progress_action() -> None:
     assert evaluation["kpi_evaluations"][0]["gap"] == 19
     assert evaluation["state_changes"]["changes"]
     assert evaluation["durable_goal_resolved"] is True
+    assert evaluation["goal_semantic_signature"]["objective_key"] == "increase_qualification_score"
+    assert evaluation["goal_semantic_signature"]["kpis"] == [
+        {"schema_version": 1, "metric": "qualification_score", "direction": "increase", "normalized_unit": None}
+    ]
     assert "evidence_gaps=" in result.summary
 
 

@@ -18,8 +18,10 @@ from backend.services.ontology.commercial_state import (
     BusinessEvent,
     BusinessStateSnapshot,
     Goal,
+    GoalSemanticSignature,
     Kpi,
     KpiDirection,
+    goal_semantic_signature,
 )
 from backend.services.ontology.types import BusinessObjectRef
 
@@ -97,6 +99,7 @@ class EvaluationResult(BaseModel):
     evaluation_id: str
     subject_refs: list[BusinessObjectRef] = Field(default_factory=list)
     goal_id: str | None = None
+    goal_semantic_signature: GoalSemanticSignature
     status: GoalProgressStatus
     confidence: float = Field(ge=0, le=1)
     kpi_evaluations: list[KpiEvaluation] = Field(default_factory=list)
@@ -417,6 +420,7 @@ def evaluate_goal_progress(
         evaluation_id=evaluation_id or f"eval_{uuid4().hex[:12]}",
         subject_refs=subject_refs,
         goal_id=goal.goal_id,
+        goal_semantic_signature=goal_semantic_signature(goal, tuple(scoped)),
         status=status,
         confidence=round(confidence, 4),
         kpi_evaluations=kpi_evals,

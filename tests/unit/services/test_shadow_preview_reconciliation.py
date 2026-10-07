@@ -176,3 +176,146 @@ def test_reconciliation_detects_conflicting_identity_content_across_artifacts() 
     assert result.status == "contradictory"
     assert result.semantic_status == "blocked"
     assert result.semantic_mismatch_codes == ("conflicting_identity_website:acme",)
+
+
+def _goal_graph(objective_key: str = "increase_qualification_score") -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "nodes": [
+            {
+                "node_key": "goal-progress",
+                "input_contract": {
+                    "tool_invocation": {
+                        "schema_version": 1,
+                        "action": "analysis.evaluate_goal_progress",
+                        "input": {
+                            "goal": {
+                                "goal_id": "mission-goal-1",
+                                "objective_key": objective_key,
+                                "name": "Improve qualification",
+                            },
+                            "kpis": [
+                                {
+                                    "kpi_id": "qualification-score",
+                                    "goal_id": "mission-goal-1",
+                                    "name": "Qualification score",
+                                    "metric": "qualification_score",
+                                    "direction": "increase",
+                                }
+                            ],
+                        },
+                    }
+                },
+                "metadata": {"action": "analysis.evaluate_goal_progress"},
+            }
+        ],
+        "metadata": {},
+    }
+
+
+def _goal_artifact(objective_key: str | None) -> MaterializedArtifact:
+    payload: dict[str, object] = {
+        "status": "insufficient_data",
+        "confidence": 0.5,
+        "kpi_evaluations": [],
+        "progress_gaps": [],
+        "evidence_gaps": ["durable_goal_context_unavailable"],
+        "explanations": ["Instruction-only evaluation"],
+    }
+    if objective_key is not None:
+        payload["goal_semantic_signature"] = {
+            "schema_version": 1,
+            "objective_key": objective_key,
+            "kpis": [
+                {
+                    "schema_version": 1,
+                    "metric": "qualification_score",
+                    "direction": "increase",
+                    "normalized_unit": None,
+                }
+            ],
+        }
+    return MaterializedArtifact(artifact_key="goal_progress_evaluation", payload=payload)
+
+
+def test_shadow_preview_preserves_compiled_goal_semantics() -> None:
+    preview = build_shadow_preview(
+        proposal_id="proposal-goal",
+        preview_id="preview-goal",
+        task_graph=_goal_graph(),
+        planned_artifact_keys=("goal_progress_evaluation",),
+        coverage_assessment=None,
+        epistemic_context=None,
+    )
+
+    assert len(preview.expected_goal_semantics) == 1
+    assert preview.expected_goal_semantics[0].objective_key == "increase_qualification_score"
+    assert preview.expected_goal_semantics[0].kpis[0].metric == "qualification_score"
+
+
+def test_goal_semantics_align_when_runtime_preserves_owner_signature() -> None:
+    preview = build_shadow_preview(
+        proposal_id="proposal-goal",
+        preview_id="preview-goal",
+        task_graph=_goal_graph(),
+        planned_artifact_keys=("goal_progress_evaluation",),
+        coverage_assessment=None,
+        epistemic_context=None,
+    )
+    result = reconcile_shadow_preview(
+        preview,
+        tasks=[_task(status="completed", action="analysis.evaluate_goal_progress")],
+        artifacts=(_goal_artifact("increase_qualification_score"),),
+        completion=_completion(complete=True),
+    )
+
+    assert result.status == "aligned"
+    assert result.semantic_status == "aligned"
+    assert result.semantic_drift_codes == ()
+    assert result.semantic_mismatch_codes == ()
+    assert result.goal_semantic_comparisons == ("equivalent:matching_explicit_objective_key",)
+
+
+def test_missing_historical_goal_semantics_is_visible_drift_not_contradiction() -> None:
+    preview = build_shadow_preview(
+        proposal_id="proposal-goal",
+        preview_id="preview-goal",
+        task_graph=_goal_graph(),
+        planned_artifact_keys=("goal_progress_evaluation",),
+        coverage_assessment=None,
+        epistemic_context=None,
+    )
+    result = reconcile_shadow_preview(
+        preview,
+        tasks=[_task(status="completed", action="analysis.evaluate_goal_progress")],
+        artifacts=(_goal_artifact(None),),
+        completion=_completion(complete=True),
+    )
+
+    assert result.status == "drifted"
+    assert result.semantic_status == "drifted"
+    assert result.semantic_drift_codes == ("goal_semantics_not_observed",)
+    assert result.semantic_mismatch_codes == ()
+
+
+def test_non_equivalent_runtime_goal_semantics_is_contradictory() -> None:
+    preview = build_shadow_preview(
+        proposal_id="proposal-goal",
+        preview_id="preview-goal",
+        task_graph=_goal_graph(),
+        planned_artifact_keys=("goal_progress_evaluation",),
+        coverage_assessment=None,
+        epistemic_context=None,
+    )
+    result = reconcile_shadow_preview(
+        preview,
+        tasks=[_task(status="completed", action="analysis.evaluate_goal_progress")],
+        artifacts=(_goal_artifact("increase_revenue"),),
+        completion=_completion(complete=True),
+    )
+
+    assert result.status == "contradictory"
+    assert result.semantic_status == "blocked"
+    assert result.semantic_drift_codes == ()
+    assert result.semantic_mismatch_codes == ("goal_semantics_conflict:different_explicit_objective_key",)
+    assert result.goal_semantic_comparisons == ("not_equivalent:different_explicit_objective_key",)
