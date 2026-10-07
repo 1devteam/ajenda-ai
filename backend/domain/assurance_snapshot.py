@@ -37,3 +37,20 @@ class AssuranceSnapshot(Base):
     grants_execution_authority: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AssuranceMetricState(Base):
+    """Singleton cross-tenant aggregate for operational monitoring only."""
+
+    __tablename__ = "assurance_metric_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    snapshot_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    aligned_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    incomplete_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    drifted_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    contradictory_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    first_divergence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    calibration_sample_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    calibration_aligned_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
