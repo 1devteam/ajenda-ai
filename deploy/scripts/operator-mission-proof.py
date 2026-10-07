@@ -224,8 +224,9 @@ def main() -> int:
     if 'id="root"' not in frontend:
         raise ProofFailure("frontend root page did not contain the SPA mount point")
 
-    tenant_id, api_key = create_tenant_session(org_name="Ajenda Operator Proof")
+    tenant_id, api_key, owner_access_token = create_tenant_session(org_name="Ajenda Operator Proof")
     headers = auth(tenant_id, api_key)
+    owner_headers = human_auth(tenant_id, owner_access_token)
 
     assert_blocked_composition(
         headers=headers,
@@ -365,7 +366,7 @@ def main() -> int:
             f"runtime evidence reported first divergence: {(runtime_evidence or {}).get('first_divergence')}"
         )
 
-    other_tenant_id, other_api_key = create_tenant_session(org_name="Ajenda Operator Proof Isolation")
+    other_tenant_id, other_api_key, _ = create_tenant_session(org_name="Ajenda Operator Proof Isolation")
     _ = request(
         "GET",
         API_BASE,
