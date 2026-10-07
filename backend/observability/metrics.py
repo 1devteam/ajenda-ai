@@ -19,6 +19,13 @@ class MetricsSnapshot:
     stage_budget_limit_runtime_minutes: float = 0.0
     stage_budget_spend_runtime_minutes: float = 0.0
     stage_budget_breach_total: int = 0
+    assurance_snapshot_count: int = 0
+    assurance_incomplete_count: int = 0
+    assurance_drifted_count: int = 0
+    assurance_contradictory_count: int = 0
+    assurance_first_divergence_count: int = 0
+    assurance_calibration_sample_count: int = 0
+    assurance_calibration_aligned_count: int = 0
     tenant_id: str | None = None  # for per-tenant labels in observability (PR4)
 
 
@@ -40,6 +47,13 @@ class ObservabilityMetrics:
         stage_budget_limit_runtime_minutes: float = 0.0,
         stage_budget_spend_runtime_minutes: float = 0.0,
         stage_budget_breach_total: int = 0,
+        assurance_snapshot_count: int = 0,
+        assurance_incomplete_count: int = 0,
+        assurance_drifted_count: int = 0,
+        assurance_contradictory_count: int = 0,
+        assurance_first_divergence_count: int = 0,
+        assurance_calibration_sample_count: int = 0,
+        assurance_calibration_aligned_count: int = 0,
         tenant_id: str | None = None,
     ) -> MetricsSnapshot:
         return MetricsSnapshot(
@@ -57,5 +71,12 @@ class ObservabilityMetrics:
             stage_budget_limit_runtime_minutes=stage_budget_limit_runtime_minutes,
             stage_budget_spend_runtime_minutes=stage_budget_spend_runtime_minutes,
             stage_budget_breach_total=stage_budget_breach_total,
+            assurance_snapshot_count=assurance_snapshot_count,
+            assurance_incomplete_count=assurance_incomplete_count,
+            assurance_drifted_count=assurance_drifted_count,
+            assurance_contradictory_count=assurance_contradictory_count,
+            assurance_first_divergence_count=assurance_first_divergence_count,
+            assurance_calibration_sample_count=assurance_calibration_sample_count,
+            assurance_calibration_aligned_count=assurance_calibration_aligned_count,
             tenant_id=tenant_id,
         )
