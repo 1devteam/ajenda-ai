@@ -26,7 +26,7 @@ from backend.services.abilities.vertical_role_catalog import (
     VerticalRoleBinding,
     get_vertical_role,
 )
-from backend.services.business_profile_categories import BUSINESS_PROFILE_CATEGORY_FIELDS
+from backend.services.business_profile.categories import BUSINESS_PROFILE_CATEGORY_FIELDS
 from backend.services.tools.schemas import SideEffectClass
 
 PHASE_B_TEMPLATE_IDS: frozenset[str] = frozenset(
