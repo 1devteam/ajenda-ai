@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_db_session, get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
-from backend.domain.assurance_snapshot import AssuranceMetricState
+from backend.domain.assurance_snapshot import AssuranceMetricState, AssuranceSnapshot
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
@@ -274,7 +274,7 @@ def assurance_summary(
 
     require_route_permission(request=request, db=session, permission=Permission.RUNTIME_VIEW, tenant_id=tenant_id)
     rows = AssuranceSnapshotRepository(session).list_for_tenant(tenant_id=str(tenant_id), limit=500)
-    latest_by_mission: dict[_uuid.UUID, object] = {}
+    latest_by_mission: dict[_uuid.UUID, AssuranceSnapshot] = {}
     for row in rows:
         latest_by_mission.setdefault(row.mission_id, row)
     latest = list(latest_by_mission.values())
