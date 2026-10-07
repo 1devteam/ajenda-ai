@@ -378,6 +378,14 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                         "input_path": "$.input.context.qualified_prospects",
                     }
                 )
+            elif "enrich" in dep:
+                specs.append(
+                    {
+                        "from_step": dep,
+                        "output_path": "$.enriched_prospects",
+                        "input_path": "$.input.context.enriched_prospects",
+                    }
+                )
         elif action_name in {"vertical.finance.prepare_reconciliation", "vertical.finance.prepare_invoice_drafts"} and (
             "accounting-read-revenue" in dep or "read_revenue" in dep or "revenue" in dep
         ):
