@@ -4,8 +4,8 @@
   "subject": {
     "repository": "1devteam/ajenda-ai",
     "ref": "dc7e793d8c8c3f04025e2b9156cbc34ce2dece21",
-    "source": "backend/services/business_profile_record_sync.py",
-    "graph_node": "py:backend.services.business_profile_record_sync"
+    "source": "backend/services/business_profile/record_sync.py",
+    "graph_node": "py:backend.services.business_profile.record_sync"
   },
   "authority": {
     "mutates_runtime": false,
@@ -51,22 +51,22 @@
     "proposed_service_package": "backend/services/business_profile",
     "projected_members": [
       {
-        "current": "backend/services/business_profile_categories.py",
+        "current": "backend/services/business_profile/categories.py",
         "projected": "backend/services/business_profile/categories.py",
         "role": "profile_category_vocabulary"
       },
       {
-        "current": "backend/services/business_profile_record_sync.py",
+        "current": "backend/services/business_profile/record_sync.py",
         "projected": "backend/services/business_profile/record_sync.py",
         "role": "approved_profile_projection"
       },
       {
-        "current": "backend/services/business_context_resolver.py",
+        "current": "backend/services/business_profile/context_resolver.py",
         "projected": "backend/services/business_profile/context_resolver.py",
         "role": "runtime_profile_context"
       },
       {
-        "current": "backend/services/business_profile_binding.py",
+        "current": "backend/services/business_profile/binding.py",
         "projected": "backend/services/business_profile/binding.py",
         "role": "profile_application_binding"
       }
