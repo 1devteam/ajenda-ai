@@ -78,73 +78,22 @@ def require_string(payload: dict[str, Any], key: str, context: str) -> str:
     return value.strip()
 
 
-def seed_internal_crm_fixture(*, api_base: str, headers: dict[str, str]) -> None:
-    """Create proof-owned CRM rows through the public CRM API.
+def create_tenant_session(*, org_name: str) -> tuple[str, str]:
+    """Create one isolated proof tenant through the public onboarding boundary."""
 
-    The operator proof must exercise the same tenant-scoped write boundary as
-    a real operator. It must not insert rows directly into Postgres.
-    """
-
-    for index in range(1, 4):
-        company = f"Operator Proof HVAC {index}"
-        request(
-            "PUT",
-            api_base,
-            f"/v1/crm/records/account/operator-proof-hvac-{index}",
-            body={
-                "data": {
-                    "name": company,
-                    "company": company,
-                    "website": f"https://operator-proof-hvac-{index}.example.com",
-                    "domain": f"operator-proof-hvac-{index}.example.com",
-                    "industry": "HVAC",
-                    "location": "Dallas",
-                    "description": "Commercial HVAC maintenance and installation",
-                    "automation_opportunity": "Automated lead intake and service follow-up",
-                    "intent": "Evaluating workflow automation",
-                }
-            },
-            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
-        )
-
-
-def main() -> int:
-    frontend = urllib.request.urlopen(f"{FRONTEND_BASE}/", timeout=30).read().decode("utf-8")
-    if 'id="root"' not in frontend:
-        raise ProofFailure("frontend root page did not contain the SPA mount point")
-
-    email = f"operator-proof-{uuid.uuid4().hex[:10]}@example.com"
-    signup = request(
-        "POST",
-        API_BASE,
-        "/v1/onboarding/signup",
-        body={"org_name": "Ajenda Operator Proof", "email": email},
-        headers={"Idempotency-Key": str(uuid.uuid4())},
-        expected=201,
-    )
-    if not signup.get("verification_code"):
-        raise ProofFailure(
-            "signup omitted verification_code; staging proof requires "
-            "AJENDA_SIGNUP_EXPOSE_VERIFICATION_TOKEN=true or a test mailbox delivery path"
-        )
-    verification_code = require_string(signup, "verification_code", "signup")
-    verification = request(
-        "POST",
-        API_BASE,
-        "/v1/onboarding/verify-email",
-        body={"email": email, "code": verification_code},
-        headers={"Idempotency-Key": str(uuid.uuid4())},
-    )
-    tenant_id = require_string(verification, "tenant_id", "email verification")
-    bootstrap_key = require_string(verification, "api_key", "email verification")
-    promoted = request(
-        "POST",
-        API_BASE,
-        "/v1/onboarding/promote-bootstrap-key",
-        headers={**auth(tenant_id, bootstrap_key), "Idempotency-Key": str(uuid.uuid4())},
-    )
-    api_key = require_string(promoted, "api_key", "bootstrap promotion")
+    tenant_id, api_key = create_tenant_session(org_name="Ajenda Operator Proof")
     headers = auth(tenant_id, api_key)
+
+    assert_blocked_composition(
+        headers=headers,
+        instruction="Find three dental companies in Seattle using local fixture data only.",
+        expected_status="unsupported_scope",
+    )
+    assert_blocked_composition(
+        headers=headers,
+        instruction="Find five HVAC companies in Dallas using local fixture data only.",
+        expected_status="insufficient_capacity",
+    )
 
     if "internal crm" in INSTRUCTION.lower():
         seed_internal_crm_fixture(api_base=API_BASE, headers=headers)
@@ -248,6 +197,40 @@ def main() -> int:
     acceptance = (lifecycle or {}).get("mission", {}).get("acceptance") or (runtime_evidence or {}).get("acceptance")
     if mission_status != "completed":
         raise ProofFailure(f"mission did not complete acceptance: status={mission_status!r} acceptance={acceptance}")
+
+    mission_read = request("GET", API_BASE, f"/v1/missions/{mission_id}", headers=headers)
+    runtime_state = mission_read.get("deliverable_runtime_state")
+    if not isinstance(runtime_state, dict):
+        raise ProofFailure("completed mission omitted deliverable runtime state")
+    reconciliation = runtime_state.get("runtime_reconciliation")
+    if not isinstance(reconciliation, dict):
+        raise ProofFailure("completed mission omitted runtime reconciliation")
+    if reconciliation.get("status") != "aligned":
+        raise ProofFailure(f"shadow/runtime reconciliation was not aligned: {json.dumps(reconciliation, sort_keys=True)}")
+    if reconciliation.get("grants_execution_authority") is not False:
+        raise ProofFailure("runtime reconciliation granted execution authority")
+    if reconciliation.get("semantic_mismatch_codes"):
+        raise ProofFailure(f"semantic reconciliation reported contradictions: {reconciliation['semantic_mismatch_codes']}")
+    if reconciliation.get("semantic_drift_codes"):
+        raise ProofFailure(f"semantic reconciliation reported unexplained drift: {reconciliation['semantic_drift_codes']}")
+
+    contradictions = (runtime_evidence or {}).get("contradictions", [])
+    if contradictions:
+        raise ProofFailure(f"runtime evidence reported contradictions: {contradictions}")
+    if (runtime_evidence or {}).get("first_divergence") is not None:
+        raise ProofFailure(
+            f"runtime evidence reported first divergence: {(runtime_evidence or {}).get('first_divergence')}"
+        )
+
+    other_tenant_id, other_api_key = create_tenant_session(org_name="Ajenda Operator Proof Isolation")
+    _ = request(
+        "GET",
+        API_BASE,
+        f"/v1/missions/{mission_id}/runtime-evidence",
+        headers=auth(other_tenant_id, other_api_key),
+        expected=404,
+    )
+
     if task_state.get("all_succeeded") is not True:
         raise ProofFailure(f"mission tasks did not all succeed: {task_state}")
     if completion.get("artifact_complete") is not True or completion.get("complete") is not True:
@@ -274,6 +257,10 @@ def main() -> int:
                 "mission_status": mission_status,
                 "runtime_evidence_first_divergence": (runtime_evidence or {}).get("first_divergence"),
                 "runtime_evidence_contradictions": (runtime_evidence or {}).get("contradictions", []),
+                "runtime_reconciliation_status": reconciliation.get("status"),
+                "runtime_reconciliation_semantic_status": reconciliation.get("semantic_status"),
+                "blocked_coverage_cases": ["unsupported_scope", "insufficient_capacity"],
+                "cross_tenant_runtime_evidence_denied": True,
                 "runtime_evidence_output": RUNTIME_EVIDENCE_OUTPUT,
             },
             sort_keys=True,
