@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
-from backend.services.business_profile_binding import (
+from backend.services.business_profile.binding import (
     build_application_binding,
     ensure_proposal_binding,
     value_digest,
