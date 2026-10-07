@@ -262,7 +262,14 @@ def approve_pending_pass3_tasks(
             f"/v1/review-queue/tasks/{task_id}/approve",
             body=approval_body,
             headers=owner_headers,
+            expected=(200, 409),
         )
+        detail = str(approved.get("detail") or "")
+        if "dependencies not complete" in detail:
+            # Review is visible before its prerequisite tasks necessarily
+            # finish. Keep polling; approval must bind only after the governed
+            # upstream world-state is complete.
+            continue
         if approved.get("status") != "queued":
             raise ProofFailure(f"tenant-owner approval did not queue reviewed task {task_id}: {approved}")
         approved_task_ids.add(task_id)
