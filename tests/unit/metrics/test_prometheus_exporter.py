@@ -74,6 +74,7 @@ def test_prometheus_exporter_renders_tenant_label_when_provided() -> None:
     # banned tenant_id is allowed intentionally for per-tenant
     assert 'tenant_id="tenant-123"' in output
 
+
 def test_assurance_metrics_are_exported() -> None:
     snapshot = MetricsSnapshot(
         tasks_queued=0,
