@@ -221,8 +221,28 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             company = str(prospect.get("company") or inp.company or f"prospect-{index + 1}")[:160]
             domain = str(prospect.get("domain") or inp.domain or domain_seed or "").strip() or None
             existing = [item for item in (prospect.get("contacts") or []) if isinstance(item, dict)]
+            observed = [
+                item for item in (prospect.get("observed_contacts") or []) if isinstance(item, dict)
+            ]
+            normalized_observed: list[dict[str, Any]] = []
+            for item in observed:
+                contact = dict(item)
+                kind = str(contact.get("kind") or "").strip().casefold()
+                value = str(contact.get("value") or "").strip()
+                if kind == "email" and value and not contact.get("email"):
+                    contact["email"] = value
+                elif kind == "phone" and value and not contact.get("phone"):
+                    contact["phone"] = value
+                # Observed-contact artifacts originate from the governed
+                # observation stage. Preserve explicit false/simulated flags,
+                # otherwise mark the observation as real evidence.
+                if "real" not in contact:
+                    contact["real"] = True
+                normalized_observed.append(contact)
             real_existing = [
-                item for item in existing if item.get("real") is True and item.get("simulated") is not True
+                item
+                for item in [*existing, *normalized_observed]
+                if item.get("real") is True and item.get("simulated") is not True
             ]
             contacts: list[dict[str, Any]] = list(real_existing)
             enrichment_mode = "passthrough_observed"
