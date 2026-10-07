@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -21,11 +22,23 @@ API_BASE = os.environ.get("AJENDA_OPERATOR_PROOF_API_BASE_URL", "http://localhos
 FRONTEND_BASE = os.environ.get("AJENDA_OPERATOR_PROOF_FRONTEND_BASE_URL", "http://localhost:8080").rstrip("/")
 TIMEOUT_SECONDS = float(os.environ.get("AJENDA_OPERATOR_PROOF_TIMEOUT_SECONDS", "180"))
 POLL_SECONDS = float(os.environ.get("AJENDA_OPERATOR_PROOF_POLL_SECONDS", "3"))
-INSTRUCTION = os.environ.get(
-    "AJENDA_OPERATOR_PROOF_INSTRUCTION",
-    "Find five software development companies in Austin using local fixture data only.",
+SCENARIO = os.environ.get("AJENDA_OPERATOR_PROOF_SCENARIO", "baseline").strip()
+PASS3_SCENARIO = "pass3_internal_crm"
+DEFAULT_INSTRUCTION = (
+    "Review the three HVAC companies already saved in Ajenda internal CRM, qualify them, "
+    "enrich the contacts, persist the qualified prospects to Ajenda internal CRM, and return "
+    "company name, website, qualification score, and qualification evidence for each. "
+    "Read back every saved record. Do not send messages."
+    if SCENARIO == PASS3_SCENARIO
+    else "Find five software development companies in Austin using local fixture data only."
 )
-EXPECTED_PROSPECT_COUNT = int(os.environ.get("AJENDA_OPERATOR_PROOF_EXPECTED_PROSPECT_COUNT", "5"))
+INSTRUCTION = os.environ.get("AJENDA_OPERATOR_PROOF_INSTRUCTION", DEFAULT_INSTRUCTION)
+EXPECTED_PROSPECT_COUNT = int(
+    os.environ.get(
+        "AJENDA_OPERATOR_PROOF_EXPECTED_PROSPECT_COUNT",
+        "3" if SCENARIO == PASS3_SCENARIO else "5",
+    )
+)
 RUNTIME_EVIDENCE_OUTPUT = os.environ.get("AJENDA_OPERATOR_PROOF_RUNTIME_EVIDENCE_OUTPUT")
 
 
