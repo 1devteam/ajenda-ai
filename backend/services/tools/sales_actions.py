@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from backend.db.tenant_session import activate_tenant_session
-from backend.services.business_context_resolver import default_company_and_domain
+from backend.services.business_profile.context_resolver import default_company_and_domain
 from backend.services.knowledge.knowledge_applicability import SourceConditionObservation
 from backend.services.light_crm.records import LightCrmRecordService
 from backend.services.light_crm.workflow import complete_internal_crm_upsert
