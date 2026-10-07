@@ -1071,3 +1071,51 @@ def test_credential_reference_is_copied_into_graph_input_contract() -> None:
     cred = node["input_contract"].get("credential_reference")
     assert cred is not None
     assert "execution_constraints" not in node["input_contract"]
+
+
+def test_pass3_internal_crm_lane_is_local_ordered_and_enrichment_bound_to_persistence() -> None:
+    intent = interpret_instruction(
+        "Review the three HVAC companies already saved in Ajenda internal CRM, "
+        "qualify them, enrich the contacts, persist the qualified prospects to Ajenda internal CRM, "
+        "and read back every saved record. Do not send messages."
+    )
+
+    assert "internal_crm_source" in intent.context_requirements
+    assert {"read_crm", "qualify_prospects", "enrich_contacts", "persist_internal_crm"} <= set(
+        intent.requested_outcomes
+    )
+
+    jobs = route_jobs_for_intent(intent)
+    job_keys = {job.job_key for job in jobs}
+    assert "research.discover_prospects" not in job_keys
+    assert {
+        "crm.read_records",
+        "research.observe_sources",
+        "sales.qualify_prospects",
+        "gtm.enrich_contacts",
+        "crm.internal_persistence",
+    } <= job_keys
+
+    selections, missing = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    assert missing == []
+
+    steps = compile_planned_steps(selections, intent=intent)
+    assert [step.action_name for step in steps] == [
+        "record.search",
+        "research.observe_contacts",
+        "sales.qualify",
+        "gtm.lead_enrich",
+        "record.write",
+    ]
+
+    persist = steps[-1]
+    assert set(persist.depends_on) == {
+        "ability-research-observe_contacts",
+        "ability-sales-qualify",
+        "ability-gtm-lead_enrich",
+    }
+    assert {(item["output_path"], item["input_path"]) for item in persist.input_bindings} == {
+        ("$.observed_contacts", "$.input.context.observed_contacts"),
+        ("$.qualified_prospects", "$.input.context.qualified_prospects"),
+        ("$.enriched_prospects", "$.input.context.enriched_prospects"),
+    }
