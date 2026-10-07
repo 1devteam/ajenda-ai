@@ -209,6 +209,9 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     else:
         prospects = [dict(item) for item in payload.context.get("prospect_candidates", []) if isinstance(item, dict)]
     observed_contacts = [dict(item) for item in payload.context.get("observed_contacts", []) if isinstance(item, dict)]
+    enriched_prospects = [
+        dict(item) for item in payload.context.get("enriched_prospects", []) if isinstance(item, dict)
+    ]
     if prospects:
         persisted: list[dict[str, Any]] = []
         readback: list[dict[str, Any]] = []
@@ -229,6 +232,45 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                 if not identity:
                     raise ValueError("record.write internal CRM prospect requires a stable identity")
                 canonical_identity = identity.casefold()
+                identity_values = {
+                    str(prospect.get(key) or "").strip().casefold()
+                    for key in ("prospect_id", "id", "domain", "company", "name")
+                    if str(prospect.get(key) or "").strip()
+                }
+                matching_enrichment = next(
+                    (
+                        item
+                        for item in enriched_prospects
+                        if identity_values
+                        & {
+                            str(item.get(key) or "").strip().casefold()
+                            for key in ("prospect_id", "id", "domain", "company", "name")
+                            if str(item.get(key) or "").strip()
+                        }
+                    ),
+                    None,
+                )
+                persisted_prospect = dict(prospect)
+                if matching_enrichment is not None:
+                    enrichment_overlay = {
+                        key: value
+                        for key, value in matching_enrichment.items()
+                        if key != "context" and value not in (None, "", [], {})
+                    }
+                    raw_contacts = enrichment_overlay.get("contacts")
+                    if isinstance(raw_contacts, list):
+                        real_contacts = [
+                            dict(item)
+                            for item in raw_contacts
+                            if isinstance(item, dict)
+                            and item.get("real") is True
+                            and item.get("simulated") is not True
+                        ]
+                        if real_contacts:
+                            enrichment_overlay["contacts"] = real_contacts
+                        else:
+                            enrichment_overlay.pop("contacts", None)
+                    persisted_prospect.update(enrichment_overlay)
                 record_id = f"contact-ajenda-{hashlib.sha256(canonical_identity.encode()).hexdigest()[:20]}"
                 matching_contacts = [
                     item
@@ -241,7 +283,7 @@ def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                     }
                 ]
                 record_data = {
-                    **prospect,
+                    **persisted_prospect,
                     "id": record_id,
                     "source": "mission_composition",
                     "workflow_context": str(payload.context.get("workflow_context") or "crm"),
