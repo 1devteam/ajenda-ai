@@ -103,4 +103,4 @@ def test_assurance_metrics_are_exported() -> None:
     assert "ajenda_assurance_first_divergence_count 1" in rendered
     assert "ajenda_assurance_calibration_sample_count 3" in rendered
     assert "ajenda_assurance_calibration_aligned_count 2" in rendered
-    assert "ajenda_assurance_tenant_failure_count 1" in rendered
+    assert "ajenda_assurance_scan_failure_count 1" in rendered
