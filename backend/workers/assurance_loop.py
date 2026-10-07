@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
 import time
 
 from backend.app.config import get_settings
 from backend.db.session import DatabaseRuntime
 from backend.db.tenant_session import activate_tenant_session
-from backend.domain.assurance_snapshot import AssuranceMetricState
+from backend.domain.assurance_snapshot import AssuranceMetricState, AssuranceSnapshot
 from backend.repositories.tenant_repository import TenantRepository
 from backend.services.continuous_assurance import ContinuousAssuranceService
 
@@ -23,7 +24,7 @@ def run_once(runtime: DatabaseRuntime) -> int:
     finally:
         admin_session.close()
 
-    records_all = []
+    records_all: list[AssuranceSnapshot] = []
     for tenant_id in tenant_ids:
         session = runtime.session_factory()
         try:
@@ -68,11 +69,18 @@ def run_once(runtime: DatabaseRuntime) -> int:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--once", action="store_true", help="Run one assurance cycle and exit.")
+    args = parser.parse_args()
     settings = get_settings()
     runtime = DatabaseRuntime(settings)
     interval = max(30.0, float(settings.assurance_interval_seconds))
-    logger.info("continuous_assurance_started", extra={"interval_seconds": interval})
+    logger.info("continuous_assurance_started", extra={"interval_seconds": interval, "once": args.once})
     try:
+        if args.once:
+            count = run_once(runtime)
+            logger.info("continuous_assurance_cycle_completed", extra={"snapshot_count": count})
+            return 0
         while True:
             count = run_once(runtime)
             logger.info("continuous_assurance_cycle_completed", extra={"snapshot_count": count})
