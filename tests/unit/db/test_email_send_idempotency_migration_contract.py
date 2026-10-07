@@ -11,7 +11,7 @@ def test_email_send_idempotency_migration_is_current_head_and_short_revision_id(
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0048_profile_reversion"]
+    assert heads == ["0049_continuous_assurance"]
     assert len(heads[0]) <= 32
 
 
