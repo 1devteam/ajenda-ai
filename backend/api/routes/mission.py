@@ -224,7 +224,6 @@ MissionLaunchResponse = _mission_contracts.MissionLaunchResponse
 MissionCancelRequest = _mission_contracts.MissionCancelRequest
 
 
-
 _CLIENT_FORGED_ADMISSION_IDENTITIES = frozenset(
     {
         "mission-dispatch-ui",
@@ -248,7 +247,6 @@ def _server_admitted_by(*, request: Request, body_admitted_by: str | None) -> st
     if candidate and candidate.lower() not in _CLIENT_FORGED_ADMISSION_IDENTITIES:
         return candidate
     return "server:runtime_admission"
-
 
 
 def _task_graph_fingerprint(
