@@ -1,0 +1,82 @@
+{
+  "schema_version": 2,
+  "artifact_kind": "graft_plus_frontier",
+  "proposal_id": "ajenda-filesystem-shadow-v1",
+  "target_outcome": "Evaluate repository-wide service neighborhoods before additional Ajenda filesystem materialization",
+  "status": "experimental",
+  "source_of_truth": "Ajenda canonical dependency graph federated with completeness, runtime-contract, GRAFT1st, lifecycle, and drift-control evidence",
+  "owner": {
+    "accountable": "Ajenda product owner",
+    "technical": "GRAFT filesystem interpreter",
+    "review": "architecture-runtime-governance"
+  },
+  "artifact_root": "artifacts/frontier/ajenda-filesystem-shadow-v1",
+  "hypotheses": [
+    "The flat backend/services surface contains latent bounded contexts whose materialization can reduce architectural boundary noise without changing runtime authority",
+    "An authority-aware hybrid layout will preserve shared control-plane hubs better than aggressive bounded-context packaging",
+    "Federating other GRAFT evidence can distinguish structural neighbors from true filesystem residents before source files move"
+  ],
+  "candidate_paths": [
+    "current_layout_baseline",
+    "bounded_context_projection",
+    "authority_aware_hybrid_projection"
+  ],
+  "unknowns": [
+    "Whether reduced projected cross-boundary edges correspond to improved maintenance locality rather than cosmetic boundary relabeling",
+    "Which high-centrality service modules are true shared authorities versus historically misplaced domain residents",
+    "Whether package materialization changes static-cycle shape once real imports are rewritten"
+  ],
+  "expected_failure_modes": [
+    "A proposed package hides a shared authority inside one bounded context",
+    "Projected boundary reduction does not survive real module relocation and import rewriting",
+    "A candidate layout reduces cross-boundary counts while increasing cycle risk or proof burden"
+  ],
+  "invariants": [
+    "Runtime and execution authority remain unchanged",
+    "Tenant isolation and governed egress remain unchanged",
+    "No candidate layout is treated as implementation truth before canonical GRAFT re-analysis"
+  ],
+  "authority_boundaries": [
+    "Planning and topology analysis only",
+    "No source mutation by Frontier analysis",
+    "No runtime effects",
+    "Canonical GRAFT and normal CI remain required after any materialized move"
+  ],
+  "experiments": [
+    {
+      "id": "filesystem-shadow-1",
+      "success_signal": "At least one candidate layout reduces projected boundary cost while retaining identified shared authorities outside bounded contexts",
+      "measurement": "Compare projected cross-boundary edges, neighborhood cohesion, authority-hub placement, cycle membership, runtime-consumption witnesses, GRAFT1st ownership proofs, and unresolved assignments",
+      "artifact_path": "artifacts/frontier/ajenda-filesystem-shadow-v1/filesystem-shadow-1.json",
+      "rollback": "Reject the candidate projection and retain the current filesystem"
+    },
+    {
+      "id": "filesystem-shadow-2",
+      "success_signal": "A bounded materialization selected from the strongest projection preserves canonical GRAFT integrity and does not expand static cycles",
+      "measurement": "Materialize one reviewed neighborhood, rebuild canonical GRAFT, and compare observed topology with the pre-move Shadow projection",
+      "artifact_path": "artifacts/frontier/ajenda-filesystem-shadow-v1/filesystem-shadow-2.json",
+      "rollback": "Revert the bounded filesystem materialization"
+    }
+  ],
+  "evidence_policy": {
+    "required_artifacts": [
+      "frontier-validation.json",
+      "frontier-side-by-side.json",
+      "filesystem-shadow-1.json",
+      "filesystem-shadow-2.json"
+    ],
+    "retention": "Retain through candidate rejection, promotion, or supersession so projected and observed topology remain comparable"
+  },
+  "promotion_criteria": [
+    "Frontier proposal validates under schema v2",
+    "Candidate topology is reproducible from canonical graph and federated GRAFT evidence",
+    "Shared authority hubs remain explicitly visible",
+    "Materialized neighborhood passes standard GRAFT+ impact, proof, completeness, and architecture decision",
+    "Observed post-move topology does not expand static cycles or authority risk"
+  ],
+  "rollback": {
+    "kill_switch": "Reject ajenda-filesystem-shadow-v1 and retain the current filesystem"
+  },
+  "grants_runtime_authority": false,
+  "runtime_effects": []
+}

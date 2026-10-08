@@ -277,9 +277,12 @@ def _disposition(ranked: list[dict[str, Any]], risk: dict[str, Any]) -> dict[str
     }
 
 
-def build_projection() -> dict[str, Any]:
-    graph = build_graph()
-    audit = audit_graph(graph)
+def build_projection(
+    graph: dict[str, Any] | None = None,
+    audit: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    graph = graph or build_graph()
+    audit = audit or audit_graph(graph)
     nodes = _node_map(graph)
     by_source = _source_nodes(graph)
     metrics = _metric_map(audit)

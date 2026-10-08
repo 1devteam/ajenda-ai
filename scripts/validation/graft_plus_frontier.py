@@ -6,8 +6,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+VALIDATION_DIR = Path(__file__).resolve().parent
+if str(VALIDATION_DIR) not in sys.path:
+    sys.path.insert(0, str(VALIDATION_DIR))
+
+from frontier_preflight import run_frontier_preflight  # noqa: E402
 
 REQUIRED_LIST_FIELDS = (
     "hypotheses",
@@ -196,6 +203,19 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        preflight = run_frontier_preflight()
+        if not preflight["ok"]:
+            report = {
+                "schema_version": FRONTIER_SCHEMA_VERSION,
+                "status": "failed",
+                "artifact_kind": "graft_plus_frontier_validation",
+                "errors": ["Frontier repository preflight failed"],
+                "preflight": preflight,
+            }
+            args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            print("Frontier GRAFT+ validation: failed preflight")
+            return 1
+
         spec = _load_object(args.frontier_spec, "frontier spec")
         impact = _load_object(args.impact_report, "impact report")
         errors = validate_frontier_spec(spec)
@@ -217,6 +237,7 @@ def main() -> int:
                 "required_artifacts": spec.get("evidence_policy", {}).get("required_artifacts", []),
                 "durable_artifact_required": spec.get("schema_version") == FRONTIER_SCHEMA_VERSION,
             },
+            "preflight": preflight,
         }
         args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         args.comparison_output.write_text(
