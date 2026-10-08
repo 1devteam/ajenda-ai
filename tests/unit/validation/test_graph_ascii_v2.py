@@ -16,7 +16,6 @@ sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 
-
 def test_ascii_v2_round_trips_topology_with_source_dictionary() -> None:
     graph = {
         "schema_version": "test",
