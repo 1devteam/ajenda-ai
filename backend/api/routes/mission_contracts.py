@@ -23,6 +23,7 @@ GraphValidationCheckStatus = Literal["passed", "warning", "failed"]
 GraphGenerationMode = Literal["manual", "deterministic", "planner_assisted"]
 RuntimeAdmissionStatus = Literal["draft", "validated", "admitted", "rejected", "superseded"]
 
+
 class MissionSuccessCriterion(BaseModel):
     """A measurable outcome signal for mission completion."""
 
@@ -47,6 +48,7 @@ class MissionSuccessCriterion(BaseModel):
             raise ValueError("success criterion evidence entries must be non-empty")
         return normalized
 
+
 class MissionConstraint(BaseModel):
     """A mission intake constraint for future planning."""
 
@@ -64,6 +66,7 @@ class MissionConstraint(BaseModel):
             raise ValueError("constraint text fields must be non-empty")
         return value
 
+
 class MissionBudgetLimits(BaseModel):
     """Optional budget/scope limits captured at intake without enforcing runtime dispatch."""
 
@@ -78,6 +81,7 @@ class MissionBudgetLimits(BaseModel):
         if self.max_tasks is None and self.max_runtime_minutes is None and self.max_cost_usd is None:
             raise ValueError("at least one budget limit is required when budget_limits is provided")
         return self
+
 
 class MissionCreate(BaseModel):
     """Mission intake request accepted from tenant-authenticated callers."""
@@ -134,6 +138,7 @@ class MissionCreate(BaseModel):
             raise ValueError("list entries must be unique")
         return normalized
 
+
 class MissionPlanStage(BaseModel):
     """A durable, operator-visible stage inside a mission plan phase."""
 
@@ -158,6 +163,7 @@ class MissionPlanStage(BaseModel):
     def _normalize_string_list(cls, value: list[str]) -> list[str]:
         return _normalize_unique_string_list(value)
 
+
 class MissionPlanPhase(BaseModel):
     """A planning phase; not a persisted DAG node and not runtime orchestration."""
 
@@ -174,6 +180,7 @@ class MissionPlanPhase(BaseModel):
         if not value:
             raise ValueError("phase text fields must be non-empty")
         return value
+
 
 class MissionDesiredOutput(BaseModel):
     """Expected mission output for later evidence/outcome review layers."""
@@ -197,6 +204,7 @@ class MissionDesiredOutput(BaseModel):
     def _normalize_acceptance_criteria(cls, value: list[str]) -> list[str]:
         return _normalize_unique_string_list(value)
 
+
 class MissionCapabilityRequirement(BaseModel):
     """Capability intent without enforcing a capability registry yet."""
 
@@ -214,6 +222,7 @@ class MissionCapabilityRequirement(BaseModel):
         if not value:
             raise ValueError("capability requirement text fields must be non-empty")
         return value
+
 
 class MissionApprovalGate(BaseModel):
     """Human/operator approval intent captured before future execution layers."""
@@ -233,6 +242,7 @@ class MissionApprovalGate(BaseModel):
             raise ValueError("approval gate text fields must be non-empty")
         return value
 
+
 class MissionEstimatedScope(BaseModel):
     """Estimated planning scope; advisory only and not quota enforcement."""
 
@@ -242,6 +252,7 @@ class MissionEstimatedScope(BaseModel):
     estimated_runtime_minutes: int | None = Field(default=None, ge=1)
     estimated_cost_usd: float | None = Field(default=None, ge=0)
     complexity: Literal["low", "medium", "high", "unknown"] = "unknown"
+
 
 class MissionRiskAnnotation(BaseModel):
     """Risk annotation for future governance/evidence layers."""
@@ -262,6 +273,7 @@ class MissionRiskAnnotation(BaseModel):
         if not value:
             raise ValueError("risk annotation text fields must be non-empty when provided")
         return value
+
 
 class MissionPlanWrite(BaseModel):
     """Create/update mission plan contract; persistence only, never runtime dispatch."""
@@ -288,6 +300,7 @@ class MissionPlanWrite(BaseModel):
         if not value:
             raise ValueError("planning notes must be non-empty when provided")
         return value
+
 
 class MissionPlanStep(BaseModel):
     """Lightweight planned step contract; not a task graph node or execution task."""
@@ -324,6 +337,7 @@ class MissionPlanStep(BaseModel):
         except (TypeError, ValueError) as exc:
             raise ValueError("planned step metadata must be JSON-safe") from exc
 
+
 class MissionPlanCreate(BaseModel):
     """Durable mission planning contract request; persistence only, never execution."""
 
@@ -354,6 +368,7 @@ class MissionPlanCreate(BaseModel):
                 raise ValueError("planned step cannot depend on itself")
         return self
 
+
 class MissionTaskGraphRead(BaseModel):
     """Normalized task graph response stored on mission metadata."""
 
@@ -365,6 +380,7 @@ class MissionTaskGraphRead(BaseModel):
     nodes: list[dict[str, Any]]
     edges: list[dict[str, Any]]
     metadata: dict[str, Any]
+
 
 class GraphPlannerProvenance(BaseModel):
     """Planner identity and input provenance for graph materialization."""
@@ -381,6 +397,7 @@ class GraphPlannerProvenance(BaseModel):
     @classmethod
     def _normalize_optional_text(cls, value: str | None) -> str | None:
         return _normalize_optional_non_empty_text(value, "planner provenance text fields must be non-empty")
+
 
 class GraphCapabilitySelectionProvenance(BaseModel):
     """Why a capability was selected for a planned graph node."""
@@ -411,6 +428,7 @@ class GraphCapabilitySelectionProvenance(BaseModel):
             raise ValueError("capability selection requires capability_id or capability_name")
         return self
 
+
 class GraphValidationCheck(BaseModel):
     """One structured graph validation check outcome."""
 
@@ -424,6 +442,7 @@ class GraphValidationCheck(BaseModel):
     @classmethod
     def _normalize_optional_text(cls, value: str | None) -> str | None:
         return _normalize_optional_non_empty_text(value, "graph validation check text fields must be non-empty")
+
 
 class GraphValidationResult(BaseModel):
     """Structured validation result for the generated graph contract."""
@@ -443,6 +462,7 @@ class GraphValidationResult(BaseModel):
             raise ValueError("graph validation summary is required")
         return value
 
+
 class GraphOperatorReview(BaseModel):
     """Operator approval/review state for materialized graph contracts."""
 
@@ -457,6 +477,7 @@ class GraphOperatorReview(BaseModel):
     @classmethod
     def _normalize_optional_text(cls, value: str | None) -> str | None:
         return _normalize_optional_non_empty_text(value, "operator review text fields must be non-empty")
+
 
 class GraphGenerationMetadata(BaseModel):
     """How the graph contract was generated from planner output."""
@@ -474,6 +495,7 @@ class GraphGenerationMetadata(BaseModel):
     @classmethod
     def _normalize_optional_text(cls, value: str | None) -> str | None:
         return _normalize_optional_non_empty_text(value, "graph generation text fields must be non-empty")
+
 
 class DeterministicCompilationMetadata(BaseModel):
     """Compilation boundaries that make graph generation reproducible."""
@@ -493,6 +515,7 @@ class DeterministicCompilationMetadata(BaseModel):
     @classmethod
     def _normalize_optional_text(cls, value: str | None) -> str | None:
         return _normalize_optional_non_empty_text(value, "deterministic compilation text fields must be non-empty")
+
 
 class GraphMaterializationWrite(BaseModel):
     """Create/update planner-to-graph materialization metadata; never runtime execution."""
@@ -525,6 +548,7 @@ class GraphMaterializationWrite(BaseModel):
     def _normalize_notes(cls, value: list[str]) -> list[str]:
         return _normalize_unique_string_list(value)
 
+
 class GraphMaterializationRead(BaseModel):
     """Graph materialization response envelope stored on mission metadata."""
 
@@ -532,6 +556,7 @@ class GraphMaterializationRead(BaseModel):
     tenant_id: str
     materialization: dict[str, Any]
     updated_at: str
+
 
 class RuntimeAdmissionNodeSelection(BaseModel):
     """One mission graph node selected for future runtime admission."""
@@ -548,6 +573,7 @@ class RuntimeAdmissionNodeSelection(BaseModel):
     @classmethod
     def _normalize_optional_text(cls, value: str | None) -> str | None:
         return _normalize_optional_non_empty_text(value, "runtime admission node fields must be non-empty")
+
 
 class RuntimeAdmissionWrite(BaseModel):
     """Create/update graph-to-runtime admission metadata without queue authority.
@@ -584,6 +610,7 @@ class RuntimeAdmissionWrite(BaseModel):
             raise ValueError("runtime admission selected node keys must be unique")
         return self
 
+
 class RuntimeAdmissionRead(BaseModel):
     """Runtime admission response envelope stored on mission metadata."""
 
@@ -591,6 +618,7 @@ class RuntimeAdmissionRead(BaseModel):
     tenant_id: str
     runtime_admission: dict[str, Any]
     updated_at: str
+
 
 class MissionPlanRead(BaseModel):
     """Mission plan response envelope for durable plans and legacy metadata plans."""
@@ -603,6 +631,7 @@ class MissionPlanRead(BaseModel):
     status: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str | None = None
+
 
 class MissionRead(BaseModel):
     """Mission intake response contract."""
@@ -618,6 +647,7 @@ class MissionRead(BaseModel):
     created_at: str
     updated_at: str
 
+
 class MissionListItem(BaseModel):
     """Compact mission summary for tenant mission lists."""
 
@@ -629,6 +659,7 @@ class MissionListItem(BaseModel):
     created_at: str
     updated_at: str
 
+
 class MissionListResponse(BaseModel):
     """Tenant-scoped mission list envelope."""
 
@@ -636,6 +667,7 @@ class MissionListResponse(BaseModel):
     count: int
     total_count: int = Field(default=0, ge=0)
     completed_count: int = Field(default=0, ge=0)
+
 
 class MissionLifecycleCompleteness(BaseModel):
     """Contract-layer presence indicators for a mission lifecycle."""
@@ -650,6 +682,7 @@ class MissionLifecycleCompleteness(BaseModel):
     has_memory_promotions: bool
     has_retrieval_contracts: bool
 
+
 class MissionLifecycleMissionSummary(BaseModel):
     """Compact mission identity and status for lifecycle reads."""
 
@@ -662,6 +695,7 @@ class MissionLifecycleMissionSummary(BaseModel):
     created_at: str
     updated_at: str
 
+
 class MissionLifecycleEvidenceItem(BaseModel):
     """Compact evidence row included in the mission lifecycle read model."""
 
@@ -673,11 +707,13 @@ class MissionLifecycleEvidenceItem(BaseModel):
     created_at: str
     updated_at: str
 
+
 class MissionLifecycleEvidenceSummary(BaseModel):
     """Evidence summary for the mission lifecycle read model."""
 
     count: int
     records: list[MissionLifecycleEvidenceItem]
+
 
 class MissionLifecycleOutcomeReviewItem(BaseModel):
     """Compact outcome review row included in the mission lifecycle read model."""
@@ -690,17 +726,20 @@ class MissionLifecycleOutcomeReviewItem(BaseModel):
     created_at: str
     updated_at: str
 
+
 class MissionLifecycleOutcomeReviewSummary(BaseModel):
     """Outcome review summary for the mission lifecycle read model."""
 
     count: int
     records: list[MissionLifecycleOutcomeReviewItem]
 
+
 class MissionLifecycleMemoryPromotionSummary(BaseModel):
     """Memory promotion summary for the mission lifecycle read model."""
 
     count: int
     records: list[dict[str, Any]]
+
 
 class MissionLifecycleRetrievalContractItem(BaseModel):
     """Compact retrieval contract row included in the mission lifecycle read model."""
@@ -712,11 +751,13 @@ class MissionLifecycleRetrievalContractItem(BaseModel):
     created_at: str
     updated_at: str
 
+
 class MissionLifecycleRetrievalContractSummary(BaseModel):
     """Retrieval contract summary for the mission lifecycle read model."""
 
     count: int
     records: list[MissionLifecycleRetrievalContractItem]
+
 
 class MissionLifecycleRead(BaseModel):
     """Read-only aggregation of the mission product-layer lifecycle."""
@@ -737,6 +778,7 @@ class MissionLifecycleRead(BaseModel):
     # Optional product close-out (evidence review, outcome, memory, retrieval) — not pipeline failure.
     optional_closeout_steps: list[str] = Field(default_factory=list)
 
+
 class MissionTimelineEvent(BaseModel):
     """Normalized read-only timeline event for mission explainability."""
 
@@ -745,6 +787,7 @@ class MissionTimelineEvent(BaseModel):
     stage: str
     source: str
     details: dict[str, Any] = Field(default_factory=dict)
+
 
 class MissionTimelineRead(BaseModel):
     """Read-only mission timeline aggregation across mission/runtime/governance surfaces."""
@@ -756,10 +799,12 @@ class MissionTimelineRead(BaseModel):
     does_not_execute_runtime_work: bool = True
     events: list[MissionTimelineEvent]
 
+
 class MissionQueueResponse(BaseModel):
     queued_task_ids: list[str]
     pending_review_task_ids: list[str]
     denied_tasks: list[dict[str, str | None]]
+
 
 class RuntimeQueueAdmissionResponse(MissionQueueResponse):
     """Queue admission response for current materialized runtime tasks."""
@@ -770,6 +815,7 @@ class RuntimeQueueAdmissionResponse(MissionQueueResponse):
     blockers: list[dict[str, Any]]
     runtime_queue_admission: dict[str, Any]
 
+
 class BridgeRuntimeAuthorityNode(BaseModel):
     """Capability/adapter authority provisioned for one mission graph node."""
 
@@ -779,12 +825,14 @@ class BridgeRuntimeAuthorityNode(BaseModel):
     adapter_id: str
     capability_name: str
 
+
 class BridgeRuntimeAuthorityRead(BaseModel):
     """Response envelope for mission bridge runtime authority provisioning."""
 
     mission_id: UUID
     tenant_id: str
     node_authorities: list[BridgeRuntimeAuthorityNode]
+
 
 def _normalize_unique_string_list(value: list[str]) -> list[str]:
     normalized = [item.strip() for item in value]
@@ -794,6 +842,7 @@ def _normalize_unique_string_list(value: list[str]) -> list[str]:
         raise ValueError("list entries must be unique")
     return normalized
 
+
 def _normalize_optional_non_empty_text(value: str | None, message: str) -> str | None:
     if value is None:
         return None
@@ -801,6 +850,7 @@ def _normalize_optional_non_empty_text(value: str | None, message: str) -> str |
     if not value:
         raise ValueError(message)
     return value
+
 
 class MissionCompileRequest(BaseModel):
     """Client may supply intent only — never a client-built graph."""
@@ -810,6 +860,7 @@ class MissionCompileRequest(BaseModel):
     instruction: str | None = Field(default=None, max_length=8000)
     persist: bool = True
     source: str = Field(default="mission_compile", min_length=1, max_length=80)
+
 
 class MissionCompileResponse(BaseModel):
     """Server-owned compile package for an existing mission."""
@@ -835,6 +886,7 @@ class MissionCompileResponse(BaseModel):
     runtime_queued: bool = False
     next_steps: list[str] = Field(default_factory=list)
 
+
 class MissionLaunchResponse(BaseModel):
     """Receipt for the explicit compile-to-queue mission launch orchestration."""
 
@@ -850,8 +902,10 @@ class MissionLaunchResponse(BaseModel):
     blockers: list[dict[str, Any]] = Field(default_factory=list)
     idempotency_key: str | None = None
 
+
 class MissionCancelRequest(BaseModel):
     reason: str = Field(default="Stopped by operator", min_length=1, max_length=500)
+
 
 __all__ = [
     "BridgeRuntimeAuthorityNode",
