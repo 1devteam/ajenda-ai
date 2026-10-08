@@ -1,6 +1,6 @@
 # Ajenda Pass 4 — HubSpot Provider Lane Closure
 
-Status: implementation and live proof complete on the final branch SHA recorded below.
+Status: implementation corrected after PR review; repository validation and the credentialed live replay proof must be rerun on the current PR head before merge.
 
 ## Baseline and scope
 
@@ -21,10 +21,10 @@ Status: implementation and live proof complete on the final branch SHA recorded 
 | HubSpot adapter/ingress | `services/hubspot_crm_adapter/*` | TLS ingress and governed egress reach the real HubSpot API | Proven |
 | Real provider read | `StandardCrmClient.search`, `sales.research` | Real company and contact records, provider identity and status retained | Proven |
 | Governed provider write | `gtm.crm_upsert`, `ExecutionCoordinator` | Pending review, machine denial, owner approval, payload-bound grant, queue, worker | Proven |
-| Effect verification | `StandardCrmClient.readback`, adapter read endpoint | Provider ID, desired write, GET read-back, verified result | Proven |
+| Effect verification | `StandardCrmClient.readback`, adapter read endpoint | Provider ID plus provider-returned requested properties are compared against GET read-back; mismatches fail closed | Implemented; regression covered |
 | Evidence and deliverable | runtime evidence and deliverable projection | Typed artifacts, evidence lineage, customer-readable deliverable | Proven |
 | Reconciliation | queue/runtime evidence and acceptance services | Acceptance met, queue admitted, no pending review, runtime reconciliation aligned | Proven |
-| Idempotency | `gtm.crm_upsert`, adapter identity lookup | Stable row idempotency key is propagated; HubSpot duplicate prevention is identity lookup, not a claimed native HubSpot idempotency guarantee | Proven at Ajenda boundary; provider guarantee documented |
+| Idempotency | mission/task materialization, `gtm.crm_upsert`, adapter identity lookup | Stable launch/write identity is propagated; the live proof now replays the same completed mission and requires zero new tasks/queue admissions plus the same verified HubSpot record ID | Implemented; live replay rerun required |
 | Retry/recovery | queue, lease, dispatcher, recovery services | Existing recovery/unit/integration gates selected; no second recovery architecture added | Existing platform proof; provider-specific fault injection remains deferred |
 | Tenant isolation | API/service/repository boundaries | Second tenant cannot approve or read the first tenant's mission evidence | Proven in public proof |
 
@@ -97,18 +97,18 @@ The final repository-wide validation commands and their exact results are record
 The post-run graph was regenerated against the final changed-file set:
 
 - 1,632 nodes and 4,706 edges.
-- 22 changed-file inputs, 67 changed graph nodes, 152 affected semantic nodes, 226 downstream dependencies, 336 upstream consumers, 197 impacted tests, 9 invariants, and 3 risk domains.
+- 21 changed-file inputs at the reviewed PR head, 67 changed graph nodes, 152 affected semantic nodes, 226 downstream dependencies, 336 upstream consumers, 197 impacted tests, 9 invariants, and 3 risk domains.
 - The only unmapped files were the intentional proof entry point and this closure document; no production, runtime, authority, or provider file was unmapped.
 - The first live divergences (quantity parsing, declared artifact production, bridge credential location, provider payload projection, action provider contract, and review-hold reconciliation) were all represented by the predicted composition/provider/runtime risk domains and repaired at their canonical owners.
 - GRAFT selection was sufficient to identify the final production repair surfaces; the live proof supplied the missing runtime evidence needed to justify the bridge and post-approval reconciliation repairs.
 
-## Final validation results
+## Previously recorded validation results
 
 - `ruff check backend/ tests/ scripts/validation/`: passed.
 - `ruff format --check backend/ tests/ scripts/validation/`: passed; 1,025 files formatted.
 - `mypy backend/`: passed; 439 source files.
 - Contract drift, runtime-authority inventory, migration/seed, ability-rollout, and GRAFT reconciliation checks: passed.
-- `python -m pytest tests/unit/ tests/contract/ tests/deployment/ -m "not integration"`: 3,181 passed, 1 deselected.
+- Before the review corrections, `python -m pytest tests/unit/ tests/contract/ tests/deployment/ -m "not integration"` recorded 3,181 passed, 1 deselected. The current PR head adds a read-back mismatch regression and must be rerun before merge.
 - The targeted HubSpot credential integration test was updated for read-back and skipped in this shell because the testcontainers Docker daemon was unavailable; the dedicated real Docker worker proof above passed.
 
 ## Deferred scope
@@ -117,4 +117,4 @@ The post-run graph was regenerated against the final changed-file set:
 - Native provider-side idempotency guarantees, because HubSpot CRM v3 exposes no native idempotency endpoint in this lane.
 - Provider fault-injection campaigns that require a controlled HubSpot timeout/5xx or downstream persistence failure after a successful remote mutation.
 
-Final branch SHA: `330833c653abf2817fdce95d564037794e6b18f4`.
+Review correction: `330833c653abf2817fdce95d564037794e6b18f4` was an intermediate local validation SHA and was not the GitHub PR head. The reviewed PR head was `e4dffa72205e6e49283a78cc46d5c4010e135070`; subsequent corrective commits are authoritative from the PR branch itself, so this document intentionally does not embed a self-referential "final SHA".
