@@ -126,6 +126,7 @@ class HubSpotClient:
                 "hubspot_object_type": object_type,
                 "id": existing_id,
                 "created": False,
+                "requested_properties": properties,
                 "properties": updated.get("properties", properties),
             }
 
@@ -138,6 +139,7 @@ class HubSpotClient:
             "hubspot_object_type": object_type,
             "id": created_id,
             "created": True,
+            "requested_properties": properties,
             "properties": created.get("properties", properties),
         }
 
