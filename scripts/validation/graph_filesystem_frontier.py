@@ -17,14 +17,16 @@ for candidate in (REPO_ROOT, VALIDATION_DIR):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from backend.services.graft_artifact_lifecycle import GRAFT_ARTIFACT_LIFECYCLE_CONTRACTS  # noqa: E402
 from build_dependency_graph import build_graph  # noqa: E402
+from frontier_preflight import run_frontier_preflight  # noqa: E402
 from graft_drift_controls import GRAPH_COMPONENTS  # noqa: E402
 from graft_plus_frontier import validate_frontier_spec  # noqa: E402
 from graft_plus_graft1st_reconciliation_check import IMPLEMENTATION_PROOFS, validate_conformance  # noqa: E402
 from graph_completeness_audit import architectural_boundary, audit_graph  # noqa: E402
 from graph_filesystem_projection import build_projection  # noqa: E402
 from graph_runtime_contract_consumption import adjudicate_runtime_contracts_with_consumption  # noqa: E402
+
+from backend.services.graft_artifact_lifecycle import GRAFT_ARTIFACT_LIFECYCLE_CONTRACTS  # noqa: E402
 
 SERVICE_ROOT = "backend/services/"
 
@@ -237,7 +239,7 @@ def build_shadow(frontier_spec: dict[str, Any]) -> dict[str, Any]:
     for candidate_name, assignments in CANDIDATES.items():
         state = _candidate_state(graph=graph, assignments=assignments, audit=audit)
         raw_states[candidate_name] = state
-        for source, boundary in assignments.items():
+        for _source_name, boundary in assignments.items():
             all_boundaries.add(f"backend:services:{boundary}")
         all_boundaries.update(
             _projected_boundary(node, assignments)
@@ -349,8 +351,20 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
+    preflight = run_frontier_preflight()
+    if not preflight["ok"]:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(
+            json.dumps({"v": 1, "k": "graft_frontier_filesystem_shadow", "ok": False, "pf": preflight},
+                       sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        print("Frontier filesystem Shadow: preflight failed")
+        return 1
+
     spec = json.loads(args.frontier_spec.read_text(encoding="utf-8"))
     artifact = build_shadow(spec)
+    artifact["pf"] = preflight
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(artifact, sort_keys=True, separators=(",", ":")) + "\n",
