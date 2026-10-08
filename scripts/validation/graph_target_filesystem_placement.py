@@ -78,11 +78,7 @@ def _rows(target: dict[str, Any]) -> list[tuple[str, str, int, int]]:
 
 
 def _flat_service_files() -> set[str]:
-    return {
-        path.name
-        for path in (REPO_ROOT / SERVICE_ROOT).glob("*.py")
-        if path.name != "__init__.py"
-    }
+    return {path.name for path in (REPO_ROOT / SERVICE_ROOT).glob("*.py") if path.name != "__init__.py"}
 
 
 def _module(path: str) -> str | None:
