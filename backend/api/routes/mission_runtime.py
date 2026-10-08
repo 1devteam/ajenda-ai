@@ -8,7 +8,6 @@ from uuid import UUID
 from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
-from backend.api.routes._authorization import require_route_permission
 from backend.api.routes.mission_contracts import BridgeRuntimeAuthorityRead, RuntimeAdmissionRead
 from backend.auth.permissions import Permission
 from backend.domain.mission import (
@@ -122,6 +121,7 @@ class RuntimeRouteDependencies:
     quota_enforcement_service_cls: Any
     execution_coordinator_cls: Any
     provision_bridge_runtime_authority: Any
+    require_route_permission: Any
 
 
 def _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
@@ -220,7 +220,7 @@ def materialize_mission_runtime_tasks(
     deps: RuntimeRouteDependencies,
 ) -> RuntimeTaskMaterializationRead:
     """Create planned ExecutionTask rows from a ready admitted mission graph without queueing work."""
-    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
+    deps.require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
     return cast(
         RuntimeTaskMaterializationRead,
         deps.task_materialization_service_cls(
@@ -293,7 +293,7 @@ def worker_claim_admission(
     deps: RuntimeRouteDependencies,
 ) -> WorkerClaimAdmissionRead:
     """Deprecated: daemon workers exclusively own queue claim authority."""
-    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
+    deps.require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
     raise HTTPException(
         status_code=410,
         detail="HTTP worker claim admission was removed; queued work is claimed by the daemon worker.",
@@ -329,7 +329,7 @@ def worker_start_admission(
     deps: RuntimeRouteDependencies,
 ) -> WorkerStartAdmissionRead:
     """Deprecated: daemon workers exclusively own execution start authority."""
-    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
+    deps.require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
     raise HTTPException(
         status_code=410,
         detail="HTTP worker start admission was removed; claimed work is started by the daemon worker.",
@@ -365,7 +365,7 @@ def worker_run_admission(
     deps: RuntimeRouteDependencies,
 ) -> WorkerRunAdmissionRead:
     """Deprecated: daemon workers exclusively own dispatcher execution authority."""
-    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
+    deps.require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
     raise HTTPException(
         status_code=410,
         detail="HTTP worker run admission was removed; running work is dispatched by the daemon worker.",
@@ -402,7 +402,7 @@ def runtime_queue_admission(
     deps: RuntimeRouteDependencies,
 ) -> dict[str, object]:
     """Queue eligible planned tasks from the current runtime task materialization."""
-    require_route_permission(request=request, db=db, permission=Permission.EXECUTION_QUEUE, tenant_id=tenant_id)
+    deps.require_route_permission(request=request, db=db, permission=Permission.EXECUTION_QUEUE, tenant_id=tenant_id)
     return admit_mission_runtime_queue(
         mission_id=mission_id,
         tenant_id=tenant_id,
@@ -436,7 +436,7 @@ def provision_mission_bridge_runtime_authority(
     deps: RuntimeRouteDependencies,
 ) -> BridgeRuntimeAuthorityRead:
     """Provision tenant-scoped capability/adapter authority for mission bridge tool.invoke nodes."""
-    require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
+    deps.require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
     principal = getattr(request.state, "principal", None)
     admitted_by = str(getattr(principal, "subject_id", "mission-bridge-ui")).strip() or "mission-bridge-ui"
     result = deps.provision_bridge_runtime_authority(
