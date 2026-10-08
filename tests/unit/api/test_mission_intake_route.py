@@ -120,9 +120,9 @@ def test_mission_intake_creates_tenant_owned_mission_without_queueing_runtime_wo
     quota_svc = MagicMock()
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
         patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
@@ -1058,9 +1058,9 @@ def test_graph_materialization_persists_metadata_without_queueing_or_runtime_cal
     capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(id=capability_id)
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
@@ -1110,7 +1110,7 @@ def test_graph_materialization_read_uses_tenant_scoped_repository_query() -> Non
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+    with patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo):
         response = client.get(f"/v1/missions/{mission_id}/materialization")
 
     assert response.status_code == 200
@@ -1126,7 +1126,7 @@ def test_graph_materialization_read_hides_cross_tenant_mission() -> None:
     repo = MagicMock()
     repo.get_for_tenant.return_value = None
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+    with patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo):
         response = client.get(f"/v1/missions/{mission_id}/materialization")
 
     assert response.status_code == 404
@@ -1156,8 +1156,8 @@ def test_graph_materialization_update_increments_version_and_preserves_existing_
     repo.update_metadata.side_effect = _update_metadata
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
-        patch("backend.api.routes.mission.CapabilityRepository") as capability_repo_cls,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository") as capability_repo_cls,
     ):
         response = client.post(
             f"/v1/missions/{mission_id}/materialize-graph",
@@ -1185,7 +1185,7 @@ def test_graph_materialization_rejects_missing_task_graph() -> None:
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=repo):
+    with patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo):
         response = client.post(
             f"/v1/missions/{mission_id}/materialize-graph",
             json=_valid_materialization_payload(),
@@ -1209,8 +1209,8 @@ def test_graph_materialization_rejects_missing_capability_id() -> None:
     capability_repo.get_visible_for_tenant.return_value = None
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
     ):
         response = client.post(
             f"/v1/missions/{mission_id}/materialize-graph",
@@ -1231,7 +1231,7 @@ def test_graph_materialization_validation_requires_structured_validation_summary
     payload["graph_validation_result"] = {"validation_status": "valid", "summary": " "}
 
     mission = _mission_with_task_graph(tenant_id, mission_id)
-    with patch("backend.api.routes.mission.MissionRepository") as repo_cls:
+    with patch("backend.api.routes.mission_runtime.MissionRepository") as repo_cls:
         repo_cls.return_value.get_for_tenant.return_value = mission
         response = client.post(f"/v1/missions/{mission_id}/materialize-graph", json=payload)
 
@@ -1278,10 +1278,10 @@ def test_runtime_admission_rejects_capability_override_conflicting_with_material
     )
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
@@ -1341,10 +1341,10 @@ def test_runtime_admission_rejects_unregistered_name_only_capability_reference()
     capability_repo.get_conflict_for_scope.return_value = None
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
@@ -1399,8 +1399,8 @@ def test_materialization_update_supersedes_existing_runtime_admission() -> None:
     repo.update_metadata.side_effect = _update_metadata
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
@@ -1468,10 +1468,10 @@ def test_runtime_admission_resets_admitted_at_after_supersession() -> None:
     capability_repo.get_visible_for_tenant.return_value = SimpleNamespace(id=capability_id, tenant_id=str(tenant_id))
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
@@ -1551,11 +1551,11 @@ def test_mission_lifecycle_returns_contract_metadata_and_related_summaries_witho
     retrieval_repo.list_for_mission.return_value = [retrieval]
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
         patch("backend.api.routes.mission.EvidenceRepository", return_value=evidence_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
         patch("backend.api.routes.mission.RetrievalContractRepository", return_value=retrieval_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
         patch("backend.api.routes.mission.QuotaEnforcementService") as quota_cls,
@@ -1752,11 +1752,11 @@ def test_mission_lifecycle_treats_superseded_runtime_admission_as_incomplete() -
     retrieval_repo.list_for_mission.return_value = []
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
         patch("backend.api.routes.mission.EvidenceRepository", return_value=evidence_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
         patch("backend.api.routes.mission.RetrievalContractRepository", return_value=retrieval_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
@@ -1804,11 +1804,11 @@ def test_mission_lifecycle_treats_non_admitted_runtime_status_as_incomplete() ->
     retrieval_repo.list_for_mission.return_value = []
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
         patch("backend.api.routes.mission.EvidenceRepository", return_value=evidence_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
         patch("backend.api.routes.mission.RetrievalContractRepository", return_value=retrieval_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
@@ -1923,11 +1923,11 @@ def test_runtime_admission_persists_metadata_without_queueing_or_runtime_calls()
     outcome_repo.list_for_mission.return_value = []
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
-        patch("backend.api.routes.mission.CapabilityAdapterRepository", return_value=adapter_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
@@ -1998,11 +1998,11 @@ def test_runtime_admission_rejects_forged_ui_admitted_by_and_remints_server_iden
     payload["admitted_by"] = "mission-dispatch-ui"
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
-        patch("backend.api.routes.mission.CapabilityAdapterRepository", return_value=adapter_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository"),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository"),
         patch("backend.api.routes.mission.MissionExecutor"),
         patch("backend.api.routes.mission.ExecutionCoordinator"),
     ):
@@ -2057,15 +2057,15 @@ def test_runtime_admission_empty_selected_nodes_derives_from_compiled_graph() ->
     outcome_repo.list_for_mission.return_value = []
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
-        patch("backend.api.routes.mission.CapabilityAdapterRepository", return_value=adapter_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository"),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository"),
         patch("backend.api.routes.mission.MissionExecutor"),
         patch("backend.api.routes.mission.ExecutionCoordinator"),
         patch(
-            "backend.api.routes.mission.provision_bridge_runtime_authority",
+            "backend.api.routes.mission_runtime.provision_bridge_runtime_authority",
             return_value={
                 "mission_id": str(mission_id),
                 "tenant_id": str(tenant_id),
@@ -2113,7 +2113,7 @@ def test_runtime_admission_read_uses_tenant_scoped_repository_query() -> None:
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = mission
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
+    with patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo):
         response = client.get(f"/v1/missions/{mission_id}/runtime-admission")
 
     assert response.status_code == 200
@@ -2130,10 +2130,10 @@ def test_runtime_admission_is_tenant_scoped() -> None:
     mission_repo.get_for_tenant.return_value = None
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.CapabilityRepository") as capability_repo_cls,
-        patch("backend.api.routes.mission.CapabilityAdapterRepository") as adapter_repo_cls,
-        patch("backend.api.routes.mission.OutcomeReviewRepository") as outcome_repo_cls,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository") as capability_repo_cls,
+        patch("backend.api.routes.mission_runtime.CapabilityAdapterRepository") as adapter_repo_cls,
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository") as outcome_repo_cls,
     ):
         response = client.post(f"/v1/missions/{mission_id}/runtime-admission", json=_valid_runtime_admission_payload())
 
@@ -2155,7 +2155,7 @@ def test_runtime_admission_rejects_missing_task_graph() -> None:
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = mission
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
+    with patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo):
         response = client.post(f"/v1/missions/{mission_id}/runtime-admission", json=_valid_runtime_admission_payload())
 
     assert response.status_code == 400
@@ -2172,7 +2172,7 @@ def test_runtime_admission_rejects_missing_materialization() -> None:
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = mission
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
+    with patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo):
         response = client.post(f"/v1/missions/{mission_id}/runtime-admission", json=_valid_runtime_admission_payload())
 
     assert response.status_code == 400
@@ -2191,7 +2191,7 @@ def test_runtime_admission_rejects_superseded_materialization() -> None:
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = mission
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
+    with patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo):
         response = client.post(f"/v1/missions/{mission_id}/runtime-admission", json=_valid_runtime_admission_payload())
 
     assert response.status_code == 400
@@ -2211,7 +2211,7 @@ def test_runtime_admission_rejects_materialization_graph_fingerprint_mismatch() 
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = mission
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
+    with patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo):
         response = client.post(f"/v1/missions/{mission_id}/runtime-admission", json=_valid_runtime_admission_payload())
 
     assert response.status_code == 400
@@ -2229,8 +2229,8 @@ def test_runtime_admission_rejects_missing_selected_node() -> None:
     mission_repo.get_for_tenant.return_value = mission
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository") as outcome_repo_cls,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository") as outcome_repo_cls,
     ):
         outcome_repo_cls.return_value.list_for_mission.return_value = []
         response = client.post(
@@ -2251,7 +2251,7 @@ def test_runtime_admission_rejects_duplicate_selected_nodes() -> None:
     payload = _valid_runtime_admission_payload()
     payload["selected_nodes"] = [payload["selected_nodes"][0], dict(payload["selected_nodes"][0])]
 
-    with patch("backend.api.routes.mission.MissionRepository") as mission_repo_cls:
+    with patch("backend.api.routes.mission_runtime.MissionRepository") as mission_repo_cls:
         response = client.post(f"/v1/missions/{mission_id}/runtime-admission", json=payload)
 
     assert response.status_code == 422
@@ -2271,8 +2271,8 @@ def test_runtime_admission_rejects_rejected_outcome_review() -> None:
     outcome_repo.list_for_mission.return_value = [SimpleNamespace(review_status="approved", review_decision="rejected")]
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
     ):
         response = client.post(f"/v1/missions/{mission_id}/runtime-admission", json=_valid_runtime_admission_payload())
 
@@ -2293,17 +2293,17 @@ def test_runtime_admission_runs_graft_before_auto_provisioning_authority() -> No
     outcome_repo.list_for_mission.return_value = []
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
         patch(
-            "backend.api.routes.mission.evaluate_admission_integrity",
+            "backend.api.routes.mission_runtime.evaluate_admission_integrity",
             return_value={
                 "schema_version": "1.0",
                 "status": "blocked",
                 "findings": [{"code": "mission_credential.not_decryptable", "severity": "blocking"}],
             },
         ),
-        patch("backend.api.routes.mission.provision_bridge_runtime_authority") as provision,
+        patch("backend.api.routes.mission_runtime.provision_bridge_runtime_authority") as provision,
     ):
         response = client.post(
             f"/v1/missions/{mission_id}/runtime-admission",
@@ -2332,10 +2332,10 @@ def test_runtime_admission_does_not_create_execution_task_rows() -> None:
     mission_repo.update_metadata.side_effect = _update_metadata
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository") as outcome_repo_cls,
-        patch("backend.api.routes.mission.CapabilityRepository") as capability_repo_cls,
-        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository") as outcome_repo_cls,
+        patch("backend.api.routes.mission_runtime.CapabilityRepository") as capability_repo_cls,
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
     ):
         outcome_repo_cls.return_value.list_for_mission.return_value = []
         capability_repo_cls.return_value.get_visible_for_tenant.return_value = SimpleNamespace(id=uuid.uuid4())
@@ -2428,11 +2428,11 @@ def _readiness_response(
     outcome_repo.list_for_mission.return_value = outcome_reviews or []
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
-        patch("backend.api.routes.mission.CapabilityAdapterRepository", return_value=adapter_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
@@ -2644,7 +2644,7 @@ def test_runtime_readiness_is_tenant_scoped() -> None:
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = None
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
+    with patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo):
         response = client.get(f"/v1/missions/{mission_id}/runtime-readiness")
 
     assert response.status_code == 404
@@ -2728,11 +2728,11 @@ def _preview_response(
     outcome_repo.list_for_mission.return_value = outcome_reviews or []
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
-        patch("backend.api.routes.mission.CapabilityAdapterRepository", return_value=adapter_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
@@ -2888,7 +2888,7 @@ def test_runtime_task_preview_hides_cross_tenant_mission() -> None:
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = None
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
+    with patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo):
         response = client.get(f"/v1/missions/{mission_id}/runtime-task-preview")
 
     assert response.status_code == 404
@@ -2957,11 +2957,11 @@ def _runtime_task_materialization_response(
     task_repo.add.side_effect = _add_task
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
-        patch("backend.api.routes.mission.CapabilityAdapterRepository", return_value=adapter_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo) as task_repo_cls,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.CapabilityAdapterRepository", return_value=adapter_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo) as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
         patch("backend.api.routes.mission.get_queue_adapter") as queue_adapter,
@@ -3125,7 +3125,7 @@ def test_runtime_task_materialization_hides_cross_tenant_mission() -> None:
     mission_repo = MagicMock()
     mission_repo.lock_for_tenant.return_value = None
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
+    with patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo):
         response = client.post(f"/v1/missions/{mission_id}/runtime-task-materialization")
 
     assert response.status_code == 404
@@ -3356,9 +3356,9 @@ def test_graph_materialization_replacement_supersedes_runtime_task_materializati
     task_repo.cancel_planned_by_ids_for_mission.return_value = [SimpleNamespace(id=task_id)]
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
     ):
         response = client.post(f"/v1/missions/{mission_id}/materialize-graph", json=payload)
 
@@ -3402,10 +3402,10 @@ def test_runtime_admission_supersession_supersedes_runtime_task_materialization_
     task_repo.cancel_planned_by_ids_for_mission.return_value = [SimpleNamespace(id=task_id)]
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
     ):
         response = client.post(f"/v1/missions/{mission_id}/runtime-admission", json=_valid_runtime_admission_payload())
 
