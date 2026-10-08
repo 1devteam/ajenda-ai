@@ -124,6 +124,16 @@ WorkerStartAdmissionRead = _mission_bridge_read_models.WorkerStartAdmissionRead
 WorkerRunReceipt = _mission_bridge_read_models.WorkerRunReceipt
 WorkerRunAdmissionRead = _mission_bridge_read_models.WorkerRunAdmissionRead
 
+__all__ = [
+    "CapabilityAdapterRepository",
+    "CapabilityRepository",
+    "ExecutionCoordinator",
+    "MissionRuntimeQueueAdmissionService",
+    "MissionRuntimeTaskMaterializationService",
+    "evaluate_admission_integrity",
+    "provision_bridge_runtime_authority",
+]
+
 router = APIRouter()
 logger = logging.getLogger("ajenda.mission_runtime_routes")
 
