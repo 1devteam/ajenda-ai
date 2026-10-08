@@ -333,9 +333,7 @@ def build_placement(
     module_rewrites = [
         [old, new]
         for source, destination, _boundary_id, _role_id in move_rows
-        if (old := _module(source)) is not None
-        and (new := _module(destination)) is not None
-        and old != new
+        if (old := _module(source)) is not None and (new := _module(destination)) is not None and old != new
     ]
     edge_table = [
         [file_id[left], file_id[right], edge_type_id[edge_type]]
