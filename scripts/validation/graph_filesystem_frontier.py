@@ -224,7 +224,7 @@ def build_shadow(frontier_spec: dict[str, Any]) -> dict[str, Any]:
 
     graph = build_graph()
     audit = audit_graph(graph)
-    filesystem = build_projection()
+    filesystem = build_projection(graph=graph, audit=audit)
     runtime = adjudicate_runtime_contracts_with_consumption(graph)
     graft1st = validate_conformance()
     evidence = _federated_evidence(runtime)
