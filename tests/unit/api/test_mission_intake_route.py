@@ -664,7 +664,8 @@ def test_mission_task_graph_written_nodes_are_materialization_key_compatible() -
 
     with (
         patch("backend.api.routes.mission.MissionRepository", return_value=repo),
-        patch("backend.api.routes.mission.CapabilityRepository", return_value=capability_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission_runtime.CapabilityRepository", return_value=capability_repo),
     ):
         write_response = client.post(f"/v1/missions/{mission_id}/task-graph", json=graph_payload)
         materialize_response = client.post(
