@@ -116,6 +116,22 @@ def machine_headers(tenant_id: str, api_key: str) -> dict[str, str]:
     return {"X-Tenant-Id": tenant_id, "X-Api-Key": api_key}
 
 
+def verified_provider_record_ids(payload: Any) -> set[str]:
+    """Collect only positively verified provider record IDs from runtime evidence."""
+
+    found: set[str] = set()
+    if isinstance(payload, dict):
+        record_id = payload.get("provider_record_id")
+        if payload.get("verified") is True and isinstance(record_id, str) and record_id:
+            found.add(record_id)
+        for value in payload.values():
+            found.update(verified_provider_record_ids(value))
+    elif isinstance(payload, list):
+        for value in payload:
+            found.update(verified_provider_record_ids(value))
+    return found
+
+
 def create_tenant() -> tuple[str, str, str, str]:
     email = f"pass4-proof-{uuid.uuid4().hex[:10]}@example.com"
     password = "Pass4-proof-password-2026!"
@@ -198,10 +214,11 @@ def main() -> int:
         headers=machine,
     )
     mission_id = require(confirmed, "mission_id")
+    launch_idempotency_key = str(uuid.uuid4())
     launch = request(
         "POST",
         f"/v1/missions/{mission_id}/launch",
-        headers={**machine, "Idempotency-Key": str(uuid.uuid4())},
+        headers={**machine, "Idempotency-Key": launch_idempotency_key},
     )
     pending = launch.get("pending_review_task_ids") or []
     if len(pending) != 1:
@@ -286,8 +303,41 @@ def main() -> int:
         raise ProofFailure(f"HubSpot acceptance did not pass: {evidence.get('acceptance')}")
     if deliverable.get("completion", {}).get("complete") is not True:
         raise ProofFailure(f"HubSpot deliverable did not complete: {deliverable}")
+
+    initial_provider_ids = verified_provider_record_ids(evidence)
+    if len(initial_provider_ids) != 1:
+        raise ProofFailure(f"expected exactly one verified HubSpot provider record: {initial_provider_ids}")
+
+    replay_launch = request(
+        "POST",
+        f"/v1/missions/{mission_id}/launch",
+        headers={**machine, "Idempotency-Key": launch_idempotency_key},
+    )
+    if int(replay_launch.get("runtime_tasks_materialized") or 0) != 0:
+        raise ProofFailure(f"replay materialized duplicate runtime tasks: {replay_launch}")
+    if replay_launch.get("queued_task_ids") or replay_launch.get("pending_review_task_ids"):
+        raise ProofFailure(f"replay re-admitted completed provider work: {replay_launch}")
+
+    replay_evidence = request("GET", f"/v1/missions/{mission_id}/runtime-evidence", headers=machine)
+    replay_provider_ids = verified_provider_record_ids(replay_evidence)
+    if replay_provider_ids != initial_provider_ids:
+        raise ProofFailure(
+            "governed replay changed the verified HubSpot provider identity: "
+            f"before={sorted(initial_provider_ids)} after={sorted(replay_provider_ids)}"
+        )
+
     print(
-        json.dumps({"pass4": "success", "tenant_id": tenant_id, "mission_id": mission_id, "task_id": task_id}, indent=2)
+        json.dumps(
+            {
+                "pass4": "success",
+                "tenant_id": tenant_id,
+                "mission_id": mission_id,
+                "task_id": task_id,
+                "provider_record_id": next(iter(initial_provider_ids)),
+                "governed_replay": "no_duplicate_task_or_provider_identity",
+            },
+            indent=2,
+        )
     )
     return 0
 
