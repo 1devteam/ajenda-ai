@@ -95,9 +95,9 @@ def test_legacy_queue_delegates_to_canonical_admission_and_projects_response() -
     service.return_value.admit.return_value = _canonical_admission(task_id)
 
     with (
-        patch("backend.api.routes.mission.MissionRuntimeQueueAdmissionService", service),
+        patch("backend.api.routes.mission_runtime.MissionRuntimeQueueAdmissionService", service),
         patch("backend.services.mission_executor.MissionExecutor.queue_all_planned_tasks") as legacy_queue,
-        patch("backend.api.routes.mission.TaskDispatcher") as dispatcher,
+        patch("backend.api.routes.mission_runtime.TaskDispatcher") as dispatcher,
     ):
         response = client.post(f"/v1/missions/{mission_id}/queue")
 
@@ -122,9 +122,9 @@ def test_both_queue_routes_delegate_to_same_canonical_implementation_and_queue_s
     service.return_value.admit.return_value = _canonical_admission(task_id)
 
     with (
-        patch("backend.api.routes.mission.MissionRuntimeQueueAdmissionService", service),
+        patch("backend.api.routes.mission_runtime.MissionRuntimeQueueAdmissionService", service),
         patch("backend.services.mission_executor.MissionExecutor.queue_all_planned_tasks") as legacy_queue,
-        patch("backend.api.routes.mission.TaskDispatcher") as dispatcher,
+        patch("backend.api.routes.mission_runtime.TaskDispatcher") as dispatcher,
         patch("backend.services.tools.action_registry.ActionRegistry.invoke") as action_invoke,
     ):
         legacy = client.post(f"/v1/missions/{mission_id}/queue")
@@ -175,10 +175,10 @@ def test_cross_entrypoint_repeat_uses_one_quota_consumption_and_one_queue_transi
     client = TestClient(app, raise_server_exceptions=False)
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-        patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission_runtime.ExecutionCoordinator", return_value=coordinator),
     ):
         first = client.post(f"/v1/missions/{mission_id}{paths[0]}")
         second = client.post(f"/v1/missions/{mission_id}{paths[1]}")
@@ -238,10 +238,10 @@ def test_post_v1_missions_mission_id_runtime_queue_admission_contract_charges_qu
     )
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-        patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission_runtime.ExecutionCoordinator", return_value=coordinator),
     ):
         response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
 
@@ -305,10 +305,10 @@ def test_post_v1_missions_mission_id_runtime_queue_admission_contract_reports_en
     ]
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-        patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission_runtime.ExecutionCoordinator", return_value=coordinator),
     ):
         response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
 
@@ -362,10 +362,10 @@ def test_post_v1_missions_mission_id_runtime_queue_admission_contract_quota_deni
     coordinator = MagicMock()
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-        patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission_runtime.ExecutionCoordinator", return_value=coordinator),
     ):
         response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
 
@@ -395,10 +395,10 @@ def test_post_v1_missions_mission_id_runtime_queue_admission_contract_skips_queu
     coordinator = MagicMock()
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-        patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission_runtime.ExecutionCoordinator", return_value=coordinator),
     ):
         response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
 
@@ -422,7 +422,7 @@ def test_post_v1_missions_mission_id_queue_rejects_viewer_before_side_effects() 
 
     service = MagicMock()
 
-    with patch("backend.api.routes.mission.MissionRuntimeQueueAdmissionService", service):
+    with patch("backend.api.routes.mission_runtime.MissionRuntimeQueueAdmissionService", service):
         response = client.post(f"/v1/missions/{mission_id}/queue")
 
     assert response.status_code == 403
@@ -441,10 +441,10 @@ def test_post_v1_missions_mission_id_runtime_queue_admission_rejects_viewer_befo
     coordinator = MagicMock()
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-        patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.mission_runtime.ExecutionCoordinator", return_value=coordinator),
     ):
         response = client.post(f"/v1/missions/{mission_id}/runtime-queue-admission")
 
