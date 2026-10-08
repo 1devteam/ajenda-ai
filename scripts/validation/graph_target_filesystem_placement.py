@@ -33,6 +33,17 @@ from graph_runtime_contract_consumption import adjudicate_runtime_contracts_with
 from graph_runtime_support_inventory import collect_runtime_support_inventory  # noqa: E402
 
 SERVICE_ROOT = "backend/services/"
+TEXT_REFERENCE_SUFFIXES = {
+    ".py",
+    ".md",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".sh",
+    ".tsx",
+    ".ts",
+}
 
 
 def _sha(value: object) -> str:
@@ -126,6 +137,56 @@ def _test_links(graph: dict[str, Any], *, moved_node_ids: set[str]) -> list[tupl
         if isinstance(test_source, str) and isinstance(production_source, str):
             rows.add((test_source, production_source))
     return sorted(rows)
+
+
+def _text_reference_index(
+    module_rewrites: list[list[str]],
+    move_rows: list[tuple[str, str, int, int]],
+) -> tuple[list[str], list[list[int]]]:
+    patterns: list[str] = []
+    for old_module, _new_module in module_rewrites:
+        patterns.append(old_module)
+    for source, _destination, _boundary_id, _role_id in move_rows:
+        patterns.append(source)
+    patterns = sorted(set(patterns))
+    pattern_id = {value: index for index, value in enumerate(patterns)}
+
+    refs: list[list[int]] = []
+    reference_files: set[str] = set()
+    raw_rows: list[tuple[str, int]] = []
+    for path in REPO_ROOT.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in TEXT_REFERENCE_SUFFIXES:
+            continue
+        if ".git" in path.parts:
+            continue
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for pattern in patterns:
+            if pattern in text:
+                reference_files.add(rel)
+                raw_rows.append((rel, pattern_id[pattern]))
+
+    files = sorted(reference_files)
+    file_id = {value: index for index, value in enumerate(files)}
+    refs = sorted({(file_id[path], pid) for path, pid in raw_rows})
+    return patterns, [[fid, pid] for fid, pid in refs]
+
+
+def _package_scaffolding(move_rows: list[tuple[str, str, int, int]]) -> list[str]:
+    required: set[str] = set()
+    for _source, destination, _boundary_id, _role_id in move_rows:
+        parent = (REPO_ROOT / destination).parent
+        while parent != REPO_ROOT and parent.name not in {"backend", "tests"}:
+            required.add(parent.relative_to(REPO_ROOT).as_posix())
+            parent = parent.parent
+    return sorted(
+        directory
+        for directory in required
+        if not (REPO_ROOT / directory / "__init__.py").is_file()
+    )
 
 
 def _runtime_rows(report: dict[str, Any], moved_sources: set[str]) -> list[dict[str, Any]]:
@@ -280,6 +341,8 @@ def build_placement(target: dict[str, Any]) -> dict[str, Any]:
         for left, right, edge_type in _direct_source_edges(graph, moved_sources=moved_sources)
         if left in file_id and right in file_id
     ]
+    reference_patterns, reference_rows = _text_reference_index(module_rewrites, move_rows)
+    scaffolding = _package_scaffolding(move_rows)
     test_table = [
         [file_id[test], file_id[source]]
         for test, source in _test_links(graph, moved_node_ids=moved_node_ids)
@@ -315,6 +378,9 @@ def build_placement(target: dict[str, Any]) -> dict[str, Any]:
         "mr": module_rewrites,
         "de": edge_table,
         "tt": test_table,
+        "rp": reference_patterns,
+        "rr": reference_rows,
+        "sc": scaffolding,
         "impact": {
             "n": [str(item.get("id")) for item in impact.get("changed_nodes", [])],
             "up": [str(item.get("id")) for item in impact.get("upstream_consumers", [])],
