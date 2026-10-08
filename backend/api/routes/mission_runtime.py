@@ -138,6 +138,7 @@ _CLIENT_FORGED_ADMISSION_IDENTITIES = frozenset(
     }
 )
 
+
 def _server_admitted_by(*, request: Request, body_admitted_by: str | None) -> str:
     """Prefer authenticated principal; never accept browser UI forged identities as authority."""
     principal = getattr(request.state, "principal", None)
@@ -150,6 +151,7 @@ def _server_admitted_by(*, request: Request, body_admitted_by: str | None) -> st
     if candidate and candidate.lower() not in _CLIENT_FORGED_ADMISSION_IDENTITIES:
         return candidate
     return "server:runtime_admission"
+
 
 def _task_graph_fingerprint(
     *,
@@ -170,6 +172,7 @@ def _task_graph_fingerprint(
     encoded = json.dumps(graph_identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"sha256:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
 
+
 def _fingerprint_existing_task_graph(task_graph: dict[str, Any]) -> str | None:
     nodes = task_graph.get("nodes")
     edges = task_graph.get("edges")
@@ -185,6 +188,7 @@ def _fingerprint_existing_task_graph(task_graph: dict[str, Any]) -> str | None:
         edges=edges,
         operator_notes=task_graph.get("operator_notes") if isinstance(task_graph.get("operator_notes"), str) else None,
     )
+
 
 def _supersede_runtime_admission_for_materialization(
     *,
@@ -203,6 +207,7 @@ def _supersede_runtime_admission_for_materialization(
     superseded["superseded_by_materialization_version"] = materialization_version
     metadata[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = superseded
 
+
 def _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
     return RuntimeAdmissionRead(
         mission_id=mission.id,
@@ -210,6 +215,7 @@ def _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
         runtime_admission=mission.metadata_json.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY, {}),
         updated_at=mission.updated_at.isoformat(),
     )
+
 
 def _cancel_superseded_materialized_planned_tasks(
     *, metadata: dict[str, Any], task_repo: ExecutionTaskRepository, tenant_id: str, mission_id: UUID
@@ -232,6 +238,7 @@ def _cancel_superseded_materialized_planned_tasks(
     )
     return [str(task.id) for task in cancelled_tasks]
 
+
 def _graph_materialization_to_read(mission: Mission) -> GraphMaterializationRead:
     return GraphMaterializationRead(
         mission_id=mission.id,
@@ -239,6 +246,7 @@ def _graph_materialization_to_read(mission: Mission) -> GraphMaterializationRead
         materialization=mission.metadata_json.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY, {}),
         updated_at=mission.updated_at.isoformat(),
     )
+
 
 @router.post("/{mission_id}/materialize-graph", response_model=GraphMaterializationRead)
 def materialize_mission_graph(
