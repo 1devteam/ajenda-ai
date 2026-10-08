@@ -119,7 +119,7 @@ def test_mission_queue_contract_returns_structured_429_on_quota_exceeded() -> No
         },
     )
 
-    with patch("backend.api.routes.mission.MissionRuntimeQueueAdmissionService", service):
+    with patch("backend.api.routes.mission_runtime.MissionRuntimeQueueAdmissionService", service):
         response = client.post(f"/v1/missions/{mission_id}/queue")
 
     assert response.status_code == 402
