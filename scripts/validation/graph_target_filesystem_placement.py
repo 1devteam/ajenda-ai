@@ -438,11 +438,7 @@ def main() -> int:
     args = parser.parse_args()
 
     graph = json.loads(args.graph.read_text(encoding="utf-8")) if args.graph else None
-    audit = (
-        json.loads(args.completeness_report.read_text(encoding="utf-8"))
-        if args.completeness_report
-        else None
-    )
+    audit = json.loads(args.completeness_report.read_text(encoding="utf-8")) if args.completeness_report else None
     if audit is not None and graph is None:
         raise ValueError("--completeness-report requires --graph")
     artifact = build_placement(_load_target(args.target), graph=graph, audit=audit)
