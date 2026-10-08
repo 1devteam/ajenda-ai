@@ -64,12 +64,7 @@ def _code(index: int, width: int) -> str:
 
 def _escape(value: object) -> str:
     text = str(value or "")
-    return (
-        text.replace("\\", "\\\\")
-        .replace("|", "\\p")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-    )
+    return text.replace("\\", "\\\\").replace("|", "\\p").replace("\n", "\\n").replace("\r", "\\r")
 
 
 def _unescape(value: str) -> str:
@@ -143,13 +138,7 @@ def encode_graph_ascii_v2(graph: dict[str, Any]) -> str:
 
     node_types = _rank([str(node.get("type") or "") for node in nodes])
     relation_types = _rank([str(edge.get("type") or "") for edge in edges])
-    sources = _rank(
-        [
-            str(node.get("source") or "")
-            for node in nodes
-            if str(node.get("source") or "")
-        ]
-    )
+    sources = _rank([str(node.get("source") or "") for node in nodes if str(node.get("source") or "")])
 
     node_width = _width(len(nodes))
     type_width = _width(len(node_types))
