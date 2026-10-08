@@ -449,7 +449,11 @@ def provision_mission_bridge_runtime_authority(
 
 
 def admit_mission_runtime_queue(
-    *, mission_id: UUID, tenant_id: _uuid.UUID, db: Session, queue: QueueAdapter,
+    *,
+    mission_id: UUID,
+    tenant_id: _uuid.UUID,
+    db: Session,
+    queue: QueueAdapter,
     deps: RuntimeRouteDependencies,
 ) -> dict[str, object]:
     """Invoke the single canonical mission runtime queue-admission authority."""
