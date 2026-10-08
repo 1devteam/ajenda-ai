@@ -431,8 +431,7 @@ class StandardCrmClient:
                     real=True,
                     effect_verified=False,
                     status_code=resp.status_code,
-                    error="CRM read-back did not match requested provider properties: "
-                    + ", ".join(mismatched_keys),
+                    error="CRM read-back did not match requested provider properties: " + ", ".join(mismatched_keys),
                 )
             return CrmReadbackResult(
                 record_type=record_type,
