@@ -97,7 +97,7 @@ def test_legacy_queue_delegates_to_canonical_admission_and_projects_response() -
     with (
         patch("backend.api.routes.mission_runtime.MissionRuntimeQueueAdmissionService", service),
         patch("backend.services.mission_executor.MissionExecutor.queue_all_planned_tasks") as legacy_queue,
-        patch("backend.api.routes.mission_runtime.TaskDispatcher") as dispatcher,
+        patch("backend.workers.task_dispatcher.TaskDispatcher") as dispatcher,
     ):
         response = client.post(f"/v1/missions/{mission_id}/queue")
 
@@ -124,7 +124,7 @@ def test_both_queue_routes_delegate_to_same_canonical_implementation_and_queue_s
     with (
         patch("backend.api.routes.mission_runtime.MissionRuntimeQueueAdmissionService", service),
         patch("backend.services.mission_executor.MissionExecutor.queue_all_planned_tasks") as legacy_queue,
-        patch("backend.api.routes.mission_runtime.TaskDispatcher") as dispatcher,
+        patch("backend.workers.task_dispatcher.TaskDispatcher") as dispatcher,
         patch("backend.services.tools.action_registry.ActionRegistry.invoke") as action_invoke,
     ):
         legacy = client.post(f"/v1/missions/{mission_id}/queue")
