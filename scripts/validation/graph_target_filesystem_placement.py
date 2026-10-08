@@ -335,16 +335,10 @@ def build_placement(
         for source, destination, _boundary_id, _role_id in move_rows
         if (old := _module(source)) is not None and (new := _module(destination)) is not None and old != new
     ]
-    edge_table = [
-        [file_id[left], file_id[right], edge_type_id[edge_type]]
-        for left, right, edge_type in direct_edges
-    ]
+    edge_table = [[file_id[left], file_id[right], edge_type_id[edge_type]] for left, right, edge_type in direct_edges]
     reference_files, reference_patterns, reference_rows = _text_reference_index(module_rewrites, move_rows)
     scaffolding = _package_scaffolding(move_rows)
-    test_table = [
-        [file_id[test], file_id[source]]
-        for test, source in test_links
-    ]
+    test_table = [[file_id[test], file_id[source]] for test, source in test_links]
 
     runtime_rows = _runtime_rows(runtime_selection, moved_sources)
     governance = _governance_path_refs(moved_sources)
