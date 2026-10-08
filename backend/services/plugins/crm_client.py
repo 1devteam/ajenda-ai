@@ -278,11 +278,14 @@ class StandardCrmClient:
                         error="CRM upsert response missing provider record id",
                         effect_verified=False,
                     )
+                provider_properties = payload.get("properties")
+                expected_properties = provider_properties if isinstance(provider_properties, dict) else {}
                 readback = self.readback(
                     context=context,
                     record_type=record_type,
                     record_id=record_id,
                     credential=credential,
+                    expected_properties=expected_properties,
                     action_name=action_name,
                 )
                 if not readback.effect_verified:
@@ -355,6 +358,7 @@ class StandardCrmClient:
         record_type: str,
         record_id: str,
         credential: RuntimeCredentialMaterial | dict[str, Any] | None,
+        expected_properties: dict[str, Any] | None = None,
         action_name: str = "crm.verify_effect",
     ) -> CrmReadbackResult:
         """Read provider state through the same governed adapter boundary."""
@@ -405,6 +409,24 @@ class StandardCrmClient:
                     effect_verified=False,
                     status_code=resp.status_code,
                     error="CRM read-back identity or properties were invalid",
+                )
+            expected = expected_properties or {}
+            mismatched_keys = sorted(
+                key
+                for key, expected_value in expected.items()
+                if key not in properties or properties.get(key) != expected_value
+            )
+            if mismatched_keys:
+                return CrmReadbackResult(
+                    record_type=record_type,
+                    record_id=record_id,
+                    data=payload,
+                    source=str(payload.get("source", "external_crm")),
+                    real=True,
+                    effect_verified=False,
+                    status_code=resp.status_code,
+                    error="CRM read-back did not match requested provider properties: "
+                    + ", ".join(mismatched_keys),
                 )
             return CrmReadbackResult(
                 record_type=record_type,
