@@ -87,8 +87,8 @@ def _read_eligibility(mission: SimpleNamespace, tasks: list[SimpleNamespace], te
     mission_repo = MagicMock(get_for_tenant=MagicMock(return_value=mission))
     task_repo = MagicMock(list_for_mission=MagicMock(return_value=tasks))
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
     ):
         result = mission_module.read_mission_worker_dispatch_eligibility(
             mission_id=mission.id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
@@ -100,8 +100,8 @@ def _read_preview(mission: SimpleNamespace, tasks: list[SimpleNamespace], tenant
     mission_repo = MagicMock(get_for_tenant=MagicMock(return_value=mission))
     task_repo = MagicMock(list_for_mission=MagicMock(return_value=tasks))
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
     ):
         result = mission_module.read_mission_worker_claim_preview(
             mission_id=mission.id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
@@ -312,7 +312,7 @@ def test_worker_dispatch_eligibility_hides_cross_tenant_mission() -> None:
     client = TestClient(app, raise_server_exceptions=False)
     mission_repo = MagicMock(get_for_tenant=MagicMock(return_value=None))
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
+    with patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo):
         response = client.get(f"/v1/missions/{mission_id}/worker-dispatch-eligibility")
 
     assert response.status_code == 404
@@ -387,14 +387,14 @@ def test_worker_claim_preview_is_read_only_and_does_not_mutate_runtime_or_call_e
     task_repo = MagicMock(list_for_mission=MagicMock(return_value=[queued]))
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
-        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
-        patch("backend.api.routes.mission.WorkerRuntimeService", create=True) as worker_runtime_cls,
-        patch("backend.api.routes.mission.task_dispatcher", create=True) as dispatcher,
-        patch("backend.api.routes.mission.WorkerLease", create=True) as worker_lease_cls,
-        patch("backend.api.routes.mission.get_queue_adapter", create=True) as queue_adapter,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionCoordinator") as coordinator_cls,
+        patch("backend.api.routes.mission_runtime.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission_runtime.WorkerRuntimeService", create=True) as worker_runtime_cls,
+        patch("backend.api.routes.mission_runtime.task_dispatcher", create=True) as dispatcher,
+        patch("backend.api.routes.mission_runtime.WorkerLease", create=True) as worker_lease_cls,
+        patch("backend.api.routes.mission_runtime.get_queue_adapter", create=True) as queue_adapter,
     ):
         result = mission_module.read_mission_worker_claim_preview(
             mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
