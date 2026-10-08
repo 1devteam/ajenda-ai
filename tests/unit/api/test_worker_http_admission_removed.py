@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from backend.api.routes import mission as mission_module
+from backend.api.routes import mission_runtime as mission_module
 from backend.services.worker_claim_admission_service import WorkerClaimAdmissionService
 from backend.services.worker_run_admission_service import WorkerRunAdmissionService
 from backend.services.worker_start_admission_service import WorkerStartAdmissionService
