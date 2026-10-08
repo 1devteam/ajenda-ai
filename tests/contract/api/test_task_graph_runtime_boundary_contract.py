@@ -219,8 +219,8 @@ def test_runtime_task_materialization_contract_creates_planned_rows_without_enqu
     task_repo.add.side_effect = _add
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
         patch(
             "backend.services.mission_bridge.materialization.build_mission_runtime_readiness",
