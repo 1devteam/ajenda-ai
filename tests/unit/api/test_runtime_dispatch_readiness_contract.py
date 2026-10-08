@@ -89,11 +89,11 @@ def test_runtime_dispatch_readiness_ready_for_queued_materialized_tasks_with_tas
     task_repo.list_for_mission.return_value = [queued]
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
-        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
-        patch("backend.api.routes.mission.task_dispatcher", create=True) as dispatcher,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionCoordinator") as coordinator_cls,
+        patch("backend.api.routes.mission_runtime.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission_runtime.task_dispatcher", create=True) as dispatcher,
     ):
         result = mission_module.read_mission_runtime_dispatch_readiness(
             mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
@@ -120,8 +120,8 @@ def test_runtime_dispatch_readiness_blocked_when_queue_admission_missing() -> No
     task_repo = MagicMock(list_for_mission=MagicMock(return_value=[queued]))
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
     ):
         result = mission_module.read_mission_runtime_dispatch_readiness(
             mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
@@ -140,8 +140,8 @@ def test_runtime_dispatch_readiness_blocked_when_materialization_missing() -> No
     task_repo = MagicMock(list_for_mission=MagicMock(return_value=[]))
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
     ):
         result = mission_module.read_mission_runtime_dispatch_readiness(
             mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
@@ -161,8 +161,8 @@ def test_runtime_dispatch_readiness_blocked_when_materialization_has_no_task_ids
     task_repo = MagicMock(list_for_mission=MagicMock(return_value=[]))
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
     ):
         result = mission_module.read_mission_runtime_dispatch_readiness(
             mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
@@ -187,8 +187,8 @@ def test_runtime_dispatch_readiness_partial_for_mixed_materialized_states() -> N
     task_repo = MagicMock(list_for_mission=MagicMock(return_value=[queued, planned, cancelled, failed]))
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
     ):
         result = mission_module.read_mission_runtime_dispatch_readiness(
             mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
@@ -212,8 +212,8 @@ def test_runtime_dispatch_readiness_blocks_queued_tasks_missing_task_type_metada
     task_repo = MagicMock(list_for_mission=MagicMock(return_value=[missing, empty]))
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
     ):
         result = mission_module.read_mission_runtime_dispatch_readiness(
             mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
@@ -236,8 +236,8 @@ def test_runtime_dispatch_readiness_blocks_missing_or_scope_mismatched_materiali
     task_repo = MagicMock(list_for_mission=MagicMock(return_value=[foreign]))
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
     ):
         result = mission_module.read_mission_runtime_dispatch_readiness(
             mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
@@ -259,7 +259,7 @@ def test_runtime_dispatch_readiness_hides_cross_tenant_mission() -> None:
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = None
 
-    with patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo):
+    with patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo):
         response = client.get(f"/v1/missions/{mission_id}/runtime-dispatch-readiness")
 
     assert response.status_code == 404
@@ -280,11 +280,11 @@ def test_runtime_dispatch_readiness_blocks_stale_queue_admission_for_new_materia
     task_repo = MagicMock(list_for_mission=MagicMock(return_value=[new_task]))
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
-        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
-        patch("backend.api.routes.mission.task_dispatcher", create=True) as dispatcher,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionCoordinator") as coordinator_cls,
+        patch("backend.api.routes.mission_runtime.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission_runtime.task_dispatcher", create=True) as dispatcher,
     ):
         result = mission_module.read_mission_runtime_dispatch_readiness(
             mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
@@ -320,11 +320,11 @@ def test_runtime_dispatch_readiness_blocks_queued_task_missing_from_current_queu
     task_repo = MagicMock(list_for_mission=MagicMock(return_value=[admitted_task, unadmitted_task]))
 
     with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
-        patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
-        patch("backend.api.routes.mission.task_dispatcher", create=True) as dispatcher,
+        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+        patch("backend.api.routes.mission_runtime.ExecutionCoordinator") as coordinator_cls,
+        patch("backend.api.routes.mission_runtime.MissionExecutor") as executor_cls,
+        patch("backend.api.routes.mission_runtime.task_dispatcher", create=True) as dispatcher,
     ):
         result = mission_module.read_mission_runtime_dispatch_readiness(
             mission_id=mission_id, request=MagicMock(), tenant_id=tenant_uuid, db=MagicMock()
