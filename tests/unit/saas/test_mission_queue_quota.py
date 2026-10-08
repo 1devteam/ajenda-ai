@@ -164,7 +164,7 @@ class TestMissionQueueCompatibilityWrapper:
     """Legacy route delegates all quota and eligibility decisions to canonical admission."""
 
     def test_projects_canonical_result_without_independent_queue_authority(self):
-        from backend.api.routes.mission import queue_mission
+        from backend.api.routes.mission_runtime import queue_mission
 
         tenant_id = uuid.uuid4()
         mission_id = uuid.uuid4()
@@ -183,7 +183,7 @@ class TestMissionQueueCompatibilityWrapper:
         }
 
         with (
-            patch("backend.api.routes.mission.MissionRuntimeQueueAdmissionService", service),
+            patch("backend.api.routes.mission_runtime.MissionRuntimeQueueAdmissionService", service),
             patch("backend.services.mission_executor.MissionExecutor.queue_all_planned_tasks") as legacy_queue,
             patch("backend.workers.task_dispatcher.TaskDispatcher") as dispatcher,
         ):
@@ -231,7 +231,7 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         )
 
     def test_runtime_queue_admission_quota_counts_eligible_planned_tasks_only(self):
-        from backend.api.routes.mission import runtime_queue_admission
+        from backend.api.routes.mission_runtime import runtime_queue_admission
 
         tenant_id = str(uuid.uuid4())
         tenant_uuid = uuid.UUID(tenant_id)
@@ -261,10 +261,10 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         ]
 
         with (
-            patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-            patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-            patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+            patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+            patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission_runtime.QuotaEnforcementService", return_value=quota_svc),
+            patch("backend.api.routes.mission_runtime.ExecutionCoordinator", return_value=coordinator),
         ):
             result = runtime_queue_admission(
                 mission_id=mission_id, request=request, tenant_id=tenant_uuid, db=db, queue=queue
@@ -285,7 +285,7 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         ]
 
     def test_runtime_queue_admission_quota_denial_prevents_queueing(self):
-        from backend.api.routes.mission import runtime_queue_admission
+        from backend.api.routes.mission_runtime import runtime_queue_admission
 
         tenant_id = str(uuid.uuid4())
         tenant_uuid = uuid.UUID(tenant_id)
@@ -303,10 +303,10 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         coordinator = MagicMock()
 
         with (
-            patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-            patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-            patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+            patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+            patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission_runtime.QuotaEnforcementService", return_value=quota_svc),
+            patch("backend.api.routes.mission_runtime.ExecutionCoordinator", return_value=coordinator),
         ):
             with pytest.raises(HTTPException) as exc_info:
                 runtime_queue_admission(
@@ -322,7 +322,7 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         coordinator.queue_task.assert_not_called()
 
     def test_runtime_queue_admission_skips_non_planned_without_quota(self):
-        from backend.api.routes.mission import runtime_queue_admission
+        from backend.api.routes.mission_runtime import runtime_queue_admission
 
         tenant_id = str(uuid.uuid4())
         tenant_uuid = uuid.UUID(tenant_id)
@@ -338,10 +338,10 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         coordinator = MagicMock()
 
         with (
-            patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-            patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-            patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+            patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+            patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission_runtime.QuotaEnforcementService", return_value=quota_svc),
+            patch("backend.api.routes.mission_runtime.ExecutionCoordinator", return_value=coordinator),
         ):
             result = runtime_queue_admission(
                 mission_id=mission_id,
@@ -361,7 +361,7 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         coordinator.queue_task.assert_not_called()
 
     def test_runtime_queue_admission_preserves_success_when_later_task_raises(self):
-        from backend.api.routes.mission import runtime_queue_admission
+        from backend.api.routes.mission_runtime import runtime_queue_admission
 
         tenant_id = str(uuid.uuid4())
         tenant_uuid = uuid.UUID(tenant_id)
@@ -381,10 +381,10 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         ]
 
         with (
-            patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-            patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-            patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+            patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+            patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission_runtime.QuotaEnforcementService", return_value=quota_svc),
+            patch("backend.api.routes.mission_runtime.ExecutionCoordinator", return_value=coordinator),
         ):
             result = runtime_queue_admission(
                 mission_id=mission_id,
@@ -405,7 +405,7 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         assert persisted["blocked_execution_task_ids"] == [str(second_task.id)]
 
     def test_runtime_queue_admission_returns_blocked_when_all_queue_calls_fail(self):
-        from backend.api.routes.mission import runtime_queue_admission
+        from backend.api.routes.mission_runtime import runtime_queue_admission
 
         tenant_id = str(uuid.uuid4())
         tenant_uuid = uuid.UUID(tenant_id)
@@ -422,10 +422,10 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         coordinator.queue_task.side_effect = [RuntimeError("first failed"), ValueError("second failed")]
 
         with (
-            patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-            patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-            patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+            patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+            patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission_runtime.QuotaEnforcementService", return_value=quota_svc),
+            patch("backend.api.routes.mission_runtime.ExecutionCoordinator", return_value=coordinator),
         ):
             result = runtime_queue_admission(
                 mission_id=mission_id,
@@ -444,7 +444,7 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         assert persisted["admission_status"] == "blocked"
 
     def test_runtime_queue_admission_duplicate_post_is_idempotent_for_already_queued_rows(self):
-        from backend.api.routes.mission import runtime_queue_admission
+        from backend.api.routes.mission_runtime import runtime_queue_admission
 
         tenant_id = str(uuid.uuid4())
         tenant_uuid = uuid.UUID(tenant_id)
@@ -466,10 +466,10 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
         coordinator = MagicMock()
 
         with (
-            patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-            patch("backend.api.routes.mission.ExecutionTaskRepository", return_value=task_repo),
-            patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-            patch("backend.api.routes.mission.ExecutionCoordinator", return_value=coordinator),
+            patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+            patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
+            patch("backend.api.routes.mission_runtime.QuotaEnforcementService", return_value=quota_svc),
+            patch("backend.api.routes.mission_runtime.ExecutionCoordinator", return_value=coordinator),
         ):
             result = runtime_queue_admission(
                 mission_id=mission_id,
