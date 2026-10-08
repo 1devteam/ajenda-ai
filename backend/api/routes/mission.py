@@ -199,6 +199,13 @@ provision_mission_bridge_runtime_authority = _mission_runtime.provision_mission_
 queue_mission = _mission_runtime.queue_mission
 _cancel_superseded_materialized_planned_tasks = _mission_runtime._cancel_superseded_materialized_planned_tasks
 _admit_mission_runtime_queue = _mission_runtime._admit_mission_runtime_queue
+CapabilityAdapterRepository = _mission_runtime.CapabilityAdapterRepository
+CapabilityRepository = _mission_runtime.CapabilityRepository
+ExecutionCoordinator = _mission_runtime.ExecutionCoordinator
+evaluate_admission_integrity = _mission_runtime.evaluate_admission_integrity
+provision_bridge_runtime_authority = _mission_runtime.provision_bridge_runtime_authority
+MissionRuntimeQueueAdmissionService = _mission_runtime.MissionRuntimeQueueAdmissionService
+MissionRuntimeTaskMaterializationService = _mission_runtime.MissionRuntimeTaskMaterializationService
 
 
 def _task_graph_contract_content(task_graph: dict[str, Any]) -> dict[str, Any]:
