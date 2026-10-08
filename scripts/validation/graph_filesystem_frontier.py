@@ -134,9 +134,7 @@ def _production(graph: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], list[
     edges = [
         edge
         for edge in graph.get("edges", [])
-        if str(edge.get("type")) != "tests"
-        and str(edge.get("from")) in nodes
-        and str(edge.get("to")) in nodes
+        if str(edge.get("type")) != "tests" and str(edge.get("from")) in nodes and str(edge.get("to")) in nodes
     ]
     return nodes, edges
 
@@ -174,9 +172,7 @@ def _candidate_state(
 ) -> dict[str, Any]:
     nodes, edges = _production(graph)
     boundary_by_node = {node_id: _projected_boundary(node, assignments) for node_id, node in nodes.items()}
-    cross_edges = sum(
-        1 for edge in edges if boundary_by_node[str(edge["from"])] != boundary_by_node[str(edge["to"])]
-    )
+    cross_edges = sum(1 for edge in edges if boundary_by_node[str(edge["from"])] != boundary_by_node[str(edge["to"])])
 
     projected_cycle_classes: Counter[str] = Counter()
     for cycle in audit.get("static_cycles", []):
@@ -185,9 +181,7 @@ def _candidate_state(
         }
         projected_cycle_classes["cross" if len(cycle_boundaries) > 1 else "intra"] += 1
 
-    moved_sources = {
-        f"{SERVICE_ROOT}{name}": boundary for name, boundary in assignments.items()
-    }
+    moved_sources = {f"{SERVICE_ROOT}{name}": boundary for name, boundary in assignments.items()}
     internalized_edges = 0
     externalized_edges = 0
     for edge in edges:
@@ -243,10 +237,7 @@ def build_shadow(frontier_spec: dict[str, Any]) -> dict[str, Any]:
         raw_states[candidate_name] = state
         for _source_name, boundary in assignments.items():
             all_boundaries.add(f"backend:services:{boundary}")
-        all_boundaries.update(
-            _projected_boundary(node, assignments)
-            for node in nodes.values()
-        )
+        all_boundaries.update(_projected_boundary(node, assignments) for node in nodes.values())
 
     boundary_list = sorted(all_boundaries)
     boundary_id = {name: index for index, name in enumerate(boundary_list)}
@@ -254,10 +245,7 @@ def build_shadow(frontier_spec: dict[str, Any]) -> dict[str, Any]:
     evidence_tags = sorted({tag for tags in evidence.values() for tag in tags})
     evidence_id = {tag: index for index, tag in enumerate(evidence_tags)}
     evidence_rows = sorted(
-        [file_id[source], evidence_id[tag]]
-        for source, tags in evidence.items()
-        if source in file_id
-        for tag in tags
+        [file_id[source], evidence_id[tag]] for source, tags in evidence.items() if source in file_id for tag in tags
     )
 
     for candidate_index, (candidate_name, assignments) in enumerate(CANDIDATES.items()):
@@ -283,9 +271,7 @@ def build_shadow(frontier_spec: dict[str, Any]) -> dict[str, Any]:
         )
 
     projection_by_source = {
-        item["source"]: item
-        for item in filesystem.get("candidate_files", [])
-        if isinstance(item.get("source"), str)
+        item["source"]: item for item in filesystem.get("candidate_files", []) if isinstance(item.get("source"), str)
     }
     affinity_rows: list[list[int]] = []
     package_names = sorted(
@@ -358,8 +344,12 @@ def main() -> int:
     if not preflight["ok"]:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
-            json.dumps({"v": 1, "k": "graft_frontier_filesystem_shadow", "ok": False, "pf": preflight},
-                       sort_keys=True, separators=(",", ":")) + "\n",
+            json.dumps(
+                {"v": 1, "k": "graft_frontier_filesystem_shadow", "ok": False, "pf": preflight},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n",
             encoding="utf-8",
         )
         print("Frontier filesystem Shadow: preflight failed")
