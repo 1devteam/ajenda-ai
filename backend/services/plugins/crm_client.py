@@ -410,11 +410,7 @@ class StandardCrmClient:
                     record_type=record_type,
                     record_id=record_id,
                     data=payload if isinstance(payload, dict) else {},
-                    source=(
-                        str(payload.get("source", "external_crm"))
-                        if isinstance(payload, dict)
-                        else "external_crm"
-                    ),
+                    source=str(payload.get("source", "external_crm")) if isinstance(payload, dict) else "external_crm",
                     real=True,
                     effect_verified=False,
                     status_code=resp.status_code,
