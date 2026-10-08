@@ -20,22 +20,11 @@ from backend.api.routes.mission_contracts import (
     RuntimeAdmissionNodeSelection,
     RuntimeAdmissionRead,
     RuntimeAdmissionWrite,
-    RuntimeDispatchReadinessRead,
     RuntimeQueueAdmissionResponse,
-    RuntimeReadinessRead,
-    RuntimeTaskMaterializationRead,
-    RuntimeTaskPreviewRead,
-    RuntimeTaskPreviewStatus,
-    WorkerClaimAdmissionRead,
-    WorkerClaimPreviewRead,
-    WorkerDispatchEligibilityRead,
-    WorkerRunAdmissionRead,
-    WorkerStartAdmissionRead,
 )
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.permissions import Permission
-from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
     MISSION_INTAKE_METADATA_KEY,
@@ -56,6 +45,7 @@ from backend.repositories.execution_task_repository import ExecutionTaskReposito
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
+from backend.services.mission_bridge import read_models as _mission_bridge_read_models
 from backend.services.mission_bridge.materialization import (
     build_mission_runtime_readiness as _build_mission_runtime_readiness,
 )
@@ -101,6 +91,17 @@ from backend.services.mission_runtime_projection import supersede_runtime_task_m
 from backend.services.mission_runtime_queue_admission_service import MissionRuntimeQueueAdmissionService
 from backend.services.mission_runtime_task_materialization_service import MissionRuntimeTaskMaterializationService
 from backend.services.quota_enforcement import QuotaEnforcementService
+
+RuntimeReadinessRead = _mission_bridge_read_models.RuntimeReadinessRead
+RuntimeTaskPreviewStatus = _mission_bridge_read_models.RuntimeTaskPreviewStatus
+RuntimeTaskPreviewRead = _mission_bridge_read_models.RuntimeTaskPreviewRead
+RuntimeTaskMaterializationRead = _mission_bridge_read_models.RuntimeTaskMaterializationRead
+RuntimeDispatchReadinessRead = _mission_bridge_read_models.RuntimeDispatchReadinessRead
+WorkerDispatchEligibilityRead = _mission_bridge_read_models.WorkerDispatchEligibilityRead
+WorkerClaimPreviewRead = _mission_bridge_read_models.WorkerClaimPreviewRead
+WorkerClaimAdmissionRead = _mission_bridge_read_models.WorkerClaimAdmissionRead
+WorkerStartAdmissionRead = _mission_bridge_read_models.WorkerStartAdmissionRead
+WorkerRunAdmissionRead = _mission_bridge_read_models.WorkerRunAdmissionRead
 
 router = APIRouter()
 logger = logging.getLogger("ajenda.mission_runtime_routes")
