@@ -17,8 +17,6 @@ for candidate in (REPO_ROOT, VALIDATION_DIR):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from backend.services.graft_artifact_lifecycle import GRAFT_ARTIFACT_LIFECYCLE_CONTRACTS  # noqa: E402
-from backend.services.runtime_admission_coverage import RUNTIME_ADMISSION_COVERAGE  # noqa: E402
 from build_dependency_graph import build_graph  # noqa: E402
 from graft_capability_registry import build_machine_registry  # noqa: E402
 from graft_drift_controls import validate_graph_authority_boundaries  # noqa: E402
@@ -31,6 +29,9 @@ from graph_proof_selection import select_proofs  # noqa: E402
 from graph_runtime_action_selection_adjudication import adjudicate_runtime_action_selection  # noqa: E402
 from graph_runtime_contract_consumption import adjudicate_runtime_contracts_with_consumption  # noqa: E402
 from graph_runtime_support_inventory import collect_runtime_support_inventory  # noqa: E402
+
+from backend.services.graft_artifact_lifecycle import GRAFT_ARTIFACT_LIFECYCLE_CONTRACTS  # noqa: E402
+from backend.services.runtime_admission_coverage import RUNTIME_ADMISSION_COVERAGE  # noqa: E402
 
 SERVICE_ROOT = "backend/services/"
 TEXT_REFERENCE_SUFFIXES = {
