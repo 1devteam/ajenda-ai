@@ -5,7 +5,7 @@ import json
 import logging
 import uuid as _uuid
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
