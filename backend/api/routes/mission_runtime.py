@@ -136,6 +136,17 @@ def _task_graph_fingerprint(
     nodes: list[dict[str, Any]],
     edges: list[dict[str, Any]],
     operator_notes: str | None,
+) -> str:
+    graph_identity = {
+        "schema_version": 1,
+        "mission_id": mission_id,
+        "graph_status": graph_status,
+        "nodes": nodes,
+        "edges": edges,
+        "operator_notes": operator_notes,
+    }
+    encoded = json.dumps(graph_identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return f"sha256:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
 
 def _fingerprint_existing_task_graph(task_graph: dict[str, Any]) -> str | None:
     nodes = task_graph.get("nodes")
@@ -158,6 +169,17 @@ def _supersede_runtime_admission_for_materialization(
     metadata: dict[str, Any],
     materialization_version: int,
     updated_at: str,
+) -> None:
+    admission = metadata.get(MISSION_RUNTIME_ADMISSION_METADATA_KEY)
+    if not isinstance(admission, dict):
+        return
+    superseded = dict(admission)
+    superseded["admission_status"] = "superseded"
+    superseded["updated_at"] = updated_at
+    superseded["superseded_at"] = updated_at
+    superseded["superseded_reason"] = "graph_materialization_replaced"
+    superseded["superseded_by_materialization_version"] = materialization_version
+    metadata[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = superseded
 
 def _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
     return RuntimeAdmissionRead(
@@ -169,6 +191,24 @@ def _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
 
 def _cancel_superseded_materialized_planned_tasks(
     *, metadata: dict[str, Any], task_repo: ExecutionTaskRepository, tenant_id: str, mission_id: UUID
+) -> list[str]:
+    """Cancel planned ExecutionTask rows referenced by active runtime task materialization metadata."""
+    task_materialization = metadata.get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY)
+    if not isinstance(task_materialization, dict):
+        return []
+    raw_task_ids = task_materialization.get("created_execution_task_ids")
+    if not isinstance(raw_task_ids, list):
+        return []
+    task_ids: list[UUID] = []
+    for raw_task_id in raw_task_ids:
+        try:
+            task_ids.append(UUID(str(raw_task_id)))
+        except ValueError:
+            continue
+    cancelled_tasks = task_repo.cancel_planned_by_ids_for_mission(
+        tenant_id=tenant_id, mission_id=mission_id, task_ids=task_ids
+    )
+    return [str(task.id) for task in cancelled_tasks]
 
 def _graph_materialization_to_read(mission: Mission) -> GraphMaterializationRead:
     return GraphMaterializationRead(
