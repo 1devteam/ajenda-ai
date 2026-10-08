@@ -1161,4 +1161,3 @@ def queue_mission(
         "pending_review_task_ids": admission["pending_review_task_ids"],
         "denied_tasks": admission["denied_tasks"],
     }
-
