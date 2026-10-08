@@ -167,6 +167,8 @@ def test_upsert_filters_ajenda_metadata_from_provider_properties(client: TestCli
         )
 
     assert response.status_code == 200
+    body = response.json()
+    assert body["requested_properties"] == {"email": "buyer@example.com", "company": "HubSpot"}
     patch_call = http_client.request.call_args_list[1].kwargs
     assert patch_call["json"]["properties"] == {"email": "buyer@example.com", "company": "HubSpot"}
 
