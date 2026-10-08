@@ -275,7 +275,12 @@ def _graph_path_refs(graph: dict[str, Any], moved_sources: set[str]) -> dict[str
     }
 
 
-def build_placement(target: dict[str, Any]) -> dict[str, Any]:
+def build_placement(
+    target: dict[str, Any],
+    *,
+    graph: dict[str, Any] | None = None,
+    audit: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     rows = _rows(target)
     current_flat = _flat_service_files()
     mapped_flat = {source_name for source_name, _destination, _boundary_id, _role_id in rows}
@@ -298,8 +303,8 @@ def build_placement(target: dict[str, Any]) -> dict[str, Any]:
     ]
     moved_sources = {source for source, _destination, _boundary_id, _role_id in move_rows}
 
-    graph = build_graph()
-    audit = audit_graph(graph)
+    graph = graph or build_graph()
+    audit = audit or audit_graph(graph)
     source_index = _graph_source_index(graph)
     moved_node_ids = {node_id for source in moved_sources for node_id in source_index.get(source, [])}
 
@@ -444,10 +449,20 @@ def build_placement(target: dict[str, Any]) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", type=Path, required=True)
+    parser.add_argument("--graph", type=Path)
+    parser.add_argument("--completeness-report", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
-    artifact = build_placement(_load_target(args.target))
+    graph = json.loads(args.graph.read_text(encoding="utf-8")) if args.graph else None
+    audit = (
+        json.loads(args.completeness_report.read_text(encoding="utf-8"))
+        if args.completeness_report
+        else None
+    )
+    if audit is not None and graph is None:
+        raise ValueError("--completeness-report requires --graph")
+    artifact = build_placement(_load_target(args.target), graph=graph, audit=audit)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(artifact, sort_keys=True, separators=(",", ":")) + "\n",
