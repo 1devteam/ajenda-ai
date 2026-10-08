@@ -92,7 +92,7 @@ def test_runtime_dispatch_readiness_ready_for_queued_materialized_tasks_with_tas
         patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
         patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
         patch("backend.api.routes.mission_runtime.ExecutionCoordinator") as coordinator_cls,
-        patch("backend.api.routes.mission_runtime.MissionExecutor") as executor_cls,
+        patch("backend.services.mission_executor.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission_runtime.task_dispatcher", create=True) as dispatcher,
     ):
         result = mission_module.read_mission_runtime_dispatch_readiness(
@@ -283,7 +283,7 @@ def test_runtime_dispatch_readiness_blocks_stale_queue_admission_for_new_materia
         patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
         patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
         patch("backend.api.routes.mission_runtime.ExecutionCoordinator") as coordinator_cls,
-        patch("backend.api.routes.mission_runtime.MissionExecutor") as executor_cls,
+        patch("backend.services.mission_executor.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission_runtime.task_dispatcher", create=True) as dispatcher,
     ):
         result = mission_module.read_mission_runtime_dispatch_readiness(
@@ -323,7 +323,7 @@ def test_runtime_dispatch_readiness_blocks_queued_task_missing_from_current_queu
         patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
         patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
         patch("backend.api.routes.mission_runtime.ExecutionCoordinator") as coordinator_cls,
-        patch("backend.api.routes.mission_runtime.MissionExecutor") as executor_cls,
+        patch("backend.services.mission_executor.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission_runtime.task_dispatcher", create=True) as dispatcher,
     ):
         result = mission_module.read_mission_runtime_dispatch_readiness(
