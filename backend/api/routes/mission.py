@@ -201,8 +201,6 @@ _cancel_superseded_materialized_planned_tasks = _mission_runtime._cancel_superse
 _admit_mission_runtime_queue = _mission_runtime._admit_mission_runtime_queue
 
 
-
-
 def _task_graph_contract_content(task_graph: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": task_graph["schema_version"],
