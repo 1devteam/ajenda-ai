@@ -7,8 +7,9 @@ import hashlib
 import json
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 Runner = Callable[..., subprocess.CompletedProcess[str]]
