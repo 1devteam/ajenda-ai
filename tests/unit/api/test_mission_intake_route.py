@@ -120,9 +120,9 @@ def test_mission_intake_creates_tenant_owned_mission_without_queueing_runtime_wo
     quota_svc = MagicMock()
 
     with (
-        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
         patch("backend.api.routes.mission.QuotaEnforcementService", return_value=quota_svc),
-        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
@@ -1552,11 +1552,11 @@ def test_mission_lifecycle_returns_contract_metadata_and_related_summaries_witho
     retrieval_repo.list_for_mission.return_value = [retrieval]
 
     with (
-        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
+        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
         patch("backend.api.routes.mission.EvidenceRepository", return_value=evidence_repo),
-        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
         patch("backend.api.routes.mission.RetrievalContractRepository", return_value=retrieval_repo),
-        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
         patch("backend.api.routes.mission.QuotaEnforcementService") as quota_cls,
@@ -1753,11 +1753,11 @@ def test_mission_lifecycle_treats_superseded_runtime_admission_as_incomplete() -
     retrieval_repo.list_for_mission.return_value = []
 
     with (
-        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
         patch("backend.api.routes.mission.EvidenceRepository", return_value=evidence_repo),
-        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
         patch("backend.api.routes.mission.RetrievalContractRepository", return_value=retrieval_repo),
-        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
@@ -1805,11 +1805,11 @@ def test_mission_lifecycle_treats_non_admitted_runtime_status_as_incomplete() ->
     retrieval_repo.list_for_mission.return_value = []
 
     with (
-        patch("backend.api.routes.mission_runtime.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
         patch("backend.api.routes.mission.EvidenceRepository", return_value=evidence_repo),
-        patch("backend.api.routes.mission_runtime.OutcomeReviewRepository", return_value=outcome_repo),
+        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
         patch("backend.api.routes.mission.RetrievalContractRepository", return_value=retrieval_repo),
-        patch("backend.api.routes.mission_runtime.ExecutionTaskRepository") as task_repo_cls,
+        patch("backend.api.routes.mission.ExecutionTaskRepository") as task_repo_cls,
         patch("backend.api.routes.mission.MissionExecutor") as executor_cls,
         patch("backend.api.routes.mission.ExecutionCoordinator") as coordinator_cls,
     ):
