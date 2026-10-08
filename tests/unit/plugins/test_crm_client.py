@@ -150,7 +150,8 @@ def test_external_crm_upsert_requires_provider_readback() -> None:
             NetworkEgressResponse(
                 status_code=201,
                 headers={},
-                body_text='{"id":"hs-1","properties":{"email":"buyer@example.com"},"source":"hubspot"}',
+                body_text='{"id":"hs-1","requested_properties":{"email":"buyer@example.com"},'
+                '"properties":{"email":"buyer@example.com"},"source":"hubspot"}',
                 body_truncated=False,
             ),
         ),
@@ -200,7 +201,8 @@ def test_external_crm_upsert_is_not_success_when_readback_properties_mismatch() 
             NetworkEgressResponse(
                 status_code=200,
                 headers={},
-                body_text='{"id":"hs-1","properties":{"email":"buyer@example.com","company":"Acme"},"source":"hubspot"}',
+                body_text='{"id":"hs-1","requested_properties":{"email":"buyer@example.com","company":"Acme"},'
+                '"properties":{"email":"buyer@example.com","company":"Acme"},"source":"hubspot"}',
                 body_truncated=False,
             ),
         ),
