@@ -16,7 +16,6 @@ sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 
-
 def test_source_topology_aggregates_direct_facts_without_refactor_judgment() -> None:
     graph = {
         "schema_version": "test",
