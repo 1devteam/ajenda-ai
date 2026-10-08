@@ -216,6 +216,9 @@ def build_shadow(frontier_spec: dict[str, Any]) -> dict[str, Any]:
     errors = validate_frontier_spec(frontier_spec)
     if errors:
         raise ValueError("invalid Frontier spec: " + "; ".join(errors))
+    candidate_paths = frontier_spec.get("candidate_paths")
+    if candidate_paths != list(CANDIDATES):
+        raise ValueError("Frontier candidate_paths must exactly match filesystem Shadow candidates")
 
     graph = build_graph()
     audit = audit_graph(graph)
