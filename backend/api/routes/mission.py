@@ -191,6 +191,7 @@ def _runtime_route_dependencies() -> _mission_runtime.RuntimeRouteDependencies:
         quota_enforcement_service_cls=QuotaEnforcementService,
         execution_coordinator_cls=ExecutionCoordinator,
         provision_bridge_runtime_authority=provision_bridge_runtime_authority,
+        require_route_permission=require_route_permission,
     )
 
 
