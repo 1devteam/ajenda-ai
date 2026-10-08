@@ -278,8 +278,14 @@ class StandardCrmClient:
                         error="CRM upsert response missing provider record id",
                         effect_verified=False,
                     )
+                requested_properties = payload.get("requested_properties")
                 provider_properties = payload.get("properties")
-                expected_properties = provider_properties if isinstance(provider_properties, dict) else {}
+                if isinstance(requested_properties, dict):
+                    expected_properties = requested_properties
+                elif isinstance(provider_properties, dict):
+                    expected_properties = provider_properties
+                else:
+                    expected_properties = {}
                 readback = self.readback(
                     context=context,
                     record_type=record_type,
@@ -404,7 +410,11 @@ class StandardCrmClient:
                     record_type=record_type,
                     record_id=record_id,
                     data=payload if isinstance(payload, dict) else {},
-                    source=str(payload.get("source", "external_crm")) if isinstance(payload, dict) else "external_crm",
+                    source=(
+                        str(payload.get("source", "external_crm"))
+                        if isinstance(payload, dict)
+                        else "external_crm"
+                    ),
                     real=True,
                     effect_verified=False,
                     status_code=resp.status_code,
