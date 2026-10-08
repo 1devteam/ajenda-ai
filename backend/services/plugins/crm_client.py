@@ -304,6 +304,7 @@ class StandardCrmClient:
                         status="effect_unverified",
                         status_code=readback.status_code or resp.status_code,
                         error=readback.error or "CRM provider effect read-back did not verify",
+                        effect_verified=False,
                         readback=readback.data,
                     )
                 return CrmUpsertResult(
