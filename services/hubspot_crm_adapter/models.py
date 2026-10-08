@@ -27,6 +27,7 @@ class UpsertResponse(BaseModel):
     hubspot_object_type: str
     id: str
     created: bool
+    requested_properties: dict[str, Any]
     properties: dict[str, Any]
     source: Literal["hubspot"] = "hubspot"
 
