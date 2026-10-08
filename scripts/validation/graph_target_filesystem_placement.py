@@ -142,7 +142,7 @@ def _test_links(graph: dict[str, Any], *, moved_node_ids: set[str]) -> list[tupl
 def _text_reference_index(
     module_rewrites: list[list[str]],
     move_rows: list[tuple[str, str, int, int]],
-) -> tuple[list[str], list[list[int]]]:
+) -> tuple[list[str], list[str], list[list[int]]]:
     patterns: list[str] = []
     for old_module, _new_module in module_rewrites:
         patterns.append(old_module)
@@ -172,7 +172,7 @@ def _text_reference_index(
     files = sorted(reference_files)
     file_id = {value: index for index, value in enumerate(files)}
     refs = sorted({(file_id[path], pid) for path, pid in raw_rows})
-    return patterns, [[fid, pid] for fid, pid in refs]
+    return files, patterns, [[fid, pid] for fid, pid in refs]
 
 
 def _package_scaffolding(move_rows: list[tuple[str, str, int, int]]) -> list[str]:
@@ -315,14 +315,19 @@ def build_placement(target: dict[str, Any]) -> dict[str, Any]:
     registry = build_machine_registry()
     authority_errors = validate_graph_authority_boundaries()
 
+    direct_edges = _direct_source_edges(graph, moved_sources=moved_sources)
+    test_links = _test_links(graph, moved_node_ids=moved_node_ids)
     file_values = sorted(
         set(moved_sources)
         | {destination for _source, destination, _boundary_id, _role_id in move_rows}
         | set(impact.get("changed_files", []))
-        | {row[0] for row in _test_links(graph, moved_node_ids=moved_node_ids)}
+        | {left for left, _right, _edge_type in direct_edges}
+        | {right for _left, right, _edge_type in direct_edges}
+        | {test for test, _source in test_links}
+        | {source for _test, source in test_links}
     )
     file_id = {value: index for index, value in enumerate(file_values)}
-    edge_types = sorted({edge_type for _left, _right, edge_type in _direct_source_edges(graph, moved_sources=moved_sources)})
+    edge_types = sorted({edge_type for _left, _right, edge_type in direct_edges})
     edge_type_id = {value: index for index, value in enumerate(edge_types)}
 
     move_table = [
@@ -338,15 +343,13 @@ def build_placement(target: dict[str, Any]) -> dict[str, Any]:
     ]
     edge_table = [
         [file_id[left], file_id[right], edge_type_id[edge_type]]
-        for left, right, edge_type in _direct_source_edges(graph, moved_sources=moved_sources)
-        if left in file_id and right in file_id
+        for left, right, edge_type in direct_edges
     ]
-    reference_patterns, reference_rows = _text_reference_index(module_rewrites, move_rows)
+    reference_files, reference_patterns, reference_rows = _text_reference_index(module_rewrites, move_rows)
     scaffolding = _package_scaffolding(move_rows)
     test_table = [
         [file_id[test], file_id[source]]
-        for test, source in _test_links(graph, moved_node_ids=moved_node_ids)
-        if test in file_id and source in file_id
+        for test, source in test_links
     ]
 
     runtime_rows = _runtime_rows(runtime_selection, moved_sources)
@@ -378,6 +381,7 @@ def build_placement(target: dict[str, Any]) -> dict[str, Any]:
         "mr": module_rewrites,
         "de": edge_table,
         "tt": test_table,
+        "rf": reference_files,
         "rp": reference_patterns,
         "rr": reference_rows,
         "sc": scaffolding,
