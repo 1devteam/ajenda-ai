@@ -23,29 +23,55 @@ from backend.queue.base import QueueAdapter
 from backend.services.mission_bridge import read_models as _mission_bridge_read_models
 from backend.services.mission_bridge.materialization import (
     build_mission_runtime_readiness as _build_mission_runtime_readiness,
+)
+from backend.services.mission_bridge.materialization import (
     build_runtime_task_preview_items as _build_runtime_task_preview_items,
+)
+from backend.services.mission_bridge.materialization import (
     runtime_preview_authority_flags as _runtime_preview_authority_flags,
+)
+from backend.services.mission_bridge.materialization import (
     runtime_task_materialization_to_read as _runtime_task_materialization_to_read,
 )
 from backend.services.mission_bridge.worker_claim import (
     build_runtime_dispatch_readiness as _build_runtime_dispatch_readiness,
+)
+from backend.services.mission_bridge.worker_claim import (
     build_worker_claim_preview as _build_worker_claim_preview,
+)
+from backend.services.mission_bridge.worker_claim import (
     build_worker_dispatch_eligibility as _build_worker_dispatch_eligibility,
+)
+from backend.services.mission_bridge.worker_claim import (
     missing_worker_claim_admission as _missing_worker_claim_admission,
+)
+from backend.services.mission_bridge.worker_claim import (
     worker_claim_admission_to_read as _worker_claim_admission_to_read,
 )
 from backend.services.mission_bridge.worker_run import (
     missing_worker_run_admission as _missing_worker_run_admission,
-    tenant_aware_dispatcher_session_factory as _tenant_aware_dispatcher_session_factory,
-    worker_run_admission_authority_flags as _worker_run_admission_authority_flags,
+)
+from backend.services.mission_bridge.worker_run import (
+    tenant_aware_dispatcher_session_factory as _tenant_aware_dispatcher_session_factory_impl,
+)
+from backend.services.mission_bridge.worker_run import (
+    worker_run_admission_authority_flags as _worker_run_admission_authority_flags_impl,
+)
+from backend.services.mission_bridge.worker_run import (
     worker_run_admission_to_read as _worker_run_admission_to_read,
 )
 from backend.services.mission_bridge.worker_start import (
     missing_worker_start_admission as _missing_worker_start_admission,
+)
+from backend.services.mission_bridge.worker_start import (
     worker_start_admission_to_read as _worker_start_admission_to_read,
 )
-from backend.services.mission_runtime_queue_admission_service import MissionRuntimeQueueAdmissionService
-from backend.services.mission_runtime_task_materialization_service import MissionRuntimeTaskMaterializationService
+from backend.services.mission_runtime_queue_admission_service import (
+    MissionRuntimeQueueAdmissionService as _MissionRuntimeQueueAdmissionService,
+)
+from backend.services.mission_runtime_task_materialization_service import (
+    MissionRuntimeTaskMaterializationService as _MissionRuntimeTaskMaterializationService,
+)
 
 RuntimeReadinessStatus = _mission_bridge_read_models.RuntimeReadinessStatus
 RuntimeReadinessCheckStatus = _mission_bridge_read_models.RuntimeReadinessCheckStatus
@@ -78,6 +104,10 @@ WorkerStartReceipt = _mission_bridge_read_models.WorkerStartReceipt
 WorkerStartAdmissionRead = _mission_bridge_read_models.WorkerStartAdmissionRead
 WorkerRunReceipt = _mission_bridge_read_models.WorkerRunReceipt
 WorkerRunAdmissionRead = _mission_bridge_read_models.WorkerRunAdmissionRead
+MissionRuntimeQueueAdmissionService = _MissionRuntimeQueueAdmissionService
+MissionRuntimeTaskMaterializationService = _MissionRuntimeTaskMaterializationService
+_tenant_aware_dispatcher_session_factory = _tenant_aware_dispatcher_session_factory_impl
+_worker_run_admission_authority_flags = _worker_run_admission_authority_flags_impl
 
 
 @dataclass(frozen=True)
