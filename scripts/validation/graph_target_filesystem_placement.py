@@ -186,9 +186,7 @@ def _runtime_rows(report: dict[str, Any], moved_sources: set[str]) -> list[dict[
     rows: list[dict[str, Any]] = []
     for item in report.get("results", []):
         witnesses = sorted(
-            source
-            for source in item.get("witness_sources", [])
-            if isinstance(source, str) and source in moved_sources
+            source for source in item.get("witness_sources", []) if isinstance(source, str) and source in moved_sources
         )
         if not witnesses:
             continue
