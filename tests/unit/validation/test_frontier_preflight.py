@@ -9,7 +9,9 @@ def _runner(returncodes: dict[str, int]):
     def run(command, **_kwargs):
         check_id = next(check_id for check_id, check_command in CHECKS if list(check_command) == list(command))
         rc = returncodes.get(check_id, 0)
-        return subprocess.CompletedProcess(command, rc, stdout=f"{check_id}:out", stderr="" if rc == 0 else f"{check_id}:err")
+        return subprocess.CompletedProcess(
+            command, rc, stdout=f"{check_id}:out", stderr="" if rc == 0 else f"{check_id}:err"
+        )
 
     return run
 
