@@ -19,6 +19,7 @@ for candidate in (REPO_ROOT, VALIDATION_DIR):
 
 from build_dependency_graph import build_graph  # noqa: E402
 from frontier_preflight import run_frontier_preflight  # noqa: E402
+from graft_capability_registry import build_machine_registry  # noqa: E402
 from graft_drift_controls import GRAPH_COMPONENTS  # noqa: E402
 from graft_plus_frontier import validate_frontier_spec  # noqa: E402
 from graft_plus_graft1st_reconciliation_check import IMPLEMENTATION_PROOFS, validate_conformance  # noqa: E402
@@ -228,6 +229,7 @@ def build_shadow(frontier_spec: dict[str, Any]) -> dict[str, Any]:
     runtime = adjudicate_runtime_contracts_with_consumption(graph)
     graft1st = validate_conformance()
     evidence = _federated_evidence(runtime)
+    registry = build_machine_registry()
     nodes, _ = _production(graph)
 
     source_paths = sorted({_source(node) for node in nodes.values() if _source(node)})
@@ -329,6 +331,7 @@ def build_shadow(frontier_spec: dict[str, Any]) -> dict[str, Any]:
         "af": sorted(affinity_rows),
         "c": candidate_states,
         "cn": list(CANDIDATES),
+        "gr": registry["h"],
         "fg": {
             "runtime_contract_candidates": int(runtime.get("metrics", {}).get("candidate_count", 0)),
             "runtime_contract_satisfied": int(runtime.get("metrics", {}).get("satisfied_count", 0)),
