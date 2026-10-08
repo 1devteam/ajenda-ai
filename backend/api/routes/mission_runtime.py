@@ -458,11 +458,14 @@ def admit_mission_runtime_queue(
 ) -> dict[str, object]:
     """Invoke the single canonical mission runtime queue-admission authority."""
 
-    return deps.queue_admission_service_cls(
-        db,
-        queue,
-        mission_repository_cls=deps.mission_repository_cls,
-        execution_task_repository_cls=deps.execution_task_repository_cls,
-        quota_enforcement_service_cls=deps.quota_enforcement_service_cls,
-        execution_coordinator_cls=deps.execution_coordinator_cls,
-    ).admit(mission_id=mission_id, tenant_id=tenant_id)
+    return cast(
+        dict[str, object],
+        deps.queue_admission_service_cls(
+            db,
+            queue,
+            mission_repository_cls=deps.mission_repository_cls,
+            execution_task_repository_cls=deps.execution_task_repository_cls,
+            quota_enforcement_service_cls=deps.quota_enforcement_service_cls,
+            execution_coordinator_cls=deps.execution_coordinator_cls,
+        ).admit(mission_id=mission_id, tenant_id=tenant_id),
+    )
