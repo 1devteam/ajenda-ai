@@ -390,10 +390,10 @@ def test_worker_claim_preview_is_read_only_and_does_not_mutate_runtime_or_call_e
         patch("backend.api.routes.mission_runtime.MissionRepository", return_value=mission_repo),
         patch("backend.api.routes.mission_runtime.ExecutionTaskRepository", return_value=task_repo),
         patch("backend.api.routes.mission_runtime.ExecutionCoordinator") as coordinator_cls,
-        patch("backend.api.routes.mission_runtime.MissionExecutor") as executor_cls,
-        patch("backend.api.routes.mission_runtime.WorkerRuntimeService", create=True) as worker_runtime_cls,
+        patch("backend.services.mission_executor.MissionExecutor") as executor_cls,
+        patch("backend.services.worker_runtime_service.WorkerRuntimeService") as worker_runtime_cls,
         patch("backend.api.routes.mission_runtime.task_dispatcher", create=True) as dispatcher,
-        patch("backend.api.routes.mission_runtime.WorkerLease", create=True) as worker_lease_cls,
+        patch("backend.domain.worker_lease.WorkerLease") as worker_lease_cls,
         patch("backend.api.routes.mission_runtime.get_queue_adapter", create=True) as queue_adapter,
     ):
         result = mission_module.read_mission_worker_claim_preview(
