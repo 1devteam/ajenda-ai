@@ -179,11 +179,7 @@ def _package_scaffolding(move_rows: list[tuple[str, str, int, int]]) -> list[str
         while parent != REPO_ROOT and parent.name not in {"backend", "tests"}:
             required.add(parent.relative_to(REPO_ROOT).as_posix())
             parent = parent.parent
-    return sorted(
-        directory
-        for directory in required
-        if not (REPO_ROOT / directory / "__init__.py").is_file()
-    )
+    return sorted(directory for directory in required if not (REPO_ROOT / directory / "__init__.py").is_file())
 
 
 def _runtime_rows(report: dict[str, Any], moved_sources: set[str]) -> list[dict[str, Any]]:
