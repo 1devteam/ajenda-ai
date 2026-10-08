@@ -33,7 +33,7 @@ RUNTIME_ADMISSION_COVERAGE: tuple[RuntimeAdmissionCoverage, ...] = (
     RuntimeAdmissionCoverage(
         boundary_id="mission.graph_runtime_admission",
         kind="route",
-        source_path="backend/api/routes/mission.py",
+        source_path="backend/api/routes/mission_runtime.py",
         source_tokens=("def admit_mission_graph_to_runtime", "evaluate_admission_integrity"),
         authority_owner="runtime-admission-governance",
         integrity_controls=("GRAFT admission integrity", "tenant-scoped capability/adapter visibility"),
@@ -60,7 +60,7 @@ RUNTIME_ADMISSION_COVERAGE: tuple[RuntimeAdmissionCoverage, ...] = (
     RuntimeAdmissionCoverage(
         boundary_id="mission.legacy_queue_wrapper",
         kind="route",
-        source_path="backend/api/routes/mission.py",
+        source_path="backend/api/routes/mission_runtime.py",
         source_tokens=("def queue_mission", "_admit_mission_runtime_queue"),
         authority_owner="runtime-execution-governance",
         integrity_controls=("canonical runtime queue admission delegation",),
