@@ -17,6 +17,12 @@ CONTACT_IDENTITY_PROPERTIES = ("email",)
 COMPANY_IDENTITY_PROPERTIES = ("domain", "name")
 DEAL_IDENTITY_PROPERTIES = ("dealname",)
 
+PROVIDER_PROPERTY_ALLOWLIST: dict[str, frozenset[str]] = {
+    "contacts": frozenset({"email", "firstname", "lastname", "phone", "company", "website", "jobtitle"}),
+    "companies": frozenset({"name", "domain", "website", "phone", "description"}),
+    "deals": frozenset({"dealname", "amount", "dealstage", "closedate", "pipeline"}),
+}
+
 
 class HubSpotApiError(Exception):
     def __init__(self, *, status_code: int, detail: str) -> None:
@@ -62,7 +68,7 @@ class HubSpotClient:
                 ],
             )
         if company and company.strip():
-            return self._search_object(
+            object_type, results = self._search_object(
                 object_type="companies",
                 filters=[
                     {
@@ -72,6 +78,33 @@ class HubSpotClient:
                     }
                 ],
             )
+            # HubSpot company search does not include contact properties. Read
+            # the tenant's matching contacts through the provider API as
+            # separate observed records so downstream qualification/enrichment
+            # can consume real CRM relationships without inventing contacts.
+            for result in results:
+                properties = result.get("properties") if isinstance(result.get("properties"), dict) else {}
+                company_name = str(properties.get("name") or company).strip()
+                if not company_name:
+                    continue
+                try:
+                    _, contacts = self._search_object(
+                        object_type="contacts",
+                        filters=[
+                            {
+                                "propertyName": "company",
+                                "operator": "CONTAINS_TOKEN",
+                                "value": company_name,
+                            }
+                        ],
+                    )
+                except HubSpotApiError:
+                    # The company observation remains valid when the token lacks
+                    # contact-search scope; the missing relationship is retained
+                    # as an evidence gap for the downstream observer.
+                    contacts = []
+                result["contacts"] = contacts
+            return object_type, results
         return "companies", []
 
     def upsert(self, *, record_type: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -80,7 +113,8 @@ class HubSpotClient:
         if object_type is None:
             raise ValueError(f"unsupported record_type: {record_type}")
 
-        properties = {str(key): str(value) for key, value in data.items() if value is not None}
+        allowed = PROVIDER_PROPERTY_ALLOWLIST.get(object_type, frozenset())
+        properties = {str(key): str(value) for key, value in data.items() if value is not None and str(key) in allowed}
         if not properties:
             raise ValueError("data must include at least one property")
 
@@ -92,6 +126,7 @@ class HubSpotClient:
                 "hubspot_object_type": object_type,
                 "id": existing_id,
                 "created": False,
+                "requested_properties": properties,
                 "properties": updated.get("properties", properties),
             }
 
@@ -104,8 +139,27 @@ class HubSpotClient:
             "hubspot_object_type": object_type,
             "id": created_id,
             "created": True,
+            "requested_properties": properties,
             "properties": created.get("properties", properties),
         }
+
+    def read(self, *, record_type: str, record_id: str) -> dict[str, Any]:
+        """Read one provider object after a mutation for effect verification."""
+
+        normalized_type = record_type.strip().lower()
+        object_type = RECORD_TYPE_TO_OBJECT.get(normalized_type)
+        if object_type is None:
+            raise ValueError(f"unsupported record_type: {record_type}")
+        normalized_id = record_id.strip()
+        if not normalized_id:
+            raise ValueError("record_id is required")
+        payload = self._request(
+            method="GET",
+            path=f"/crm/v3/objects/{object_type}/{normalized_id}?properties={','.join(self._default_properties(object_type))}",
+        )
+        if not isinstance(payload, dict):
+            raise HubSpotApiError(status_code=502, detail="unexpected HubSpot read response")
+        return payload
 
     def _search_object(
         self,
@@ -185,7 +239,7 @@ class HubSpotClient:
         if object_type == "contacts":
             return ["email", "firstname", "lastname", "company", "phone"]
         if object_type == "companies":
-            return ["name", "domain", "website", "phone"]
+            return ["name", "domain", "website", "phone", "description"]
         if object_type == "deals":
             return ["dealname", "amount", "dealstage", "pipeline"]
         return []

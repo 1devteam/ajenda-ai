@@ -733,7 +733,13 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 "binding_source": "upstream_prospect_candidates",
                 "objective": intent.objective,
                 "requested_quantity": limit,
-                "source": "internal_crm" if _ajenda_internal_crm_only(intent) else "local_fixture",
+                "source": (
+                    "internal_crm"
+                    if _ajenda_internal_crm_only(intent)
+                    else "external_crm"
+                    if "hubspot_source" in intent.context_requirements
+                    else "local_fixture"
+                ),
             },
         }
     if action_name == "research.verify_public_identity":
@@ -930,6 +936,7 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
                 "mission_specific_scoring": True,
                 "qualification_threshold_10": qualification_threshold,
                 "ranking_only": ranking_only,
+                "provider_source": "hubspot" if "hubspot_source" in intent.context_requirements else None,
             },
         }
     if action_name == "gtm.lead_enrich":

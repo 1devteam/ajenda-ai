@@ -17,7 +17,7 @@ from backend.services.credentials.runtime_authority import CredentialRequirement
 from backend.services.document_artifacts import read_artifact, update_review_status
 from backend.services.draft_generation import generate_and_persist_draft
 from backend.services.network_egress import get_default_network_egress_authority
-from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
+from backend.services.plugins.crm_client import default_crm_client
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.email_send_idempotency import (
     claim_smtp_send,
@@ -829,19 +829,20 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
                 record["error"] = result.error
             if result.status_code is not None:
                 record["real_response"] = {"status_code": result.status_code}
+            record["effect_verified"] = bool(result.effect_verified)
+            if result.readback is not None:
+                record["readback"] = result.readback
             pipeline_records.append(record)
 
         primary = pipeline_records[0]
         statuses = {str(item["status"]) for item in pipeline_records}
         sources = {str(item["source"]) for item in pipeline_records}
-        all_real = all(bool(item["real"]) for item in pipeline_records)
-        any_error = any(item.get("error") or item["status"] == "error" for item in pipeline_records)
+        all_real = all(bool(item["real"]) and bool(item.get("effect_verified")) for item in pipeline_records)
+        any_error = any(
+            item.get("error") or item["status"] in {"error", "effect_unverified"} for item in pipeline_records
+        )
         use_external = any(
-            is_live_external_crm_result(
-                source=result.source,
-                real=result.real,
-                error=result.error,
-            )
+            result.source != "ajenda_brain" and (result.real or result.status == "effect_unverified")
             for result in results
         )
         overall_status = next(iter(statuses)) if len(statuses) == 1 else ("partial_error" if any_error else "upserted")
@@ -862,7 +863,17 @@ def register_gtm_actions(registry: ActionRegistry) -> None:
             upserted["error"] = "one or more CRM pipeline records failed to upsert"
         if inv.idempotency_key and all_real:
             upserted["idempotency_key"] = inv.idempotency_key
+        upserted["effect_verification"] = [
+            {
+                "provider_record_id": item["id"],
+                "verified": bool(item.get("effect_verified")),
+                "readback": item.get("readback"),
+            }
+            for item in pipeline_records
+        ]
 
+        # The action registry owns the ActionResult provider contract. External
+        # provider identity remains explicit in the output/evidence payload.
         provider = "ajenda_brain"
         side_effect = (
             SideEffectClass.EXTERNAL_WRITE if inv.credential_reference is not None else SideEffectClass.INTERNAL_WRITE

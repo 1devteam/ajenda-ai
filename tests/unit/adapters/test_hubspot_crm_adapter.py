@@ -45,7 +45,10 @@ def test_search_by_company(client: TestClient) -> None:
     with patch("services.hubspot_crm_adapter.hubspot.httpx.Client") as client_cls:
         http_client = MagicMock()
         client_cls.return_value.__enter__.return_value = http_client
-        http_client.request.return_value = _mock_response(status_code=200, json_body=hubspot_payload)
+        http_client.request.side_effect = [
+            _mock_response(status_code=200, json_body=hubspot_payload),
+            _mock_response(status_code=200, json_body={"results": []}),
+        ]
 
         response = client.get(
             "/v1/search",
@@ -58,7 +61,7 @@ def test_search_by_company(client: TestClient) -> None:
     assert body["count"] == 1
     assert body["object_type"] == "companies"
     assert body["source"] == "hubspot"
-    call_kwargs = http_client.request.call_args.kwargs
+    call_kwargs = http_client.request.call_args_list[0].kwargs
     assert call_kwargs["json"]["filterGroups"][0]["filters"][0]["propertyName"] == "name"
 
 
@@ -133,6 +136,64 @@ def test_upsert_updates_existing_contact(client: TestClient) -> None:
     body = response.json()
     assert body["id"] == "555"
     assert body["created"] is False
+
+
+def test_upsert_filters_ajenda_metadata_from_provider_properties(client: TestClient) -> None:
+    search_response = _mock_response(
+        status_code=200,
+        json_body={"results": [{"id": "555", "properties": {"email": "buyer@example.com"}}]},
+    )
+    patch_response = _mock_response(
+        status_code=200,
+        json_body={"id": "555", "properties": {"email": "buyer@example.com", "company": "HubSpot"}},
+    )
+    with patch("services.hubspot_crm_adapter.hubspot.httpx.Client") as client_cls:
+        http_client = MagicMock()
+        client_cls.return_value.__enter__.return_value = http_client
+        http_client.request.side_effect = [search_response, patch_response]
+
+        response = client.post(
+            "/v1/upsert",
+            json={
+                "record_type": "contact",
+                "data": {
+                    "email": "buyer@example.com",
+                    "company": "HubSpot",
+                    "score": 65,
+                    "qualification_evidence": {"source": "hubspot"},
+                },
+            },
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["requested_properties"] == {"email": "buyer@example.com", "company": "HubSpot"}
+    patch_call = http_client.request.call_args_list[1].kwargs
+    assert patch_call["json"]["properties"] == {"email": "buyer@example.com", "company": "HubSpot"}
+
+
+def test_read_record_returns_provider_state(client: TestClient) -> None:
+    read_response = _mock_response(
+        status_code=200,
+        json_body={"id": "555", "properties": {"email": "buyer@example.com", "firstname": "Jane"}},
+    )
+    with patch("services.hubspot_crm_adapter.hubspot.httpx.Client") as client_cls:
+        http_client = MagicMock()
+        client_cls.return_value.__enter__.return_value = http_client
+        http_client.request.return_value = read_response
+
+        response = client.get(
+            "/v1/records/contact/555",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == "555"
+    assert body["hubspot_object_type"] == "contacts"
+    assert body["properties"]["firstname"] == "Jane"
+    assert http_client.request.call_args.args[0] == "GET"
 
 
 def test_upsert_rejects_unknown_record_type(client: TestClient) -> None:

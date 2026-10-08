@@ -31,6 +31,23 @@ class CrmUpsertResult:
     status: str
     status_code: int | None = None
     error: str | None = None
+    # Legacy/unit callers that construct a successful result represent an
+    # already-verified provider result. Live external upserts set this
+    # explicitly only after the adapter read-back succeeds.
+    effect_verified: bool = True
+    readback: dict[str, Any] | None = None
+
+
+@dataclass(slots=True)
+class CrmReadbackResult:
+    record_type: str
+    record_id: str
+    data: dict[str, Any]
+    source: str
+    real: bool
+    effect_verified: bool
+    status_code: int | None = None
+    error: str | None = None
 
 
 def _credential_secret(cred: RuntimeCredentialMaterial | dict[str, Any] | None) -> str | None:
@@ -245,16 +262,61 @@ class StandardCrmClient:
                         status="error",
                         status_code=resp.status_code,
                         error=f"CRM upsert returned HTTP {resp.status_code}",
+                        effect_verified=False,
                     )
                 payload = json.loads(resp.body_text or "{}")
+                record_id = str(payload.get("id", ""))
+                if not record_id:
+                    return CrmUpsertResult(
+                        record_type=record_type,
+                        record_id="",
+                        data=data,
+                        source="external_crm",
+                        real=False,
+                        status="effect_unverified",
+                        status_code=resp.status_code,
+                        error="CRM upsert response missing provider record id",
+                        effect_verified=False,
+                    )
+                requested_properties = payload.get("requested_properties")
+                provider_properties = payload.get("properties")
+                if isinstance(requested_properties, dict):
+                    expected_properties = requested_properties
+                elif isinstance(provider_properties, dict):
+                    expected_properties = provider_properties
+                else:
+                    expected_properties = {}
+                readback = self.readback(
+                    context=context,
+                    record_type=record_type,
+                    record_id=record_id,
+                    credential=credential,
+                    expected_properties=expected_properties,
+                    action_name=action_name,
+                )
+                if not readback.effect_verified:
+                    return CrmUpsertResult(
+                        record_type=record_type,
+                        record_id=record_id,
+                        data=data,
+                        source=str(payload.get("source", "external_crm")),
+                        real=False,
+                        status="effect_unverified",
+                        status_code=readback.status_code or resp.status_code,
+                        error=readback.error or "CRM provider effect read-back did not verify",
+                        effect_verified=False,
+                        readback=readback.data,
+                    )
                 return CrmUpsertResult(
                     record_type=record_type,
-                    record_id=str(payload.get("id", "")),
+                    record_id=record_id,
                     data=data,
                     source=str(payload.get("source", "external_crm")),
                     real=True,
                     status="upserted_real",
                     status_code=resp.status_code,
+                    effect_verified=True,
+                    readback=readback.data,
                 )
             except Exception as exc:
                 return CrmUpsertResult(
@@ -265,6 +327,7 @@ class StandardCrmClient:
                     real=False,
                     status="error",
                     error=str(exc),
+                    effect_verified=False,
                 )
 
         normalized_type = _normalize_record_type(record_type)
@@ -294,6 +357,108 @@ class StandardCrmClient:
             real=True,
             status="upserted_internal",
         )
+
+    def readback(
+        self,
+        *,
+        context: ActionRuntimeContext,
+        record_type: str,
+        record_id: str,
+        credential: RuntimeCredentialMaterial | dict[str, Any] | None,
+        expected_properties: dict[str, Any] | None = None,
+        action_name: str = "crm.verify_effect",
+    ) -> CrmReadbackResult:
+        """Read provider state through the same governed adapter boundary."""
+
+        secret = _credential_secret(credential)
+        if not secret:
+            return CrmReadbackResult(
+                record_type=record_type,
+                record_id=record_id,
+                data={},
+                source="external_crm",
+                real=False,
+                effect_verified=False,
+                error="CRM read-back requires a runtime credential",
+            )
+        try:
+            trusted = _trusted_hosts(credential, default=("api.crm.example.com",))
+            read_url = f"{_adapter_base_url(trusted[0])}{self._read_path(record_type, record_id)}"
+            _dest, resp = get_default_network_egress_authority().request(
+                method="GET",
+                url=read_url,
+                headers={"Authorization": f"Bearer {secret}"},
+                allowed_hosts=_allowed_adapter_hosts(trusted),
+                action_name=action_name,
+                timeout_seconds=10.0,
+            )
+            if not _http_success(resp.status_code):
+                return CrmReadbackResult(
+                    record_type=record_type,
+                    record_id=record_id,
+                    data={},
+                    source="external_crm",
+                    real=False,
+                    effect_verified=False,
+                    status_code=resp.status_code,
+                    error=f"CRM read-back returned HTTP {resp.status_code}",
+                )
+            payload = json.loads(resp.body_text or "{}")
+            actual_id = str(payload.get("id", ""))
+            properties = payload.get("properties", {})
+            if actual_id != record_id or not isinstance(properties, dict):
+                return CrmReadbackResult(
+                    record_type=record_type,
+                    record_id=record_id,
+                    data=payload if isinstance(payload, dict) else {},
+                    source=str(payload.get("source", "external_crm")) if isinstance(payload, dict) else "external_crm",
+                    real=True,
+                    effect_verified=False,
+                    status_code=resp.status_code,
+                    error="CRM read-back identity or properties were invalid",
+                )
+            expected = expected_properties or {}
+            mismatched_keys = sorted(
+                key
+                for key, expected_value in expected.items()
+                if key not in properties or properties.get(key) != expected_value
+            )
+            if mismatched_keys:
+                return CrmReadbackResult(
+                    record_type=record_type,
+                    record_id=record_id,
+                    data=payload,
+                    source=str(payload.get("source", "external_crm")),
+                    real=True,
+                    effect_verified=False,
+                    status_code=resp.status_code,
+                    error="CRM read-back did not match requested provider properties: " + ", ".join(mismatched_keys),
+                )
+            return CrmReadbackResult(
+                record_type=record_type,
+                record_id=record_id,
+                data=payload,
+                source=str(payload.get("source", "external_crm")),
+                real=True,
+                effect_verified=True,
+                status_code=resp.status_code,
+            )
+        except Exception as exc:
+            return CrmReadbackResult(
+                record_type=record_type,
+                record_id=record_id,
+                data={},
+                source="external_crm",
+                real=False,
+                effect_verified=False,
+                error=str(exc),
+            )
+
+    @staticmethod
+    def _read_path(record_type: str, record_id: str) -> str:
+        from urllib.parse import quote
+
+        return f"/v1/records/{quote(record_type.strip(), safe='')}/{quote(record_id.strip(), safe='')}"
 
 
 def _normalize_record_type(record_type: str) -> str:

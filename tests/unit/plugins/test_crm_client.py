@@ -133,3 +133,143 @@ def test_crm_search_url_encodes_company_names_with_spaces() -> None:
         )
 
     assert "company=PRIDE+Proof+Co" in authority.request.call_args.kwargs["url"]
+
+
+def test_external_crm_upsert_requires_provider_readback() -> None:
+    destination = VettedNetworkDestination(
+        original_url="https://crm.example.com/v1/upsert",
+        connect_url="https://10.0.0.1/v1/upsert",
+        pinned_ip=__import__("ipaddress").ip_address("10.0.0.1"),
+        sni_hostname="crm.example.com",
+        host_header="crm.example.com",
+    )
+    authority = MagicMock()
+    authority.request.side_effect = [
+        (
+            destination,
+            NetworkEgressResponse(
+                status_code=201,
+                headers={},
+                body_text='{"id":"hs-1","requested_properties":{"email":"buyer@example.com"},'
+                '"properties":{"email":"buyer@example.com"},"source":"hubspot"}',
+                body_truncated=False,
+            ),
+        ),
+        (
+            destination,
+            NetworkEgressResponse(
+                status_code=200,
+                headers={},
+                body_text='{"id":"hs-1","properties":{"email":"buyer@example.com"},"source":"hubspot"}',
+                body_truncated=False,
+            ),
+        ),
+    ]
+    credential = {"secret_value": "pak-token", "trusted_destination_hosts": ["crm.example.com"]}
+    with patch("backend.services.plugins.crm_client.get_default_network_egress_authority", return_value=authority):
+        result = StandardCrmClient().upsert(
+            context=_context(),
+            record_type="contact",
+            data={"email": "buyer@example.com"},
+            credential=credential,
+            invocation=ToolInvocation(action="gtm.crm_upsert", input={}, idempotency_key="idem-1"),
+        )
+
+    assert result.real is True
+    assert result.effect_verified is True
+    assert result.readback == {
+        "id": "hs-1",
+        "properties": {"email": "buyer@example.com"},
+        "source": "hubspot",
+    }
+    assert authority.request.call_count == 2
+    assert authority.request.call_args_list[1].kwargs["method"] == "GET"
+
+
+def test_external_crm_upsert_is_not_success_when_readback_properties_mismatch() -> None:
+    destination = VettedNetworkDestination(
+        original_url="https://crm.example.com/v1/upsert",
+        connect_url="https://10.0.0.1/v1/upsert",
+        pinned_ip=__import__("ipaddress").ip_address("10.0.0.1"),
+        sni_hostname="crm.example.com",
+        host_header="crm.example.com",
+    )
+    authority = MagicMock()
+    authority.request.side_effect = [
+        (
+            destination,
+            NetworkEgressResponse(
+                status_code=200,
+                headers={},
+                body_text='{"id":"hs-1","requested_properties":{"email":"buyer@example.com","company":"Acme"},'
+                '"properties":{"email":"buyer@example.com","company":"Acme"},"source":"hubspot"}',
+                body_truncated=False,
+            ),
+        ),
+        (
+            destination,
+            NetworkEgressResponse(
+                status_code=200,
+                headers={},
+                body_text='{"id":"hs-1","properties":{"email":"buyer@example.com","company":"Wrong Co"},"source":"hubspot"}',
+                body_truncated=False,
+            ),
+        ),
+    ]
+    credential = {"secret_value": "pak-token", "trusted_destination_hosts": ["crm.example.com"]}
+    with patch("backend.services.plugins.crm_client.get_default_network_egress_authority", return_value=authority):
+        result = StandardCrmClient().upsert(
+            context=_context(),
+            record_type="contact",
+            data={"email": "buyer@example.com", "company": "Acme"},
+            credential=credential,
+        )
+
+    assert result.real is False
+    assert result.effect_verified is False
+    assert result.status == "effect_unverified"
+    assert result.error == "CRM read-back did not match requested provider properties: company"
+
+
+def test_external_crm_upsert_is_not_success_when_readback_fails() -> None:
+    destination = VettedNetworkDestination(
+        original_url="https://crm.example.com/v1/upsert",
+        connect_url="https://10.0.0.1/v1/upsert",
+        pinned_ip=__import__("ipaddress").ip_address("10.0.0.1"),
+        sni_hostname="crm.example.com",
+        host_header="crm.example.com",
+    )
+    authority = MagicMock()
+    authority.request.side_effect = [
+        (
+            destination,
+            NetworkEgressResponse(
+                status_code=201,
+                headers={},
+                body_text='{"id":"hs-1","source":"hubspot"}',
+                body_truncated=False,
+            ),
+        ),
+        (
+            destination,
+            NetworkEgressResponse(
+                status_code=503,
+                headers={},
+                body_text="unavailable",
+                body_truncated=False,
+            ),
+        ),
+    ]
+    credential = {"secret_value": "pak-token", "trusted_destination_hosts": ["crm.example.com"]}
+    with patch("backend.services.plugins.crm_client.get_default_network_egress_authority", return_value=authority):
+        result = StandardCrmClient().upsert(
+            context=_context(),
+            record_type="contact",
+            data={"email": "buyer@example.com"},
+            credential=credential,
+        )
+
+    assert result.real is False
+    assert result.status == "effect_unverified"
+    assert result.record_id == "hs-1"
+    assert result.error == "CRM read-back returned HTTP 503"
