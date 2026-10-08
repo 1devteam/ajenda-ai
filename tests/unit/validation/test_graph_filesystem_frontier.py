@@ -58,7 +58,7 @@ def test_machine_shadow_federates_graft_evidence(monkeypatch) -> None:
     monkeypatch.setattr(
         frontier,
         "build_projection",
-        lambda: {
+        lambda **_kwargs: {
             "candidate_files": [
                 {
                     "source": "backend/services/account_service.py",
