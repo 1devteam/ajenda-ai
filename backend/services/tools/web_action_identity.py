@@ -1,17 +1,7 @@
 """Public-identity verification action."""
 
-from __future__ import annotations
-
-from datetime import UTC, datetime
-
 from backend.services.internet.browser_session import run_browser_session
 from backend.services.tools.contact_observation import page_host
-from backend.services.ontology.evidence_lineage import (
-    EvidenceLineage,
-    EvidenceLineageResolution,
-    EvidenceOriginType,
-    EvidenceSourceIdentity,
-)
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
