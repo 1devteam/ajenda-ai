@@ -5,13 +5,14 @@ import json
 import logging
 import uuid as _uuid
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from backend.api.routes import mission_contracts as _mission_contracts
+from backend.api.routes import mission_runtime as _mission_runtime
 from backend.api.routes._authorization import require_route_permission
 from backend.app.config import get_settings
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
@@ -57,53 +58,7 @@ from backend.repositories.retrieval_contract_repository import RetrievalContract
 from backend.services.execution_coordinator import ExecutionCoordinator
 
 # --- mission_bridge re-exports (Phase 1b layering) ---
-from backend.services.mission_bridge import read_models as _mission_bridge_read_models
-from backend.services.mission_bridge.materialization import (
-    build_mission_runtime_readiness as _build_mission_runtime_readiness,
-)
-from backend.services.mission_bridge.materialization import (
-    build_runtime_task_preview_items as _build_runtime_task_preview_items,
-)
-from backend.services.mission_bridge.materialization import (
-    runtime_preview_authority_flags as _runtime_preview_authority_flags,
-)
-from backend.services.mission_bridge.materialization import (
-    runtime_task_materialization_to_read as _runtime_task_materialization_to_read,
-)
 from backend.services.mission_bridge.quota import quota_exceeded_response as _quota_exceeded_response
-from backend.services.mission_bridge.worker_claim import (
-    build_runtime_dispatch_readiness as _build_runtime_dispatch_readiness,
-)
-from backend.services.mission_bridge.worker_claim import (
-    build_worker_claim_preview as _build_worker_claim_preview,
-)
-from backend.services.mission_bridge.worker_claim import (
-    build_worker_dispatch_eligibility as _build_worker_dispatch_eligibility,
-)
-from backend.services.mission_bridge.worker_claim import (
-    missing_worker_claim_admission as _missing_worker_claim_admission,
-)
-from backend.services.mission_bridge.worker_claim import (
-    worker_claim_admission_to_read as _worker_claim_admission_to_read,
-)
-from backend.services.mission_bridge.worker_run import (
-    missing_worker_run_admission as _missing_worker_run_admission,
-)
-from backend.services.mission_bridge.worker_run import (
-    tenant_aware_dispatcher_session_factory as _tenant_aware_dispatcher_session_factory,
-)
-from backend.services.mission_bridge.worker_run import (
-    worker_run_admission_authority_flags as _worker_run_admission_authority_flags,
-)
-from backend.services.mission_bridge.worker_run import (
-    worker_run_admission_to_read as _worker_run_admission_to_read,
-)
-from backend.services.mission_bridge.worker_start import (
-    missing_worker_start_admission as _missing_worker_start_admission,
-)
-from backend.services.mission_bridge.worker_start import (
-    worker_start_admission_to_read as _worker_start_admission_to_read,
-)
 from backend.services.mission_bridge_runtime_authority import provision_bridge_runtime_authority
 from backend.services.mission_composition.deliverable_runtime_observability import (
     build_deliverable_runtime_state_read,
@@ -118,42 +73,42 @@ from backend.services.mission_intake_quality import (
 from backend.services.mission_runtime_projection import (
     supersede_runtime_task_materialization,
 )
-from backend.services.mission_runtime_queue_admission_service import MissionRuntimeQueueAdmissionService
-from backend.services.mission_runtime_task_materialization_service import MissionRuntimeTaskMaterializationService
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaEnforcementService, QuotaExceededError
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
-RuntimeReadinessStatus = _mission_bridge_read_models.RuntimeReadinessStatus
-RuntimeReadinessCheckStatus = _mission_bridge_read_models.RuntimeReadinessCheckStatus
-RuntimeReadinessItem = _mission_bridge_read_models.RuntimeReadinessItem
-RuntimeReadinessRead = _mission_bridge_read_models.RuntimeReadinessRead
-RuntimeTaskPreviewStatus = _mission_bridge_read_models.RuntimeTaskPreviewStatus
-RuntimeTaskPreviewPayload = _mission_bridge_read_models.RuntimeTaskPreviewPayload
-RuntimeTaskPreviewItem = _mission_bridge_read_models.RuntimeTaskPreviewItem
-RuntimeTaskPreviewRead = _mission_bridge_read_models.RuntimeTaskPreviewRead
-RuntimeTaskMaterializationStatus = _mission_bridge_read_models.RuntimeTaskMaterializationStatus
-RuntimeDispatchReadinessStatus = _mission_bridge_read_models.RuntimeDispatchReadinessStatus
-WorkerDispatchEligibilityStatus = _mission_bridge_read_models.WorkerDispatchEligibilityStatus
-WorkerClaimPreviewStatus = _mission_bridge_read_models.WorkerClaimPreviewStatus
-WorkerClaimAdmissionStatus = _mission_bridge_read_models.WorkerClaimAdmissionStatus
-WorkerStartAdmissionStatus = _mission_bridge_read_models.WorkerStartAdmissionStatus
-WorkerRunAdmissionStatus = _mission_bridge_read_models.WorkerRunAdmissionStatus
-RuntimeTaskMaterializationRead = _mission_bridge_read_models.RuntimeTaskMaterializationRead
-RuntimeDispatchAuthority = _mission_bridge_read_models.RuntimeDispatchAuthority
-RuntimeDispatchReadinessRead = _mission_bridge_read_models.RuntimeDispatchReadinessRead
-WorkerDispatchAuthority = _mission_bridge_read_models.WorkerDispatchAuthority
-WorkerClaimAuthority = _mission_bridge_read_models.WorkerClaimAuthority
-WorkerDispatchEligibilityRead = _mission_bridge_read_models.WorkerDispatchEligibilityRead
-WorkerClaimPreviewEnvelope = _mission_bridge_read_models.WorkerClaimPreviewEnvelope
-WorkerClaimPreviewRead = _mission_bridge_read_models.WorkerClaimPreviewRead
-WorkerClaimReceipt = _mission_bridge_read_models.WorkerClaimReceipt
-WorkerClaimAdmissionRead = _mission_bridge_read_models.WorkerClaimAdmissionRead
-WorkerStartAuthority = _mission_bridge_read_models.WorkerStartAuthority
-WorkerRunAuthority = _mission_bridge_read_models.WorkerRunAuthority
-WorkerStartReceipt = _mission_bridge_read_models.WorkerStartReceipt
-WorkerStartAdmissionRead = _mission_bridge_read_models.WorkerStartAdmissionRead
-WorkerRunReceipt = _mission_bridge_read_models.WorkerRunReceipt
-WorkerRunAdmissionRead = _mission_bridge_read_models.WorkerRunAdmissionRead
+RuntimeReadinessStatus = _mission_runtime.RuntimeReadinessStatus
+RuntimeReadinessCheckStatus = _mission_runtime.RuntimeReadinessCheckStatus
+RuntimeReadinessItem = _mission_runtime.RuntimeReadinessItem
+RuntimeReadinessRead = _mission_runtime.RuntimeReadinessRead
+RuntimeTaskPreviewStatus = _mission_runtime.RuntimeTaskPreviewStatus
+RuntimeTaskPreviewPayload = _mission_runtime.RuntimeTaskPreviewPayload
+RuntimeTaskPreviewItem = _mission_runtime.RuntimeTaskPreviewItem
+RuntimeTaskPreviewRead = _mission_runtime.RuntimeTaskPreviewRead
+RuntimeTaskMaterializationStatus = _mission_runtime.RuntimeTaskMaterializationStatus
+RuntimeDispatchReadinessStatus = _mission_runtime.RuntimeDispatchReadinessStatus
+WorkerDispatchEligibilityStatus = _mission_runtime.WorkerDispatchEligibilityStatus
+WorkerClaimPreviewStatus = _mission_runtime.WorkerClaimPreviewStatus
+WorkerClaimAdmissionStatus = _mission_runtime.WorkerClaimAdmissionStatus
+WorkerStartAdmissionStatus = _mission_runtime.WorkerStartAdmissionStatus
+WorkerRunAdmissionStatus = _mission_runtime.WorkerRunAdmissionStatus
+RuntimeTaskMaterializationRead = _mission_runtime.RuntimeTaskMaterializationRead
+RuntimeDispatchAuthority = _mission_runtime.RuntimeDispatchAuthority
+RuntimeDispatchReadinessRead = _mission_runtime.RuntimeDispatchReadinessRead
+WorkerDispatchAuthority = _mission_runtime.WorkerDispatchAuthority
+WorkerClaimAuthority = _mission_runtime.WorkerClaimAuthority
+WorkerDispatchEligibilityRead = _mission_runtime.WorkerDispatchEligibilityRead
+WorkerClaimPreviewEnvelope = _mission_runtime.WorkerClaimPreviewEnvelope
+WorkerClaimPreviewRead = _mission_runtime.WorkerClaimPreviewRead
+WorkerClaimReceipt = _mission_runtime.WorkerClaimReceipt
+WorkerClaimAdmissionRead = _mission_runtime.WorkerClaimAdmissionRead
+WorkerStartAuthority = _mission_runtime.WorkerStartAuthority
+WorkerRunAuthority = _mission_runtime.WorkerRunAuthority
+WorkerStartReceipt = _mission_runtime.WorkerStartReceipt
+WorkerStartAdmissionRead = _mission_runtime.WorkerStartAdmissionRead
+WorkerRunReceipt = _mission_runtime.WorkerRunReceipt
+WorkerRunAdmissionRead = _mission_runtime.WorkerRunAdmissionRead
+MissionRuntimeQueueAdmissionService = _mission_runtime.MissionRuntimeQueueAdmissionService
+MissionRuntimeTaskMaterializationService = _mission_runtime.MissionRuntimeTaskMaterializationService
 
 
 router = APIRouter(prefix="/missions", tags=["missions"])
@@ -222,6 +177,22 @@ MissionCompileRequest = _mission_contracts.MissionCompileRequest
 MissionCompileResponse = _mission_contracts.MissionCompileResponse
 MissionLaunchResponse = _mission_contracts.MissionLaunchResponse
 MissionCancelRequest = _mission_contracts.MissionCancelRequest
+
+
+def _runtime_route_dependencies() -> _mission_runtime.RuntimeRouteDependencies:
+    return _mission_runtime.RuntimeRouteDependencies(
+        mission_repository_cls=MissionRepository,
+        execution_task_repository_cls=ExecutionTaskRepository,
+        capability_repository_cls=CapabilityRepository,
+        capability_adapter_repository_cls=CapabilityAdapterRepository,
+        outcome_review_repository_cls=OutcomeReviewRepository,
+        task_materialization_service_cls=MissionRuntimeTaskMaterializationService,
+        queue_admission_service_cls=MissionRuntimeQueueAdmissionService,
+        quota_enforcement_service_cls=QuotaEnforcementService,
+        execution_coordinator_cls=ExecutionCoordinator,
+        provision_bridge_runtime_authority=provision_bridge_runtime_authority,
+        require_route_permission=require_route_permission,
+    )
 
 
 _CLIENT_FORGED_ADMISSION_IDENTITIES = frozenset(
@@ -1867,14 +1838,12 @@ def read_mission_runtime_readiness(
     db: Session = Depends(get_tenant_db_session),
 ) -> RuntimeReadinessRead:
     """Validate read-only runtime admission readiness without runtime authority."""
-    return _build_mission_runtime_readiness(
+    return _mission_runtime.read_mission_runtime_readiness(
         mission_id=mission_id,
+        request=request,
         tenant_id=tenant_id,
         db=db,
-        mission_repository_cls=MissionRepository,
-        capability_repository_cls=CapabilityRepository,
-        capability_adapter_repository_cls=CapabilityAdapterRepository,
-        outcome_review_repository_cls=OutcomeReviewRepository,
+        deps=_runtime_route_dependencies(),
     )
 
 
@@ -1886,38 +1855,12 @@ def read_mission_runtime_task_preview(
     db: Session = Depends(get_tenant_db_session),
 ) -> RuntimeTaskPreviewRead:
     """Preview future ExecutionTask materialization without creating or queueing work."""
-    readiness = _build_mission_runtime_readiness(
+    return _mission_runtime.read_mission_runtime_task_preview(
         mission_id=mission_id,
+        request=request,
         tenant_id=tenant_id,
         db=db,
-        mission_repository_cls=MissionRepository,
-        capability_repository_cls=CapabilityRepository,
-        capability_adapter_repository_cls=CapabilityAdapterRepository,
-        outcome_review_repository_cls=OutcomeReviewRepository,
-    )
-    tasks = _build_runtime_task_preview_items(mission_id=mission_id, readiness=readiness) if readiness.ready else []
-    preview_status: RuntimeTaskPreviewStatus = readiness.readiness_status
-    if readiness.ready and len(tasks) != readiness.selected_node_count:
-        preview_status = "incomplete"
-    readiness_summary = {
-        "readiness_status": readiness.readiness_status,
-        "selected_node_count": readiness.selected_node_count,
-        "check_count": len(readiness.checks),
-        "blocker_count": len(readiness.blockers),
-        "warning_count": len(readiness.warnings),
-    }
-    return RuntimeTaskPreviewRead(
-        mission_id=readiness.mission_id,
-        tenant_id=readiness.tenant_id,
-        ready=readiness.ready and preview_status == "ready",
-        preview_status=preview_status,
-        checked_at=readiness.checked_at,
-        readiness_summary=readiness_summary,
-        task_count=len(tasks),
-        tasks=tasks,
-        blockers=readiness.blockers,
-        warnings=readiness.warnings,
-        runtime_authority=_runtime_preview_authority_flags(),
+        deps=_runtime_route_dependencies(),
     )
 
 
@@ -1929,13 +1872,13 @@ def read_mission_runtime_task_materialization(
     db: Session = Depends(get_tenant_db_session),
 ) -> RuntimeTaskMaterializationRead:
     """Read tenant-scoped ExecutionTask materialization metadata."""
-    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
-    if mission is None:
-        raise HTTPException(status_code=404, detail="mission not found for tenant")
-    materialization = (mission.metadata_json or {}).get(MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY)
-    if not isinstance(materialization, dict):
-        raise HTTPException(status_code=404, detail="mission runtime task materialization not found")
-    return _runtime_task_materialization_to_read(mission=mission, metadata=materialization)
+    return _mission_runtime.read_mission_runtime_task_materialization(
+        mission_id=mission_id,
+        request=request,
+        tenant_id=tenant_id,
+        db=db,
+        deps=_runtime_route_dependencies(),
+    )
 
 
 @router.post("/{mission_id}/runtime-task-materialization", response_model=RuntimeTaskMaterializationRead)
@@ -1946,17 +1889,12 @@ def materialize_mission_runtime_tasks(
     db: Session = Depends(get_tenant_db_session),
 ) -> RuntimeTaskMaterializationRead:
     """Create planned ExecutionTask rows from a ready admitted mission graph without queueing work."""
-    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
-    return cast(
-        RuntimeTaskMaterializationRead,
-        MissionRuntimeTaskMaterializationService(
-            db,
-            mission_repository_cls=MissionRepository,
-            execution_task_repository_cls=ExecutionTaskRepository,
-            capability_repository_cls=CapabilityRepository,
-            capability_adapter_repository_cls=CapabilityAdapterRepository,
-            outcome_review_repository_cls=OutcomeReviewRepository,
-        ).materialize(mission_id=mission_id, tenant_id=tenant_id),
+    return _mission_runtime.materialize_mission_runtime_tasks(
+        mission_id=mission_id,
+        request=request,
+        tenant_id=tenant_id,
+        db=db,
+        deps=_runtime_route_dependencies(),
     )
 
 
@@ -1968,12 +1906,12 @@ def read_mission_runtime_dispatch_readiness(
     db: Session = Depends(get_tenant_db_session),
 ) -> RuntimeDispatchReadinessRead:
     """Read queued materialized task readiness without dispatching workers."""
-    return _build_runtime_dispatch_readiness(
+    return _mission_runtime.read_mission_runtime_dispatch_readiness(
         mission_id=mission_id,
+        request=request,
         tenant_id=tenant_id,
         db=db,
-        mission_repository_cls=MissionRepository,
-        execution_task_repository_cls=ExecutionTaskRepository,
+        deps=_runtime_route_dependencies(),
     )
 
 
@@ -1985,12 +1923,12 @@ def read_mission_worker_dispatch_eligibility(
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerDispatchEligibilityRead:
     """Read worker dispatch eligibility without claiming leases or mutating runtime state."""
-    return _build_worker_dispatch_eligibility(
+    return _mission_runtime.read_mission_worker_dispatch_eligibility(
         mission_id=mission_id,
+        request=request,
         tenant_id=tenant_id,
         db=db,
-        mission_repository_cls=MissionRepository,
-        execution_task_repository_cls=ExecutionTaskRepository,
+        deps=_runtime_route_dependencies(),
     )
 
 
@@ -2002,12 +1940,12 @@ def read_mission_worker_claim_preview(
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerClaimPreviewRead:
     """Preview future worker claim envelopes without claiming or dispatching work."""
-    return _build_worker_claim_preview(
+    return _mission_runtime.read_mission_worker_claim_preview(
         mission_id=mission_id,
+        request=request,
         tenant_id=tenant_id,
         db=db,
-        mission_repository_cls=MissionRepository,
-        execution_task_repository_cls=ExecutionTaskRepository,
+        deps=_runtime_route_dependencies(),
     )
 
 
@@ -2019,10 +1957,12 @@ def worker_claim_admission(
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerClaimAdmissionRead:
     """Deprecated: daemon workers exclusively own queue claim authority."""
-    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
-    raise HTTPException(
-        status_code=410,
-        detail="HTTP worker claim admission was removed; queued work is claimed by the daemon worker.",
+    return _mission_runtime.worker_claim_admission(
+        mission_id=mission_id,
+        request=request,
+        tenant_id=tenant_id,
+        db=db,
+        deps=_runtime_route_dependencies(),
     )
 
 
@@ -2034,16 +1974,12 @@ def read_mission_worker_claim_admission(
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerClaimAdmissionRead:
     """Read latest worker claim admission metadata without mutating runtime state."""
-    tenant_id_str = str(tenant_id)
-    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
-    if mission is None:
-        raise HTTPException(status_code=404, detail="mission not found for tenant")
-    metadata = mission.metadata_json if isinstance(mission.metadata_json, dict) else {}
-    admission = metadata.get(MISSION_WORKER_CLAIM_ADMISSION_METADATA_KEY)
-    if not isinstance(admission, dict):
-        return _missing_worker_claim_admission(mission_id=mission_id, tenant_id=tenant_id_str)
-    return _worker_claim_admission_to_read(
-        mission_id=mission_id, tenant_id=tenant_id_str, admission=admission, read_only=True
+    return _mission_runtime.read_mission_worker_claim_admission(
+        mission_id=mission_id,
+        request=request,
+        tenant_id=tenant_id,
+        db=db,
+        deps=_runtime_route_dependencies(),
     )
 
 
@@ -2055,10 +1991,12 @@ def worker_start_admission(
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerStartAdmissionRead:
     """Deprecated: daemon workers exclusively own execution start authority."""
-    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
-    raise HTTPException(
-        status_code=410,
-        detail="HTTP worker start admission was removed; claimed work is started by the daemon worker.",
+    return _mission_runtime.worker_start_admission(
+        mission_id=mission_id,
+        request=request,
+        tenant_id=tenant_id,
+        db=db,
+        deps=_runtime_route_dependencies(),
     )
 
 
@@ -2070,16 +2008,12 @@ def read_mission_worker_start_admission(
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerStartAdmissionRead:
     """Read latest worker execution start admission metadata without mutating runtime state."""
-    tenant_id_str = str(tenant_id)
-    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
-    if mission is None:
-        raise HTTPException(status_code=404, detail="mission not found for tenant")
-    metadata = mission.metadata_json if isinstance(mission.metadata_json, dict) else {}
-    admission = metadata.get(MISSION_WORKER_START_ADMISSION_METADATA_KEY)
-    if not isinstance(admission, dict):
-        return _missing_worker_start_admission(mission_id=mission_id, tenant_id=tenant_id_str)
-    return _worker_start_admission_to_read(
-        mission_id=mission_id, tenant_id=tenant_id_str, admission=admission, read_only=True
+    return _mission_runtime.read_mission_worker_start_admission(
+        mission_id=mission_id,
+        request=request,
+        tenant_id=tenant_id,
+        db=db,
+        deps=_runtime_route_dependencies(),
     )
 
 
@@ -2091,10 +2025,12 @@ def worker_run_admission(
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerRunAdmissionRead:
     """Deprecated: daemon workers exclusively own dispatcher execution authority."""
-    require_route_permission(request=request, db=db, permission=Permission.RUNTIME_OPERATE, tenant_id=tenant_id)
-    raise HTTPException(
-        status_code=410,
-        detail="HTTP worker run admission was removed; running work is dispatched by the daemon worker.",
+    return _mission_runtime.worker_run_admission(
+        mission_id=mission_id,
+        request=request,
+        tenant_id=tenant_id,
+        db=db,
+        deps=_runtime_route_dependencies(),
     )
 
 
@@ -2106,16 +2042,12 @@ def read_mission_worker_run_admission(
     db: Session = Depends(get_tenant_db_session),
 ) -> WorkerRunAdmissionRead:
     """Read latest worker run admission metadata without mutating runtime state."""
-    tenant_id_str = str(tenant_id)
-    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=tenant_id_str)
-    if mission is None:
-        raise HTTPException(status_code=404, detail="mission not found for tenant")
-    metadata = mission.metadata_json if isinstance(mission.metadata_json, dict) else {}
-    admission = metadata.get(MISSION_WORKER_RUN_ADMISSION_METADATA_KEY)
-    if not isinstance(admission, dict):
-        return _missing_worker_run_admission(mission_id=mission_id, tenant_id=tenant_id_str)
-    return _worker_run_admission_to_read(
-        mission_id=mission_id, tenant_id=tenant_id_str, admission=admission, read_only=True
+    return _mission_runtime.read_mission_worker_run_admission(
+        mission_id=mission_id,
+        request=request,
+        tenant_id=tenant_id,
+        db=db,
+        deps=_runtime_route_dependencies(),
     )
 
 
@@ -2128,12 +2060,13 @@ def runtime_queue_admission(
     queue: QueueAdapter = Depends(get_queue_adapter),
 ) -> dict[str, object]:
     """Queue eligible planned tasks from the current runtime task materialization."""
-    require_route_permission(request=request, db=db, permission=Permission.EXECUTION_QUEUE, tenant_id=tenant_id)
-    return _admit_mission_runtime_queue(
+    return _mission_runtime.runtime_queue_admission(
         mission_id=mission_id,
+        request=request,
         tenant_id=tenant_id,
         db=db,
         queue=queue,
+        deps=_runtime_route_dependencies(),
     )
 
 
@@ -2141,15 +2074,13 @@ def _admit_mission_runtime_queue(
     *, mission_id: UUID, tenant_id: _uuid.UUID, db: Session, queue: QueueAdapter
 ) -> dict[str, object]:
     """Invoke the single canonical mission runtime queue-admission authority."""
-
-    return MissionRuntimeQueueAdmissionService(
-        db,
-        queue,
-        mission_repository_cls=MissionRepository,
-        execution_task_repository_cls=ExecutionTaskRepository,
-        quota_enforcement_service_cls=QuotaEnforcementService,
-        execution_coordinator_cls=ExecutionCoordinator,
-    ).admit(mission_id=mission_id, tenant_id=tenant_id)
+    return _mission_runtime.admit_mission_runtime_queue(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        db=db,
+        queue=queue,
+        deps=_runtime_route_dependencies(),
+    )
 
 
 @router.get("/{mission_id}/runtime-admission", response_model=RuntimeAdmissionRead)
@@ -2160,12 +2091,13 @@ def read_mission_runtime_admission(
     db: Session = Depends(get_tenant_db_session),
 ) -> RuntimeAdmissionRead:
     """Read tenant-scoped graph-to-runtime admission metadata."""
-    mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
-    if mission is None:
-        raise HTTPException(status_code=404, detail="mission not found for tenant")
-    if MISSION_RUNTIME_ADMISSION_METADATA_KEY not in (mission.metadata_json or {}):
-        raise HTTPException(status_code=404, detail="mission runtime admission not found")
-    return _runtime_admission_to_read(mission)
+    return _mission_runtime.read_mission_runtime_admission(
+        mission_id=mission_id,
+        request=request,
+        tenant_id=tenant_id,
+        db=db,
+        deps=_runtime_route_dependencies(),
+    )
 
 
 @router.post("/{mission_id}/bridge-runtime-authority", response_model=BridgeRuntimeAuthorityRead)
@@ -2176,16 +2108,13 @@ def provision_mission_bridge_runtime_authority(
     db: Session = Depends(get_tenant_db_session),
 ) -> BridgeRuntimeAuthorityRead:
     """Provision tenant-scoped capability/adapter authority for mission bridge tool.invoke nodes."""
-    require_route_permission(request=request, db=db, permission=Permission.MISSION_MANAGE, tenant_id=tenant_id)
-    principal = getattr(request.state, "principal", None)
-    admitted_by = str(getattr(principal, "subject_id", "mission-bridge-ui")).strip() or "mission-bridge-ui"
-    result = provision_bridge_runtime_authority(
-        db=db,
+    return _mission_runtime.provision_mission_bridge_runtime_authority(
         mission_id=mission_id,
+        request=request,
         tenant_id=tenant_id,
-        admitted_by=admitted_by,
+        db=db,
+        deps=_runtime_route_dependencies(),
     )
-    return BridgeRuntimeAuthorityRead.model_validate(result)
 
 
 @router.post(
@@ -2248,6 +2177,6 @@ TaskDispatcher = None
 WorkerLeaseRepository = None
 _TEST_PATCH_EXPORTS = (
     WorkerLease,
-    _tenant_aware_dispatcher_session_factory,
-    _worker_run_admission_authority_flags,
+    _mission_runtime._tenant_aware_dispatcher_session_factory,
+    _mission_runtime._worker_run_admission_authority_flags,
 )
