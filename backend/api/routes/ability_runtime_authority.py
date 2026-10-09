@@ -1,15 +1,15 @@
+import uuid
 from dataclasses import dataclass
 from typing import Any
-import uuid
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from backend.api.routes.ability_runtime_contracts import AbilityTaskCreate
 from backend.api.routes.ability_runtime_policy import (
+    GTM_HIGH_RISK_ACTIONS,
     _adapter_side_effect_classification,
     _requires_runtime_authority,
-    GTM_HIGH_RISK_ACTIONS,
 )
 from backend.app.config import get_settings
 from backend.domain.capability import Capability
@@ -18,12 +18,13 @@ from backend.repositories.capability_adapter_repository import CapabilityAdapter
 from backend.repositories.capability_repository import CapabilityRepository
 from backend.services.abilities.role_contracts import RoleName
 from backend.services.autonomy.disclaimer_catalog import (
-    action_tier,
     AutonomyPolicyError,
+    action_tier,
     parse_autonomy_acknowledgment,
     validate_autonomy_acknowledgment,
 )
 from backend.services.tools.schemas import SideEffectClass
+
 
 def _principal_may_approve_gtm_side_effects(request: Request) -> bool:
     principal = getattr(request.state, "principal", None)
