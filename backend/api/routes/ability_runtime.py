@@ -2,7 +2,13 @@ from datetime import datetime, UTC
 from typing import Any
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Request,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -87,20 +93,6 @@ __all__ = (
 )
 
 router = APIRouter(prefix="/ability-runtime", tags=["ability-runtime"])
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @router.get("/actions", response_model=AbilityActionListResponse)
