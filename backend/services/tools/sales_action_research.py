@@ -1,16 +1,10 @@
 """Sales research and observed-contact normalization."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from backend.services.business_profile.context_resolver import default_company_and_domain
-
-from backend.services.plugins.crm_client import (
-    default_crm_client,
-    is_live_external_crm_result,
-)
-
+from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
+from backend.services.tools.sales_action_common import _evidence, _provider
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -19,8 +13,6 @@ from backend.services.tools.schemas import (
     SideEffectClass,
     ToolInvocation,
 )
-
-from backend.services.tools.sales_action_common import _evidence, _provider
 
 def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = SalesLeadInput.model_validate(invocation.input)
