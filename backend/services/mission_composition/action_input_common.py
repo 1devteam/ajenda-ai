@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
+
 from backend.services.mission_composition.contracts import MissionIntent
 
 _DEFAULT_PROSPECT_COUNT = 3
