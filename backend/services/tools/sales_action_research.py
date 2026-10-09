@@ -14,6 +14,7 @@ from backend.services.tools.schemas import (
     ToolInvocation,
 )
 
+
 def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = SalesLeadInput.model_validate(invocation.input)
     context_map = payload.context if isinstance(payload.context, dict) else {}
