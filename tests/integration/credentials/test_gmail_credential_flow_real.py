@@ -121,7 +121,7 @@ def test_gmail_email_check_and_send_happy_path_via_egress_contract(
 
     combined_authority.request.side_effect = _route_request
     monkeypatch.setattr(
-        "backend.services.tools.gtm_actions.get_default_network_egress_authority",
+        "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
         lambda: combined_authority,
     )
     monkeypatch.setattr(
