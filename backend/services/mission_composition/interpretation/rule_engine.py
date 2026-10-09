@@ -19,7 +19,6 @@ from backend.services.mission_composition.contracts import (
     TargetEntity,
 )
 from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
-from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
 
 _COMPONENTS_ACTIVE = ("regex_core", "ability_vocab")
 
