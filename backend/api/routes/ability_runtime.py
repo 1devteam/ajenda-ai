@@ -14,8 +14,8 @@ from sqlalchemy.orm import Session
 
 from backend.api.routes._authorization import require_route_permission
 from backend.api.routes.ability_runtime_authority import (
-    _LaunchAuthority,
     _ensure_runtime_authority,
+    _LaunchAuthority,
     _principal_may_approve_gtm_side_effects,
     _resolve_launch_authority,
     _resolve_runtime_authority,
@@ -77,7 +77,6 @@ from backend.services.quota_enforcement import (
     QuotaExceededError,
 )
 from backend.services.tools.action_registry import get_default_action_registry
-
 
 __all__ = (
     "CREDENTIALED_EXTERNAL_READ_ACTIONS",
