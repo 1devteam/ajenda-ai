@@ -14,9 +14,12 @@ from backend.services.mission_composition.action_input_common import (
     _extract_company_from_instruction,
     _instruction_text,
     _local_fixture_only,
+    _prospect_count,
+    _target_bits,
     has_usable_research_scope,
 )
 from backend.services.mission_composition.contracts import MissionIntent
+
 
 def build_research_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, Any] | None:
     industry, location, query = _target_bits(intent)
