@@ -84,11 +84,19 @@ def test_action_nodes_link_to_discoverable_handler_modules_and_seed_source() -> 
         "py:backend.services.tools.knowledge_actions",
         "implemented_in",
     ) in edges
-    assert (
-        "action:knowledge.retrieve_current",
-        "py:backend.services.mission_composition.action_inputs",
-        "seeded_by",
-    ) in edges
+    expected_seed_owners = {
+        "knowledge.retrieve_current": "action_input_analysis",
+        "web.research": "action_input_research",
+        "sales.research": "action_input_sales",
+        "gtm.email_draft": "action_input_communications",
+        "github.repo_read": "action_input_provider_reads",
+    }
+    for action_name, module_name in expected_seed_owners.items():
+        assert (
+            f"action:{action_name}",
+            f"py:backend.services.mission_composition.{module_name}",
+            "seeded_by",
+        ) in edges
 
 
 def test_inventory_exposes_source_derived_runtime_artifact_bindings() -> None:
