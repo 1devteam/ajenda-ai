@@ -1,9 +1,9 @@
 """Mission task-graph identity and fingerprint helpers."""
 
-import hashlib
-import json
 from typing import Any
 from uuid import UUID
+import hashlib
+import json
 
 def _task_graph_fingerprint(
     *,
