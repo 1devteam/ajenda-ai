@@ -112,6 +112,40 @@ def test_direct_function_test_edges_are_supplemental() -> None:
     assert any(edge["type"] == "tests" for edge in edges)
 
 
+def test_runtime_route_and_action_surfaces_have_symbol_resolution() -> None:
+    graph = MODULE.build_graph()
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
+
+    worker_claim = "fn:backend.services.worker_runtime_service:WorkerRuntimeService.claim_next_task"
+    mission_compile = "fn:backend.api.routes.mission:compile_mission"
+    mission_route = "route:backend.api.routes.mission:POST:/missions/{mission_id}/compile"
+    ability_launch = "fn:backend.api.routes.ability_runtime:launch_task"
+    ability_route = "route:backend.api.routes.ability_runtime:POST:/ability-runtime/tasks"
+    web_handler = "fn:backend.services.tools.web_actions:web_page_read"
+    social_handler = "fn:backend.services.tools.gtm_actions:register_gtm_actions.social_publish_handler"
+
+    assert nodes[worker_claim]["type"] == "python_method"
+    assert nodes[worker_claim]["owner_class"] == "WorkerRuntimeService"
+    assert nodes[mission_route]["type"] == "http_route"
+    assert nodes[mission_route]["method"] == "POST"
+    assert nodes[ability_route]["path"] == "/ability-runtime/tasks"
+    assert (mission_route, mission_compile, "handled_by") in edges
+    assert (ability_route, ability_launch, "handled_by") in edges
+    assert ("action:web.page_read", web_handler, "implemented_by") in edges
+    assert ("action:gtm.social_publish", social_handler, "implemented_by") in edges
+
+
+def test_selected_worker_methods_receive_direct_test_edges() -> None:
+    graph = MODULE.build_graph()
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
+
+    test_node = "test:tests/unit/services/test_worker_runtime_service_transaction_contract.py"
+    complete = "fn:backend.services.worker_runtime_service:WorkerRuntimeService.complete"
+
+    assert (test_node, complete, "tests_function") in edges
+
+
 def test_package_relative_re_exports_are_graph_edges() -> None:
     graph = MODULE.build_graph()
     edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
