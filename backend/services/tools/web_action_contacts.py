@@ -1,9 +1,7 @@
 """Observed-contact research action."""
 
-from __future__ import annotations
-
+from datetime import datetime, UTC
 import re
-from datetime import UTC, datetime
 
 from backend.services.internet import fetch_public_page
 from backend.services.ontology.evidence_lineage import (
