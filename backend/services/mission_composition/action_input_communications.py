@@ -8,8 +8,11 @@ from typing import Any
 from backend.services.mission_composition.action_input_common import (
     _explicit_email,
     _gmail_query,
+    _prospect_count,
+    _target_bits,
 )
 from backend.services.mission_composition.contracts import MissionIntent
+
 
 def build_communications_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, Any] | None:
     industry, location, _ = _target_bits(intent)
