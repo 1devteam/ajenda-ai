@@ -186,4 +186,5 @@ def transition_lease_to_released(service, lease: WorkerLease) -> None:
         transition_lease(lease, WorkerLeaseState.ACTIVE)
     transition_lease(lease, WorkerLeaseState.RELEASED)
 
+
 # --- Outcome Review Bridge helpers (for high-risk GTM pilot coherence) ---
