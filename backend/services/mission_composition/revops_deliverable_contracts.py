@@ -1,13 +1,14 @@
 """Typed read models for the RevOps mission deliverable."""
 
+import uuid
 from datetime import datetime
 from typing import Any, Literal
-import uuid
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
 from backend.services.tools.schemas import SideEffectClass
+
 
 class RevOpsObservedContactRead(BaseModel):
     """One contact value observed in a materialized research artifact."""
