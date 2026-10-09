@@ -1,28 +1,16 @@
 """Tenant-scoped record search/read/write actions."""
 
-from __future__ import annotations
-
+from datetime import datetime, UTC
 import hashlib
-
 import json
-
-from datetime import (
-    UTC,
-    datetime,
-)
-
 from typing import Any
 
 from backend.db.tenant_session import activate_tenant_session
-
 from backend.services.knowledge.knowledge_applicability import SourceConditionObservation
-
 from backend.services.light_crm.records import LightCrmRecordService
-
 from backend.services.light_crm.workflow import complete_internal_crm_upsert
-
 from backend.services.ontology.evidence_lineage import EvidenceSourceIdentity
-
+from backend.services.tools.sales_action_common import _evidence, _provider
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -32,8 +20,6 @@ from backend.services.tools.schemas import (
     SideEffectClass,
     ToolInvocation,
 )
-
-from backend.services.tools.sales_action_common import _evidence, _provider
 
 def record_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = RecordSearchInput.model_validate(invocation.input)
