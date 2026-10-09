@@ -1,7 +1,7 @@
 """Observed-contact research action."""
 
-from datetime import datetime, UTC
 import re
+from datetime import UTC, datetime
 
 from backend.services.internet import fetch_public_page
 from backend.services.ontology.evidence_lineage import (
@@ -31,6 +31,7 @@ from backend.services.tools.web_action_identity_policy import (
     _is_directory_or_third_party_host,
     _is_directory_or_third_party_page,
 )
+
 
 def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = ResearchObserveContactsInput.model_validate(invocation.input)
