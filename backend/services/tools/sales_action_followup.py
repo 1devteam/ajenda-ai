@@ -1,7 +1,7 @@
 """Sales follow-up drafting and internal activity/task actions."""
 
-from __future__ import annotations
-
+from backend.services.tools.sales_action_common import _evidence
+from backend.services.tools.sales_action_records import record_write
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -10,9 +10,6 @@ from backend.services.tools.schemas import (
     SideEffectClass,
     ToolInvocation,
 )
-
-from backend.services.tools.sales_action_common import _evidence
-from backend.services.tools.sales_action_records import record_write
 
 def sales_draft_followup(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = FollowupDraftInput.model_validate(invocation.input)
