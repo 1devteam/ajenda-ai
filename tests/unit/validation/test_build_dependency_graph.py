@@ -123,10 +123,7 @@ def test_runtime_route_and_action_surfaces_have_symbol_resolution() -> None:
     ability_launch = "fn:backend.api.routes.ability_runtime:launch_task"
     ability_route = "route:backend.api.routes.ability_runtime:POST:/ability-runtime/tasks"
     web_handler = "fn:backend.services.tools.web_actions:web_page_read"
-    social_handler = (
-        "fn:backend.services.tools.gtm_actions:"
-        "register_gtm_actions.social_publish_handler"
-    )
+    social_handler = "fn:backend.services.tools.gtm_actions:register_gtm_actions.social_publish_handler"
 
     assert nodes[worker_claim]["type"] == "python_method"
     assert nodes[worker_claim]["owner_class"] == "WorkerRuntimeService"
