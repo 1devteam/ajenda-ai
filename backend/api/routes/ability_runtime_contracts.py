@@ -22,10 +22,12 @@ class AbilityActionRead(BaseModel):
     requires_authority: bool
     provider_mode: Literal["local", "external", "mixed"]
 
+
 class AbilityActionListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     actions: list[AbilityActionRead]
+
 
 class AbilityTaskCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -52,6 +54,7 @@ class AbilityTaskCreate(BaseModel):
             raise ValueError("action must be non-empty")
         return normalized
 
+
 class AbilityTaskQueuedResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -61,6 +64,7 @@ class AbilityTaskQueuedResponse(BaseModel):
     action: str
     queue_status: str
     queue_reason: str | None = None
+
 
 class AbilityTaskStatusResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -75,4 +79,3 @@ class AbilityTaskStatusResponse(BaseModel):
     lineage: list[dict[str, Any]]
     evidence: list[dict[str, Any]]
     audit: list[dict[str, Any]]
-
