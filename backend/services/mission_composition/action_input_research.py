@@ -6,7 +6,6 @@ import re
 from typing import Any
 
 from backend.services.ajenda_demo_fixtures import local_fixture_scope_keys
-
 from backend.services.mission_composition.action_input_common import (
     _SCRAPE_SITE_RE,
     _ajenda_internal_crm_only,
@@ -22,7 +21,7 @@ from backend.services.mission_composition.contracts import MissionIntent
 
 
 def build_research_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, Any] | None:
-    industry, location, query = _target_bits(intent)
+    industry, location, _ = _target_bits(intent)
     limit = _prospect_count(intent)
     primary_entity = intent.target_entities[0] if intent.target_entities else None
     if action_name == "web.research":
