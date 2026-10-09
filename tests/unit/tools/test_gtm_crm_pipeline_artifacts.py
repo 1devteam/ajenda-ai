@@ -54,7 +54,7 @@ def test_crm_pipeline_consumes_qualified_and_prospect_artifacts() -> None:
         idempotency_key="pipeline-1",
     )
 
-    with patch("backend.services.tools.gtm_actions.default_crm_client", return_value=client):
+    with patch("backend.services.tools.gtm_action_crm.default_crm_client", return_value=client):
         result = handler(invocation, _context())
 
     assert client.upsert.call_count == 2
@@ -82,7 +82,7 @@ def test_crm_pipeline_falls_back_to_bound_prospect_candidates() -> None:
     registry = get_default_action_registry(rebuild=True)
     handler = registry.get("gtm.crm_upsert").handler
 
-    with patch("backend.services.tools.gtm_actions.default_crm_client", return_value=client):
+    with patch("backend.services.tools.gtm_action_crm.default_crm_client", return_value=client):
         result = handler(
             ToolInvocation(
                 action="gtm.crm_upsert",
@@ -105,7 +105,7 @@ def test_crm_pipeline_preserves_direct_manual_upsert() -> None:
     registry = get_default_action_registry(rebuild=True)
     handler = registry.get("gtm.crm_upsert").handler
 
-    with patch("backend.services.tools.gtm_actions.default_crm_client", return_value=client):
+    with patch("backend.services.tools.gtm_action_crm.default_crm_client", return_value=client):
         result = handler(
             ToolInvocation(
                 action="gtm.crm_upsert",

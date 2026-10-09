@@ -21,6 +21,14 @@ SELECTED_FILES = (
     Path("backend/services/tools/sales_actions.py"),
     Path("backend/services/tools/gtm_actions.py"),
 )
+SELECTED_GLOBS = (
+    "backend/services/worker_runtime_*.py",
+    "backend/api/routes/mission_*.py",
+    "backend/api/routes/ability_runtime_*.py",
+    "backend/services/tools/web_action_*.py",
+    "backend/services/tools/sales_action_*.py",
+    "backend/services/tools/gtm_action_*.py",
+)
 HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete", "options", "head"})
 
 
@@ -80,6 +88,8 @@ def _selected_python_files(repo_root: Path) -> list[Path]:
     if composition.exists():
         files.update(path for path in composition.rglob("*.py") if "__pycache__" not in path.parts)
     files.update(repo_root / path for path in SELECTED_FILES if (repo_root / path).exists())
+    for pattern in SELECTED_GLOBS:
+        files.update(path for path in repo_root.glob(pattern) if path.is_file())
     return sorted(files)
 
 
@@ -269,6 +279,7 @@ def _action_handler_edges(
     tree: ast.Module,
     source: str,
     symbol_ids: dict[str, str],
+    direct_imports: dict[str, str],
 ) -> set[FunctionEdge]:
     edges: set[FunctionEdge] = set()
     for item in ast.walk(tree):
@@ -282,7 +293,7 @@ def _action_handler_edges(
         handler = next((kw.value for kw in item.keywords if kw.arg == "handler"), None)
         if not action or not isinstance(handler, ast.Name):
             continue
-        target = symbol_ids.get(handler.id)
+        target = symbol_ids.get(handler.id) or direct_imports.get(handler.id)
         if target is None:
             matches = [
                 node_id for qualified_name, node_id in symbol_ids.items() if qualified_name.endswith(f".{handler.id}")
@@ -380,7 +391,14 @@ def collect_function_graph(
         )
         nodes.extend(route_nodes)
         edges.update(route_edges)
-        edges.update(_action_handler_edges(tree=tree, source=source, symbol_ids=symbol_ids))
+        edges.update(
+            _action_handler_edges(
+                tree=tree,
+                source=source,
+                symbol_ids=symbol_ids,
+                direct_imports=direct_imports,
+            )
+        )
 
     return (
         sorted(nodes, key=lambda node: str(node["id"])),

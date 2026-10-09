@@ -289,7 +289,7 @@ def test_gmail_oauth_refresh_then_email_check_invoke_without_capability_monkeypa
         ),
     )
     monkeypatch.setattr(
-        "backend.services.tools.gtm_actions.get_default_network_egress_authority",
+        "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
         lambda: egress,
     )
 
