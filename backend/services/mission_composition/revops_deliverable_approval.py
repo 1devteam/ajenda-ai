@@ -1,9 +1,7 @@
 """Approval-state projection for the RevOps mission deliverable."""
 
-from __future__ import annotations
-
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime, UTC
 from typing import Literal
 
 from pydantic import ValidationError
