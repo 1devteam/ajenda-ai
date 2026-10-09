@@ -17,7 +17,8 @@ from backend.services.ontology.evidence_lineage import (
 )
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.web_action_io import web_browser_session, web_open_write, web_page_read
-from backend.services.tools.web_action_research import research_observe_contacts, research_verify_public_identity
+from backend.services.tools.web_action_contacts import research_observe_contacts
+from backend.services.tools.web_action_identity import research_verify_public_identity
 from backend.services.tools.contact_observation import (
     extract_observed_contacts,
     page_host,
