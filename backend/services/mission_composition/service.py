@@ -17,8 +17,8 @@ from backend.repositories.mission_plan_repository import MissionPlanRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.provider_runtime_credential_repository import ProviderRuntimeCredentialRepository
 from backend.services.business_profile.record_sync import build_profile_brief
-from backend.services.mission_composition.confirmation_phase import MissionCompositionConfirmationPhase
 from backend.services.mission_composition.compile_phase import MissionCompositionCompilePhase
+from backend.services.mission_composition.confirmation_phase import MissionCompositionConfirmationPhase
 from backend.services.mission_composition.contracts import MissionIntent, is_ranking_only_instruction
 from backend.services.mission_composition.deliverable_contract import (
     DeliverableFieldRequirement,
@@ -27,10 +27,10 @@ from backend.services.mission_composition.deliverable_contract import (
 from backend.services.mission_composition.plan_compiler import compile_planned_steps
 from backend.services.mission_composition.proposal_phase import MissionCompositionProposalPhase
 from backend.services.mission_composition.semantic_vocabulary import TenantSemanticOverride
+from backend.services.mission_composition.service_contracts import COMPILER_NAME as COMPILER_NAME
+from backend.services.mission_composition.service_contracts import COMPILER_VERSION as COMPILER_VERSION
 from backend.services.mission_composition.service_contracts import (
-    COMPILER_NAME,
-    COMPILER_VERSION,
-    MissionCompositionError,
+    MissionCompositionError as MissionCompositionError,
 )
 from backend.services.mission_composition.structured_planner import StructuredPlannerProvider
 from backend.services.operating_charter import default_operating_charter, load_operating_charter
