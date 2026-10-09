@@ -45,6 +45,7 @@ def sales_draft_followup(invocation: ToolInvocation, context: ActionRuntimeConte
         confidence=0.8 if mode == "llm" else 0.74,
     )
 
+
 def sales_log_activity(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = RecordWriteInput.model_validate(invocation.input)
     write_invocation = ToolInvocation(
@@ -76,6 +77,7 @@ def sales_log_activity(invocation: ToolInvocation, context: ActionRuntimeContext
         summary="Logged local sales activity.",
         confidence=1.0,
     )
+
 
 def sales_create_followup_task(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = RecordWriteInput.model_validate(invocation.input)
