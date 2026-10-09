@@ -1,6 +1,6 @@
-from datetime import datetime, UTC
-from typing import Any
 import uuid
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import (
     APIRouter,
@@ -14,8 +14,8 @@ from sqlalchemy.orm import Session
 
 from backend.api.routes._authorization import require_route_permission
 from backend.api.routes.ability_runtime_authority import (
-    _ensure_runtime_authority,
     _LaunchAuthority,
+    _ensure_runtime_authority,
     _principal_may_approve_gtm_side_effects,
     _resolve_launch_authority,
     _resolve_runtime_authority,
@@ -28,12 +28,6 @@ from backend.api.routes.ability_runtime_contracts import (
     AbilityTaskStatusResponse,
 )
 from backend.api.routes.ability_runtime_policy import (
-    _action_definition,
-    _assert_action_allowed_for_mission,
-    _label_for_action,
-    _provider_mode,
-    _requires_runtime_authority,
-    _validate_exposed_action,
     CREDENTIALED_EXTERNAL_READ_ACTIONS,
     EXPOSED_ACTIONS,
     EXTERNAL_ACTIONS,
@@ -41,6 +35,12 @@ from backend.api.routes.ability_runtime_policy import (
     GTM_HIGH_RISK_ACTIONS_REQUIRING_CREDENTIAL,
     INTERNAL_WRITE_ACTIONS,
     READ_SAFE_ACTIONS,
+    _action_definition,
+    _assert_action_allowed_for_mission,
+    _label_for_action,
+    _provider_mode,
+    _requires_runtime_authority,
+    _validate_exposed_action,
 )
 from backend.api.routes.ability_runtime_projection import (
     _audit_to_read,
@@ -66,10 +66,10 @@ from backend.services.brain_capability_check import build_brain_capability_repor
 from backend.services.brain_mission_catalog import BRAIN_MISSIONS
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.operating_charter import (
+    OperatingCharterViolation,
     assert_action_allowed,
     charter_requires_human_review_for_launch,
     load_operating_charter,
-    OperatingCharterViolation,
 )
 from backend.services.quota_enforcement import (
     FeatureNotAvailableError,
@@ -77,6 +77,7 @@ from backend.services.quota_enforcement import (
     QuotaExceededError,
 )
 from backend.services.tools.action_registry import get_default_action_registry
+
 
 __all__ = (
     "CREDENTIALED_EXTERNAL_READ_ACTIONS",
