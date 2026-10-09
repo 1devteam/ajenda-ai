@@ -46,8 +46,15 @@ from backend.middleware.tenant_context import TenantContextMiddleware
 # Helpers
 # ---------------------------------------------------------------------------
 
-TENANT_A = str(uuid.uuid4())
-TENANT_B = str(uuid.uuid4())
+
+def _stable_uuid(label: str) -> str:
+    """Return a deterministic UUID so xdist workers collect identical node IDs."""
+
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"https://ajenda.test/tenant-isolation/{label}"))
+
+
+TENANT_A = _stable_uuid("tenant-a")
+TENANT_B = _stable_uuid("tenant-b")
 
 
 def _token(tenant_id: str, roles: list[str] | None = None) -> str:
@@ -101,14 +108,14 @@ def _build_app(*routers) -> FastAPI:
 ROUTE_CASES = [
     ("api_keys:create", "POST", "/api-keys", {"scopes": []}, TENANT_A),
     ("api_keys:revoke", "POST", "/api-keys/some-key-id/revoke", None, TENANT_A),
-    ("mission:queue", "POST", f"/missions/{uuid.uuid4()}/queue", None, TENANT_A),
-    ("task:queue", "POST", f"/tasks/{uuid.uuid4()}/queue", None, TENANT_A),
+    ("mission:queue", "POST", f"/missions/{_stable_uuid('mission-queue')}/queue", None, TENANT_A),
+    ("task:queue", "POST", f"/tasks/{_stable_uuid('task-queue')}/queue", None, TENANT_A),
     (
         "workforce:provision",
         "POST",
         "/workforces/provision",
         {
-            "mission_id": str(uuid.uuid4()),
+            "mission_id": _stable_uuid("workforce-mission"),
             "fleet_name": "fleet-1",
             "agents": [{"display_name": "Agent", "role_name": "executor"}],
         },
@@ -119,13 +126,13 @@ ROUTE_CASES = [
         "POST",
         "/branches",
         {
-            "mission_id": str(uuid.uuid4()),
+            "mission_id": _stable_uuid("branch-mission"),
             "reason": "test",
         },
         TENANT_A,
     ),
     ("operations:dead_letter", "GET", "/operations/dead-letter", None, TENANT_A),
-    ("operations:retry", "POST", f"/operations/dead-letter/{uuid.uuid4()}/retry", None, TENANT_A),
+    ("operations:retry", "POST", f"/operations/dead-letter/{_stable_uuid('dead-letter')}/retry", None, TENANT_A),
     ("system:status", "GET", "/system/status", None, TENANT_A),
     (
         "webhooks:register",
@@ -138,9 +145,9 @@ ROUTE_CASES = [
         TENANT_A,
     ),
     ("webhooks:list", "GET", "/webhooks/", None, TENANT_A),
-    ("webhooks:get", "GET", f"/webhooks/{uuid.uuid4()}", None, TENANT_A),
-    ("webhooks:delete", "DELETE", f"/webhooks/{uuid.uuid4()}", None, TENANT_A),
-    ("webhooks:deliveries", "GET", f"/webhooks/{uuid.uuid4()}/deliveries", None, TENANT_A),
+    ("webhooks:get", "GET", f"/webhooks/{_stable_uuid('webhook-get')}", None, TENANT_A),
+    ("webhooks:delete", "DELETE", f"/webhooks/{_stable_uuid('webhook-delete')}", None, TENANT_A),
+    ("webhooks:deliveries", "GET", f"/webhooks/{_stable_uuid('webhook-deliveries')}/deliveries", None, TENANT_A),
 ]
 
 
