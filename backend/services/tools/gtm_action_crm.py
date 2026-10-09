@@ -120,12 +120,9 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
     statuses = {str(item["status"]) for item in pipeline_records}
     sources = {str(item["source"]) for item in pipeline_records}
     all_real = all(bool(item["real"]) and bool(item.get("effect_verified")) for item in pipeline_records)
-    any_error = any(
-        item.get("error") or item["status"] in {"error", "effect_unverified"} for item in pipeline_records
-    )
+    any_error = any(item.get("error") or item["status"] in {"error", "effect_unverified"} for item in pipeline_records)
     use_external = any(
-        result.source != "ajenda_brain" and (result.real or result.status == "effect_unverified")
-        for result in results
+        result.source != "ajenda_brain" and (result.real or result.status == "effect_unverified") for result in results
     )
     overall_status = next(iter(statuses)) if len(statuses) == 1 else ("partial_error" if any_error else "upserted")
     overall_source = next(iter(sources)) if len(sources) == 1 else "mixed"
