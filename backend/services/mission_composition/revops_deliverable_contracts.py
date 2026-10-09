@@ -20,6 +20,7 @@ class RevOpsObservedContactRead(BaseModel):
     source_url: str | None = None
     real: bool = False
 
+
 class RevOpsDraftRead(BaseModel):
     """One materialized outreach draft and its current review state."""
 
@@ -33,6 +34,7 @@ class RevOpsDraftRead(BaseModel):
     body: str | None = None
     review_status: Literal["pending", "approved", "rejected", "sent", "unresolved"] = "unresolved"
     recipient_bound: bool = False
+
 
 class RevOpsProspectRead(BaseModel):
     """Artifact-backed final report row for one prospect identity."""
@@ -52,6 +54,7 @@ class RevOpsProspectRead(BaseModel):
     qualification_reasons: tuple[str, ...] = ()
     drafts: tuple[RevOpsDraftRead, ...] = ()
 
+
 class RevOpsDraftApprovalRead(BaseModel):
     """Current review authority state for one persisted draft artifact."""
 
@@ -59,6 +62,7 @@ class RevOpsDraftApprovalRead(BaseModel):
 
     artifact_id: str | None = None
     status: Literal["pending", "approved", "rejected", "sent", "unresolved"]
+
 
 class RevOpsTaskApprovalRead(BaseModel):
     """Descriptive state of one task-bound side-effect approval."""
@@ -73,6 +77,7 @@ class RevOpsTaskApprovalRead(BaseModel):
     approved_by: str | None = None
     expires_at: datetime | None = None
 
+
 class RevOpsOutcomeReviewRead(BaseModel):
     """Compact outcome-review state included in the final report."""
 
@@ -84,6 +89,7 @@ class RevOpsOutcomeReviewRead(BaseModel):
     human_approval_required: bool
     human_approval_status: str | None = None
 
+
 class RevOpsApprovalStateRead(BaseModel):
     """All observable review gates without granting or consuming authority."""
 
@@ -94,6 +100,7 @@ class RevOpsApprovalStateRead(BaseModel):
     outcome_reviews: tuple[RevOpsOutcomeReviewRead, ...] = ()
     all_required_approved: bool = True
     grants_execution_authority: Literal[False] = False
+
 
 class RevOpsEffectRead(BaseModel):
     """Persisted result of one side-effect-classified task."""
@@ -111,6 +118,7 @@ class RevOpsEffectRead(BaseModel):
     receipt: dict[str, Any] | None = None
     evidence_ids: tuple[uuid.UUID, ...] = ()
 
+
 class RevOpsEvidenceReferenceRead(BaseModel):
     """Compact durable evidence reference for the assembled report."""
 
@@ -124,6 +132,7 @@ class RevOpsEvidenceReferenceRead(BaseModel):
     confidence: float | None = None
     collection_status: str
 
+
 class RevOpsTaskStateRead(BaseModel):
     """Task state kept explicitly separate from deliverable completion."""
 
@@ -133,6 +142,7 @@ class RevOpsTaskStateRead(BaseModel):
     statuses: dict[str, int] = Field(default_factory=dict)
     all_terminal: bool = False
     all_succeeded: bool = False
+
 
 class RevOpsCompletionRead(BaseModel):
     """Recomputed artifact-backed deliverable completion."""
@@ -150,6 +160,7 @@ class RevOpsCompletionRead(BaseModel):
     complete: bool = False
     observed_row_count: int = 0
     required_row_count: int = 0
+
 
 class RevOpsMissionDeliverableRead(BaseModel):
     """Final RevOps V1 mission deliverable assembled from current read models."""
@@ -174,4 +185,3 @@ class RevOpsMissionDeliverableRead(BaseModel):
     completion: RevOpsCompletionRead
     result_semantics: dict[str, Any] = Field(default_factory=dict)
     grants_execution_authority: Literal[False] = False
-
