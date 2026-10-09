@@ -3,7 +3,6 @@
 from typing import Any
 from uuid import UUID
 
-from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
     MISSION_RUNTIME_ADMISSION_METADATA_KEY,
