@@ -12,6 +12,7 @@ from backend.services.tools.schemas import (
     ToolInvocation,
 )
 
+
 def lead_enrich_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
     merged_input = dict(inv.input)
     prospects_in = [p for p in (merged_input.get("prospects") or []) if isinstance(p, dict)]
