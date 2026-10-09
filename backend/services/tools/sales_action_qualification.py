@@ -28,6 +28,7 @@ def _first_lead_text(*values: Any) -> str:
                 return "; ".join(items)
     return ""
 
+
 def _lead_source_references(lead: dict[str, Any]) -> list[str]:
     """Preserve explicit source references used by qualification."""
 
@@ -46,6 +47,7 @@ def _lead_source_references(lead: dict[str, Any]) -> list[str]:
             references.append(normalized[:500])
     return references
 
+
 def _ajenda_relevance(*, lead: dict[str, Any], context: dict[str, Any]) -> str:
     """Describe relevance only when the inputs contain an automation or intent signal."""
 
@@ -60,6 +62,7 @@ def _ajenda_relevance(*, lead: dict[str, Any], context: dict[str, Any]) -> str:
     if intent:
         return f"Ajenda may be relevant because the observed intent signal identifies a workflow to evaluate: {intent[:500]}."
     return ""
+
 
 def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: str | None) -> dict[str, Any]:
     lead = _normalize_observed_lead(lead)
@@ -150,6 +153,7 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
         "qualified": qualified,
         "reasons": reasons or ["insufficient local qualification signals"],
     }
+
 
 def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = SalesLeadInput.model_validate(invocation.input)
@@ -266,6 +270,7 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         confidence=0.72,
     )
 
+
 def sales_score_lead(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     result = sales_qualify(invocation, context)
     output = {
@@ -291,6 +296,7 @@ def sales_score_lead(invocation: ToolInvocation, context: ActionRuntimeContext) 
         summary=summary,
         confidence=0.72,
     )
+
 
 def sales_recommend_next_action(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = SalesLeadInput.model_validate(invocation.input)
