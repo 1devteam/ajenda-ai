@@ -1,11 +1,9 @@
 """External/internal effect receipts and limitations for RevOps deliverables."""
 
-from __future__ import annotations
-
-import uuid
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
+import uuid
 
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.evidence import EvidenceRecord
