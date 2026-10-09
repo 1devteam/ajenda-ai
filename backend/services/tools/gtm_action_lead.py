@@ -30,9 +30,7 @@ def lead_enrich_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Actio
     inp = GtmLeadEnrichInput.model_validate(merged_input)
 
     if bool(inp.context.get("binding_required")) and not prospects_in:
-        raise ValueError(
-            "gtm.lead_enrich requires bound upstream prospects when composition marks binding_required"
-        )
+        raise ValueError("gtm.lead_enrich requires bound upstream prospects when composition marks binding_required")
 
     source_prospects = prospects_in or [
         {
@@ -46,9 +44,7 @@ def lead_enrich_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Actio
         company = str(prospect.get("company") or inp.company or f"prospect-{index + 1}")[:160]
         domain = str(prospect.get("domain") or inp.domain or domain_seed or "").strip() or None
         existing = [item for item in (prospect.get("contacts") or []) if isinstance(item, dict)]
-        real_existing = [
-            item for item in existing if item.get("real") is True and item.get("simulated") is not True
-        ]
+        real_existing = [item for item in existing if item.get("real") is True and item.get("simulated") is not True]
         contacts: list[dict[str, Any]] = list(real_existing)
         enrichment_mode = "passthrough_observed"
         enrichment_real = bool(real_existing)
