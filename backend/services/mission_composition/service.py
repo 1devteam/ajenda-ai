@@ -334,9 +334,9 @@ class MissionCompositionService(
     def _profile_context(self, profile: Any) -> dict[str, Any]:
         return _profile_context(profile)
 
-    def _tenant_semantic_overrides(
-        self, profile: Any
-    ) -> tuple[tuple[TenantSemanticOverride, ...], tuple[str, ...]]:
+    def _tenant_semantic_overrides(self, profile: Any) -> tuple[
+        tuple[TenantSemanticOverride, ...], tuple[str, ...]
+    ]:
         return _tenant_semantic_overrides(profile)
 
     def _acceptance_score_threshold(self, intent: MissionIntent) -> int:
