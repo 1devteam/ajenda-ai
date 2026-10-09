@@ -46,6 +46,7 @@ def _build_task_metadata(
 
     return metadata
 
+
 def _lineage_to_read(record: LineageRecord) -> dict[str, Any]:
     return {
         "id": str(record.id),
@@ -60,6 +61,7 @@ def _lineage_to_read(record: LineageRecord) -> dict[str, Any]:
         "metadata_json": record.metadata_json,
         "created_at": record.created_at.isoformat() if record.created_at else None,
     }
+
 
 def _evidence_to_read(record: EvidenceRecord) -> dict[str, Any]:
     return {
@@ -82,6 +84,7 @@ def _evidence_to_read(record: EvidenceRecord) -> dict[str, Any]:
         "updated_at": record.updated_at.isoformat() if record.updated_at else None,
     }
 
+
 def _audit_to_read(record: AuditEvent) -> dict[str, Any]:
     return {
         "id": str(record.id),
@@ -94,4 +97,3 @@ def _audit_to_read(record: AuditEvent) -> dict[str, Any]:
         "payload_json": record.payload_json,
         "created_at": record.created_at.isoformat() if record.created_at else None,
     }
-
