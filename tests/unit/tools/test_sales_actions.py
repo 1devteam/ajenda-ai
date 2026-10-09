@@ -550,7 +550,7 @@ def test_sales_research_consumes_bound_prospect_candidates() -> None:
         },
     )
 
-    with patch("backend.services.tools.sales_actions.default_crm_client", return_value=client):
+    with patch("backend.services.tools.sales_action_research.default_crm_client", return_value=client):
         result = handler(invocation, _context())
 
     assert client.search.call_count == 2
