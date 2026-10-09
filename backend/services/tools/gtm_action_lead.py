@@ -1,11 +1,9 @@
 """GTM lead-enrichment handler."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from backend.services.tools.external_sim_policy import allow_simulated_external
-
+from backend.services.tools.gtm_action_common import _make_evidence
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -13,8 +11,6 @@ from backend.services.tools.schemas import (
     SideEffectClass,
     ToolInvocation,
 )
-
-from backend.services.tools.gtm_action_common import _make_evidence
 
 def lead_enrich_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
     merged_input = dict(inv.input)
