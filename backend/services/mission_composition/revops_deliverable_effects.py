@@ -1,9 +1,9 @@
 """External/internal effect receipts and limitations for RevOps deliverables."""
 
+import uuid
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
-import uuid
 
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.evidence import EvidenceRecord
@@ -16,6 +16,7 @@ from backend.services.mission_composition.revops_deliverable_prospects import (
     _task_action,
 )
 from backend.services.tools.schemas import SideEffectClass
+
 
 def _receipt_from_output(
     *,
