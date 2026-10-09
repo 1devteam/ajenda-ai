@@ -56,6 +56,7 @@ def _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
         updated_at=mission.updated_at.isoformat(),
     )
 
+
 def _mission_to_read(mission: Mission) -> MissionRead:
     try:
         deliverable_runtime_state = build_deliverable_runtime_state_read(mission.metadata_json)
@@ -74,6 +75,7 @@ def _mission_to_read(mission: Mission) -> MissionRead:
         updated_at=mission.updated_at.isoformat(),
     )
 
+
 def _mission_to_list_item(mission: Mission) -> MissionListItem:
     intake = mission.metadata_json.get(MISSION_INTAKE_METADATA_KEY, {})
     scope_limits = intake.get("scope_limits") if isinstance(intake, dict) else []
@@ -88,6 +90,7 @@ def _mission_to_list_item(mission: Mission) -> MissionListItem:
         updated_at=mission.updated_at.isoformat(),
     )
 
+
 def _mission_plan_to_read(mission: Mission) -> MissionPlanRead:
     legacy_plan = mission.metadata_json.get(MISSION_PLAN_METADATA_KEY, {})
     return MissionPlanRead(
@@ -97,6 +100,7 @@ def _mission_plan_to_read(mission: Mission) -> MissionPlanRead:
         metadata=legacy_plan,
         updated_at=mission.updated_at.isoformat(),
     )
+
 
 def _durable_mission_plan_to_read(plan: MissionPlan) -> MissionPlanRead:
     try:
@@ -115,6 +119,7 @@ def _durable_mission_plan_to_read(plan: MissionPlan) -> MissionPlanRead:
         updated_at=plan.updated_at.isoformat(),
     )
 
+
 def _mission_task_graph_to_read(mission: Mission) -> MissionTaskGraphRead:
     metadata = mission.metadata_json or {}
     task_graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
@@ -129,6 +134,7 @@ def _mission_task_graph_to_read(mission: Mission) -> MissionTaskGraphRead:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return MissionTaskGraphRead.model_validate(normalized)
 
+
 def _graph_materialization_to_read(mission: Mission) -> GraphMaterializationRead:
     return GraphMaterializationRead(
         mission_id=mission.id,
@@ -136,6 +142,7 @@ def _graph_materialization_to_read(mission: Mission) -> GraphMaterializationRead
         materialization=mission.metadata_json.get(MISSION_GRAPH_MATERIALIZATION_METADATA_KEY, {}),
         updated_at=mission.updated_at.isoformat(),
     )
+
 
 def _timeline_timestamp_or_mission_updated(*, value: Any, mission_updated_at_iso: str) -> str:
     """Return a valid ISO timestamp string or mission updated-at fallback."""
@@ -147,6 +154,7 @@ def _timeline_timestamp_or_mission_updated(*, value: Any, mission_updated_at_iso
         return mission_updated_at_iso
     return value
 
+
 def _timeline_sort_key(event: MissionTimelineEvent) -> tuple[datetime, str, str, str]:
     """Produce a deterministic sort key using parsed timestamp when possible."""
     try:
@@ -156,6 +164,7 @@ def _timeline_sort_key(event: MissionTimelineEvent) -> tuple[datetime, str, str,
     except ValueError:
         parsed = datetime.min.replace(tzinfo=UTC)
     return (parsed, event.timestamp, event.event_type, event.stage)
+
 
 def _mission_timeline_to_read(
     *,
@@ -264,6 +273,7 @@ def _mission_timeline_to_read(
 
     events.sort(key=_timeline_sort_key)
     return MissionTimelineRead(mission_id=mission.id, tenant_id=mission.tenant_id, events=events)
+
 
 def _mission_lifecycle_to_read(
     *,
