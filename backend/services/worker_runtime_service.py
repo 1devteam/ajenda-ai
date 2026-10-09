@@ -431,10 +431,8 @@ class WorkerRuntimeService:
     def _refresh_deliverable_completion_read_model(self, *, task: ExecutionTask) -> None:
         _refresh_deliverable_completion_read_model_impl(self, task=task)
 
-
     def _maybe_rollup_mission_status(self, *, task: ExecutionTask, worker_id: str) -> None:
         _maybe_rollup_mission_status_impl(self, task=task, worker_id=worker_id)
-
 
     def cancel_task(self, *, tenant_id: str, task_id: uuid.UUID, actor: str, reason: str) -> ExecutionTask:
         task = self._tasks.get_for_tenant(task_id=task_id, tenant_id=tenant_id)
@@ -663,10 +661,7 @@ class WorkerRuntimeService:
         task: ExecutionTask,
         worker_id: str,
     ) -> None:
-        _reconcile_claimed_terminal_queue_artifact_impl(
-            self, tenant_id=tenant_id, task=task, worker_id=worker_id
-        )
-
+        _reconcile_claimed_terminal_queue_artifact_impl(self, tenant_id=tenant_id, task=task, worker_id=worker_id)
 
     def _record_terminal_queue_cleanup_failure(
         self,
@@ -690,7 +685,6 @@ class WorkerRuntimeService:
             reason=reason,
         )
 
-
     def _assert_current_releasable_claim(
         self,
         *,
@@ -699,7 +693,6 @@ class WorkerRuntimeService:
         task: ExecutionTask,
     ) -> None:
         _assert_current_releasable_claim_impl(self, tenant_id=tenant_id, lease=lease, task=task)
-
 
     def _get_owned_lease(self, *, tenant_id: str, lease_id: uuid.UUID, worker_id: str) -> WorkerLease:
         lease = self._leases.get(lease_id)
@@ -716,20 +709,14 @@ class WorkerRuntimeService:
     def _assert_no_active_lease(self, *, tenant_id: str, task_id: uuid.UUID) -> None:
         _assert_no_active_lease_impl(self, tenant_id=tenant_id, task_id=task_id)
 
-
     def _transition_lease_to_released(self, lease: WorkerLease) -> None:
         _transition_lease_to_released_impl(self, lease)
-
 
     def _gtm_side_effect_was_real(self, task_output: dict[str, Any]) -> bool:
         return _gtm_side_effect_was_real_impl(self, task_output)
 
-
-    def _is_high_risk_gtm_side_effect(
-        self, task: ExecutionTask, task_output: dict[str, Any] | None
-    ) -> bool:
+    def _is_high_risk_gtm_side_effect(self, task: ExecutionTask, task_output: dict[str, Any] | None) -> bool:
         return _is_high_risk_gtm_side_effect_impl(self, task, task_output)
-
 
     def _create_draft_outcome_review(
         self,
@@ -738,7 +725,4 @@ class WorkerRuntimeService:
         task_output: dict[str, Any],
         evidence_ids: list[str],
     ) -> None:
-        _create_draft_outcome_review_impl(
-            self, task=task, task_output=task_output, evidence_ids=evidence_ids
-        )
-
+        _create_draft_outcome_review_impl(self, task=task, task_output=task_output, evidence_ids=evidence_ids)
