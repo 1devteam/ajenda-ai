@@ -10,6 +10,7 @@ from backend.services.mission_composition.artifact_schemas import (
 )
 from backend.services.tools.mission_input_binding import handler_output_for_task
 
+
 def _mirror_task_output_to_metadata(task_output: dict[str, Any]) -> dict[str, Any]:
     """Project handler output onto task metadata for API/poll consumers."""
 
