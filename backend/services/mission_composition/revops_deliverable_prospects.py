@@ -13,7 +13,6 @@ from backend.services.mission_composition.revops_deliverable_contracts import (
     RevOpsProspectRead,
 )
 
-
 _DRAFT_REVIEW_STATUSES = frozenset({"pending", "approved", "rejected", "sent"})
 
 def _nonempty_text(value: object) -> str | None:
