@@ -29,7 +29,7 @@ def test_web_page_read_action_returns_external_read_evidence() -> None:
         access_mode=InternetAccessMode.PAGE_READ,
         browser_ready=False,
     )
-    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=snapshot):
+    with patch("backend.services.tools.web_action_io.fetch_public_page", return_value=snapshot):
         registry = get_default_action_registry(rebuild=True)
         result = registry.invoke(
             ToolInvocation(action="web.page_read", input={"url": "https://example.com"}),
@@ -75,7 +75,7 @@ def test_web_browser_session_emits_typed_page_observation_artifact() -> None:
             "ephemeral_context": True,
         },
     )
-    with patch("backend.services.tools.web_actions.run_browser_session", return_value=snapshot):
+    with patch("backend.services.tools.web_action_io.run_browser_session", return_value=snapshot):
         registry = get_default_action_registry(rebuild=True)
         result = registry.invoke(
             ToolInvocation(
@@ -104,7 +104,7 @@ def test_web_browser_session_preserves_runtime_error_in_failed_artifact() -> Non
         access_mode=InternetAccessMode.BROWSER_SESSION,
         browser_ready=True,
     )
-    with patch("backend.services.tools.web_actions.run_browser_session", return_value=snapshot):
+    with patch("backend.services.tools.web_action_io.run_browser_session", return_value=snapshot):
         registry = get_default_action_registry(rebuild=True)
         result = registry.invoke(
             ToolInvocation(
@@ -140,7 +140,7 @@ def test_public_identity_verification_requires_company_industry_and_location_evi
             "blocked_samples": [],
         },
     )
-    with patch("backend.services.tools.web_actions.run_browser_session", return_value=snapshot):
+    with patch("backend.services.tools.web_action_identity.run_browser_session", return_value=snapshot):
         registry = get_default_action_registry(rebuild=True)
         result = registry.invoke(
             ToolInvocation(
@@ -178,7 +178,7 @@ def test_public_identity_verification_fails_closed_for_missing_evidence() -> Non
         browser_ready=True,
         extraction={"observation_requirements": [], "blocked_samples": []},
     )
-    with patch("backend.services.tools.web_actions.run_browser_session", return_value=snapshot):
+    with patch("backend.services.tools.web_action_identity.run_browser_session", return_value=snapshot):
         registry = get_default_action_registry(rebuild=True)
         result = registry.invoke(
             ToolInvocation(
@@ -204,7 +204,7 @@ def test_web_page_read_failure_is_not_fake_success() -> None:
         error="web.page_read DNS resolution failed",
         access_mode=InternetAccessMode.PAGE_READ,
     )
-    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=snapshot):
+    with patch("backend.services.tools.web_action_io.fetch_public_page", return_value=snapshot):
         registry = get_default_action_registry(rebuild=True)
         result = registry.invoke(
             ToolInvocation(action="web.page_read", input={"url": "https://blocked.invalid"}),
