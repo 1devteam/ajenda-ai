@@ -78,6 +78,7 @@ def web_page_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         confidence=0.9 if real else 0.4,
     )
 
+
 def web_browser_session(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebBrowserSessionInput.model_validate(invocation.input)
     snapshot = run_browser_session(
@@ -166,6 +167,7 @@ def web_browser_session(invocation: ToolInvocation, context: ActionRuntimeContex
         summary=summary,
         confidence=0.85 if real else 0.35,
     )
+
 
 def web_open_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebOpenWriteInput.model_validate(invocation.input)
