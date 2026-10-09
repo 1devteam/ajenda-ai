@@ -25,6 +25,7 @@ def _get_runtime_credential(
             return credentials[key]
     return None
 
+
 def _credential_secret(material: RuntimeCredentialMaterial | dict[str, Any] | None) -> str | None:
     if material is None:
         return None
@@ -32,6 +33,7 @@ def _credential_secret(material: RuntimeCredentialMaterial | dict[str, Any] | No
         secret = material.get("secret_value")
         return str(secret) if isinstance(secret, str) and secret else None
     return material.secret_value
+
 
 def _gmail_user(material: RuntimeCredentialMaterial | dict[str, Any] | None, *, default: str = "me") -> str:
     if material is None:
@@ -54,6 +56,7 @@ def _gmail_user(material: RuntimeCredentialMaterial | dict[str, Any] | None, *, 
         return credential_id
     return default
 
+
 def _trusted_hosts(
     material: RuntimeCredentialMaterial | dict[str, Any] | None,
     *,
@@ -70,6 +73,7 @@ def _trusted_hosts(
         return material.trusted_destination_hosts
     return default
 
+
 def _gmail_api_send_payload(*, to: str, subject: str, body: str) -> dict[str, str]:
     message = MIMEText(body or " ")
     message["To"] = to
@@ -77,8 +81,10 @@ def _gmail_api_send_payload(*, to: str, subject: str, body: str) -> dict[str, st
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
     return {"raw": raw}
 
+
 def _http_is_success(status_code: int) -> bool:
     return 200 <= status_code < 300
+
 
 def _ensure_simulated_external_outcome(payload: dict[str, Any], *, reason: str) -> None:
     """Fail-closed: non-real external actions must not use success-looking status values."""
@@ -90,16 +96,19 @@ def _ensure_simulated_external_outcome(payload: dict[str, Any], *, reason: str) 
     payload["real"] = False
     payload.setdefault("reason", reason)
 
+
 def _provider_headers(base: dict[str, str], inv: ToolInvocation) -> dict[str, str]:
     headers = dict(base)
     if inv.idempotency_key and inv.idempotency_key.strip():
         headers["Idempotency-Key"] = inv.idempotency_key.strip()
     return headers
 
+
 def _provider_body(body: dict[str, Any], inv: ToolInvocation) -> dict[str, Any]:
     if inv.idempotency_key and inv.idempotency_key.strip():
         return {**body, "idempotency_key": inv.idempotency_key.strip()}
     return body
+
 
 def _sent_message_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Project a privacy-bounded canonical artifact for the send attempt."""
@@ -116,6 +125,7 @@ def _sent_message_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
         if payload.get(key) is not None:
             row[key] = payload[key]
     return [row]
+
 
 def _make_evidence(
     action: str,
