@@ -38,9 +38,9 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _CONDITIONAL_SEND_PATTERNS,
     _CONTACTS_READ_PATTERNS,
     _CRM_NEGATION_PATTERNS,
-    _CRM_READBACK_VERIFICATION_PATTERN,
     _CRM_READ_NEGATION_PATTERNS,
     _CRM_READ_PATTERNS,
+    _CRM_READBACK_VERIFICATION_PATTERN,
     _CRM_UPDATE_PATTERNS,
     _DIRECT_CRM_RECORD_READ,
     _DRAFT_PATTERNS,
@@ -62,7 +62,6 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _RESEARCH_PATTERNS,
     _SALESFORCE_QUERY_PATTERNS,
     _SEND_CONTRADICTION_PATTERNS,
-    _classify_clause as _classify_clause_impl,
     _contains_any,
     _contains_unnegated_send,
     _evidence,
@@ -72,8 +71,13 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _extract_target_entities,
     _looks_like_fragment,
     _restatement,
-    _segment_clauses as _segment_clauses_impl,
     _success_for_outcomes,
+)
+from backend.services.mission_composition.interpretation.rule_engine import (
+    _classify_clause as _classify_clause_impl,
+)
+from backend.services.mission_composition.interpretation.rule_engine import (
+    _segment_clauses as _segment_clauses_impl,
 )
 
 
