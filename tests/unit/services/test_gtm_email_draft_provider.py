@@ -21,7 +21,7 @@ def _context() -> ActionRuntimeContext:
     )
 
 
-@patch("backend.services.tools.gtm_actions.generate_and_persist_draft")
+@patch("backend.services.tools.gtm_action_drafts.generate_and_persist_draft")
 def test_gtm_email_draft_returns_registered_provider(mock_draft: MagicMock) -> None:
     mock_draft.return_value = {
         "to": "ops@example.com",
