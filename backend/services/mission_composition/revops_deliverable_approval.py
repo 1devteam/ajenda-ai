@@ -1,7 +1,7 @@
 """Approval-state projection for the RevOps mission deliverable."""
 
 from collections.abc import Sequence
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import ValidationError
@@ -18,6 +18,7 @@ from backend.services.mission_composition.revops_deliverable_contracts import (
 )
 from backend.services.mission_composition.revops_deliverable_prospects import _task_action
 from backend.services.tools.schemas import SideEffectAuthorization, SideEffectAuthorizationV2
+
 
 def _task_approval(
     task: ExecutionTask,
