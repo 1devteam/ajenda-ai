@@ -1,5 +1,5 @@
-from typing import Any, Literal
 import uuid
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -9,6 +9,7 @@ from pydantic import (
 )
 
 from backend.services.tools.schemas import CredentialReference
+
 
 class AbilityActionRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
