@@ -28,7 +28,6 @@ from backend.services.mission_composition.deliverable_runtime_observability impo
     build_deliverable_runtime_state_read,
 )
 
-
 MissionTaskGraphRead = _mission_contracts.MissionTaskGraphRead
 GraphMaterializationRead = _mission_contracts.GraphMaterializationRead
 RuntimeAdmissionRead = _mission_contracts.RuntimeAdmissionRead
