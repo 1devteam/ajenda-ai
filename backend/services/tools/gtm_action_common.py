@@ -1,11 +1,7 @@
 """Shared provider, credential, evidence, and idempotency helpers for GTM actions."""
 
-from __future__ import annotations
-
 import base64
-
 from email.mime.text import MIMEText
-
 from typing import Any
 
 from backend.services.tools.schemas import (
