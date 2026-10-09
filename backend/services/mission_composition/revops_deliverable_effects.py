@@ -38,6 +38,7 @@ def _receipt_from_output(
         receipt["provider_status_code"] = real_response["status_code"]
     return receipt or None
 
+
 def _effects(
     *,
     tasks: Sequence[ExecutionTask],
@@ -86,6 +87,7 @@ def _effects(
         )
     return tuple(effects)
 
+
 def _limitations(
     *,
     tasks: Sequence[ExecutionTask],
@@ -106,4 +108,3 @@ def _limitations(
         for value in _string_tuple(provenance.get("limitations")):
             values.append(value)
     return tuple(dict.fromkeys(values))
-
