@@ -1,39 +1,32 @@
 """Mission route read-model and lifecycle projections."""
 
-from __future__ import annotations
-
-from datetime import (
-    UTC,
-    datetime,
-)
-
+from datetime import datetime, UTC
 from typing import Any
 
 from fastapi import HTTPException
 
 from backend.api.routes import mission_contracts as _mission_contracts
-
 from backend.domain.execution_task import ExecutionTask
-
 from backend.domain.mission import (
+    Mission,
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
     MISSION_INTAKE_METADATA_KEY,
     MISSION_PLAN_METADATA_KEY,
     MISSION_RUNTIME_ADMISSION_METADATA_KEY,
     MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY,
     MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY,
+    mission_task_graph_allows_legacy_v1,
     MISSION_TASK_GRAPH_METADATA_KEY,
     MISSION_WORKER_CLAIM_ADMISSION_METADATA_KEY,
     MISSION_WORKER_RUN_ADMISSION_METADATA_KEY,
     MISSION_WORKER_START_ADMISSION_METADATA_KEY,
-    Mission,
     MissionPlan,
-    mission_task_graph_allows_legacy_v1,
     normalize_mission_plan_contract_metadata,
     normalize_mission_task_graph_contract_metadata,
 )
-
-from backend.services.mission_composition.deliverable_runtime_observability import build_deliverable_runtime_state_read
+from backend.services.mission_composition.deliverable_runtime_observability import (
+    build_deliverable_runtime_state_read,
+)
 
 MissionTaskGraphRead = _mission_contracts.MissionTaskGraphRead
 GraphMaterializationRead = _mission_contracts.GraphMaterializationRead
