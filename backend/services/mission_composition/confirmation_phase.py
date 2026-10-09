@@ -362,8 +362,6 @@ class MissionCompositionConfirmationPhase:
             },
         )
         # Persist task graph on mission metadata (same storage as mission routes).
-        from backend.domain.mission import MISSION_TASK_GRAPH_METADATA_KEY
-
         mission_metadata = dict(mission.metadata_json or {})
         normalized_graph = normalize_mission_task_graph_contract_metadata(graph_metadata)
         mission_metadata[MISSION_TASK_GRAPH_METADATA_KEY] = normalized_graph
