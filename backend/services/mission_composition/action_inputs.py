@@ -33,7 +33,9 @@ def extract_github_owner_repo(intent: MissionIntent) -> tuple[str, str] | None:
     return _extract_github_owner_repo(intent)
 
 
-def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role: str | None = None) -> dict[str, Any]:
+def build_action_input(
+    *, action_name: str, intent: MissionIntent, vertical_role: str | None = None
+) -> dict[str, Any]:
     """Return a schema-valid-enough input payload for the selected action."""
 
     payload = build_research_action_input(action_name=action_name, intent=intent)
