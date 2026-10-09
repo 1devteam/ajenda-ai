@@ -11,6 +11,7 @@ from backend.services.tools.schemas import (
     ToolInvocation,
 )
 
+
 def sales_draft_followup(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = FollowupDraftInput.model_validate(invocation.input)
     from backend.services.draft_generation import generate_and_persist_draft
