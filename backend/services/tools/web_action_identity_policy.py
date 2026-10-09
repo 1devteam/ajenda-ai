@@ -1,42 +1,6 @@
 """Public identity and observed-contact research handlers."""
 
-from __future__ import annotations
-
 import re
-
-from datetime import (
-    UTC,
-    datetime,
-)
-
-from backend.services.internet import fetch_public_page
-
-from backend.services.internet.browser_session import run_browser_session
-
-from backend.services.ontology.evidence_lineage import (
-    EvidenceLineage,
-    EvidenceLineageResolution,
-    EvidenceOriginType,
-    EvidenceSourceIdentity,
-)
-
-from backend.services.tools.action_registry import ActionRegistry
-
-from backend.services.tools.contact_observation import (
-    extract_observed_contacts,
-    page_host,
-    prospect_source_url,
-)
-
-from backend.services.tools.schemas import (
-    ActionResult,
-    ActionRuntimeContext,
-    EvidenceItem,
-    ResearchObserveContactsInput,
-    ResearchVerifyPublicIdentityInput,
-    SideEffectClass,
-    ToolInvocation,
-)
 
 # These hosts publish listings, reviews, or lead-generation pages.  A matching
 # industry/location title on one of them is evidence about a market, not proof
