@@ -7,11 +7,13 @@ from typing import Any
 
 from backend.services.mission_composition.action_input_common import (
     _local_fixture_only,
+    _prospect_count,
     _salesforce_soql,
+    _target_bits,
     _source_instruction,
 )
 from backend.services.mission_composition.contracts import MissionIntent, is_ranking_only_instruction
-from backend.services.mission_composition.contracts import MissionIntent
+
 
 def build_sales_action_input(
     *,
