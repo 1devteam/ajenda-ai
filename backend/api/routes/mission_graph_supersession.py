@@ -1,19 +1,14 @@
 """Mission graph/runtime supersession helpers."""
 
-from __future__ import annotations
-
 from typing import Any
-
 from uuid import UUID
 
 from backend.domain.execution_task import ExecutionTask
-
 from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
     MISSION_RUNTIME_ADMISSION_METADATA_KEY,
     MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY,
 )
-
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 
 def _supersede_graph_materialization(
