@@ -48,11 +48,11 @@ def test_runtime_launch_cannot_self_issue_missing_authority() -> None:
 def test_runtime_launch_rejects_authority_not_visible_to_tenant() -> None:
     with (
         patch(
-            "backend.api.routes.ability_runtime.CapabilityRepository.get_visible_for_tenant",
+            "backend.api.routes.ability_runtime_authority.CapabilityRepository.get_visible_for_tenant",
             return_value=None,
         ),
         patch(
-            "backend.api.routes.ability_runtime.CapabilityAdapterRepository.get_visible_for_tenant",
+            "backend.api.routes.ability_runtime_authority.CapabilityAdapterRepository.get_visible_for_tenant",
             return_value=None,
         ),
         pytest.raises(HTTPException, match="unavailable") as exc_info,
@@ -77,11 +77,11 @@ def test_runtime_launch_uses_preprovisioned_exact_authority_without_writes() -> 
     session = MagicMock()
     with (
         patch(
-            "backend.api.routes.ability_runtime.CapabilityRepository.get_visible_for_tenant",
+            "backend.api.routes.ability_runtime_authority.CapabilityRepository.get_visible_for_tenant",
             return_value=capability,
         ) as capability_get,
         patch(
-            "backend.api.routes.ability_runtime.CapabilityAdapterRepository.get_visible_for_tenant",
+            "backend.api.routes.ability_runtime_authority.CapabilityAdapterRepository.get_visible_for_tenant",
             return_value=adapter,
         ) as adapter_get,
     ):
