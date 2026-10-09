@@ -22,6 +22,7 @@ from backend.services.mission_composition.deliverable_runtime_state import (
 )
 from backend.services.mission_composition.revops_deliverable_contracts import RevOpsCompletionRead
 
+
 def _runtime_state_from_metadata(metadata: object) -> object | None:
     if not isinstance(metadata, dict):
         return None
