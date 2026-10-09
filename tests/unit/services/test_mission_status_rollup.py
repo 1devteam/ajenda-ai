@@ -60,7 +60,7 @@ def test_rollup_marks_mission_completed_when_all_tasks_done() -> None:
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
     with patch(
-        "backend.services.worker_runtime_service.MissionRepository",
+        "backend.services.worker_runtime_rollup.MissionRepository",
         return_value=repo,
     ):
         service._maybe_rollup_mission_status(task=tasks[0], worker_id="worker-1")
@@ -93,7 +93,7 @@ def test_rollup_resumes_review_hold_before_completing_mission() -> None:
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
     with patch(
-        "backend.services.worker_runtime_service.MissionRepository",
+        "backend.services.worker_runtime_rollup.MissionRepository",
         return_value=repo,
     ):
         service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
@@ -119,7 +119,7 @@ def test_rollup_marks_running_when_siblings_open() -> None:
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
     with patch(
-        "backend.services.worker_runtime_service.MissionRepository",
+        "backend.services.worker_runtime_rollup.MissionRepository",
         return_value=repo,
     ):
         service._maybe_rollup_mission_status(task=done, worker_id="worker-1")
@@ -152,7 +152,7 @@ def test_rollup_marks_mission_failed_when_all_tasks_terminal_and_one_failed() ->
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
     with patch(
-        "backend.services.worker_runtime_service.MissionRepository",
+        "backend.services.worker_runtime_rollup.MissionRepository",
         return_value=repo,
     ):
         service._maybe_rollup_mission_status(task=failed, worker_id="worker-1")
@@ -189,7 +189,7 @@ def test_rollup_fails_when_observe_acceptance_is_unmet() -> None:
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
     with patch(
-        "backend.services.worker_runtime_service.MissionRepository",
+        "backend.services.worker_runtime_rollup.MissionRepository",
         return_value=repo,
     ):
         service._maybe_rollup_mission_status(task=observe, worker_id="worker-1")
@@ -227,7 +227,7 @@ def test_rollup_completes_when_observe_accept_met() -> None:
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
     with patch(
-        "backend.services.worker_runtime_service.MissionRepository",
+        "backend.services.worker_runtime_rollup.MissionRepository",
         return_value=repo,
     ):
         service._maybe_rollup_mission_status(task=observe, worker_id="worker-1")
@@ -272,7 +272,7 @@ def test_rollup_fails_when_tasks_succeed_but_deliverable_is_incomplete() -> None
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
     with patch(
-        "backend.services.worker_runtime_service.MissionRepository",
+        "backend.services.worker_runtime_rollup.MissionRepository",
         return_value=repo,
     ):
         service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
