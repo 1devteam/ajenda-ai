@@ -19,6 +19,7 @@ from backend.services.tools.schemas import ActionRuntimeContext, EvidenceItem, S
 def _provider(context: ActionRuntimeContext) -> RecordStore:
     return resolve_record_store(context)
 
+
 def _evidence(
     *,
     context: ActionRuntimeContext,
