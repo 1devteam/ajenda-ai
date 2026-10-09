@@ -7,8 +7,11 @@ from typing import Any
 
 from backend.services.mission_composition.action_input_common import (
     _compact_research_query,
+    _prospect_count,
+    _target_bits,
 )
 from backend.services.mission_composition.contracts import MissionIntent
+
 
 def build_analysis_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, Any] | None:
     _, _, query = _target_bits(intent)
