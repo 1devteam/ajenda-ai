@@ -66,7 +66,7 @@ def _tenant_owner_request(*, tenant_id: uuid.UUID) -> MagicMock:
 
 @patch("backend.api.routes.ability_runtime.require_route_permission")
 @patch("backend.api.routes.ability_runtime.QuotaEnforcementService")
-@patch("backend.api.routes.ability_runtime.get_settings")
+@patch("backend.api.routes.ability_runtime_authority.get_settings")
 def test_enforce_mode_rejects_tier3_without_acknowledgment(
     mock_settings: MagicMock,
     mock_quota_cls: MagicMock,
@@ -97,7 +97,7 @@ def test_enforce_mode_rejects_tier3_without_acknowledgment(
     assert "autonomy_acknowledgment" in response.json()["detail"]
 
 
-@patch("backend.api.routes.ability_runtime.get_settings")
+@patch("backend.api.routes.ability_runtime_authority.get_settings")
 def test_pilot_mode_resolve_launch_authority_accepts_valid_acknowledgment(mock_settings: MagicMock) -> None:
     settings = MagicMock()
     settings.autonomy_disclaimer_mode = "pilot"
@@ -131,7 +131,7 @@ def test_pilot_mode_resolve_launch_authority_accepts_valid_acknowledgment(mock_s
     assert launch.autonomy_acknowledgment is not None
 
 
-@patch("backend.api.routes.ability_runtime.get_settings")
+@patch("backend.api.routes.ability_runtime_authority.get_settings")
 def test_pilot_mode_resolve_launch_authority_accepts_tenant_operator(mock_settings: MagicMock) -> None:
     settings = MagicMock()
     settings.autonomy_disclaimer_mode = "pilot"
