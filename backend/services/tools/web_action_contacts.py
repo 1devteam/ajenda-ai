@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 
 from backend.services.internet import fetch_public_page
@@ -25,6 +26,7 @@ from backend.services.tools.schemas import (
     ToolInvocation,
 )
 from backend.services.tools.web_action_identity_policy import (
+    _DIRECTORY_HOST_MARKERS,
     _host_identity_tokens,
     _identity_tokens,
     _industry_evidence_markers,
