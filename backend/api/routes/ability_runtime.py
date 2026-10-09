@@ -86,6 +86,20 @@ from backend.services.quota_enforcement import (
 from backend.services.tools.action_registry import ActionDefinition, get_default_action_registry
 from backend.services.tools.schemas import CredentialReference, SideEffectClass
 
+__all__ = (
+    "CREDENTIALED_EXTERNAL_READ_ACTIONS",
+    "EXTERNAL_ACTIONS",
+    "GTM_HIGH_RISK_ACTIONS",
+    "INTERNAL_WRITE_ACTIONS",
+    "READ_SAFE_ACTIONS",
+    "AbilityTaskCreate",
+    "_ensure_runtime_authority",
+    "_requires_runtime_authority",
+    "_resolve_launch_authority",
+    "_resolve_runtime_authority",
+    "launch_task",
+)
+
 router = APIRouter(prefix="/ability-runtime", tags=["ability-runtime"])
 
 
