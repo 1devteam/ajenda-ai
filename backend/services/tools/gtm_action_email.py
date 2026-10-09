@@ -311,6 +311,7 @@ def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
         summary=send_summary,
     )
 
+
 def email_check_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
     """Check/read recent emails from Gmail (supports real via credential or simulated)."""
     inp = GtmEmailCheckInput.model_validate(inv.input)
