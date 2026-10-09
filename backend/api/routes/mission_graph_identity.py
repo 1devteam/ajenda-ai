@@ -1,13 +1,8 @@
 """Mission task-graph identity and fingerprint helpers."""
 
-from __future__ import annotations
-
 import hashlib
-
 import json
-
 from typing import Any
-
 from uuid import UUID
 
 def _task_graph_fingerprint(
