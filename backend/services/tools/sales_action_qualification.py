@@ -15,6 +15,7 @@ from backend.services.tools.schemas import (
     ToolInvocation,
 )
 
+
 def _first_lead_text(*values: Any) -> str:
     """Return explicit lead text without synthesizing missing facts."""
 
