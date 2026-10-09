@@ -124,7 +124,7 @@ def test_deliverable_read_model_failure_does_not_block_task_completion(monkeypat
         raise RuntimeError("read-model refresh failed")
 
     monkeypatch.setattr(worker_runtime_module, "MissionRepository", MissionRepoStub)
-    monkeypatch.setattr(worker_runtime_module, "refresh_deliverable_completion_metadata", _raise_refresh)
+    monkeypatch.setattr("backend.services.worker_runtime_rollup.refresh_deliverable_completion_metadata", _raise_refresh)
 
     completed = service.complete(
         tenant_id=tenant_id,
