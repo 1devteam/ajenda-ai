@@ -7,6 +7,7 @@ from backend.domain.capability_adapter import CapabilityAdapter
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.lineage_record import LineageRecord
 
+
 def _build_task_metadata(
     *,
     action_name: str,
