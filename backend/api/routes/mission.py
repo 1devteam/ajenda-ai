@@ -1,11 +1,16 @@
 from datetime import datetime, UTC
-import json
-import logging
 from typing import Any
 from uuid import UUID
+import logging
 import uuid as _uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+)
 from sqlalchemy.orm import Session
 
 from backend.api.routes import mission_contracts as _mission_contracts
@@ -40,7 +45,6 @@ from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_ses
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.permissions import Permission
 from backend.domain.enums import MissionPlanStatus, MissionState
-from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import (
     build_graph_materialization_metadata,
     build_mission_intake_metadata,
@@ -76,9 +80,6 @@ from backend.services.execution_coordinator import ExecutionCoordinator
 # --- mission_bridge re-exports (Phase 1b layering) ---
 from backend.services.mission_bridge.quota import quota_exceeded_response as _quota_exceeded_response
 from backend.services.mission_bridge_runtime_authority import provision_bridge_runtime_authority
-from backend.services.mission_composition.deliverable_runtime_observability import (
-    build_deliverable_runtime_state_read,
-)
 from backend.services.mission_executor import MissionExecutor  # noqa: F401 - legacy test/patch compatibility
 from backend.services.mission_graph_integrity import evaluate_admission_integrity
 from backend.services.mission_intake_quality import (
@@ -234,28 +235,6 @@ def _server_admitted_by(*, request: Request, body_admitted_by: str | None) -> st
     if candidate and candidate.lower() not in _CLIENT_FORGED_ADMISSION_IDENTITIES:
         return candidate
     return "server:runtime_admission"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @router.post("", response_model=MissionRead, status_code=201)
