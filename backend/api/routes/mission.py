@@ -77,7 +77,6 @@ from backend.repositories.outcome_review_repository import OutcomeReviewReposito
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
 
-
 # --- mission_bridge re-exports (Phase 1b layering) ---
 from backend.services.mission_bridge.quota import quota_exceeded_response as _quota_exceeded_response
 from backend.services.mission_bridge_runtime_authority import provision_bridge_runtime_authority
