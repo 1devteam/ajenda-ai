@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import logging
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, MissionState
@@ -18,10 +21,13 @@ from backend.services.worker_runtime_contracts import (
     _observe_acceptance_reasons,
 )
 
+if TYPE_CHECKING:
+    from backend.services.worker_runtime_service import WorkerRuntimeService
+
 logger = logging.getLogger("ajenda.worker_runtime_rollup")
 
 
-def refresh_deliverable_completion_read_model(service, *, task: ExecutionTask) -> None:
+def refresh_deliverable_completion_read_model(service: WorkerRuntimeService, *, task: ExecutionTask) -> None:
     """Refresh non-authoritative deliverable state without blocking task completion."""
 
     if task.mission_id is None:
@@ -53,7 +59,7 @@ def refresh_deliverable_completion_read_model(service, *, task: ExecutionTask) -
         )
 
 
-def maybe_rollup_mission_status(service, *, task: ExecutionTask, worker_id: str) -> None:
+def maybe_rollup_mission_status(service: WorkerRuntimeService, *, task: ExecutionTask, worker_id: str) -> None:
     """Advance mission status when graph tasks finish (composition path stays planned today)."""
 
     if task.mission_id is None:
