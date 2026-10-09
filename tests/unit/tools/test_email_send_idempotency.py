@@ -295,9 +295,9 @@ def test_gtm_email_send_smtp_claims_before_send_and_replays() -> None:
             "backend.services.tools.email_send_idempotency.EmailSendIdempotencyRepository",
             side_effect=repo_ctor,
         ),
-        patch("backend.services.tools.gtm_actions.send_via_smtp", side_effect=fake_send),
+        patch("backend.services.tools.gtm_action_email.send_via_smtp", side_effect=fake_send),
         patch(
-            "backend.services.tools.gtm_actions.parse_smtp_secret",
+            "backend.services.tools.gtm_action_email.parse_smtp_secret",
             return_value=SmtpConfig(
                 host="smtp.example.com",
                 port=587,
@@ -344,9 +344,9 @@ def test_gtm_email_send_smtp_transport_exception_never_reclaims() -> None:
             "backend.services.tools.email_send_idempotency.EmailSendIdempotencyRepository",
             side_effect=repo_ctor,
         ),
-        patch("backend.services.tools.gtm_actions.send_via_smtp", side_effect=RuntimeError("socket reset")),
+        patch("backend.services.tools.gtm_action_email.send_via_smtp", side_effect=RuntimeError("socket reset")),
         patch(
-            "backend.services.tools.gtm_actions.parse_smtp_secret",
+            "backend.services.tools.gtm_action_email.parse_smtp_secret",
             return_value=SmtpConfig(
                 host="smtp.example.com",
                 port=587,
