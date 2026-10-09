@@ -44,11 +44,39 @@ Every node has a stable `id` and `type`. Source-backed nodes also carry a reposi
 Major generated/static node classes include:
 
 - `python_module`
+- `python_function` / `python_method` on deliberately selected architecture-critical surfaces
+- `http_route` on deliberately selected FastAPI route modules
 - `frontend_module`
 - `test_module`
 - `migration`
 - `database_table`
 - `network_egress_sink`
+
+### Selective responsibility-resolution layer
+
+The canonical graph remains module-first. G.R.A.F.T. does **not** expand every Python symbol repository-wide.
+
+Finer symbol resolution is enabled only where the consuming model needs responsibility-level evidence that module topology cannot provide cheaply. The current selective surface includes:
+
+- `backend/services/mission_composition/**/*.py`
+- `backend/services/worker_runtime_service.py`
+- `backend/api/routes/mission.py`
+- `backend/api/routes/ability_runtime.py`
+- `backend/services/tools/web_actions.py`
+- `backend/services/tools/sales_actions.py`
+- `backend/services/tools/gtm_actions.py`
+
+The layer emits:
+
+- stable top-level function nodes;
+- class-qualified method nodes such as `WorkerRuntimeService.claim_next_task`;
+- nested local handlers when they carry runtime identity, including the social-publish handler;
+- direct selected-symbol call edges;
+- FastAPI route-contract nodes with `route -> handler` edges;
+- runtime `action:<name> -> handler` implementation edges derived from `ActionDefinition`;
+- direct test-to-function/method edges where the test imports or instantiates the selected symbol.
+
+This layer is intentionally an **instrument-resolution control**, not a complexity score, architecture recommendation, or merge authority. Its purpose is to reduce the residual repository reconstruction work required from the consuming model before a large responsibility refactor.
 
 Major semantic node classes include:
 
