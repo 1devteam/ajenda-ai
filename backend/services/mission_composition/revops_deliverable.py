@@ -40,7 +40,6 @@ from backend.services.mission_composition.revops_deliverable_runtime import (
     _validated_artifacts,
 )
 
-
 _DRAFT_REVIEW_STATUSES = frozenset({"pending", "approved", "rejected", "sent"})
 _TERMINAL_TASK_STATES = frozenset(
     {
