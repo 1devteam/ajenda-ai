@@ -33,6 +33,7 @@ def _principal_may_approve_gtm_side_effects(request: Request) -> bool:
     allowed_roles = {RoleName.GUARDIAN.value, "admin", "tenant_admin"}
     return bool(allowed_roles.intersection(set(getattr(principal, "roles", ()) or ())))
 
+
 def _principal_subject_id(request: Request) -> str | None:
     principal = getattr(request.state, "principal", None)
     if principal is None:
@@ -44,6 +45,7 @@ INFORMED_AUTONOMY_LAUNCH_ROLES = frozenset({"tenant_owner", "tenant_operator"})
 
 INFORMED_AUTONOMY_LAUNCH_ROLES = frozenset({"tenant_owner", "tenant_operator"})
 
+
 def _principal_may_launch_informed_autonomy(request: Request) -> bool:
     principal = getattr(request.state, "principal", None)
     if principal is None:
@@ -52,12 +54,12 @@ def _principal_may_launch_informed_autonomy(request: Request) -> bool:
 
 
 @dataclass(slots=True)
-
 class _LaunchAuthority:
     approved_by: str
     approval_reason: str
     requires_human_review: bool
     autonomy_acknowledgment: dict[str, Any] | None
+
 
 def _resolve_launch_authority(
     *,
@@ -127,6 +129,7 @@ def _resolve_launch_authority(
         autonomy_acknowledgment=None,
     )
 
+
 def _resolve_runtime_authority(
     *,
     db: Session,
@@ -169,6 +172,6 @@ def _resolve_runtime_authority(
 # Retained as a patch target for pre-authority contract fixtures. Production
 # launch code calls the fail-closed resolver above directly.
 
+
 def _ensure_runtime_authority(*args: Any, **kwargs: Any) -> tuple[Capability | None, CapabilityAdapter | None]:
     return _resolve_runtime_authority(*args, **kwargs)
-
