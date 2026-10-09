@@ -11,6 +11,7 @@ def gtm_side_effect_was_real(service, task_output: dict[str, Any]) -> bool:
         return bool(nested.get("real"))
     return bool(task_output.get("real"))
 
+
 def is_high_risk_gtm_side_effect(service, task: ExecutionTask, task_output: dict[str, Any] | None) -> bool:
     if not task_output or not isinstance(task_output, dict):
         return False
@@ -21,6 +22,7 @@ def is_high_risk_gtm_side_effect(service, task: ExecutionTask, task_output: dict
     if side_effect_class not in {"external_send", "external_write", "external_publish"}:
         return False
     return gtm_side_effect_was_real(service, task_output)
+
 
 def create_draft_outcome_review(
     service,
@@ -80,4 +82,3 @@ def create_draft_outcome_review(
     except Exception:
         # Best effort bridge; do not fail completion. Logged via audit elsewhere if needed.
         pass
-
