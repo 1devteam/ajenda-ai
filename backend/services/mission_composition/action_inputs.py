@@ -9,9 +9,11 @@ from __future__ import annotations
 from typing import Any
 
 from backend.services.mission_composition.action_input_analysis import build_analysis_action_input
+from backend.services.mission_composition.action_input_common import _target_bits
 from backend.services.mission_composition.action_input_common import (
-    _target_bits,
     extract_github_owner_repo as _extract_github_owner_repo,
+)
+from backend.services.mission_composition.action_input_common import (
     has_usable_research_scope as _has_usable_research_scope,
 )
 from backend.services.mission_composition.action_input_communications import build_communications_action_input
