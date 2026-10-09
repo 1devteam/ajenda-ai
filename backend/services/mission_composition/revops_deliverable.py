@@ -28,7 +28,7 @@ from backend.services.mission_composition.deliverable_runtime_state import (
 from backend.services.mission_composition.revops_deliverable_approval import _approval_state
 from backend.services.mission_composition.revops_deliverable_contracts import (
     RevOpsEvidenceReferenceRead,
-    RevOpsMissionDeliverableRead,
+    RevOpsMissionDeliverableRead as RevOpsMissionDeliverableRead,
     RevOpsTaskStateRead,
 )
 from backend.services.mission_composition.revops_deliverable_effects import _effects, _limitations
