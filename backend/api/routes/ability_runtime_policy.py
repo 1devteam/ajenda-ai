@@ -81,8 +81,10 @@ CREDENTIALED_EXTERNAL_READ_ACTIONS: set[str] = {
 
 EXPOSED_ACTIONS: set[str] = READ_SAFE_ACTIONS | INTERNAL_WRITE_ACTIONS | EXTERNAL_ACTIONS
 
+
 def _label_for_action(action_name: str) -> str:
     return action_name.replace(".", " ").replace("_", " ").title()
+
 
 def _mission_allowed_actions(metadata_json: dict[str, Any]) -> list[str]:
     intake = metadata_json.get(MISSION_INTAKE_METADATA_KEY)
@@ -92,6 +94,7 @@ def _mission_allowed_actions(metadata_json: dict[str, Any]) -> list[str]:
     if not isinstance(raw_actions, list):
         return []
     return [str(item).strip() for item in raw_actions if isinstance(item, str) and item.strip()]
+
 
 def _assert_action_allowed_for_mission(*, mission: Mission, action_name: str) -> None:
     allowed_actions = _mission_allowed_actions(mission.metadata_json)
@@ -116,6 +119,7 @@ def _assert_action_allowed_for_mission(*, mission: Mission, action_name: str) ->
             },
         )
 
+
 def _provider_mode(provider: str, side_effect_class: SideEffectClass) -> Literal["local", "external", "mixed"]:
     if side_effect_class.value.startswith("external_"):
         return "external"
@@ -123,8 +127,10 @@ def _provider_mode(provider: str, side_effect_class: SideEffectClass) -> Literal
         return "local"
     return "mixed"
 
+
 def _requires_runtime_authority(side_effect_class: SideEffectClass) -> bool:
     return side_effect_class.has_side_effect or side_effect_class.value.startswith("external_")
+
 
 def _adapter_side_effect_classification(side_effect_class: SideEffectClass) -> str:
     """Map runtime tool side-effect classes onto the persisted adapter contract."""
@@ -143,6 +149,7 @@ def _adapter_side_effect_classification(side_effect_class: SideEffectClass) -> s
         return side_effect_class.value
     return "external_side_effect"
 
+
 def _action_definition(action_name: str) -> ActionDefinition:
     registry = get_default_action_registry()
     try:
@@ -150,10 +157,10 @@ def _action_definition(action_name: str) -> ActionDefinition:
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+
 def _validate_exposed_action(action_name: str) -> None:
     if action_name not in EXPOSED_ACTIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Action {action_name!r} is not exposed by ability-runtime.",
         )
-
