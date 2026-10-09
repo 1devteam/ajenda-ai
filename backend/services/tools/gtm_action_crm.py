@@ -1,11 +1,9 @@
 """GTM CRM upsert handler."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from backend.services.plugins.crm_client import default_crm_client
-
+from backend.services.tools.gtm_action_common import _make_evidence
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -13,8 +11,6 @@ from backend.services.tools.schemas import (
     SideEffectClass,
     ToolInvocation,
 )
-
-from backend.services.tools.gtm_action_common import _make_evidence
 
 def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
     inp = GtmCrmUpsertInput.model_validate(inv.input)
