@@ -1,7 +1,5 @@
 """Runtime-state and artifact validation for RevOps deliverable assembly."""
 
-from __future__ import annotations
-
 from collections.abc import Sequence
 from typing import Any
 
@@ -16,8 +14,12 @@ from backend.services.mission_composition.deliverable_completion import (
     validate_materialized_artifact,
 )
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
-from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
-from backend.services.mission_composition.deliverable_runtime_state import DELIVERABLE_RUNTIME_STATE_METADATA_KEY
+from backend.services.mission_composition.deliverable_runtime_artifacts import (
+    collect_materialized_artifacts,
+)
+from backend.services.mission_composition.deliverable_runtime_state import (
+    DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
+)
 from backend.services.mission_composition.revops_deliverable_contracts import RevOpsCompletionRead
 
 def _runtime_state_from_metadata(metadata: object) -> object | None:
