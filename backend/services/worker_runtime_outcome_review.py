@@ -4,6 +4,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.outcome_review import OutcomeReview
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 
+
 def gtm_side_effect_was_real(service, task_output: dict[str, Any]) -> bool:
     nested = task_output.get("output")
     if isinstance(nested, dict) and "real" in nested:
