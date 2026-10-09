@@ -20,6 +20,7 @@ def _mirror_task_output_to_metadata(task_output: dict[str, Any]) -> dict[str, An
         "output": nested_output if nested_output is not None else task_output,
     }
 
+
 def _materialized_artifact_reference(task: ExecutionTask, evidence_ids: list[str]) -> list[dict[str, str]]:
     """Attach a durable evidence-backed identity to a declared task artifact."""
 
@@ -37,6 +38,7 @@ def _materialized_artifact_reference(task: ExecutionTask, evidence_ids: list[str
         }
     ]
 
+
 def _task_action_name(task: ExecutionTask) -> str | None:
     metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
     invocation = metadata.get("tool_invocation")
@@ -45,6 +47,7 @@ def _task_action_name(task: ExecutionTask) -> str | None:
         if isinstance(action, str) and action.strip():
             return action.strip()
     return None
+
 
 def _failure_evidence_record(*, task: ExecutionTask, lease: WorkerLease, worker_id: str, reason: str) -> EvidenceRecord:
     """Build durable evidence for a terminal handler failure.
@@ -89,6 +92,7 @@ def _failure_evidence_record(*, task: ExecutionTask, lease: WorkerLease, worker_
         collection_status="rejected",
         schema_version=EVIDENCE_CONTRACT_SCHEMA_VERSION,
     )
+
 
 def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[str, Any] | None) -> None:
     """Validate the exact server-declared artifact before task completion.
@@ -148,6 +152,7 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
             errors.insert(0, f"research gap: {research_gap[:500]}")
         raise ValueError(f"declared artifact '{artifact_key}' failed schema validation: {'; '.join(errors)}")
 
+
 def _observe_acceptance_reasons(siblings: list[ExecutionTask], *, require_contacts: bool) -> list[str]:
     """Describe incomplete contact coverage without redefining execution success."""
 
@@ -165,6 +170,7 @@ def _observe_acceptance_reasons(siblings: list[ExecutionTask], *, require_contac
         requested = int(output.get("requested_quantity", 0) or 0)
         return [f"requested {requested} observed contacts, produced {observed}"]
     return []
+
 
 def _mission_acceptance_contract(mission: Any) -> dict[str, Any]:
     raw_metadata = getattr(mission, "metadata_json", None)
