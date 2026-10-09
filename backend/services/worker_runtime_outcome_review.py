@@ -24,7 +24,7 @@ def is_high_risk_gtm_side_effect(service, task: ExecutionTask, task_output: dict
     return gtm_side_effect_was_real(service, task_output)
 
 def create_draft_outcome_review(
-    self,
+    service,
     *,
     task: ExecutionTask,
     task_output: dict[str, Any],
