@@ -18,7 +18,6 @@ from backend.services.worker_runtime_contracts import (
     _observe_acceptance_reasons,
 )
 
-
 logger = logging.getLogger("ajenda.worker_runtime_rollup")
 
 def refresh_deliverable_completion_read_model(service, *, task: ExecutionTask) -> None:
