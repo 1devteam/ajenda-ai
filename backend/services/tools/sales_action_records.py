@@ -83,6 +83,7 @@ def record_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         confidence=1.0,
     )
 
+
 def record_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = RecordReadInput.model_validate(invocation.input)
     record = _provider(context).read_record(
@@ -140,6 +141,7 @@ def record_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> Ac
         summary=summary,
         confidence=1.0,
     )
+
 
 def record_write(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = RecordWriteInput.model_validate(invocation.input)
