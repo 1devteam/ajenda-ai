@@ -1,5 +1,5 @@
-from datetime import datetime, UTC
 import logging
+from datetime import UTC, datetime
 
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, MissionState
@@ -13,10 +13,11 @@ from backend.services.mission_composition.deliverable_runtime_read_model import 
 )
 from backend.services.ontology.algorithms import evaluate_runtime_artifact_completeness
 from backend.services.worker_runtime_contracts import (
+    _TERMINAL_TASK_STATES,
     _mission_acceptance_contract,
     _observe_acceptance_reasons,
-    _TERMINAL_TASK_STATES,
 )
+
 
 logger = logging.getLogger("ajenda.worker_runtime_rollup")
 
