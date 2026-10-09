@@ -37,6 +37,7 @@ from backend.services.tools.schemas import (
     ToolInvocation,
 )
 
+
 def _resolve_send_content(
     inv: ToolInvocation,
     ctx: ActionRuntimeContext,
