@@ -30,6 +30,7 @@ def _supersede_graph_materialization(
     superseded["superseded_by_graph_fingerprint"] = graph_fingerprint
     metadata[MISSION_GRAPH_MATERIALIZATION_METADATA_KEY] = superseded
 
+
 def _supersede_runtime_admission(
     *,
     metadata: dict[str, Any],
@@ -49,6 +50,7 @@ def _supersede_runtime_admission(
     superseded["superseded_by_graph_fingerprint"] = graph_fingerprint
     metadata[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = superseded
 
+
 def _supersede_runtime_admission_for_materialization(
     *,
     metadata: dict[str, Any],
@@ -65,6 +67,7 @@ def _supersede_runtime_admission_for_materialization(
     superseded["superseded_reason"] = "graph_materialization_replaced"
     superseded["superseded_by_materialization_version"] = materialization_version
     metadata[MISSION_RUNTIME_ADMISSION_METADATA_KEY] = superseded
+
 
 def _cancel_superseded_materialized_planned_tasks(
     *, metadata: dict[str, Any], task_repo: ExecutionTaskRepository, tenant_id: str, mission_id: UUID
