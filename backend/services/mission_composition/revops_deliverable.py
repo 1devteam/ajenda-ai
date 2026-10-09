@@ -8,7 +8,7 @@ queues work, or performs an external effect.
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from backend.domain.enums import ExecutionTaskState
@@ -39,6 +39,7 @@ from backend.services.mission_composition.revops_deliverable_runtime import (
     _validate_ownership,
     _validated_artifacts,
 )
+
 
 _DRAFT_REVIEW_STATUSES = frozenset({"pending", "approved", "rejected", "sent"})
 _TERMINAL_TASK_STATES = frozenset(
