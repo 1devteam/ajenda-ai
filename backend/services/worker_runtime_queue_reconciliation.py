@@ -96,7 +96,7 @@ def reconcile_claimed_terminal_queue_artifact(
 
 
 def record_terminal_queue_cleanup_failure(
-    service,
+    service: WorkerRuntimeService,
     *,
     tenant_id: str,
     task: ExecutionTask,
@@ -158,7 +158,7 @@ def record_terminal_queue_cleanup_failure(
 
 
 def assert_current_releasable_claim(
-    service,
+    service: WorkerRuntimeService,
     *,
     tenant_id: str,
     lease: WorkerLease,
