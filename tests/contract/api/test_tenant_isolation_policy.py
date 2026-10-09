@@ -107,8 +107,8 @@ def _build_app(*routers) -> FastAPI:
 ROUTE_CASES = [
     ("api_keys:create", "POST", "/api-keys", {"scopes": []}, TENANT_A),
     ("api_keys:revoke", "POST", "/api-keys/some-key-id/revoke", None, TENANT_A),
-    ("mission:queue", "POST", f"/missions/{_stable_uuid(\"mission-queue\")}/queue", None, TENANT_A),
-    ("task:queue", "POST", f"/tasks/{_stable_uuid(\"task-queue\")}/queue", None, TENANT_A),
+    ("mission:queue", "POST", f"/missions/{_stable_uuid('mission-queue')}/queue", None, TENANT_A),
+    ("task:queue", "POST", f"/tasks/{_stable_uuid('task-queue')}/queue", None, TENANT_A),
     (
         "workforce:provision",
         "POST",
@@ -131,7 +131,7 @@ ROUTE_CASES = [
         TENANT_A,
     ),
     ("operations:dead_letter", "GET", "/operations/dead-letter", None, TENANT_A),
-    ("operations:retry", "POST", f"/operations/dead-letter/{_stable_uuid(\"dead-letter\")}/retry", None, TENANT_A),
+    ("operations:retry", "POST", f"/operations/dead-letter/{_stable_uuid('dead-letter')}/retry", None, TENANT_A),
     ("system:status", "GET", "/system/status", None, TENANT_A),
     (
         "webhooks:register",
@@ -144,9 +144,9 @@ ROUTE_CASES = [
         TENANT_A,
     ),
     ("webhooks:list", "GET", "/webhooks/", None, TENANT_A),
-    ("webhooks:get", "GET", f"/webhooks/{_stable_uuid(\"webhook-get\")}", None, TENANT_A),
-    ("webhooks:delete", "DELETE", f"/webhooks/{_stable_uuid(\"webhook-delete\")}", None, TENANT_A),
-    ("webhooks:deliveries", "GET", f"/webhooks/{_stable_uuid(\"webhook-deliveries\")}/deliveries", None, TENANT_A),
+    ("webhooks:get", "GET", f"/webhooks/{_stable_uuid('webhook-get')}", None, TENANT_A),
+    ("webhooks:delete", "DELETE", f"/webhooks/{_stable_uuid('webhook-delete')}", None, TENANT_A),
+    ("webhooks:deliveries", "GET", f"/webhooks/{_stable_uuid('webhook-deliveries')}/deliveries", None, TENANT_A),
 ]
 
 
