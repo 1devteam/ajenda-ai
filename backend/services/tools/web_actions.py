@@ -1,54 +1,19 @@
-"""Governed public internet actions: page read, browser session, open write."""
+"""Stable registration facade for governed public-internet actions."""
 
 from __future__ import annotations
 
-import re
-from datetime import UTC, datetime
-from typing import Any
-
-from backend.services.internet import InternetAccessMode, fetch_public_page
-from backend.services.internet.browser_session import browser_session_as_dict, run_browser_session
-from backend.services.internet.open_write import execute_open_write
-from backend.services.ontology.evidence_lineage import (
-    EvidenceLineage,
-    EvidenceLineageResolution,
-    EvidenceOriginType,
-    EvidenceSourceIdentity,
-)
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
-from backend.services.tools.web_action_io import web_browser_session, web_open_write, web_page_read
-from backend.services.tools.web_action_contacts import research_observe_contacts
-from backend.services.tools.web_action_identity import research_verify_public_identity
-from backend.services.tools.contact_observation import (
-    extract_observed_contacts,
-    page_host,
-    prospect_source_url,
-)
 from backend.services.tools.schemas import (
-    ActionResult,
-    ActionRuntimeContext,
-    EvidenceItem,
     ResearchObserveContactsInput,
     ResearchVerifyPublicIdentityInput,
     SideEffectClass,
-    ToolInvocation,
     WebBrowserSessionInput,
     WebOpenWriteInput,
     WebPageReadInput,
 )
-
-
-
-
-
-
-
-
-
-
-
-
-
+from backend.services.tools.web_action_contacts import research_observe_contacts
+from backend.services.tools.web_action_identity import research_verify_public_identity
+from backend.services.tools.web_action_io import web_browser_session, web_open_write, web_page_read
 
 
 def register_web_actions(registry: ActionRegistry) -> None:
