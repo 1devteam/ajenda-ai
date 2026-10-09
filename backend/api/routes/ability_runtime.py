@@ -25,9 +25,12 @@ from backend.api.routes.ability_runtime_contracts import (
 )
 from backend.api.routes.ability_runtime_policy import (
     CREDENTIALED_EXTERNAL_READ_ACTIONS,
+    EXTERNAL_ACTIONS,
     EXPOSED_ACTIONS,
     GTM_HIGH_RISK_ACTIONS,
     GTM_HIGH_RISK_ACTIONS_REQUIRING_CREDENTIAL,
+    INTERNAL_WRITE_ACTIONS,
+    READ_SAFE_ACTIONS,
     _action_definition,
     _assert_action_allowed_for_mission,
     _label_for_action,
