@@ -1,8 +1,5 @@
-from __future__ import annotations
-
+from datetime import datetime, UTC
 import logging
-from datetime import UTC, datetime
-from typing import Any
 
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, MissionState
@@ -11,12 +8,14 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.runtime.state_machine import InvalidTransitionError
 from backend.runtime.transitions import transition_mission, transition_task
 from backend.services.mission_acceptance import evaluate_mission_acceptance
-from backend.services.mission_composition.deliverable_runtime_read_model import refresh_deliverable_completion_metadata
+from backend.services.mission_composition.deliverable_runtime_read_model import (
+    refresh_deliverable_completion_metadata,
+)
 from backend.services.ontology.algorithms import evaluate_runtime_artifact_completeness
 from backend.services.worker_runtime_contracts import (
-    _TERMINAL_TASK_STATES,
     _mission_acceptance_contract,
     _observe_acceptance_reasons,
+    _TERMINAL_TASK_STATES,
 )
 
 logger = logging.getLogger("ajenda.worker_runtime_rollup")
