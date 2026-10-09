@@ -1,13 +1,10 @@
 """GTM email/social draft-generation handlers."""
 
-from __future__ import annotations
-
 import hashlib
-
 from typing import Any
 
 from backend.services.draft_generation import generate_and_persist_draft
-
+from backend.services.tools.gtm_action_common import _make_evidence
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -16,8 +13,6 @@ from backend.services.tools.schemas import (
     SideEffectClass,
     ToolInvocation,
 )
-
-from backend.services.tools.gtm_action_common import _make_evidence
 
 def email_draft_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
     inp = GtmEmailDraftInput.model_validate(inv.input)
