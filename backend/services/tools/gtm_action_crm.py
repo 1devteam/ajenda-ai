@@ -12,6 +12,7 @@ from backend.services.tools.schemas import (
     ToolInvocation,
 )
 
+
 def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
     inp = GtmCrmUpsertInput.model_validate(inv.input)
 
