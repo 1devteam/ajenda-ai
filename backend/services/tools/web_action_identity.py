@@ -21,6 +21,7 @@ from backend.services.tools.web_action_identity_policy import (
     _is_directory_or_third_party_page,
 )
 
+
 def research_verify_public_identity(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     """Verify one official public page against explicit identity expectations."""
 
