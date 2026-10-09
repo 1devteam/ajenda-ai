@@ -52,7 +52,10 @@ MissionLifecycleRetrievalContractItem = _mission_contracts.MissionLifecycleRetri
 MissionLifecycleRetrievalContractSummary = _mission_contracts.MissionLifecycleRetrievalContractSummary
 MissionLifecycleRead = _mission_contracts.MissionLifecycleRead
 MissionTimelineEvent = _mission_contracts.MissionTimelineEvent
-MissionTimelineRead = _mission_contracts.MissionTimelineRead\n\ndef _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
+MissionTimelineRead = _mission_contracts.MissionTimelineRead
+
+
+def _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
     return RuntimeAdmissionRead(
         mission_id=mission.id,
         tenant_id=mission.tenant_id,
