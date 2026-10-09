@@ -88,6 +88,7 @@ def email_draft_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Actio
         summary=summary,
     )
 
+
 def social_draft_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
     inp = GtmSocialDraftInput.model_validate(inv.input)
     content_hash = hashlib.sha256(inp.content.encode("utf-8")).hexdigest()
