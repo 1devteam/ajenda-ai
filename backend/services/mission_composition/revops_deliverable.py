@@ -6,35 +6,29 @@ approval/effect evidence. It never mutates missions or tasks, grants authority,
 queues work, or performs an external effect.
 """
 
-from __future__ import annotations
-
-import uuid
-from collections import Counter, defaultdict
+from collections import Counter
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
-from typing import Any, Literal, cast
-
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from datetime import datetime, UTC
+from typing import Any
 
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
 from backend.domain.outcome_review import OutcomeReview
-from backend.services.mission_composition.artifact_schemas import ARTIFACT_SCHEMAS_BY_KEY
+from backend.services.mission_composition.deliverable_completion import (
+    evaluate_deliverable_completion,
+)
+from backend.services.mission_composition.deliverable_runtime_artifacts import (
+    collect_materialized_artifacts,
+)
+from backend.services.mission_composition.deliverable_runtime_state import (
+    load_deliverable_runtime_state,
+)
 from backend.services.mission_composition.revops_deliverable_approval import _approval_state
 from backend.services.mission_composition.revops_deliverable_contracts import (
-    RevOpsApprovalStateRead,
-    RevOpsCompletionRead,
-    RevOpsDraftApprovalRead,
-    RevOpsDraftRead,
-    RevOpsEffectRead,
     RevOpsEvidenceReferenceRead,
     RevOpsMissionDeliverableRead,
-    RevOpsObservedContactRead,
-    RevOpsOutcomeReviewRead,
-    RevOpsProspectRead,
-    RevOpsTaskApprovalRead,
     RevOpsTaskStateRead,
 )
 from backend.services.mission_composition.revops_deliverable_effects import _effects, _limitations
@@ -45,19 +39,6 @@ from backend.services.mission_composition.revops_deliverable_runtime import (
     _validate_ownership,
     _validated_artifacts,
 )
-from backend.services.mission_composition.deliverable_completion import (
-    DeliverableCompletion,
-    MaterializedArtifact,
-    evaluate_deliverable_completion,
-    validate_materialized_artifact,
-)
-from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
-from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
-from backend.services.mission_composition.deliverable_runtime_state import (
-    DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
-    load_deliverable_runtime_state,
-)
-from backend.services.tools.schemas import SideEffectAuthorization, SideEffectAuthorizationV2, SideEffectClass
 
 _DRAFT_REVIEW_STATUSES = frozenset({"pending", "approved", "rejected", "sent"})
 _TERMINAL_TASK_STATES = frozenset(
