@@ -1,7 +1,12 @@
 from typing import Any, Literal
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+)
 
 from backend.services.tools.schemas import CredentialReference
 
