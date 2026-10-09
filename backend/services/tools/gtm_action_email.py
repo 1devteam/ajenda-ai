@@ -1,38 +1,21 @@
 """GTM email send/check handlers."""
 
-from __future__ import annotations
-
 import json
-
 from typing import Any
-
 from urllib.parse import quote
 
 from backend.services.document_artifacts import read_artifact, update_review_status
-
 from backend.services.network_egress import get_default_network_egress_authority
-
 from backend.services.tools.email_send_idempotency import (
     claim_smtp_send,
     complete_smtp_send,
     release_smtp_send,
 )
-
 from backend.services.tools.email_transport import (
     credential_transport_mode,
     parse_smtp_secret,
     send_via_smtp,
 )
-
-from backend.services.tools.schemas import (
-    ActionResult,
-    ActionRuntimeContext,
-    GtmEmailCheckInput,
-    GtmEmailSendInput,
-    SideEffectClass,
-    ToolInvocation,
-)
-
 from backend.services.tools.gtm_action_common import (
     _credential_secret,
     _ensure_simulated_external_outcome,
@@ -41,10 +24,17 @@ from backend.services.tools.gtm_action_common import (
     _gmail_user,
     _http_is_success,
     _make_evidence,
-    _provider_body,
     _provider_headers,
     _sent_message_rows,
     _trusted_hosts,
+)
+from backend.services.tools.schemas import (
+    ActionResult,
+    ActionRuntimeContext,
+    GtmEmailCheckInput,
+    GtmEmailSendInput,
+    SideEffectClass,
+    ToolInvocation,
 )
 
 def _resolve_send_content(
