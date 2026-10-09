@@ -10,6 +10,7 @@ from backend.domain.mission import (
 )
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 
+
 def _supersede_graph_materialization(
     *,
     metadata: dict[str, Any],
