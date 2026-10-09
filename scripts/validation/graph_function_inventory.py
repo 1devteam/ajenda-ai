@@ -21,6 +21,14 @@ SELECTED_FILES = (
     Path("backend/services/tools/sales_actions.py"),
     Path("backend/services/tools/gtm_actions.py"),
 )
+SELECTED_GLOBS = (
+    "backend/services/worker_runtime_*.py",
+    "backend/api/routes/mission_*.py",
+    "backend/api/routes/ability_runtime_*.py",
+    "backend/services/tools/web_action_*.py",
+    "backend/services/tools/sales_action_*.py",
+    "backend/services/tools/gtm_action_*.py",
+)
 HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete", "options", "head"})
 
 
@@ -80,6 +88,8 @@ def _selected_python_files(repo_root: Path) -> list[Path]:
     if composition.exists():
         files.update(path for path in composition.rglob("*.py") if "__pycache__" not in path.parts)
     files.update(repo_root / path for path in SELECTED_FILES if (repo_root / path).exists())
+    for pattern in SELECTED_GLOBS:
+        files.update(path for path in repo_root.glob(pattern) if path.is_file())
     return sorted(files)
 
 
