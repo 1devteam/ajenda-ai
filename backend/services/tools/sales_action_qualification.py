@@ -1,21 +1,18 @@
 """Sales qualification, scoring, and next-action recommendation."""
 
-from __future__ import annotations
-
 from typing import Any
-
-from backend.services.tools.schemas import (
-    ActionResult,
-    ActionRuntimeContext,
-    SalesLeadInput,
-    ToolInvocation,
-)
 
 from backend.services.tools.sales_action_common import _evidence
 from backend.services.tools.sales_action_research import (
     _has_real_contact,
     _merge_observed_contacts,
     _normalize_observed_lead,
+)
+from backend.services.tools.schemas import (
+    ActionResult,
+    ActionRuntimeContext,
+    SalesLeadInput,
+    ToolInvocation,
 )
 
 def _first_lead_text(*values: Any) -> str:
