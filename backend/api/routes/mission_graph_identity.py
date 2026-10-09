@@ -25,6 +25,7 @@ def _task_graph_fingerprint(
     encoded = json.dumps(graph_identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"sha256:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
 
+
 def _task_graph_contract_content(task_graph: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": task_graph["schema_version"],
@@ -34,6 +35,7 @@ def _task_graph_contract_content(task_graph: dict[str, Any]) -> dict[str, Any]:
         "metadata": task_graph["metadata"],
     }
 
+
 def _task_graph_has_identity(task_graph: dict[str, Any]) -> bool:
     return (
         isinstance(task_graph.get("mission_id"), str)
@@ -41,10 +43,12 @@ def _task_graph_has_identity(task_graph: dict[str, Any]) -> bool:
         and isinstance(task_graph.get("graph_fingerprint"), str)
     )
 
+
 def _task_graph_contract_fingerprint(*, mission_id: str, normalized_graph: dict[str, Any]) -> str:
     graph_identity = {"mission_id": mission_id, **_task_graph_contract_content(normalized_graph)}
     encoded = json.dumps(graph_identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"sha256:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
+
 
 def _task_graph_with_identity(
     *, mission_id: UUID, normalized_graph: dict[str, Any], graph_version: int
@@ -59,6 +63,7 @@ def _task_graph_with_identity(
         mission_id=mission_id_str, normalized_graph=graph_with_identity
     )
     return graph_with_identity
+
 
 def _fingerprint_existing_task_graph(task_graph: dict[str, Any]) -> str | None:
     nodes = task_graph.get("nodes")
@@ -75,6 +80,7 @@ def _fingerprint_existing_task_graph(task_graph: dict[str, Any]) -> str | None:
         edges=edges,
         operator_notes=task_graph.get("operator_notes") if isinstance(task_graph.get("operator_notes"), str) else None,
     )
+
 
 def _next_task_graph_version(existing_graph: Any) -> int:
     if not isinstance(existing_graph, dict):
