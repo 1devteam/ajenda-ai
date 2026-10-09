@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
-
 from sqlalchemy import select
 
 from backend.domain.audit_event import AuditEvent
@@ -15,7 +13,7 @@ from backend.runtime.transitions import transition_lease
 logger = logging.getLogger("ajenda.worker_runtime_queue_reconciliation")
 
 def reconcile_claimed_terminal_queue_artifact(
-    self,
+    service,
     *,
     tenant_id: str,
     task: ExecutionTask,
@@ -91,7 +89,7 @@ def reconcile_claimed_terminal_queue_artifact(
         )
 
 def record_terminal_queue_cleanup_failure(
-    self,
+    service,
     *,
     tenant_id: str,
     task: ExecutionTask,
@@ -152,7 +150,7 @@ def record_terminal_queue_cleanup_failure(
         )
 
 def assert_current_releasable_claim(
-    self,
+    service,
     *,
     tenant_id: str,
     lease: WorkerLease,
