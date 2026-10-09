@@ -37,6 +37,7 @@ def _runtime_state_from_metadata(metadata: object) -> object | None:
         return None
     return composition.get(DELIVERABLE_RUNTIME_STATE_METADATA_KEY)
 
+
 def _validate_ownership(
     *,
     mission: Mission,
@@ -53,6 +54,7 @@ def _validate_ownership(
     for review in outcome_reviews:
         if review.tenant_id != mission.tenant_id or review.mission_id != mission.id:
             raise ValueError("outcome review is not owned by the assembled tenant mission")
+
 
 def _completion_read(
     *,
@@ -90,6 +92,7 @@ def _completion_read(
         required_row_count=required_row_count,
     )
 
+
 def _validated_artifacts(
     tasks: Sequence[ExecutionTask],
     *,
@@ -104,4 +107,3 @@ def _validated_artifacts(
                 continue
         validated[artifact.artifact_key] = artifact
     return validated
-
