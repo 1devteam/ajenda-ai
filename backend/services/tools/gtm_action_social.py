@@ -1,33 +1,22 @@
 """GTM social publish handler."""
 
-from __future__ import annotations
-
 import json
-
 from typing import Any
 
 from backend.services.network_egress import get_default_network_egress_authority
-
+from backend.services.tools.gtm_action_common import (
+    _ensure_simulated_external_outcome,
+    _http_is_success,
+    _make_evidence,
+    _provider_body,
+    _provider_headers,
+)
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
     GtmSocialPublishInput,
     SideEffectClass,
     ToolInvocation,
-)
-
-from backend.services.tools.gtm_action_common import (
-    _credential_secret,
-    _ensure_simulated_external_outcome,
-    _get_runtime_credential,
-    _gmail_api_send_payload,
-    _gmail_user,
-    _http_is_success,
-    _make_evidence,
-    _provider_body,
-    _provider_headers,
-    _sent_message_rows,
-    _trusted_hosts,
 )
 
 def social_publish_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
