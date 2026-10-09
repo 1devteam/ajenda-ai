@@ -15,21 +15,25 @@ from backend.services.mission_composition.revops_deliverable_contracts import (
 
 _DRAFT_REVIEW_STATUSES = frozenset({"pending", "approved", "rejected", "sent"})
 
+
 def _nonempty_text(value: object) -> str | None:
     if not isinstance(value, str):
         return None
     normalized = value.strip()
     return normalized or None
 
+
 def _string_tuple(value: object) -> tuple[str, ...]:
     if not isinstance(value, (list, tuple)):
         return ()
     return tuple(dict.fromkeys(item.strip() for item in value if isinstance(item, str) and item.strip()))
 
+
 def _handler_result(task: ExecutionTask) -> dict[str, Any]:
     metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
     result = metadata.get("handler_result")
     return dict(result) if isinstance(result, dict) else {}
+
 
 def _task_action(task: ExecutionTask) -> str | None:
     result = _handler_result(task)
@@ -41,6 +45,7 @@ def _task_action(task: ExecutionTask) -> str | None:
     if not isinstance(invocation, dict):
         return None
     return _nonempty_text(invocation.get("action"))
+
 
 def _identity_key(
     row: Mapping[str, Any],
@@ -62,6 +67,7 @@ def _identity_key(
         return key, _nonempty_text(existing.get("prospect_id")), company
     return f"company:{normalized_company}", None, company
 
+
 def _new_prospect(*, prospect_id: str | None, identity_company: str | None) -> dict[str, Any]:
     return {
         "prospect_id": prospect_id,
@@ -79,6 +85,7 @@ def _new_prospect(*, prospect_id: str | None, identity_company: str | None) -> d
         "drafts": [],
         "_conflicts": set(),
     }
+
 
 def _record_for_row(
     row: Mapping[str, Any],
@@ -99,6 +106,7 @@ def _record_for_row(
         record["_identity_company"] = record["_identity_company"] or company
         companies[company.casefold()].add(key)
     return record
+
 
 def _set_scalar(
     record: dict[str, Any],
@@ -122,11 +130,13 @@ def _set_scalar(
     record["_conflicts"].add(field)
     assembly_errors.append(f"conflicting {field} values for prospect {identity!r}")
 
+
 def _artifact_rows(artifacts: Mapping[str, MaterializedArtifact], artifact_key: str) -> list[dict[str, Any]]:
     artifact = artifacts.get(artifact_key)
     if artifact is None or not isinstance(artifact.payload, list):
         return []
     return [dict(item) for item in artifact.payload if isinstance(item, dict)]
+
 
 def _draft_read(
     row: Mapping[str, Any],
@@ -161,6 +171,7 @@ def _draft_read(
         review_status=review_status,
         recipient_bound=row.get("recipient_bound") is True,
     )
+
 
 def _assemble_prospects(
     *,
@@ -326,4 +337,3 @@ def _assemble_prospects(
             )
         )
     return tuple(assembled)
-
