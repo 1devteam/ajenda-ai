@@ -1,22 +1,7 @@
+"""Stable registration facade for sales and record actions."""
+
 from __future__ import annotations
 
-import hashlib
-import json
-from datetime import UTC, datetime
-from typing import Any
-
-from backend.db.tenant_session import activate_tenant_session
-from backend.services.business_profile.context_resolver import default_company_and_domain
-from backend.services.knowledge.knowledge_applicability import SourceConditionObservation
-from backend.services.light_crm.records import LightCrmRecordService
-from backend.services.light_crm.workflow import complete_internal_crm_upsert
-from backend.services.ontology.evidence_lineage import (
-    EvidenceLineage,
-    EvidenceLineageResolution,
-    EvidenceOriginType,
-    EvidenceSourceIdentity,
-)
-from backend.services.plugins.crm_client import default_crm_client, is_live_external_crm_result
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.sales_action_followup import (
     sales_create_followup_task,
@@ -30,41 +15,15 @@ from backend.services.tools.sales_action_qualification import (
 )
 from backend.services.tools.sales_action_records import record_read, record_search, record_write
 from backend.services.tools.sales_action_research import sales_research
-from backend.services.tools.record_store import RecordStore, record_store_limitations, resolve_record_store
 from backend.services.tools.schemas import (
-    ActionResult,
-    ActionRuntimeContext,
-    EvidenceItem,
     FollowupDraftInput,
     RecordReadInput,
     RecordSearchInput,
     RecordWriteInput,
-    RuntimeCredentialMaterial,
     SalesLeadInput,
     SideEffectClass,
-    ToolInvocation,
 )
 from backend.services.tools.side_effect_resolvers import credential_reference_external_read
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def register_sales_actions(registry: ActionRegistry) -> None:
