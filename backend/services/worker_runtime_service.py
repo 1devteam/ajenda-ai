@@ -64,13 +64,6 @@ from backend.services.worker_runtime_rollup import (
 logger = logging.getLogger("ajenda.worker_runtime_service")
 
 
-
-
-
-
-
-
-
 _QUEUE_PAYLOAD_DB_VISIBILITY_GRACE_SECONDS = 30.0
 
 
