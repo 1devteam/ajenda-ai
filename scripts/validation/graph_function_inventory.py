@@ -279,6 +279,7 @@ def _action_handler_edges(
     tree: ast.Module,
     source: str,
     symbol_ids: dict[str, str],
+    direct_imports: dict[str, str],
 ) -> set[FunctionEdge]:
     edges: set[FunctionEdge] = set()
     for item in ast.walk(tree):
@@ -292,7 +293,7 @@ def _action_handler_edges(
         handler = next((kw.value for kw in item.keywords if kw.arg == "handler"), None)
         if not action or not isinstance(handler, ast.Name):
             continue
-        target = symbol_ids.get(handler.id)
+        target = symbol_ids.get(handler.id) or direct_imports.get(handler.id)
         if target is None:
             matches = [
                 node_id for qualified_name, node_id in symbol_ids.items() if qualified_name.endswith(f".{handler.id}")
@@ -390,7 +391,14 @@ def collect_function_graph(
         )
         nodes.extend(route_nodes)
         edges.update(route_edges)
-        edges.update(_action_handler_edges(tree=tree, source=source, symbol_ids=symbol_ids))
+        edges.update(
+            _action_handler_edges(
+                tree=tree,
+                source=source,
+                symbol_ids=symbol_ids,
+                direct_imports=direct_imports,
+            )
+        )
 
     return (
         sorted(nodes, key=lambda node: str(node["id"])),
