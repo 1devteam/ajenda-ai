@@ -1,10 +1,8 @@
 """Prospect and draft assembly for the RevOps mission deliverable."""
 
-from __future__ import annotations
-
 from collections import defaultdict
 from collections.abc import Mapping
-from typing import Any, Literal, cast
+from typing import Any, cast, Literal
 
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
