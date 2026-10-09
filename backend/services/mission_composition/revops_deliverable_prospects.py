@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 from collections.abc import Mapping
-from typing import Any, cast, Literal
+from typing import Any, Literal, cast
 
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
@@ -12,6 +12,7 @@ from backend.services.mission_composition.revops_deliverable_contracts import (
     RevOpsObservedContactRead,
     RevOpsProspectRead,
 )
+
 
 _DRAFT_REVIEW_STATUSES = frozenset({"pending", "approved", "rejected", "sent"})
 
