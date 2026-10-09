@@ -203,7 +203,7 @@ def test_gtm_email_send_review_block_emits_canonical_attempt_artifact() -> None:
     context.session_factory = lambda: session
 
     with patch(
-        "backend.services.tools.gtm_actions.read_artifact",
+        "backend.services.tools.gtm_action_email.read_artifact",
         return_value={
             "review_status": "pending",
             "content": {
@@ -260,7 +260,7 @@ def test_gtm_email_send_uses_network_egress_for_real_send() -> None:
     authority.request.return_value = (destination, response)
 
     with patch(
-        "backend.services.tools.gtm_actions.get_default_network_egress_authority",
+        "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
         return_value=authority,
     ):
         result = handler(
@@ -313,7 +313,7 @@ def test_gtm_email_send_uses_runtime_credential_material() -> None:
     authority.request.return_value = (destination, response)
 
     with patch(
-        "backend.services.tools.gtm_actions.get_default_network_egress_authority",
+        "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
         return_value=authority,
     ):
         result = handler(
@@ -364,7 +364,7 @@ def test_gtm_email_check_uses_gmail_api_with_runtime_credential_material() -> No
     authority.request.return_value = (destination, response)
 
     with patch(
-        "backend.services.tools.gtm_actions.get_default_network_egress_authority",
+        "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
         return_value=authority,
     ):
         result = handler(
@@ -406,7 +406,7 @@ def test_gtm_email_check_fail_closed_on_credentialed_api_error() -> None:
     authority.request.return_value = (destination, response)
 
     with patch(
-        "backend.services.tools.gtm_actions.get_default_network_egress_authority",
+        "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
         return_value=authority,
     ):
         with pytest.raises(ValueError, match="credentialed path"):
@@ -461,7 +461,7 @@ def test_gtm_email_send_rejects_non_2xx_response() -> None:
     authority.request.return_value = (destination, response)
 
     with patch(
-        "backend.services.tools.gtm_actions.get_default_network_egress_authority",
+        "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
         return_value=authority,
     ):
         result = handler(
@@ -504,7 +504,7 @@ def test_gtm_email_send_propagates_idempotency_key_to_provider() -> None:
     authority.request.return_value = (destination, response)
 
     with patch(
-        "backend.services.tools.gtm_actions.get_default_network_egress_authority",
+        "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
         return_value=authority,
     ):
         result = handler(
