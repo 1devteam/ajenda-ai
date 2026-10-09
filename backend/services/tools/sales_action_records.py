@@ -1,8 +1,8 @@
 """Tenant-scoped record search/read/write actions."""
 
-from datetime import datetime, UTC
 import hashlib
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 from backend.db.tenant_session import activate_tenant_session
@@ -20,6 +20,7 @@ from backend.services.tools.schemas import (
     SideEffectClass,
     ToolInvocation,
 )
+
 
 def record_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = RecordSearchInput.model_validate(invocation.input)
