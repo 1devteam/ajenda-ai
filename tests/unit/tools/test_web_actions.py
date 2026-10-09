@@ -29,7 +29,7 @@ def test_web_page_read_action_returns_external_read_evidence() -> None:
         access_mode=InternetAccessMode.PAGE_READ,
         browser_ready=False,
     )
-    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=snapshot):
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=snapshot):
         registry = get_default_action_registry(rebuild=True)
         result = registry.invoke(
             ToolInvocation(action="web.page_read", input={"url": "https://example.com"}),
@@ -204,7 +204,7 @@ def test_web_page_read_failure_is_not_fake_success() -> None:
         error="web.page_read DNS resolution failed",
         access_mode=InternetAccessMode.PAGE_READ,
     )
-    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=snapshot):
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=snapshot):
         registry = get_default_action_registry(rebuild=True)
         result = registry.invoke(
             ToolInvocation(action="web.page_read", input={"url": "https://blocked.invalid"}),
@@ -255,7 +255,7 @@ def test_observe_contacts_marks_matching_site_verified_and_directory_unverified(
         },
     )
     with patch(
-        "backend.services.tools.web_actions.fetch_public_page",
+        "backend.services.tools.web_action_contacts.fetch_public_page",
         side_effect=[matching, directory],
     ):
         result = research_observe_contacts(invocation, _context())
@@ -303,7 +303,7 @@ def test_observe_contacts_promotes_external_directory_links_after_verification()
             "binding_required": True,
         },
     )
-    with patch("backend.services.tools.web_actions.fetch_public_page", side_effect=[directory, official]):
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", side_effect=[directory, official]):
         result = research_observe_contacts(invocation, _context())
 
     promoted = result.output["verified_prospect_candidates"]
@@ -345,7 +345,7 @@ def test_observe_contacts_uses_linked_title_when_directory_label_is_generic() ->
             "binding_required": True,
         },
     )
-    with patch("backend.services.tools.web_actions.fetch_public_page", side_effect=[directory, official]):
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", side_effect=[directory, official]):
         result = research_observe_contacts(invocation, _context())
 
     assert result.output["verified_prospect_candidates"][0]["company"] == "Cool Air Heating"
@@ -379,7 +379,7 @@ def test_observe_contacts_keeps_verified_company_without_contact_details() -> No
             "binding_required": True,
         },
     )
-    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=official):
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=official):
         result = research_observe_contacts(invocation, _context())
 
     assert len(result.output["verified_prospect_candidates"]) == 1
@@ -430,7 +430,7 @@ def test_observe_contacts_does_not_treat_known_listing_host_as_official() -> Non
             "binding_required": True,
         },
     )
-    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=listing):
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=listing):
         result = research_observe_contacts(invocation, _context())
 
     assert result.output["prospect_candidates"][0]["identity_status"] == "unverified"
@@ -463,7 +463,7 @@ def test_observe_contacts_rejects_marketplace_page_even_when_host_matches() -> N
             "binding_required": True,
         },
     )
-    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=marketplace):
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=marketplace):
         result = research_observe_contacts(invocation, _context())
 
     page = result.output["pages"][0]
@@ -501,7 +501,7 @@ def test_observe_contacts_normalizes_company_name_when_domain_proves_identity() 
             "binding_required": True,
         },
     )
-    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=official):
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=official):
         result = research_observe_contacts(invocation, _context())
 
     assert result.output["pages"][0]["identity_status"] == "verified"
@@ -535,7 +535,7 @@ def test_observe_contacts_uses_declared_industry_for_non_hvac_research() -> None
             "context": {"industry": "commercial roofing", "location": "Dallas"},
         },
     )
-    with patch("backend.services.tools.web_actions.fetch_public_page", return_value=page):
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=page):
         result = research_observe_contacts(invocation, _context())
 
     assert result.output["verified_prospect_candidates"][0]["identity_status"] == "verified"
