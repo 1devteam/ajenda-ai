@@ -1,23 +1,11 @@
 """Governed public page, browser-session, and open-write handlers."""
 
-from __future__ import annotations
-
 from typing import Any
 
-from backend.services.internet import (
-    InternetAccessMode,
-    fetch_public_page,
-)
-
-from backend.services.internet.browser_session import (
-    browser_session_as_dict,
-    run_browser_session,
-)
-
+from backend.services.internet import fetch_public_page, InternetAccessMode
+from backend.services.internet.browser_session import browser_session_as_dict, run_browser_session
 from backend.services.internet.open_write import execute_open_write
-
 from backend.services.tools.action_registry import ActionRegistry
-
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
