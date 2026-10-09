@@ -17,7 +17,9 @@ def gtm_side_effect_was_real(service: WorkerRuntimeService, task_output: dict[st
     return bool(task_output.get("real"))
 
 
-def is_high_risk_gtm_side_effect(service: WorkerRuntimeService, task: ExecutionTask, task_output: dict[str, Any] | None) -> bool:
+def is_high_risk_gtm_side_effect(
+    service: WorkerRuntimeService, task: ExecutionTask, task_output: dict[str, Any] | None
+) -> bool:
     if not task_output or not isinstance(task_output, dict):
         return False
     action = str(task_output.get("action", "") or "")
