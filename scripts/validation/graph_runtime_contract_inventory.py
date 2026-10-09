@@ -26,7 +26,8 @@ from pathlib import Path
 from typing import Any
 
 JOB_CATALOG_PATH = Path("backend/services/mission_composition/job_catalog.py")
-ACTION_INPUT_SEED_PATH = Path("backend/services/mission_composition/action_inputs.py")
+ACTION_INPUT_SEED_ROOT = Path("backend/services/mission_composition")
+ACTION_INPUT_SEED_PATH = ACTION_INPUT_SEED_ROOT / "action_inputs.py"
 RUNTIME_BINDING_PATH = Path("backend/services/tools/mission_input_binding.py")
 ACTION_IMPLEMENTATION_ROOT = Path("backend/services/tools")
 ALLOWED_DEPENDENCY_KINDS = frozenset({"hard", "conditional", "optional"})
@@ -304,6 +305,20 @@ def _actions_seeded_in_source(tree: ast.Module, actions: set[str]) -> set[str]:
     }
 
 
+def _action_seed_sources(repo_root: Path, actions: set[str]) -> dict[str, tuple[str, ...]]:
+    """Map runtime action names to the mission-composition modules that seed their inputs."""
+
+    discovered: dict[str, set[str]] = defaultdict(set)
+    seed_root = repo_root / ACTION_INPUT_SEED_ROOT
+    for path in sorted(seed_root.glob("action_input*.py")):
+        if not path.is_file():
+            continue
+        source = path.relative_to(repo_root).as_posix()
+        for action in _actions_seeded_in_source(_parse(path), actions):
+            discovered[action].add(source)
+    return {action: tuple(sorted(sources)) for action, sources in sorted(discovered.items())}
+
+
 def collect_runtime_contract_inventory(repo_root: Path) -> dict[str, Any]:
     """Return nodes, edges, and validation findings for canonical job contracts."""
 
@@ -329,8 +344,7 @@ def collect_runtime_contract_inventory(repo_root: Path) -> dict[str, Any]:
     action_sources = _action_sources(repo_root, actions)
     binding_source = str(RUNTIME_BINDING_PATH).replace("\\", "/")
     binding_specs = _binding_specs(_parse(repo_root / RUNTIME_BINDING_PATH))
-    seed_source = str(ACTION_INPUT_SEED_PATH).replace("\\", "/")
-    seeded_actions = _actions_seeded_in_source(_parse(repo_root / ACTION_INPUT_SEED_PATH), actions)
+    action_seed_sources = _action_seed_sources(repo_root, actions)
 
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
@@ -415,11 +429,11 @@ def collect_runtime_contract_inventory(repo_root: Path) -> dict[str, Any]:
                     "evidence": source,
                 }
             )
-        if action in seeded_actions:
+        for seed_source in action_seed_sources.get(action, ()):
             edges.append(
                 {
                     "from": f"action:{action}",
-                    "to": "py:backend.services.mission_composition.action_inputs",
+                    "to": f"py:{_module_for_path(repo_root, repo_root / seed_source)}",
                     "type": "seeded_by",
                     "evidence": seed_source,
                 }
