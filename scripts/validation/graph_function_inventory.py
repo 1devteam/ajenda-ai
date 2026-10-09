@@ -285,9 +285,7 @@ def _action_handler_edges(
         target = symbol_ids.get(handler.id)
         if target is None:
             matches = [
-                node_id
-                for qualified_name, node_id in symbol_ids.items()
-                if qualified_name.endswith(f".{handler.id}")
+                node_id for qualified_name, node_id in symbol_ids.items() if qualified_name.endswith(f".{handler.id}")
             ]
             target = matches[0] if len(matches) == 1 else None
         if target:
@@ -325,10 +323,7 @@ def collect_function_graph(
         module = modules[path]
         source = str(path.relative_to(repo_root)).replace("\\", "/")
         symbols = symbols_by_path[path]
-        symbol_ids = {
-            symbol.qualified_name: _function_id(module, symbol.qualified_name)
-            for symbol in symbols
-        }
+        symbol_ids = {symbol.qualified_name: _function_id(module, symbol.qualified_name) for symbol in symbols}
         local_functions = {
             symbol.node.name: symbol_ids[symbol.qualified_name]
             for symbol in symbols
