@@ -12,6 +12,7 @@ from backend.services.tools.schemas import (
     ToolInvocation,
 )
 
+
 def _get_runtime_credential(
     ctx: ActionRuntimeContext,
     *,
