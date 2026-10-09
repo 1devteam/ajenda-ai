@@ -9,8 +9,8 @@ from backend.services.mission_composition.action_input_common import (
     _local_fixture_only,
     _prospect_count,
     _salesforce_soql,
-    _target_bits,
     _source_instruction,
+    _target_bits,
 )
 from backend.services.mission_composition.contracts import MissionIntent, is_ranking_only_instruction
 
@@ -21,7 +21,7 @@ def build_sales_action_input(
     intent: MissionIntent,
     vertical_role: str | None = None,
 ) -> dict[str, Any] | None:
-    industry, location, query = _target_bits(intent)
+    industry, location, _ = _target_bits(intent)
     limit = _prospect_count(intent)
     primary_entity = intent.target_entities[0] if intent.target_entities else None
     explicit_company = primary_entity.name.strip() if primary_entity and primary_entity.name else None
