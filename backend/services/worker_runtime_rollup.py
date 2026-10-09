@@ -20,6 +20,7 @@ from backend.services.worker_runtime_contracts import (
 
 logger = logging.getLogger("ajenda.worker_runtime_rollup")
 
+
 def refresh_deliverable_completion_read_model(service, *, task: ExecutionTask) -> None:
     """Refresh non-authoritative deliverable state without blocking task completion."""
 
@@ -50,6 +51,7 @@ def refresh_deliverable_completion_read_model(service, *, task: ExecutionTask) -
                 "reason": str(exc),
             },
         )
+
 
 def maybe_rollup_mission_status(service, *, task: ExecutionTask, worker_id: str) -> None:
     """Advance mission status when graph tasks finish (composition path stays planned today)."""
@@ -161,9 +163,7 @@ def maybe_rollup_mission_status(service, *, task: ExecutionTask, worker_id: str)
         # incomplete.  The refresh above records this independently of task
         # acceptance; fold that persisted fact into the mission outcome so
         # callers cannot mistake raw terminal output for a usable artifact.
-        raw_intake = (
-            mission.metadata_json.get("mission_intake") if isinstance(mission.metadata_json, dict) else None
-        )
+        raw_intake = mission.metadata_json.get("mission_intake") if isinstance(mission.metadata_json, dict) else None
         raw_context = raw_intake.get("context") if isinstance(raw_intake, dict) else None
         raw_composition = raw_context.get("composition") if isinstance(raw_context, dict) else None
         raw_runtime_state = (
@@ -183,9 +183,7 @@ def maybe_rollup_mission_status(service, *, task: ExecutionTask, worker_id: str)
             if not isinstance(raw_artifacts, list):
                 continue
             for artifact_ref in raw_artifacts:
-                if isinstance(artifact_ref, dict) and isinstance(
-                    artifact_key := artifact_ref.get("artifact_key"), str
-                ):
+                if isinstance(artifact_ref, dict) and isinstance(artifact_key := artifact_ref.get("artifact_key"), str):
                     runtime_artifacts.append(artifact_key)
         runtime_algorithm = evaluate_runtime_artifact_completeness(
             task_count=len(siblings),
@@ -196,9 +194,7 @@ def maybe_rollup_mission_status(service, *, task: ExecutionTask, worker_id: str)
         )
         business_outcome_status = None
         for sibling in siblings:
-            result = (
-                sibling.metadata_json.get("handler_result") if isinstance(sibling.metadata_json, dict) else None
-            )
+            result = sibling.metadata_json.get("handler_result") if isinstance(sibling.metadata_json, dict) else None
             output = result.get("output") if isinstance(result, dict) else None
             evaluation = output.get("goal_progress_evaluation") if isinstance(output, dict) else None
             if isinstance(evaluation, dict) and isinstance(evaluation.get("status"), str):
@@ -275,4 +271,3 @@ def maybe_rollup_mission_status(service, *, task: ExecutionTask, worker_id: str)
                 "reason": str(exc),
             },
         )
-
