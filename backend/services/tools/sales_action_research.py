@@ -233,6 +233,7 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         confidence=confidence,
     )
 
+
 def _normalize_observed_lead(lead: dict[str, Any]) -> dict[str, Any]:
     """Map observe-contact records onto lead email/phone fields."""
 
@@ -244,6 +245,7 @@ def _normalize_observed_lead(lead: dict[str, Any]) -> dict[str, Any]:
     if kind == "phone" and value and not normalized.get("phone"):
         normalized["phone"] = value
     return normalized
+
 
 def _is_invented_enrich_contact(lead: dict[str, Any]) -> bool:
     if lead.get("simulated") is True or lead.get("enrichment_mode") == "local_simulated":
@@ -258,6 +260,7 @@ def _is_invented_enrich_contact(lead: dict[str, Any]) -> bool:
             if item.get("simulated") is True or str(item.get("source") or "") == "local_gtm_heuristic":
                 return True
     return False
+
 
 def _has_real_contact(lead: dict[str, Any]) -> bool:
     """True only for a caller-supplied or observed mailbox/phone — not search snippets."""
@@ -285,6 +288,7 @@ def _has_real_contact(lead: dict[str, Any]) -> bool:
             if value and "@" in value and item.get("simulated") is not True:
                 return True
     return False
+
 
 def _merge_observed_contacts(
     prospects: list[dict[str, Any]], observed_contacts: list[dict[str, Any]]
