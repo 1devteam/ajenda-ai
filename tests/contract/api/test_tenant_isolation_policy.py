@@ -46,6 +46,7 @@ from backend.middleware.tenant_context import TenantContextMiddleware
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _stable_uuid(label: str) -> str:
     """Return a deterministic UUID so xdist workers collect identical node IDs."""
 
