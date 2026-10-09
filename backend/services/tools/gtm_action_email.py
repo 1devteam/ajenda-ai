@@ -8,7 +8,7 @@ from typing import Any
 
 from urllib.parse import quote
 
-from backend.services.document_artifacts import update_review_status
+from backend.services.document_artifacts import read_artifact, update_review_status
 
 from backend.services.network_egress import get_default_network_egress_authority
 
@@ -51,6 +51,33 @@ def _resolve_send_content(
     inv: ToolInvocation,
     ctx: ActionRuntimeContext,
     inp: GtmEmailSendInput,
+) -> tuple[str, str, str, str | None]:
+    artifact_id = inp.artifact_id or str(inp.context.get("artifact_id", "") or "").strip() or None
+    to = inp.to
+    subject = inp.subject or str(inp.context.get("subject", "") or "")
+    body_text = inp.body or str(inp.context.get("body", "") or "")
+
+    if artifact_id and ctx.session_factory is not None:
+        session = ctx.session_factory()
+        try:
+            artifact = read_artifact(session, tenant_id=ctx.tenant_id, artifact_id=artifact_id)
+        finally:
+            session.close()
+        if artifact is not None:
+            content = artifact.get("content")
+            if isinstance(content, dict):
+                body_text = str(content.get("body") or content.get("draft") or body_text)
+                subject = str(content.get("subject") or subject)
+                to = str(content.get("to") or to)
+            review_status = str(artifact.get("review_status") or "")
+            if review_status not in {"approved", "sent"}:
+                raise ValueError(f"artifact {artifact_id} is not approved for send (status={review_status})")
+    if not subject.strip():
+        raise ValueError("subject is required for gtm.email_send")
+    if not body_text.strip():
+        raise ValueError("body is required for gtm.email_send")
+    return to, subject.strip(), body_text.strip(), artifact_id
+
 
 def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
     inp = GtmEmailSendInput.model_validate(inv.input)
