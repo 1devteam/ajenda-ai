@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -97,63 +95,6 @@ router = APIRouter(prefix="/ability-runtime", tags=["ability-runtime"])
 
 
 
-
-
-
-
-
-def _principal_may_launch_informed_autonomy(request: Request) -> bool:
-    principal = getattr(request.state, "principal", None)
-    if principal is None:
-        return False
-    return bool(INFORMED_AUTONOMY_LAUNCH_ROLES.intersection(set(getattr(principal, "roles", ()) or ())))
-
-
-@dataclass(slots=True)
-
-
-
-def _resolve_runtime_authority(
-    *,
-    db: Session,
-    tenant_id: str,
-    action_name: str,
-    side_effect_class: SideEffectClass,
-    capability_id: uuid.UUID | None,
-    adapter_id: uuid.UUID | None,
-) -> tuple[Capability | None, CapabilityAdapter | None]:
-    if not _requires_runtime_authority(side_effect_class):
-        return None, None
-    if capability_id is None or adapter_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="runtime action requires pre-provisioned capability_id and adapter_id authority",
-        )
-    capability = CapabilityRepository(db).get_visible_for_tenant(
-        capability_id=capability_id,
-        tenant_id=tenant_id,
-    )
-    adapter = CapabilityAdapterRepository(db).get_visible_for_tenant(
-        adapter_id=adapter_id,
-        tenant_id=tenant_id,
-    )
-    if capability is None or adapter is None or not capability.enabled or not adapter.enabled:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="runtime authority is unavailable")
-    if adapter.capability_id != capability.id:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="adapter does not belong to capability")
-    action_names = {action_name, "tool.invoke"}
-    if not action_names.intersection(capability.supported_task_types) or action_name not in capability.required_tools:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="capability does not authorize action")
-    if not action_names.intersection(adapter.supported_task_types) or action_name not in adapter.required_tools:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="adapter does not authorize action")
-    expected_class = _adapter_side_effect_classification(side_effect_class)
-    if adapter.side_effect_classification != expected_class:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="adapter side-effect class mismatch")
-    return capability, adapter
-
-
-# Retained as a patch target for pre-authority contract fixtures. Production
-# launch code calls the fail-closed resolver above directly.
 
 
 
