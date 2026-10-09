@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from backend.services.internet import fetch_public_page
+from backend.services.internet.browser_session import run_browser_session
+from backend.services.tools.contact_observation import page_host
 from backend.services.ontology.evidence_lineage import (
     EvidenceLineage,
     EvidenceLineageResolution,
