@@ -14,6 +14,7 @@ from backend.services.tools.schemas import (
     ToolInvocation,
 )
 
+
 def email_draft_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
     inp = GtmEmailDraftInput.model_validate(inv.input)
     prospects = [p for p in inp.prospects if isinstance(p, dict)]
