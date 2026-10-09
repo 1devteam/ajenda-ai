@@ -1,16 +1,12 @@
-from __future__ import annotations
-
+from datetime import datetime, UTC
 import logging
-import uuid
-from datetime import UTC, datetime
 from typing import Any
+import uuid
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, MissionState, WorkerLeaseState
-from backend.domain.evidence import EVIDENCE_CONTRACT_SCHEMA_VERSION, EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.outcome_review import OutcomeReview
@@ -21,25 +17,16 @@ from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.lineage_record_repository import LineageRecordRepository
 from backend.repositories.mission_repository import MissionRepository
-from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
-from backend.runtime.state_machine import InvalidTransitionError
 from backend.runtime.transitions import transition_lease, transition_mission, transition_task
-from backend.services.mission_acceptance import evaluate_mission_acceptance
-from backend.services.mission_composition.artifact_schemas import (
-    ARTIFACT_SCHEMAS_BY_KEY,
-    validate_artifact_payload,
-)
-from backend.services.mission_composition.deliverable_runtime_read_model import refresh_deliverable_completion_metadata
 from backend.services.mission_intake_quality import contains_composition_clarification
-from backend.services.ontology.algorithms import evaluate_runtime_artifact_completeness
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
-from backend.services.tools.mission_input_binding import handler_output_for_task, pending_dependency_keys
+from backend.services.tools.mission_input_binding import pending_dependency_keys
 from backend.services.worker_runtime_contracts import (
-    _TERMINAL_TASK_STATES,
     _failure_evidence_record,
     _materialized_artifact_reference,
     _mirror_task_output_to_metadata,
+    _TERMINAL_TASK_STATES,
     _validate_declared_output_contract,
 )
 from backend.services.worker_runtime_outcome_review import (
@@ -50,8 +37,8 @@ from backend.services.worker_runtime_outcome_review import (
 from backend.services.worker_runtime_queue_reconciliation import (
     assert_current_releasable_claim as _assert_current_releasable_claim_impl,
     assert_no_active_lease as _assert_no_active_lease_impl,
-    record_terminal_queue_cleanup_failure as _record_terminal_queue_cleanup_failure_impl,
     reconcile_claimed_terminal_queue_artifact as _reconcile_claimed_terminal_queue_artifact_impl,
+    record_terminal_queue_cleanup_failure as _record_terminal_queue_cleanup_failure_impl,
     transition_lease_to_released as _transition_lease_to_released_impl,
 )
 from backend.services.worker_runtime_rollup import (
