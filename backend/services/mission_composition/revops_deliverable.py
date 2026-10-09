@@ -52,38 +52,6 @@ _TERMINAL_TASK_STATES = frozenset(
 )
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def assemble_revops_mission_deliverable(
     *,
     mission: Mission,
