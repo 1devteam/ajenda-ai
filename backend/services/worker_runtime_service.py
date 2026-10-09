@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, UTC
 import logging
-from typing import Any
 import uuid
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -11,7 +11,6 @@ from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, MissionState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
-from backend.domain.outcome_review import OutcomeReview
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueAdapter
 from backend.repositories.audit_event_repository import AuditEventRepository
@@ -25,10 +24,10 @@ from backend.services.mission_intake_quality import contains_composition_clarifi
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
 from backend.services.tools.mission_input_binding import pending_dependency_keys
 from backend.services.worker_runtime_contracts import (
+    _TERMINAL_TASK_STATES,
     _failure_evidence_record,
     _materialized_artifact_reference,
     _mirror_task_output_to_metadata,
-    _TERMINAL_TASK_STATES,
     _validate_declared_output_contract,
 )
 from backend.services.worker_runtime_outcome_review import (
@@ -47,6 +46,7 @@ from backend.services.worker_runtime_rollup import (
     maybe_rollup_mission_status as _maybe_rollup_mission_status_impl,
     refresh_deliverable_completion_read_model as _refresh_deliverable_completion_read_model_impl,
 )
+
 
 logger = logging.getLogger("ajenda.worker_runtime_service")
 
