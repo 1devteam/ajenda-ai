@@ -1,24 +1,20 @@
-from __future__ import annotations
-
-import hashlib
+from datetime import datetime, UTC
 import json
 import logging
-import uuid as _uuid
-from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
+import uuid as _uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from backend.api.routes import mission_contracts as _mission_contracts
 from backend.api.routes import mission_runtime as _mission_runtime
+from backend.api.routes._authorization import require_route_permission
 from backend.api.routes.mission_graph_identity import (
     _fingerprint_existing_task_graph,
     _next_task_graph_version,
     _task_graph_contract_content,
-    _task_graph_contract_fingerprint,
-    _task_graph_fingerprint,
     _task_graph_has_identity,
     _task_graph_with_identity,
 )
@@ -39,7 +35,6 @@ from backend.api.routes.mission_read_models import (
     _mission_to_read,
     _runtime_admission_to_read,
 )
-from backend.api.routes._authorization import require_route_permission
 from backend.app.config import get_settings
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
@@ -47,18 +42,6 @@ from backend.auth.permissions import Permission
 from backend.domain.enums import MissionPlanStatus, MissionState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import (
-    MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
-    MISSION_INTAKE_METADATA_KEY,
-    MISSION_PLAN_METADATA_KEY,
-    MISSION_RUNTIME_ADMISSION_METADATA_KEY,
-    MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY,
-    MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY,
-    MISSION_TASK_GRAPH_METADATA_KEY,
-    MISSION_WORKER_CLAIM_ADMISSION_METADATA_KEY,
-    MISSION_WORKER_RUN_ADMISSION_METADATA_KEY,
-    MISSION_WORKER_START_ADMISSION_METADATA_KEY,
-    Mission,
-    MissionPlan,
     build_graph_materialization_metadata,
     build_mission_intake_metadata,
     build_mission_plan_contract_metadata,
@@ -66,8 +49,15 @@ from backend.domain.mission import (
     build_mission_task_graph_contract_metadata,
     build_runtime_admission_metadata,
     legacy_mission_plan_status_from_planning_status,
+    Mission,
+    MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
+    MISSION_INTAKE_METADATA_KEY,
+    MISSION_PLAN_METADATA_KEY,
+    MISSION_RUNTIME_ADMISSION_METADATA_KEY,
+    MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY,
     mission_task_graph_allows_legacy_v1,
-    normalize_mission_plan_contract_metadata,
+    MISSION_TASK_GRAPH_METADATA_KEY,
+    MissionPlan,
     normalize_mission_task_graph_contract_metadata,
     validate_mission_plan_status_transition,
 )
