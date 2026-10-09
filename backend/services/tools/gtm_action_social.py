@@ -1,6 +1,5 @@
 """GTM social publish handler."""
 
-import json
 from typing import Any
 
 from backend.services.network_egress import get_default_network_egress_authority
@@ -18,6 +17,7 @@ from backend.services.tools.schemas import (
     SideEffectClass,
     ToolInvocation,
 )
+
 
 def social_publish_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
     inp = GtmSocialPublishInput.model_validate(inv.input)
