@@ -96,6 +96,7 @@ def _task_approval(
         approved_by=legacy.approved_by,
     )
 
+
 def _approval_state(
     *,
     prospects: Sequence[RevOpsProspectRead],
@@ -135,4 +136,3 @@ def _approval_state(
         outcome_reviews=reviews,
         all_required_approved=draft_ready and task_ready and review_ready,
     )
-
