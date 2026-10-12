@@ -171,6 +171,9 @@ class WorkerLoop:
                 or summary.dispatch_retry_scheduled_count
                 or summary.cancelled_dispatch_cleanup_count
                 or summary.cancelled_dispatch_cleanup_failed_count
+                or summary.billing_meter_delivered_count
+                or summary.billing_meter_retry_scheduled_count
+                or summary.billing_meter_skipped_count
             ):
                 logger.info(
                     "worker_runtime_recovery_completed",
@@ -183,6 +186,9 @@ class WorkerLoop:
                         "dispatch_retry_scheduled_count": summary.dispatch_retry_scheduled_count,
                         "cancelled_dispatch_cleanup_count": summary.cancelled_dispatch_cleanup_count,
                         "cancelled_dispatch_cleanup_failed_count": summary.cancelled_dispatch_cleanup_failed_count,
+                        "billing_meter_delivered_count": summary.billing_meter_delivered_count,
+                        "billing_meter_retry_scheduled_count": summary.billing_meter_retry_scheduled_count,
+                        "billing_meter_skipped_count": summary.billing_meter_skipped_count,
                     },
                 )
         except Exception as exc:

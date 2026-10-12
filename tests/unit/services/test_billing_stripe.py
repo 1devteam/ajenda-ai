@@ -525,23 +525,53 @@ class TestReportMeteredUsage:
     def test_reports_usage_when_customer_and_active_sub_exists(self, billing, db, tenant_with_customer):
         with (
             patch(_PRICE_MAP_PATCH, return_value=_TEST_PRICE_MAP),
+            patch.object(billing._tenant_repo, "get", return_value=tenant_with_customer),
             patch("stripe.Subscription.list") as mock_list,
             patch("stripe.SubscriptionItem") as mock_si,
         ):
             mock_list.return_value = {
                 "data": [{"items": {"data": [{"id": "si_meted123", "price": {"id": "price_pro_test"}}]}}]
             }
-            billing.report_metered_usage(tenant_with_customer.id, 5, metric="tasks")
+            result = billing.report_metered_usage(
+                tenant_with_customer.id,
+                5,
+                metric="tasks",
+                idempotency_key="billing-meter:dispatch-1",
+                timestamp=1_700_000_000,
+            )
+            assert result.reported is True
+            assert result.subscription_item_id == "si_meted123"
             mock_si.create_usage_record.assert_called_once()
             call = mock_si.create_usage_record.call_args
             assert call.kwargs["subscription_item"] == "si_meted123"
             assert call.kwargs["quantity"] == 5
             assert call.kwargs["action"] == "increment"
+            assert call.kwargs["timestamp"] == 1_700_000_000
+            assert call.kwargs["idempotency_key"] == "billing-meter:dispatch-1"
 
     def test_skips_when_no_customer(self, billing, db, tenant):
         tenant.stripe_customer_id = None
-        billing.report_metered_usage(tenant.id, 10)
+        with patch.object(billing._tenant_repo, "get", return_value=tenant):
+            result = billing.report_metered_usage(
+                tenant.id,
+                10,
+                metric="tasks",
+                idempotency_key="billing-meter:dispatch-2",
+                timestamp=1_700_000_000,
+            )
+        assert result.reported is False
+        assert result.detail == "tenant has no Stripe customer"
 
-    def test_best_effort_on_stripe_error(self, billing, db, tenant_with_customer):
-        with patch("stripe.Subscription.list", side_effect=stripe.StripeError("boom")):
-            billing.report_metered_usage(tenant_with_customer.id, 3)
+    def test_stripe_error_propagates_to_durable_dispatcher(self, billing, db, tenant_with_customer):
+        with (
+            patch.object(billing._tenant_repo, "get", return_value=tenant_with_customer),
+            patch("stripe.Subscription.list", side_effect=stripe.StripeError("boom")),
+        ):
+            with pytest.raises(stripe.StripeError, match="boom"):
+                billing.report_metered_usage(
+                    tenant_with_customer.id,
+                    3,
+                    metric="tasks",
+                    idempotency_key="billing-meter:dispatch-3",
+                    timestamp=1_700_000_000,
+                )

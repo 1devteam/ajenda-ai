@@ -23,8 +23,6 @@ from backend.services.quota_enforcement import (
     FeatureNotAvailableError,
     QuotaEnforcementService,
     QuotaExceededError,
-    _discard_pending_meter_reports,
-    _flush_pending_meter_reports,
 )
 
 # ---------------------------------------------------------------------------
@@ -517,78 +515,23 @@ class TestApiCallQuota:
         assert call_kwargs.kwargs.get("field") == "api_calls_count"
 
 
-class TestStripeMeteringDeferral:
-    def test_meter_report_is_queued_until_flush(self, monkeypatch):
+class TestStripeMeteringOutbox:
+    def test_meter_report_is_persisted_in_current_transaction(self):
+        from backend.domain.billing_meter_dispatch import BillingMeterDispatch
+        from backend.services.billing_meter_dispatcher import _AFTER_COMMIT_BILLING_METERS
+
         session = MagicMock()
         session.info = {}
         svc = QuotaEnforcementService(session)
         tenant_id = uuid.uuid4()
-        stripe_calls: list[tuple[uuid.UUID, int, str]] = []
 
-        class _FakeBilling:
-            def __init__(self, _session) -> None:
-                pass
-
-            def report_metered_usage(self, tid, qty, *, metric="tasks"):
-                stripe_calls.append((tid, qty, metric))
-
-        monkeypatch.setattr(
-            "backend.services.billing_stripe_integration.StripeBillingService",
-            _FakeBilling,
-        )
         svc._report_metered_if_possible(tenant_id, 2, "tasks")
 
-        assert len(session.info["pending_meter_reports"]) == 1
-        assert stripe_calls == []
-
-        _flush_pending_meter_reports(session)
-        assert stripe_calls == [(tenant_id, 2, "tasks")]
-        assert "pending_meter_reports" not in session.info
-
-    def test_meter_report_discarded_on_rollback(self):
-        session = MagicMock()
-        session.info = {"pending_meter_reports": ["pending"]}
-        _discard_pending_meter_reports(session)
-        assert "pending_meter_reports" not in session.info
-
-    def test_meter_flush_uses_fresh_session_not_committed_one(self, monkeypatch):
-        from backend.services.quota_enforcement import _PendingMeterReport
-
-        committed_session = MagicMock()
-        committed_session.info = {
-            "pending_meter_reports": [
-                _PendingMeterReport(tenant_id=uuid.uuid4(), amount=1, metric="api_calls"),
-            ]
-        }
-        bind = MagicMock()
-        committed_session.get_bind.return_value = bind
-
-        fresh_session = MagicMock()
-        factory = MagicMock(return_value=fresh_session)
-        fake_sessionmaker = MagicMock(return_value=factory)
-        monkeypatch.setattr(
-            "backend.services.quota_enforcement.sessionmaker",
-            fake_sessionmaker,
-        )
-
-        stripe_sessions: list[object] = []
-
-        class _FakeBilling:
-            def __init__(self, session) -> None:
-                stripe_sessions.append(session)
-
-            def report_metered_usage(self, tid, qty, *, metric="tasks"):
-                pass
-
-        monkeypatch.setattr(
-            "backend.services.billing_stripe_integration.StripeBillingService",
-            _FakeBilling,
-        )
-
-        _flush_pending_meter_reports(committed_session)
-
-        fake_sessionmaker.assert_called_once()
-        factory.assert_called_once()
-        fresh_session.close.assert_called_once()
-        assert stripe_sessions == [fresh_session]
-        assert committed_session is not stripe_sessions[0]
+        persisted = session.add.call_args.args[0]
+        assert isinstance(persisted, BillingMeterDispatch)
+        assert persisted.tenant_id == tenant_id
+        assert persisted.quantity == 2
+        assert persisted.metric == "tasks"
+        assert persisted.status == "pending"
+        assert session.flush.call_count == 1
+        assert len(session.info[_AFTER_COMMIT_BILLING_METERS]) == 1

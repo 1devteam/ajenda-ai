@@ -1,5 +1,6 @@
 from backend.domain.assurance_snapshot import AssuranceMetricState, AssuranceSnapshot
 from backend.domain.audit_event import AuditEvent
+from backend.domain.billing_meter_dispatch import BillingMeterDispatch
 from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
 from backend.domain.capability import Capability
 from backend.domain.capability_adapter import CapabilityAdapter
@@ -33,6 +34,7 @@ __all__ = [
     "AssuranceMetricState",
     "AssuranceSnapshot",
     "AuditEvent",
+    "BillingMeterDispatch",
     "BusinessProfile",
     "BusinessProfileSuggestion",
     "Capability",

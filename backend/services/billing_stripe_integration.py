@@ -28,7 +28,6 @@ Security:
 from __future__ import annotations
 
 import logging
-import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -64,6 +63,15 @@ class StripeWebhookResult:
     event_type: str
     outcome: str
     detail: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MeteredUsageReportResult:
+    """Observable terminal result for one idempotent Stripe usage report."""
+
+    reported: bool
+    detail: str
+    subscription_item_id: str | None = None
 
 
 def _normalize_stripe_object(obj: object) -> dict[str, Any]:
@@ -184,6 +192,7 @@ def _report_subscription_item_usage(
     subscription_item_id: str,
     quantity: int,
     timestamp: int,
+    idempotency_key: str,
 ) -> None:
     """Create a Stripe metered usage record (SDK stubs omit this class method)."""
     create_usage_record = getattr(stripe.SubscriptionItem, "create_usage_record", None)
@@ -194,6 +203,7 @@ def _report_subscription_item_usage(
         quantity=quantity,
         timestamp=timestamp,
         action="increment",
+        idempotency_key=idempotency_key,
     )
 
 
@@ -522,52 +532,62 @@ class StripeBillingService:
         tenant_id: UUID,
         quantity: int,
         *,
-        metric: str = "tasks",
-    ) -> None:
-        """Report incremental usage to Stripe for metered billing (best effort).
+        metric: str,
+        idempotency_key: str,
+        timestamp: int,
+    ) -> MeteredUsageReportResult:
+        """Report one durable, idempotent usage increment to Stripe.
 
         Looks up the tenant's active subscription items via the Stripe customer,
         finds a matching metered price, and creates a usage record.
 
-        Failures are logged only; they never block quota enforcement or task
-        admission.
+        Stripe failures propagate to the durable dispatcher, which records the
+        failure and schedules a retry using the same idempotency key.
         """
         if quantity <= 0:
-            return
+            raise ValueError("metered usage quantity must be positive")
+        if not idempotency_key.strip():
+            raise ValueError("metered usage idempotency_key is required")
         tenant = self._tenant_repo.get(tenant_id)
-        if tenant is None or not tenant.stripe_customer_id:
-            return
-        try:
-            subs = _normalize_stripe_object(
-                stripe.Subscription.list(
-                    customer=tenant.stripe_customer_id,
-                    status="active",
-                    limit=3,
-                )
+        if tenant is None:
+            return MeteredUsageReportResult(reported=False, detail="tenant not found")
+        if not tenant.stripe_customer_id:
+            return MeteredUsageReportResult(reported=False, detail="tenant has no Stripe customer")
+        subs = _normalize_stripe_object(
+            stripe.Subscription.list(
+                customer=tenant.stripe_customer_id,
+                status="active",
+                limit=3,
             )
-            for sub_raw in subs.get("data", []):
-                sub = sub_raw if isinstance(sub_raw, dict) else _normalize_stripe_object(sub_raw)
-                items_raw = sub.get("items") or {}
-                items = items_raw if isinstance(items_raw, dict) else _normalize_stripe_object(items_raw)
-                for item_raw in items.get("data", []):
-                    item = item_raw if isinstance(item_raw, dict) else _normalize_stripe_object(item_raw)
-                    price = item.get("price", {})
-                    if not isinstance(price, dict):
-                        price = _normalize_stripe_object(price)
-                    price_id = price.get("id")
-                    if price_id and _price_id_to_plan(price_id):
-                        _report_subscription_item_usage(
-                            subscription_item_id=str(item["id"]),
-                            quantity=quantity,
-                            timestamp=int(time.time()),
-                        )
-                        logger.info(
-                            "Reported metered %s usage +%s for tenant %s (item=%s)",
-                            metric,
-                            quantity,
-                            tenant_id,
-                            item["id"],
-                        )
-                        return
-        except stripe.StripeError as exc:
-            logger.warning("Stripe metered usage report failed for tenant %s: %s", tenant_id, exc)
+        )
+        for sub_raw in subs.get("data", []):
+            sub = sub_raw if isinstance(sub_raw, dict) else _normalize_stripe_object(sub_raw)
+            items_raw = sub.get("items") or {}
+            items = items_raw if isinstance(items_raw, dict) else _normalize_stripe_object(items_raw)
+            for item_raw in items.get("data", []):
+                item = item_raw if isinstance(item_raw, dict) else _normalize_stripe_object(item_raw)
+                price = item.get("price", {})
+                if not isinstance(price, dict):
+                    price = _normalize_stripe_object(price)
+                price_id = price.get("id")
+                if price_id and _price_id_to_plan(price_id):
+                    subscription_item_id = str(item["id"])
+                    _report_subscription_item_usage(
+                        subscription_item_id=subscription_item_id,
+                        quantity=quantity,
+                        timestamp=timestamp,
+                        idempotency_key=idempotency_key,
+                    )
+                    logger.info(
+                        "Reported metered %s usage +%s for tenant %s (item=%s)",
+                        metric,
+                        quantity,
+                        tenant_id,
+                        subscription_item_id,
+                    )
+                    return MeteredUsageReportResult(
+                        reported=True,
+                        detail="usage reported",
+                        subscription_item_id=subscription_item_id,
+                    )
+        return MeteredUsageReportResult(reported=False, detail="no active metered subscription item")

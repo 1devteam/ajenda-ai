@@ -35,14 +35,14 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import event
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings
 from backend.repositories.api_key_repository import ApiKeyRepository
 from backend.repositories.tenant_repository import (
     TenantRepository,
 )
+from backend.services.billing_meter_dispatcher import BillingMeterDispatchService
 
 
 class QuotaExceededError(ValueError):
@@ -64,57 +64,6 @@ class QuotaExceededError(ValueError):
 
 class QuotaConfigurationError(RuntimeError):
     """Raised when a tenant quota cannot be evaluated safely."""
-
-
-_PENDING_METER_REPORTS_KEY = "pending_meter_reports"
-
-
-@dataclass(frozen=True, slots=True)
-class _PendingMeterReport:
-    tenant_id: uuid.UUID
-    amount: int
-    metric: str
-
-
-def _queue_meter_report(session: Session, *, tenant_id: uuid.UUID, amount: int, metric: str) -> None:
-    pending: list[_PendingMeterReport] = session.info.setdefault(_PENDING_METER_REPORTS_KEY, [])
-    pending.append(_PendingMeterReport(tenant_id=tenant_id, amount=amount, metric=metric))
-
-
-def _flush_pending_meter_reports(session: Session) -> None:
-    pending = session.info.pop(_PENDING_METER_REPORTS_KEY, None)
-    if not pending:
-        return
-    bind = session.get_bind()
-    if bind is None:
-        return
-    fresh_session = sessionmaker(
-        bind=bind,
-        autoflush=False,
-        autocommit=False,
-        expire_on_commit=False,
-        future=True,
-    )()
-    try:
-        from backend.services.billing_stripe_integration import StripeBillingService
-
-        billing = StripeBillingService(fresh_session)
-        for report in pending:
-            billing.report_metered_usage(report.tenant_id, report.amount, metric=report.metric)
-    except Exception:
-        pass
-    finally:
-        fresh_session.close()
-
-
-@event.listens_for(Session, "after_commit")
-def _report_metered_usage_after_commit(session: Session) -> None:
-    _flush_pending_meter_reports(session)
-
-
-@event.listens_for(Session, "after_rollback")
-def _discard_pending_meter_reports(session: Session) -> None:
-    session.info.pop(_PENDING_METER_REPORTS_KEY, None)
 
 
 class FeatureNotAvailableError(ValueError):
@@ -475,9 +424,13 @@ class QuotaEnforcementService:
                 )
 
     # ------------------------------------------------------------------
-    # Metering bridge to Stripe (PR3) — best effort, never blocks
+    # Durable metering bridge to Stripe
     # ------------------------------------------------------------------
 
     def _report_metered_if_possible(self, tenant_id: uuid.UUID, amount: int, metric: str) -> None:
-        """Queue Stripe metering for after the enclosing transaction commits."""
-        _queue_meter_report(self._session, tenant_id=tenant_id, amount=amount, metric=metric)
+        """Persist Stripe metering in the same transaction as its usage counter."""
+        BillingMeterDispatchService(self._session).record(
+            tenant_id=tenant_id,
+            quantity=amount,
+            metric=metric,
+        )
