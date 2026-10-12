@@ -251,6 +251,9 @@ def test_runtime_queue_admission_route_admits_current_materialized_tasks_real(
         assert queued_task is not None
         assert queued_task.status == ExecutionTaskState.QUEUED.value
 
+    assert queue_adapter.pending_depth(tenant_id=str(tenant.id)) == 0
+    pg_session.commit()
+
     claimed_ids = set()
     for index in range(2):
         claimed = queue_adapter.claim_task(tenant_id=str(tenant.id), worker_id=f"bridge-proof-worker-{index}")

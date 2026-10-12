@@ -163,7 +163,15 @@ class WorkerLoop:
         try:
             activate_tenant_session(session, tenant_id)
             summary = RuntimeMaintainer(session, self.queue).recover_expired_leases()
-            if summary.expired_lease_count or summary.requeued_task_count or summary.dead_lettered_count:
+            if (
+                summary.expired_lease_count
+                or summary.requeued_task_count
+                or summary.dead_lettered_count
+                or summary.dispatch_published_count
+                or summary.dispatch_retry_scheduled_count
+                or summary.cancelled_dispatch_cleanup_count
+                or summary.cancelled_dispatch_cleanup_failed_count
+            ):
                 logger.info(
                     "worker_runtime_recovery_completed",
                     extra={
@@ -171,6 +179,10 @@ class WorkerLoop:
                         "expired_lease_count": summary.expired_lease_count,
                         "requeued_task_count": summary.requeued_task_count,
                         "dead_lettered_count": summary.dead_lettered_count,
+                        "dispatch_published_count": summary.dispatch_published_count,
+                        "dispatch_retry_scheduled_count": summary.dispatch_retry_scheduled_count,
+                        "cancelled_dispatch_cleanup_count": summary.cancelled_dispatch_cleanup_count,
+                        "cancelled_dispatch_cleanup_failed_count": summary.cancelled_dispatch_cleanup_failed_count,
                     },
                 )
         except Exception as exc:

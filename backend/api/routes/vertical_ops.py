@@ -272,8 +272,6 @@ def _enforce_quota_and_features(
             quota.require_feature(tenant_id, "gtm")
         if creating_mission:
             quota.check_and_record_mission_creation(tenant_id)
-        for _ in range(max(task_count, 0)):
-            quota.check_and_record_task_creation(tenant_id)
     except FeatureNotAvailableError as exc:
         raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(exc)) from exc
     except QuotaExceededError as exc:

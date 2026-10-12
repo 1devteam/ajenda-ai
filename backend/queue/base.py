@@ -52,6 +52,21 @@ class QueueAdapter(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
+    def enqueue_task_idempotent(
+        self,
+        message: QueueMessage,
+        *,
+        idempotency_key: str,
+    ) -> QueueOperationResult:
+        """Publish one message exactly once for a stable dispatch identity."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def cancel_task(self, *, tenant_id: str, task_id: uuid.UUID) -> QueueOperationResult:
+        """Remove pending copies of a cancelled task without overriding an active owner."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
     def claim_task(self, *, tenant_id: str, worker_id: str) -> QueueMessage | None:
         raise NotImplementedError
 

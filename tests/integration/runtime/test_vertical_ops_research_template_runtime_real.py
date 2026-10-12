@@ -103,6 +103,7 @@ def test_vertical_research_template_queues_claims_executes_and_persists_evidence
         assert planned_task.metadata_json["vertical_role_key"] == "vertical.research"
         assert planned_task.metadata_json["template_id"] == "vertical.research.v1"
         assert planned_task.status == ExecutionTaskState.QUEUED.value
+        setup_session.commit()
 
         runtime = WorkerRuntimeService(setup_session, queue_adapter)
         claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)

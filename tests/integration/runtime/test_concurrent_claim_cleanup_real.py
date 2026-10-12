@@ -14,7 +14,6 @@ from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.runtime_maintainer import RuntimeMaintainer
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
@@ -71,7 +70,6 @@ def test_rg_concurrent_claim_race_leaves_no_duplicate_processing_residue(
         _create_tenant(setup_session, tenant_id)
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
@@ -161,7 +159,6 @@ def test_rg_concurrent_claim_winner_completes_with_clean_terminal_cleanup(
         _create_tenant(setup_session, tenant_id)
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
@@ -274,7 +271,6 @@ def test_rg_concurrent_claim_winner_recovery_requeues_once_without_duplicate_res
         _create_tenant(setup_session, tenant_id)
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,

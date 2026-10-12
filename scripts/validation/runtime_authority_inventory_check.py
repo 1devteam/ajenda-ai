@@ -87,8 +87,21 @@ REVIEWED_CALL_SITES: dict[CallSiteKey, ReviewedCallSite] = {
         "canonical_boundary", "retain through shared admission convergence"
     ),
     CallSiteKey(
-        "backend/services/execution_coordinator.py", "ExecutionCoordinator._enqueue_or_restore", "queue_enqueue"
-    ): ReviewedCallSite("canonical_boundary", "retain as the sole normal queue mutation boundary"),
+        "backend/services/runtime_queue_dispatcher.py",
+        "_publish_committed_dispatches",
+        "queue_enqueue",
+    ): ReviewedCallSite(
+        "canonical_boundary",
+        "publish a committed durable dispatch intent with deterministic queue deduplication",
+    ),
+    CallSiteKey(
+        "backend/services/runtime_queue_dispatcher.py",
+        "RuntimeQueueDispatchService.publish_due",
+        "queue_enqueue",
+    ): ReviewedCallSite(
+        "canonical_boundary",
+        "reconcile committed pending dispatch intents with deterministic queue deduplication",
+    ),
     CallSiteKey(
         "backend/services/execution_coordinator.py",
         "ExecutionCoordinator.approve_review_and_queue",
@@ -161,7 +174,7 @@ def _sink_for_call(
     receiver = _receiver_name(node.func)
     if name in {"queue_task", "approve_review_and_queue"}:
         return "admission"
-    if name == "enqueue_task":
+    if name in {"enqueue_task", "enqueue_task_idempotent"}:
         return "queue_enqueue"
     if name in {"claim_task", "claim_existing_task"}:
         return "queue_claim"

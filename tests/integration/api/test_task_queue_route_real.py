@@ -15,6 +15,7 @@ from backend.auth.principal import Principal, PrincipalType
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
+from backend.domain.runtime_queue_dispatch import RuntimeQueueDispatch
 from backend.domain.tenant import Tenant
 from backend.domain.tenant_usage import TenantUsage
 from backend.queue.base import QueueAdapter
@@ -128,6 +129,14 @@ def test_task_queue_route_queues_real_task_in_postgres_and_redis(
     queued_task = pg_session.get(ExecutionTask, task.id)
     assert queued_task is not None
     assert queued_task.status == ExecutionTaskState.QUEUED.value
+
+    assert queue_adapter.claim_task(tenant_id=str(tenant.id), worker_id="pre-commit-worker") is None
+
+    pending_dispatch = pg_session.scalar(select(RuntimeQueueDispatch).where(RuntimeQueueDispatch.task_id == task.id))
+    assert pending_dispatch is not None
+    assert pending_dispatch.status == "pending"
+
+    pg_session.commit()
 
     claimed = queue_adapter.claim_task(tenant_id=str(tenant.id), worker_id="api-route-proof-worker")
     assert claimed is not None

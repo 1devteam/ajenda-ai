@@ -96,6 +96,51 @@ redis.call("DEL", lease_key)
 return {1, "ok"}
 """
 
+    _IDEMPOTENT_ENQUEUE_SCRIPT = """
+local pending_key = KEYS[1]
+local idempotency_key = KEYS[2]
+local payload = ARGV[1]
+
+if redis.call("EXISTS", idempotency_key) == 1 then
+    return {1, "already_published"}
+end
+redis.call("RPUSH", pending_key, payload)
+redis.call("SET", idempotency_key, "published")
+return {1, "published"}
+"""
+
+    _CANCEL_PENDING_TASK_SCRIPT = """
+local pending_key = KEYS[1]
+local processing_key = KEYS[2]
+local task_id = ARGV[1]
+
+local function payload_task_id(raw)
+    local ok, payload = pcall(cjson.decode, raw)
+    if not ok or type(payload) ~= "table" or payload["task_id"] == nil then
+        return nil
+    end
+    return tostring(payload["task_id"])
+end
+
+for _, raw in ipairs(redis.call("LRANGE", processing_key, 0, -1)) do
+    if payload_task_id(raw) == task_id then
+        return {0, "task is processing with an active owner"}
+    end
+end
+
+local kept = {}
+for _, raw in ipairs(redis.call("LRANGE", pending_key, 0, -1)) do
+    if payload_task_id(raw) ~= task_id then
+        table.insert(kept, raw)
+    end
+end
+redis.call("DEL", pending_key)
+for _, raw in ipairs(kept) do
+    redis.call("RPUSH", pending_key, raw)
+end
+return {1, "cancelled"}
+"""
+
     _CLAIM_EXISTING_TASK_SCRIPT = """
 local pending_key = KEYS[1]
 local processing_key = KEYS[2]
@@ -291,6 +336,49 @@ return {0, "dead-letter entry not found"}
             return QueueOperationResult(ok=True)
         except Exception as exc:
             return QueueOperationResult(ok=False, reason=f"enqueue failed: {exc}")
+
+    def enqueue_task_idempotent(
+        self,
+        message: QueueMessage,
+        *,
+        idempotency_key: str,
+    ) -> QueueOperationResult:
+        try:
+            result = self._execute(
+                [
+                    "EVAL",
+                    self._IDEMPOTENT_ENQUEUE_SCRIPT,
+                    "2",
+                    self._pending_key(message.tenant_id),
+                    self._dispatch_key(message.tenant_id, idempotency_key),
+                    self._encode_message(message),
+                ]
+            )
+            if not isinstance(result, list) or len(result) != 2 or result[0] != 1:
+                reason = result[1] if isinstance(result, list) and len(result) == 2 else "unexpected result"
+                return QueueOperationResult(ok=False, reason=f"idempotent enqueue failed: {reason}")
+            return QueueOperationResult(ok=True)
+        except Exception as exc:
+            return QueueOperationResult(ok=False, reason=f"idempotent enqueue failed: {exc}")
+
+    def cancel_task(self, *, tenant_id: str, task_id: uuid.UUID) -> QueueOperationResult:
+        try:
+            result = self._execute(
+                [
+                    "EVAL",
+                    self._CANCEL_PENDING_TASK_SCRIPT,
+                    "2",
+                    self._pending_key(tenant_id),
+                    self._processing_key(tenant_id),
+                    str(task_id),
+                ]
+            )
+            if not isinstance(result, list) or len(result) != 2 or result[0] != 1:
+                reason = result[1] if isinstance(result, list) and len(result) == 2 else "unexpected result"
+                return QueueOperationResult(ok=False, reason=str(reason))
+            return QueueOperationResult(ok=True)
+        except Exception as exc:
+            return QueueOperationResult(ok=False, reason=f"cancel_task failed: {exc}")
 
     def claim_task(self, *, tenant_id: str, worker_id: str) -> QueueMessage | None:
         try:
@@ -653,6 +741,10 @@ return {0, "dead-letter entry not found"}
 
     def _pending_key(self, tenant_id: str) -> str:
         return f"ajenda:queue:{tenant_id}:pending"
+
+    @staticmethod
+    def _dispatch_key(tenant_id: str, idempotency_key: str) -> str:
+        return f"ajenda:queue:{tenant_id}:dispatch:{idempotency_key}"
 
     def _processing_key(self, tenant_id: str) -> str:
         return f"ajenda:queue:{tenant_id}:processing"

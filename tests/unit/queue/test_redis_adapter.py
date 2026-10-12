@@ -91,6 +91,50 @@ def test_enqueue_task_returns_failure_on_exception(monkeypatch) -> None:
     assert result.reason == "enqueue failed: bad push"
 
 
+def test_idempotent_enqueue_uses_atomic_lua_and_stable_dispatch_key(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    message = _message()
+    calls: list[list[str]] = []
+    monkeypatch.setattr(adapter, "_execute", lambda command: calls.append(command) or [1, "published"])
+
+    result = adapter.enqueue_task_idempotent(message, idempotency_key="dispatch-1")
+
+    assert result.ok is True
+    assert calls[0][0] == "EVAL"
+    assert calls[0][2] == "2"
+    assert calls[0][3] == "ajenda:queue:tenant-a:pending"
+    assert calls[0][4] == "ajenda:queue:tenant-a:dispatch:dispatch-1"
+    assert "RPUSH" in adapter._IDEMPOTENT_ENQUEUE_SCRIPT
+    assert "SET" in adapter._IDEMPOTENT_ENQUEUE_SCRIPT
+
+
+def test_idempotent_enqueue_fails_closed_on_malformed_reply(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    monkeypatch.setattr(adapter, "_execute", lambda command: "OK")
+
+    result = adapter.enqueue_task_idempotent(_message(), idempotency_key="dispatch-1")
+
+    assert result.ok is False
+    assert result.reason == "idempotent enqueue failed: unexpected result"
+
+
+def test_cancel_task_uses_atomic_pending_and_processing_check(monkeypatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    task_id = uuid.uuid4()
+    calls: list[list[str]] = []
+    monkeypatch.setattr(adapter, "_execute", lambda command: calls.append(command) or [1, "cancelled"])
+
+    result = adapter.cancel_task(tenant_id="tenant-a", task_id=task_id)
+
+    assert result.ok is True
+    assert calls[0][0] == "EVAL"
+    assert calls[0][3:5] == [
+        "ajenda:queue:tenant-a:pending",
+        "ajenda:queue:tenant-a:processing",
+    ]
+    assert calls[0][5] == str(task_id)
+
+
 def test_claim_task_returns_none_when_queue_empty(monkeypatch) -> None:
     adapter = RedisQueueAdapter("redis://localhost:6379/0")
     monkeypatch.setattr(adapter, "_execute", lambda command: None)

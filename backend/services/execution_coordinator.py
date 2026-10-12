@@ -20,7 +20,9 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.runtime.transitions import transition_task
 from backend.services.mission_bridge.queue_admission import record_reviewed_task_admission
 from backend.services.policy_guardian import PolicyGuardian
+from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.runtime_governor import RuntimeGovernor
+from backend.services.runtime_queue_dispatcher import RuntimeQueueDispatchService
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.mission_input_binding import (
     DependencyNotReadyError,
@@ -55,9 +57,11 @@ class ExecutionCoordinator:
         self._governance = GovernanceEventRepository(session)
         self._governor = RuntimeGovernor(session)
         self._policy = PolicyGuardian(session)
+        self._dispatches = RuntimeQueueDispatchService(session, queue)
+        self._quota = QuotaEnforcementService(session)
 
     def queue_task(self, *, tenant_id: str, task_id: uuid.UUID) -> CoordinationResult:
-        task = self._require_task(task_id=task_id, tenant_id=tenant_id)
+        task = self._require_task_for_update(task_id=task_id, tenant_id=tenant_id)
 
         decision = self._governor.evaluate()
         logger.info(
@@ -84,6 +88,7 @@ class ExecutionCoordinator:
                 tenant_id=tenant_id,
                 reason="side-effecting action requires independent human approval",
             )
+            self._record_task_admission(task=task, held_for_review=True)
             return CoordinationResult(
                 ok=False,
                 task_id=task.id,
@@ -103,6 +108,7 @@ class ExecutionCoordinator:
 
         if not policy_decision.allowed:
             self._place_in_review(task=task, tenant_id=tenant_id, reason=policy_decision.reason)
+            self._record_task_admission(task=task, held_for_review=True)
             return CoordinationResult(
                 ok=False,
                 task_id=task.id,
@@ -110,10 +116,9 @@ class ExecutionCoordinator:
                 reason=policy_decision.reason,
             )
 
-        previous_state = task.status
         transition_task(task, ExecutionTaskState.QUEUED)
         self._session.flush()
-        self._enqueue_or_restore(task=task, tenant_id=tenant_id, previous_state=previous_state)
+        self._record_task_admission(task=task, held_for_review=False)
 
         self._audit.append(
             AuditEvent(
@@ -128,6 +133,12 @@ class ExecutionCoordinator:
         )
         self._session.flush()
         return CoordinationResult(ok=True, task_id=task.id, state=task.status)
+
+    def _record_task_admission(self, *, task: ExecutionTask, held_for_review: bool) -> None:
+        _dispatch, created = self._dispatches.admit(task=task, held_for_review=held_for_review)
+        if created:
+            self._quota.check_and_record_task_creation(uuid.UUID(task.tenant_id))
+        self._session.flush()
 
     @staticmethod
     def _requires_unapproved_side_effect_review(task: ExecutionTask) -> bool:
@@ -522,29 +533,6 @@ class ExecutionCoordinator:
         )
         self._session.flush()
         return CoordinationResult(ok=True, task_id=task.id, state=task.status, reason="approval_revoked")
-
-    def _enqueue_or_restore(self, *, task: ExecutionTask, tenant_id: str, previous_state: str) -> None:
-        enqueue_result = self._queue.enqueue_task(
-            QueueMessage(
-                tenant_id=tenant_id,
-                task_id=task.id,
-                mission_id=task.mission_id,
-                fleet_id=task.fleet_id,
-                branch_id=task.branch_id,
-                payload=task.metadata_json,
-                enqueued_at=datetime.now(UTC),
-            )
-        )
-        if enqueue_result.ok:
-            return
-
-        logger.error(
-            "queue_enqueue_failed_rolling_back",
-            extra={"task_id": str(task.id), "reason": enqueue_result.reason},
-        )
-        task.status = previous_state
-        self._session.flush()
-        raise ValueError(enqueue_result.reason or "queue enqueue failed")
 
     def _emit_denial(self, *, task: ExecutionTask, tenant_id: str, reason: str) -> None:
         self._governance.append(

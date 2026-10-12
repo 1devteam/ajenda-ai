@@ -21,6 +21,7 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.transitions import transition_lease, transition_mission, transition_task
 from backend.services.mission_intake_quality import contains_composition_clarification
+from backend.services.runtime_queue_dispatcher import RuntimeQueueDispatchService
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
 from backend.services.tools.mission_input_binding import pending_dependency_keys
 from backend.services.worker_runtime_contracts import (
@@ -74,6 +75,7 @@ class WorkerRuntimeService:
         self._tasks = ExecutionTaskRepository(session)
         self._leases = WorkerLeaseRepository(session)
         self._audit = AuditEventRepository(session)
+        self._dispatches = RuntimeQueueDispatchService(session, queue)
 
     def claim_next_task(self, *, tenant_id: str, worker_id: str) -> ExecutionTask | None:
         message = self._queue.claim_task(tenant_id=tenant_id, worker_id=worker_id)
@@ -175,8 +177,19 @@ class WorkerRuntimeService:
                 )
             )
             self._maybe_rollup_mission_status(task=task, worker_id=worker_id)
+            self._dispatches.cancel(task=task)
             self._session.commit()
-            self._queue.release_lease(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
+            completed = self._queue.complete_task(
+                tenant_id=tenant_id,
+                task_id=task.id,
+                worker_id=worker_id,
+            )
+            if not completed.ok:
+                logger.error(
+                    "stale_cancelled_queue_cleanup_failed",
+                    extra={"task_id": str(task.id), "worker_id": worker_id, "reason": completed.reason},
+                )
+            self._dispatches.reconcile_cancelled()
             return None
 
         savepoint = self._session.begin_nested()
@@ -304,21 +317,12 @@ class WorkerRuntimeService:
             raise ValueError("task is not running")
         metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
         if metadata.get("cancel_requested"):
-            transition_task(task, ExecutionTaskState.CANCELLED)
-            self._transition_lease_to_released(lease)
-            self._audit.append(
-                AuditEvent(
-                    tenant_id=tenant_id,
-                    mission_id=task.mission_id,
-                    category="worker",
-                    action="task_cancelled_after_request",
-                    actor=worker_id,
-                    details=f"Cancelled task {task.id} after a stop request; handler output was not committed.",
-                    payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
-                )
+            return self._complete_cancel_requested(
+                tenant_id=tenant_id,
+                task=task,
+                lease=lease,
+                worker_id=worker_id,
             )
-            self._commit_session()
-            return task
         _validate_declared_output_contract(task, task_output)
 
         transition_task(task, ExecutionTaskState.COMPLETED)
@@ -418,8 +422,57 @@ class WorkerRuntimeService:
             )
         return task
 
-    def _commit_session(self) -> None:
+    def _complete_cancel_requested(
+        self,
+        *,
+        tenant_id: str,
+        task: ExecutionTask,
+        lease: WorkerLease,
+        worker_id: str,
+    ) -> ExecutionTask:
+        transition_task(task, ExecutionTaskState.CANCELLED)
+        self._transition_lease_to_released(lease)
+        self._dispatches.cancel(task=task)
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="worker",
+                action="task_cancelled_after_request",
+                actor=worker_id,
+                details=f"Cancelled task {task.id} after a stop request; handler output was not committed.",
+                payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
+            )
+        )
         self._session.commit()
+        self._finalize_cancelled_queue_cleanup(
+            tenant_id=tenant_id,
+            task=task,
+            lease=lease,
+            worker_id=worker_id,
+        )
+        return task
+
+    def _finalize_cancelled_queue_cleanup(
+        self,
+        *,
+        tenant_id: str,
+        task: ExecutionTask,
+        lease: WorkerLease,
+        worker_id: str,
+    ) -> None:
+        result = self._queue.complete_task(tenant_id=tenant_id, task_id=task.id, worker_id=worker_id)
+        if not result.ok:
+            self._record_terminal_queue_cleanup_failure(
+                tenant_id=tenant_id,
+                task=task,
+                lease=lease,
+                worker_id=worker_id,
+                queue_operation="complete_task",
+                audit_action="cancelled_queue_complete_cleanup_failed",
+                reason=result.reason or "cancelled task cleanup rejected",
+            )
+        self._dispatches.reconcile_cancelled()
 
     def _refresh_deliverable_completion_read_model(self, *, task: ExecutionTask) -> None:
         _refresh_deliverable_completion_read_model_impl(self, task=task)
@@ -445,6 +498,7 @@ class WorkerRuntimeService:
         else:
             transition_task(task, ExecutionTaskState.CANCELLED)
             task.metadata_json = {**metadata, "cancel_reason": reason}
+            self._dispatches.cancel(task=task)
             action = "task_cancelled"
         self._audit.append(
             AuditEvent(
@@ -459,6 +513,8 @@ class WorkerRuntimeService:
         )
         self._maybe_rollup_mission_status(task=task, worker_id=actor)
         self._session.commit()
+        if task.status == ExecutionTaskState.CANCELLED.value:
+            self._dispatches.reconcile_cancelled()
         return task
 
     def cancel_mission(self, *, tenant_id: str, mission_id: uuid.UUID, actor: str, reason: str) -> dict[str, Any]:

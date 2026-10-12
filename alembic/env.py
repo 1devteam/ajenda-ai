@@ -26,6 +26,7 @@ from backend.domain import (  # noqa: F401
     OutcomeReview,
     ProviderRuntimeCredential,
     RetrievalContract,
+    RuntimeQueueDispatch,
     TenantOnboardingState,
     UserWorkforceAgent,
     WorkerLease,

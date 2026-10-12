@@ -21,8 +21,8 @@ class MissionRuntimeQueueAdmissionService:
     """Sole authority for materialized mission task queue admission.
 
     The service serializes admission on the tenant-owned mission, selects the
-    current materialization, enforces quota once for newly eligible tasks,
-    delegates queue transitions to ``ExecutionCoordinator``, persists the
+    current materialization, delegates atomic per-task admission and quota
+    accounting to ``ExecutionCoordinator``, persists the
     authoritative admission receipt, and returns the projection consumed by
     every mission-level API adapter.
     """
@@ -51,7 +51,6 @@ class MissionRuntimeQueueAdmissionService:
             runtime_queue_admission_blocker,
             runtime_queue_admission_response,
         )
-        from backend.services.mission_bridge.quota import quota_exceeded_response
 
         tenant_id_str = str(tenant_id)
         mission_repo = self._mission_repository_cls(self._db)
@@ -123,22 +122,26 @@ class MissionRuntimeQueueAdmissionService:
                 )
             )
 
-        if tasks_to_queue:
-            try:
-                self._quota_enforcement_service_cls(self._db).check_and_record_task_creation(
-                    tenant_id, count=len(tasks_to_queue)
-                )
-            except QuotaExceededError as exc:
-                raise quota_exceeded_response(exc) from exc
-
         coordinator = self._execution_coordinator_cls(self._db, self._queue)
         queued_task_ids: list[str] = []
         pending_review_task_ids: list[str] = []
         denied_tasks: list[dict[str, str | None]] = []
         for task in tasks_to_queue:
             try:
-                result = coordinator.queue_task(tenant_id=tenant_id_str, task_id=task.id)
-            except Exception as exc:
+                with self._db.begin_nested():
+                    result = coordinator.queue_task(tenant_id=tenant_id_str, task_id=task.id)
+            except QuotaExceededError as exc:
+                blockers.append(
+                    runtime_queue_admission_blocker(
+                        task_id=task.id,
+                        code="quota_exceeded",
+                        message="Task admission exceeded the tenant runtime quota.",
+                        state=task.status,
+                        reason=str(exc),
+                    )
+                )
+                continue
+            except ValueError as exc:
                 blockers.append(
                     runtime_queue_admission_blocker(
                         task_id=task.id,

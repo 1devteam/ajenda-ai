@@ -34,6 +34,7 @@ def _coordinator_with_denied_runtime(*, task: SimpleNamespace, queue: MagicMock 
     coordinator = ExecutionCoordinator(session, queue)
     coordinator._tasks = MagicMock()
     coordinator._tasks.get.return_value = task
+    coordinator._tasks.get_for_update.return_value = task
     coordinator._governor = MagicMock()
     coordinator._governor.evaluate.return_value = _denied_decision()
     coordinator._policy = MagicMock()

@@ -24,6 +24,7 @@ class LocalQueueAdapter(QueueAdapter):
         self._queue: deque[QueueMessage] = deque()
         self._claims: dict[tuple[str, uuid.UUID], tuple[str, QueueMessage]] = {}
         self._dead_letter: list[dict[str, object]] = []
+        self._dispatch_keys: set[str] = set()
 
     def ping(self) -> bool:
         return True
@@ -31,6 +32,30 @@ class LocalQueueAdapter(QueueAdapter):
     def enqueue_task(self, message: QueueMessage) -> QueueOperationResult:
         with self._lock:
             self._queue.append(message)
+        return QueueOperationResult(ok=True)
+
+    def enqueue_task_idempotent(
+        self,
+        message: QueueMessage,
+        *,
+        idempotency_key: str,
+    ) -> QueueOperationResult:
+        with self._lock:
+            if idempotency_key in self._dispatch_keys:
+                return QueueOperationResult(ok=True)
+            self._queue.append(message)
+            self._dispatch_keys.add(idempotency_key)
+        return QueueOperationResult(ok=True)
+
+    def cancel_task(self, *, tenant_id: str, task_id: uuid.UUID) -> QueueOperationResult:
+        with self._lock:
+            if (tenant_id, task_id) in self._claims:
+                return QueueOperationResult(ok=False, reason="task is processing with an active owner")
+            self._queue = deque(
+                message
+                for message in self._queue
+                if not (message.tenant_id == tenant_id and message.task_id == task_id)
+            )
         return QueueOperationResult(ok=True)
 
     def claim_task(self, *, tenant_id: str, worker_id: str) -> QueueMessage | None:

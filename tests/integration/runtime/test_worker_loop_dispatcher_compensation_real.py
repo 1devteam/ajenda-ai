@@ -11,7 +11,6 @@ from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers import worker_loop
 from backend.workers.worker_loop import WorkerLoop
@@ -62,12 +61,12 @@ def test_worker_loop_compensates_when_dispatcher_raises_against_real_runtime(
         setup_session.flush()
         task_id = task.id
 
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         queued = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
         )
         assert queued.ok is True
+        setup_session.commit()
 
         runtime = WorkerRuntimeService(setup_session, queue_adapter)
         claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)

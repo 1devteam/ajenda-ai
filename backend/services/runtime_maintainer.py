@@ -44,6 +44,7 @@ from backend.runtime.transitions import transition_lease, transition_task
 from backend.services.mission_composition.deliverable_runtime_read_model import (
     refresh_deliverable_completion_metadata,
 )
+from backend.services.runtime_queue_dispatcher import DispatchPublishSummary, RuntimeQueueDispatchService
 
 logger = logging.getLogger("ajenda.runtime_maintainer")
 
@@ -62,6 +63,7 @@ _TERMINAL_TASK_STATES = {
 _TERMINAL_QUEUE_CLEANUP_STATES = {
     ExecutionTaskState.COMPLETED.value,
     ExecutionTaskState.BLOCKED.value,
+    ExecutionTaskState.CANCELLED.value,
 }
 
 
@@ -72,6 +74,10 @@ class RecoverySummary:
     dead_lettered_count: int
     mismatched_state_count: int = 0
     deliverable_reconciled_count: int = 0
+    dispatch_published_count: int = 0
+    dispatch_retry_scheduled_count: int = 0
+    cancelled_dispatch_cleanup_count: int = 0
+    cancelled_dispatch_cleanup_failed_count: int = 0
 
 
 class RuntimeMaintainer:
@@ -95,6 +101,7 @@ class RuntimeMaintainer:
         self._expiry_seconds = expiry_seconds
         self._max_retries = max_retries
         self._audit = AuditEventRepository(session)
+        self._dispatches = RuntimeQueueDispatchService(session, queue)
 
     def recover_expired_leases(self) -> RecoverySummary:
         """Find expired leases and recover their associated tasks.
@@ -103,6 +110,7 @@ class RuntimeMaintainer:
         tasks, dead-lettered tasks, and claimed-task/active-lease mismatches.
         """
         threshold = datetime.now(UTC) - timedelta(seconds=self._expiry_seconds)
+        dispatch_summary = self.publish_runtime_queue_dispatches()
 
         stmt = (
             select(WorkerLease, ExecutionTask)
@@ -359,6 +367,10 @@ class RuntimeMaintainer:
                 "dead_lettered_tasks": dead_lettered_count,
                 "mismatched_states": mismatched_state_count,
                 "deliverable_reconciled": deliverable_reconciled_count,
+                "dispatch_published": dispatch_summary.published_count,
+                "dispatch_retry_scheduled": dispatch_summary.retry_scheduled_count,
+                "cancelled_dispatch_cleanup": dispatch_summary.cancelled_cleanup_count,
+                "cancelled_dispatch_cleanup_failed": dispatch_summary.cancelled_cleanup_failed_count,
             },
         )
 
@@ -368,7 +380,16 @@ class RuntimeMaintainer:
             dead_lettered_count=dead_lettered_count,
             mismatched_state_count=mismatched_state_count,
             deliverable_reconciled_count=deliverable_reconciled_count,
+            dispatch_published_count=dispatch_summary.published_count,
+            dispatch_retry_scheduled_count=dispatch_summary.retry_scheduled_count,
+            cancelled_dispatch_cleanup_count=dispatch_summary.cancelled_cleanup_count,
+            cancelled_dispatch_cleanup_failed_count=dispatch_summary.cancelled_cleanup_failed_count,
         )
+
+    def publish_runtime_queue_dispatches(self, *, limit: int = 25) -> DispatchPublishSummary:
+        """Publish committed dispatch intents and reconcile cancelled queue artifacts."""
+
+        return self._dispatches.publish_due(limit=limit)
 
     def reconcile_deliverable_read_models(self) -> int:
         """Refresh tenant-owned deliverable read models during maintenance.

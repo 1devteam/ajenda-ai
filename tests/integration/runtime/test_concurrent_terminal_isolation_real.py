@@ -13,7 +13,6 @@ from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
 pytestmark = pytest.mark.integration
@@ -73,8 +72,6 @@ def test_rg_mixed_tenant_concurrent_completion_cleanup_remains_isolated(
         task_b = _create_task(setup_session, tenant_b)
         task_a_id = task_a.id
         task_b_id = task_b.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         result_a = ExecutionCoordinator(setup_session, queue_adapter).queue_task(tenant_id=tenant_a, task_id=task_a_id)
         result_b = ExecutionCoordinator(setup_session, queue_adapter).queue_task(tenant_id=tenant_b, task_id=task_b_id)
         assert result_a.ok is True

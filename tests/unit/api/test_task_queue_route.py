@@ -52,11 +52,8 @@ def test_queue_task_route_returns_success_payload_when_task_is_queued() -> None:
         state="queued",
     )
 
-    quota_svc = MagicMock()
-
     with (
         patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
         result = queue_task(
@@ -67,8 +64,6 @@ def test_queue_task_route_returns_success_payload_when_task_is_queued() -> None:
             queue=queue,
         )
 
-    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
-    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
     assert result == {"task_id": str(task_id), "state": "queued"}
 
@@ -87,11 +82,8 @@ def test_queue_task_route_returns_400_when_task_not_found_for_tenant() -> None:
     task_repo.get.return_value = None
     coordinator = MagicMock()
 
-    quota_svc = MagicMock()
-
     with (
         patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
         with pytest.raises(HTTPException) as exc_info:
@@ -105,7 +97,6 @@ def test_queue_task_route_returns_400_when_task_not_found_for_tenant() -> None:
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "task not found for tenant"
-    quota_svc.check_and_record_task_creation.assert_not_called()
     coordinator.queue_task.assert_not_called()
 
 
@@ -127,11 +118,8 @@ def test_queue_task_route_returns_400_when_task_belongs_to_other_tenant() -> Non
     task_repo.get.return_value = task
     coordinator = MagicMock()
 
-    quota_svc = MagicMock()
-
     with (
         patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
         with pytest.raises(HTTPException) as exc_info:
@@ -145,7 +133,6 @@ def test_queue_task_route_returns_400_when_task_belongs_to_other_tenant() -> Non
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "task not found for tenant"
-    quota_svc.check_and_record_task_creation.assert_not_called()
     coordinator.queue_task.assert_not_called()
 
 
@@ -167,11 +154,8 @@ def test_queue_task_route_meters_existing_task_queueing() -> None:
     coordinator = MagicMock()
     coordinator.queue_task.return_value = CoordinationResult(ok=True, task_id=task_id, state="queued")
 
-    quota_svc = MagicMock()
-
     with (
         patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
         result = queue_task(
@@ -183,7 +167,6 @@ def test_queue_task_route_meters_existing_task_queueing() -> None:
         )
 
     assert result == {"task_id": str(task_id), "state": "queued"}
-    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
 
 
@@ -205,11 +188,8 @@ def test_queue_task_route_returns_400_when_coordinator_raises_value_error_after_
     coordinator = MagicMock()
     coordinator.queue_task.side_effect = ValueError("task is not queueable")
 
-    quota_svc = MagicMock()
-
     with (
         patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
         with pytest.raises(HTTPException) as exc_info:
@@ -223,8 +203,6 @@ def test_queue_task_route_returns_400_when_coordinator_raises_value_error_after_
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "task is not queueable"
-    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
-    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
 
 
@@ -246,11 +224,8 @@ def test_queue_task_route_returns_500_when_coordinator_raises_unexpected_excepti
     coordinator = MagicMock()
     coordinator.queue_task.side_effect = RuntimeError("queue path blew up")
 
-    quota_svc = MagicMock()
-
     with (
         patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
         with pytest.raises(RuntimeError, match="queue path blew up"):
@@ -262,7 +237,6 @@ def test_queue_task_route_returns_500_when_coordinator_raises_unexpected_excepti
                 queue=queue,
             )
 
-    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
 
 
@@ -289,11 +263,8 @@ def test_queue_task_route_returns_400_when_service_rejects_non_queueable_state()
         reason="task queue rejected by policy",
     )
 
-    quota_svc = MagicMock()
-
     with (
         patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
         with pytest.raises(HTTPException) as exc_info:
@@ -307,7 +278,6 @@ def test_queue_task_route_returns_400_when_service_rejects_non_queueable_state()
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "task queue rejected by policy"
-    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
 
 
@@ -334,11 +304,8 @@ def test_queue_task_route_returns_400_when_task_is_routed_to_pending_review() ->
         reason="human review required",
     )
 
-    quota_svc = MagicMock()
-
     with (
         patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
         with pytest.raises(HTTPException) as exc_info:
@@ -352,7 +319,6 @@ def test_queue_task_route_returns_400_when_task_is_routed_to_pending_review() ->
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "human review required"
-    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
     coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)
 
 
@@ -371,18 +337,15 @@ def test_queue_task_route_returns_structured_429_when_quota_exceeded_for_valid_t
 
     task_repo = MagicMock()
     task_repo.get.return_value = task
-    quota_svc = MagicMock()
-    quota_svc.check_and_record_task_creation.side_effect = QuotaExceededError(
+    coordinator = MagicMock()
+    coordinator.queue_task.side_effect = QuotaExceededError(
         field="tasks_per_month",
         limit=50,
         current=50,
         plan="free",
     )
-    coordinator = MagicMock()
-
     with (
         patch("backend.api.routes.task.ExecutionTaskRepository", return_value=task_repo),
-        patch("backend.api.routes.task.QuotaEnforcementService", return_value=quota_svc),
         patch("backend.api.routes.task.ExecutionCoordinator", return_value=coordinator),
     ):
         with pytest.raises(HTTPException) as exc_info:
@@ -403,4 +366,4 @@ def test_queue_task_route_returns_structured_429_when_quota_exceeded_for_valid_t
         "plan": "free",
         "message": "You have reached the tasks_per_month limit (50) for the 'free' plan. Upgrade to continue.",
     }
-    coordinator.queue_task.assert_not_called()
+    coordinator.queue_task.assert_called_once_with(tenant_id=str(tenant_id), task_id=task_id)

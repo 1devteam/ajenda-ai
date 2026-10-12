@@ -159,7 +159,7 @@ def test_gtm_high_risk_actions_require_guardian_role_at_launch() -> None:
     assert _principal_may_approve_gtm_side_effects(allowed) is True
 
 
-def test_launch_task_records_mission_and_task_quota_before_queueing() -> None:
+def test_launch_task_records_mission_quota_and_delegates_task_admission_quota() -> None:
     from backend.domain.execution_task import ExecutionTask
     from backend.domain.mission import Mission
 
@@ -192,7 +192,7 @@ def test_launch_task_records_mission_and_task_quota_before_queueing() -> None:
 
     quota_svc.check_tenant_active.assert_called_once_with(tenant_id)
     quota_svc.check_and_record_mission_creation.assert_called_once_with(tenant_id)
-    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
+    quota_svc.check_and_record_task_creation.assert_not_called()
     coordinator.queue_task.assert_called_once()
 
 
@@ -343,7 +343,7 @@ def test_launch_task_with_mission_id_skips_mission_quota_and_starts_planned_miss
         response = launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
 
     quota_svc.check_and_record_mission_creation.assert_not_called()
-    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
+    quota_svc.check_and_record_task_creation.assert_not_called()
     assert mission.status == MissionState.RUNNING.value
     assert response.mission_id == mission_id
 
@@ -382,7 +382,7 @@ def test_launch_task_with_mission_id_rejects_disallowed_action() -> None:
     assert exc_info.value.detail["code"] == "MISSION_ACTION_NOT_ALLOWED"
     assert "web.search" in exc_info.value.detail["message"]
     quota_svc.check_and_record_mission_creation.assert_not_called()
-    quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
+    quota_svc.check_and_record_task_creation.assert_not_called()
 
 
 def test_launch_task_returns_429_when_mission_quota_exceeded() -> None:

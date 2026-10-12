@@ -16,7 +16,6 @@ from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueMessage
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.runtime_maintainer import RuntimeMaintainer
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
@@ -111,7 +110,6 @@ def _create_running_task(pg_engine, queue_adapter, *, title: str) -> RunningTask
         setup_session.flush()
         task_id = task.id
 
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         queued = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
