@@ -7,9 +7,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID, PROFILE_CONTACT_RECORD_ID
 from backend.domain.tenant_internal_record import TenantInternalRecord
-from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.services.tools.record_types import SUPPORTED_RECORD_TYPES
 
 
@@ -219,35 +217,15 @@ class TenantInternalRecordRepository:
         self._session.flush()
         return dict(record)
 
-    def seed_defaults_if_empty(self, *, tenant_id: str) -> None:
+    def has_active_records(self, *, tenant_id: str) -> bool:
+        """Return whether the tenant owns any non-deleted internal record."""
+
         count = self._session.scalar(
             select(func.count())
             .select_from(TenantInternalRecord)
             .where(TenantInternalRecord.tenant_id == tenant_id, TenantInternalRecord.deleted.is_(False))
         )
-        if count:
-            return
-        if self._should_skip_demo_seed(tenant_id=tenant_id):
-            return
-        from backend.services.ajenda_demo_fixtures import seed_ajenda_live_demo
-
-        seed_ajenda_live_demo(session=self._session, tenant_id=tenant_id)
-
-    def _should_skip_demo_seed(self, *, tenant_id: str) -> bool:
-        for record_id in (PROFILE_ACCOUNT_RECORD_ID, PROFILE_CONTACT_RECORD_ID):
-            existing = self._session.scalars(
-                select(TenantInternalRecord).where(
-                    TenantInternalRecord.tenant_id == tenant_id,
-                    TenantInternalRecord.record_id == record_id,
-                    TenantInternalRecord.deleted.is_(False),
-                )
-            ).first()
-            if existing is not None:
-                return True
-        profile = BusinessProfileRepository(self._session).get_active_profile_for_tenant(tenant_id=tenant_id)
-        if profile is not None and isinstance(profile.approved_facts, dict) and profile.approved_facts:
-            return True
-        return False
+        return bool(count)
 
     @staticmethod
     def _validate_record_type(record_type: str) -> None:

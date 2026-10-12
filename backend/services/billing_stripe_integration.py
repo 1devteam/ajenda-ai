@@ -31,7 +31,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 import stripe
@@ -41,10 +41,15 @@ from backend.app.config import get_settings
 from backend.domain.tenant import Tenant
 from backend.repositories.stripe_webhook_event_repository import StripeWebhookEventRepository
 from backend.repositories.tenant_repository import TenantRepository
-from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.tenant_lifecycle import TenantLifecycleService
 
 logger = logging.getLogger(__name__)
+
+
+class SubscriptionQuotaGate(Protocol):
+    """Subscription-state boundary required by the Stripe facade."""
+
+    def check_tenant_active(self, tenant_id: UUID) -> None: ...
 
 
 class StripeWebhookProcessingError(Exception):
@@ -512,7 +517,7 @@ class StripeBillingService:
 
     @staticmethod
     def assert_subscription_active(
-        quota_service: QuotaEnforcementService,
+        quota_service: SubscriptionQuotaGate,
         tenant_id: UUID,
     ) -> None:
         """Hard gate: raise QuotaExceededError if the tenant subscription has lapsed.

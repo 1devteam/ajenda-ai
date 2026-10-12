@@ -22,7 +22,7 @@ from backend.services.ontology.evidence_lineage import (
     EvidenceLineageResolution,
     EvidenceOriginType,
 )
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -466,7 +466,7 @@ def _review_business_income(payload: DecisionRecommendInput, context: ActionRunt
     )
 
 
-def register_decision_actions(registry: ActionRegistry) -> None:
+def register_decision_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name="decision.recommend_next_action",

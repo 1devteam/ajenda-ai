@@ -14,7 +14,7 @@ from backend.services.capability_adapter_compatibility import (
     CapabilityAdapterDeclaration,
     validate_capability_adapter_compatibility,
 )
-from backend.services.tools.action_registry import ActionDefinition
+from backend.services.tools.action_registry_contracts import ActionDefinition
 from backend.services.tools.schemas import SideEffectClass, side_effect_authorized
 
 

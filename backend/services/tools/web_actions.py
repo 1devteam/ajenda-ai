@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.schemas import (
     ResearchObserveContactsInput,
     ResearchVerifyPublicIdentityInput,
@@ -16,7 +16,7 @@ from backend.services.tools.web_action_identity import research_verify_public_id
 from backend.services.tools.web_action_io import web_browser_session, web_open_write, web_page_read
 
 
-def register_web_actions(registry: ActionRegistry) -> None:
+def register_web_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name="web.page_read",

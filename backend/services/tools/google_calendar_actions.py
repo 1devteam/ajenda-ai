@@ -12,7 +12,7 @@ from backend.services.network_egress import (
     STRUCTURED_API_READ_RESPONSE_LIMIT,
     get_default_network_egress_authority,
 )
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.provider_read_actions import PROVIDER_EXTERNAL_READ_PROVIDER
 from backend.services.tools.schemas import (
     ActionResult,
@@ -189,7 +189,7 @@ def google_calendar_events_read(invocation: ToolInvocation, context: ActionRunti
     )
 
 
-def register_google_calendar_actions(registry: ActionRegistry) -> None:
+def register_google_calendar_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name=GOOGLE_CALENDAR_EVENTS_READ_ACTION,

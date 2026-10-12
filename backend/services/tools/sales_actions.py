@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.sales_action_followup import (
     sales_create_followup_task,
     sales_draft_followup,
@@ -26,7 +26,7 @@ from backend.services.tools.schemas import (
 from backend.services.tools.side_effect_resolvers import credential_reference_external_read
 
 
-def register_sales_actions(registry: ActionRegistry) -> None:
+def register_sales_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name="record.search", handler=record_search, provider="local_records", input_model=RecordSearchInput

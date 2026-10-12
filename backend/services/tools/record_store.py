@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from backend.db.tenant_session import activate_tenant_session
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.business_profile.context_resolver import resolve_business_context
+from backend.services.demo_tenant_bootstrap import DemoTenantBootstrapService
 from backend.services.tools.local_records import LocalRecordProvider, default_local_record_provider
 from backend.services.tools.schemas import ActionRuntimeContext
 
@@ -41,8 +42,9 @@ class RecordStore(Protocol):
 class DurableRecordStore:
     """Tenant-scoped durable record store backed by Postgres."""
 
-    def __init__(self, repository: TenantInternalRecordRepository) -> None:
-        self._repo = repository
+    def __init__(self, session: Session) -> None:
+        self._repo = TenantInternalRecordRepository(session)
+        self._demo_bootstrap = DemoTenantBootstrapService(session)
 
     def search_records(
         self,
@@ -53,7 +55,7 @@ class DurableRecordStore:
         filters: dict[str, Any] | None = None,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        self._repo.seed_defaults_if_empty(tenant_id=tenant_id)
+        self._demo_bootstrap.ensure_seeded_if_empty(tenant_id=tenant_id)
         return self._repo.search_records(
             tenant_id=tenant_id,
             record_type=record_type,
@@ -63,7 +65,7 @@ class DurableRecordStore:
         )
 
     def read_record(self, *, tenant_id: str, record_type: str, record_id: str) -> dict[str, Any] | None:
-        self._repo.seed_defaults_if_empty(tenant_id=tenant_id)
+        self._demo_bootstrap.ensure_seeded_if_empty(tenant_id=tenant_id)
         return self._repo.read_record(tenant_id=tenant_id, record_type=record_type, record_id=record_id)
 
     def write_record(
@@ -97,7 +99,7 @@ class SessionScopedDurableRecordStore:
         session = self._session_factory()
         try:
             activate_tenant_session(session, self._tenant_id)
-            result = operation(DurableRecordStore(TenantInternalRecordRepository(session)))
+            result = operation(DurableRecordStore(session))
             session.commit()
             return result
         except Exception:

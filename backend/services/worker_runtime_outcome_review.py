@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.outcome_review import OutcomeReview
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
-
-if TYPE_CHECKING:
-    from backend.services.worker_runtime_service import WorkerRuntimeService
+from backend.services.worker_runtime_contracts import WorkerRuntimeCollaborator
 
 
-def gtm_side_effect_was_real(service: WorkerRuntimeService, task_output: dict[str, Any]) -> bool:
+def gtm_side_effect_was_real(service: WorkerRuntimeCollaborator, task_output: dict[str, Any]) -> bool:
     nested = task_output.get("output")
     if isinstance(nested, dict) and "real" in nested:
         return bool(nested.get("real"))
@@ -18,7 +16,7 @@ def gtm_side_effect_was_real(service: WorkerRuntimeService, task_output: dict[st
 
 
 def is_high_risk_gtm_side_effect(
-    service: WorkerRuntimeService, task: ExecutionTask, task_output: dict[str, Any] | None
+    service: WorkerRuntimeCollaborator, task: ExecutionTask, task_output: dict[str, Any] | None
 ) -> bool:
     if not task_output or not isinstance(task_output, dict):
         return False
@@ -32,7 +30,7 @@ def is_high_risk_gtm_side_effect(
 
 
 def create_draft_outcome_review(
-    service: WorkerRuntimeService,
+    service: WorkerRuntimeCollaborator,
     *,
     task: ExecutionTask,
     task_output: dict[str, Any],

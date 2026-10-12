@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.local_calendar import LocalCalendarProvider, default_local_calendar_provider
 from backend.services.tools.schemas import (
     ActionResult,
@@ -88,7 +88,7 @@ def calendar_create_event(invocation: ToolInvocation, context: ActionRuntimeCont
     )
 
 
-def register_calendar_actions(registry: ActionRegistry) -> None:
+def register_calendar_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name="calendar.read", handler=calendar_read, provider="local_calendar", input_model=CalendarReadInput

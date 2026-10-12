@@ -13,6 +13,7 @@ from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.business_profile.record_sync import sync_profile_to_internal_records
+from backend.services.demo_tenant_bootstrap import DemoTenantBootstrapService
 from backend.services.ontology.product_knowledge import ProductKnowledge
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
@@ -157,7 +158,7 @@ def test_profile_synced_records_are_discoverable_via_hybrid_search(pg_engine) ->
     try:
         activate_tenant_session(verify, tenant_id)
         internal_repo = TenantInternalRecordRepository(verify)
-        internal_repo.seed_defaults_if_empty(tenant_id=tenant_id)
+        DemoTenantBootstrapService(verify).ensure_seeded_if_empty(tenant_id=tenant_id)
         account = internal_repo.read_record(
             tenant_id=tenant_id,
             record_type="account",

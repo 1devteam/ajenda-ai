@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
@@ -11,15 +10,13 @@ from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
 from backend.runtime.transitions import transition_lease
-
-if TYPE_CHECKING:
-    from backend.services.worker_runtime_service import WorkerRuntimeService
+from backend.services.worker_runtime_contracts import WorkerRuntimeCollaborator
 
 logger = logging.getLogger("ajenda.worker_runtime_queue_reconciliation")
 
 
 def reconcile_claimed_terminal_queue_artifact(
-    service: WorkerRuntimeService,
+    service: WorkerRuntimeCollaborator,
     *,
     tenant_id: str,
     task: ExecutionTask,
@@ -96,7 +93,7 @@ def reconcile_claimed_terminal_queue_artifact(
 
 
 def record_terminal_queue_cleanup_failure(
-    service: WorkerRuntimeService,
+    service: WorkerRuntimeCollaborator,
     *,
     tenant_id: str,
     task: ExecutionTask,
@@ -158,7 +155,7 @@ def record_terminal_queue_cleanup_failure(
 
 
 def assert_current_releasable_claim(
-    service: WorkerRuntimeService,
+    service: WorkerRuntimeCollaborator,
     *,
     tenant_id: str,
     lease: WorkerLease,
@@ -174,7 +171,7 @@ def assert_current_releasable_claim(
         raise ValueError("lease is not current task claim")
 
 
-def assert_no_active_lease(service: WorkerRuntimeService, *, tenant_id: str, task_id: uuid.UUID) -> None:
+def assert_no_active_lease(service: WorkerRuntimeCollaborator, *, tenant_id: str, task_id: uuid.UUID) -> None:
     stmt = select(WorkerLease).where(
         WorkerLease.tenant_id == tenant_id,
         WorkerLease.task_id == task_id,
@@ -185,7 +182,7 @@ def assert_no_active_lease(service: WorkerRuntimeService, *, tenant_id: str, tas
         raise ValueError("task already has an active lease")
 
 
-def transition_lease_to_released(service: WorkerRuntimeService, lease: WorkerLease) -> None:
+def transition_lease_to_released(service: WorkerRuntimeCollaborator, lease: WorkerLease) -> None:
     if lease.status == WorkerLeaseState.RELEASED.value:
         return
     if lease.status == WorkerLeaseState.CLAIMED.value:

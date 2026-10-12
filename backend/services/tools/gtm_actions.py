@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from backend.services.credentials.runtime_authority import CredentialRequirement
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.gtm_action_crm import crm_upsert_handler
 from backend.services.tools.gtm_action_drafts import email_draft_handler, social_draft_handler
 from backend.services.tools.gtm_action_email import email_check_handler, email_send_handler
@@ -22,7 +22,7 @@ from backend.services.tools.schemas import (
 from backend.services.tools.side_effect_resolvers import credential_reference_external_write
 
 
-def register_gtm_actions(registry: ActionRegistry) -> None:
+def register_gtm_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name="gtm.lead_enrich",

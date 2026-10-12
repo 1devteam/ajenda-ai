@@ -36,7 +36,7 @@ from backend.services.ontology.evidence_lineage import (
 )
 from backend.services.ontology.knowledge_qualification import KnowledgeQualificationResult
 from backend.services.ontology.observation_attribution import ObservationVerificationBasis
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.decision_actions import decision_recommend_next_action
 from backend.services.tools.evidence_bridge import (
     require_canonical_source_observation_evidence,
@@ -789,7 +789,7 @@ class _NoMutationSession:
         raise AssertionError(f"ineligible qualification attempted session operation {name}")
 
 
-def register_knowledge_actions(registry: ActionRegistry) -> None:
+def register_knowledge_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name="knowledge.inform_decision",

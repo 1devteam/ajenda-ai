@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 from backend.db.tenant_session import activate_tenant_session
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -94,7 +94,7 @@ def _derive_stable_event_id(*, invocation: ToolInvocation, context: ActionRuntim
     )
 
 
-def register_webhook_actions(registry: ActionRegistry) -> None:
+def register_webhook_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name="webhook.dispatch",

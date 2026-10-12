@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Protocol
 
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.evidence import EVIDENCE_CONTRACT_SCHEMA_VERSION, EvidenceRecord
@@ -9,6 +9,17 @@ from backend.services.mission_composition.artifact_schemas import (
     validate_artifact_payload,
 )
 from backend.services.tools.mission_input_binding import handler_output_for_task
+
+
+class WorkerRuntimeCollaborator(Protocol):
+    """Narrow structural boundary consumed by worker-runtime helper modules."""
+
+    _session: Any
+    _queue: Any
+    _audit: Any
+    _tasks: Any
+
+    def _maybe_rollup_mission_status(self, *, task: ExecutionTask, worker_id: str) -> None: ...
 
 
 def _mirror_task_output_to_metadata(task_output: dict[str, Any]) -> dict[str, Any]:

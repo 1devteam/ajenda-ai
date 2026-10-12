@@ -23,7 +23,7 @@ import threading
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, TypedDict, cast
+from typing import Any, cast
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -32,24 +32,28 @@ from backend.domain.execution_task import ExecutionTask
 from backend.queue.base import QueueAdapter
 from backend.services.tools.schemas import SideEffectClass
 from backend.services.worker_runtime_service import WorkerRuntimeService
+from backend.workers.handler_registry import (
+    HANDLER_REGISTRY as _HANDLER_REGISTRY,
+)
+from backend.workers.handler_registry import (
+    OUTPUT_REASON_BY_TASK_TYPE as _OUTPUT_REASON_BY_TASK_TYPE,
+)
+from backend.workers.handler_registry import (
+    TaskHandler as TaskHandler,
+)
+from backend.workers.handler_registry import (
+    TaskHandlerContext,
+)
+from backend.workers.handler_registry import (
+    normalize_task_type as _normalize_task_type,
+)
+from backend.workers.handler_registry import (
+    register_handler as _register_handler,
+)
 
 logger = logging.getLogger("ajenda.task_dispatcher")
 
 
-class TaskHandlerContext(TypedDict, total=False):
-    """Runtime context passed into task handlers."""
-
-    worker_id: str
-    tenant_id: str
-    lease_id: str
-    session_factory: Any
-    vector_session_factory: Any
-
-
-TaskHandler = Callable[[ExecutionTask, TaskHandlerContext], dict[str, Any]]
-
-_HANDLER_REGISTRY: dict[str, TaskHandler] = {}
-_OUTPUT_REASON_BY_TASK_TYPE: dict[str, str] = {}
 _HEARTBEAT_INTERVAL = 15.0  # seconds
 _TOOL_INVOKE_TASK_TYPE = "tool.invoke"
 _TOOL_INVOKE_HANDLER = "tool.invoke"
@@ -61,39 +65,14 @@ def register_handler(
     *,
     output_reason: str | None = None,
 ) -> Callable[[TaskHandler], TaskHandler]:
-    """Decorator to register a handler for a specific task type."""
+    """Compatibility facade over the decoupled handler registry."""
 
-    normalized_task_type = _normalize_task_type(task_type)
-    normalized_output_reason = _normalize_output_reason(output_reason)
-
-    def decorator(fn: TaskHandler) -> TaskHandler:
-        if normalized_task_type in _HANDLER_REGISTRY:
-            raise ValueError(f"task handler already registered for task_type='{normalized_task_type}'")
-
-        _HANDLER_REGISTRY[normalized_task_type] = fn
-        if normalized_output_reason is not None:
-            _OUTPUT_REASON_BY_TASK_TYPE[normalized_task_type] = normalized_output_reason
-
-        logger.info("task_handler_registered", extra={"task_type": normalized_task_type})
-        return fn
-
-    return decorator
-
-
-def _normalize_task_type(task_type: str) -> str:
-    normalized_task_type = task_type.strip()
-    if not normalized_task_type:
-        raise ValueError("task_type must be a non-empty string")
-    return normalized_task_type
-
-
-def _normalize_output_reason(output_reason: str | None) -> str | None:
-    if output_reason is None:
-        return None
-    normalized_output_reason = output_reason.strip()
-    if not normalized_output_reason:
-        raise ValueError("output_reason must be a non-empty string when provided")
-    return normalized_output_reason
+    return _register_handler(
+        task_type,
+        output_reason=output_reason,
+        registry=_HANDLER_REGISTRY,
+        output_reasons=_OUTPUT_REASON_BY_TASK_TYPE,
+    )
 
 
 def _task_type_for_task(task: ExecutionTask) -> str:
@@ -452,4 +431,4 @@ def echo_handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, 
 # Import additive handler package after built-in registrations so modular task
 # handlers register through the same dispatcher registry without altering worker
 # loop, queue, lease, or runtime state-machine authority.
-from backend.workers import handlers as _registered_handlers  # noqa: E402,F401
+import backend.workers.handlers as _registered_handlers  # noqa: E402,F401
