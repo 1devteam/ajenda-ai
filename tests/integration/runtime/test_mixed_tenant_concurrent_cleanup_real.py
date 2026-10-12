@@ -14,7 +14,6 @@ from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.runtime_maintainer import RuntimeMaintainer
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
@@ -118,8 +117,6 @@ def test_rg_mixed_tenant_post_race_completion_cleanup_stays_isolated(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
@@ -181,8 +178,8 @@ def test_rg_mixed_tenant_post_race_completion_cleanup_stays_isolated(
     finally:
         completion_session.close()
 
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:processing") == 0
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_a}:v2:processing-payloads") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_b}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_a}:lease:{task_a.id}") is None
     assert redis_client.get(f"ajenda:queue:{tenant_b}:lease:{task_b.id}") is None
 
@@ -234,8 +231,6 @@ def test_rg_mixed_tenant_post_race_recovery_cleanup_stays_isolated(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
@@ -299,12 +294,12 @@ def test_rg_mixed_tenant_post_race_recovery_cleanup_stays_isolated(
     finally:
         recovery_session.close()
 
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:processing") == 0
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_a}:v2:processing-payloads") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_b}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_a}:lease:{task_a.id}") is None
     assert redis_client.get(f"ajenda:queue:{tenant_b}:lease:{task_b.id}") is None
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:pending") >= 1
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:pending") >= 1
+    assert redis_client.zcard(f"ajenda:queue:{tenant_a}:v2:pending-order") >= 1
+    assert redis_client.zcard(f"ajenda:queue:{tenant_b}:v2:pending-order") >= 1
 
     verify_session = session_factory()
     try:
@@ -356,8 +351,6 @@ def test_rg_mixed_tenant_post_race_dead_letter_cleanup_stays_isolated(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
@@ -419,12 +412,12 @@ def test_rg_mixed_tenant_post_race_dead_letter_cleanup_stays_isolated(
     finally:
         recovery_session.close()
 
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:processing") == 0
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_a}:v2:processing-payloads") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_b}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_a}:lease:{task_a.id}") is None
     assert redis_client.get(f"ajenda:queue:{tenant_b}:lease:{task_b.id}") is None
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:pending") == 0
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:pending") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_a}:v2:pending-order") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_b}:v2:pending-order") == 0
 
     verify_session = session_factory()
     try:
@@ -474,8 +467,6 @@ def test_rg_mixed_tenant_asymmetric_post_race_cleanup_stays_isolated(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
@@ -548,12 +539,12 @@ def test_rg_mixed_tenant_asymmetric_post_race_cleanup_stays_isolated(
     finally:
         mutation_session.close()
 
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:processing") == 0
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_a}:v2:processing-payloads") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_b}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_a}:lease:{task_a.id}") is None
     assert redis_client.get(f"ajenda:queue:{tenant_b}:lease:{task_b.id}") is None
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:pending") == 0
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:pending") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_a}:v2:pending-order") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_b}:v2:pending-order") == 0
 
     verify_session = session_factory()
     try:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -16,7 +15,6 @@ from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueMessage
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.runtime_maintainer import RuntimeMaintainer
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
@@ -33,28 +31,26 @@ class RunningTaskFixture:
 
 
 def _queue_key(*, tenant_id: str, name: str) -> str:
-    return f"ajenda:queue:{tenant_id}:{name}"
+    suffixes = {
+        "pending": "v2:pending-order",
+        "pending_payloads": "v2:pending-payloads",
+        "processing": "v2:processing-payloads",
+    }
+    return f"ajenda:queue:{tenant_id}:{suffixes[name]}"
 
 
 def _lease_key(*, tenant_id: str, task_id: uuid.UUID) -> str:
     return f"ajenda:queue:{tenant_id}:lease:{task_id}"
 
 
-def _decode_task_ids(redis_client, *, tenant_id: str, name: str) -> list[str]:
-    values = redis_client.lrange(_queue_key(tenant_id=tenant_id, name=name), 0, -1)
-    task_ids: list[str] = []
-    for raw in values:
-        payload = json.loads(raw)
-        task_ids.append(str(payload["task_id"]))
-    return task_ids
-
-
 def _pending_count(redis_client, *, tenant_id: str, task_id: uuid.UUID) -> int:
-    return _decode_task_ids(redis_client, tenant_id=tenant_id, name="pending").count(str(task_id))
+    score = redis_client.zscore(_queue_key(tenant_id=tenant_id, name="pending"), str(task_id))
+    return int(score is not None)
 
 
 def _processing_count(redis_client, *, tenant_id: str, task_id: uuid.UUID) -> int:
-    return _decode_task_ids(redis_client, tenant_id=tenant_id, name="processing").count(str(task_id))
+    exists = redis_client.hexists(_queue_key(tenant_id=tenant_id, name="processing"), str(task_id))
+    return int(exists)
 
 
 def _create_running_task(pg_engine, queue_adapter, *, title: str) -> RunningTaskFixture:
@@ -111,7 +107,6 @@ def _create_running_task(pg_engine, queue_adapter, *, title: str) -> RunningTask
         setup_session.flush()
         task_id = task.id
 
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         queued = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
@@ -177,7 +172,7 @@ def _recover(fixture: RunningTaskFixture, queue_adapter) -> None:
         recovery_session.close()
 
 
-def test_running_recovery_does_not_duplicate_when_payload_already_pending(
+def test_running_recovery_rejects_duplicate_admission_and_requeues_once(
     pg_engine,
     queue_adapter,
     redis_client,
@@ -192,12 +187,13 @@ def test_running_recovery_does_not_duplicate_when_payload_already_pending(
     try:
         message = _queue_message_for(session, task_id=fixture.task_id)
         result = queue_adapter.enqueue_task(message)
-        assert result.ok is True
+        assert result.ok is False
+        assert result.reason == "task already processing"
     finally:
         session.close()
 
     assert _processing_count(redis_client, tenant_id=fixture.tenant_id, task_id=fixture.task_id) == 1
-    assert _pending_count(redis_client, tenant_id=fixture.tenant_id, task_id=fixture.task_id) == 1
+    assert _pending_count(redis_client, tenant_id=fixture.tenant_id, task_id=fixture.task_id) == 0
 
     _recover(fixture, queue_adapter)
 
@@ -218,8 +214,9 @@ def test_running_recovery_fails_closed_when_payload_missing_from_processing_and_
 
     processing_key = _queue_key(tenant_id=fixture.tenant_id, name="processing")
     pending_key = _queue_key(tenant_id=fixture.tenant_id, name="pending")
+    pending_payloads_key = _queue_key(tenant_id=fixture.tenant_id, name="pending_payloads")
     lease_key = _lease_key(tenant_id=fixture.tenant_id, task_id=fixture.task_id)
-    redis_client.delete(processing_key, pending_key, lease_key)
+    redis_client.delete(processing_key, pending_key, pending_payloads_key, lease_key)
 
     with pytest.raises(RuntimeError, match="task not found in processing or pending queue"):
         _recover(fixture, queue_adapter)
@@ -242,7 +239,7 @@ def test_running_recovery_fails_closed_when_payload_missing_from_processing_and_
     assert _pending_count(redis_client, tenant_id=fixture.tenant_id, task_id=fixture.task_id) == 0
 
 
-def test_running_recovery_converges_with_single_pending_payload_for_same_task(
+def test_running_recovery_fails_closed_on_dual_pending_and_processing_state(
     pg_engine,
     queue_adapter,
     redis_client,
@@ -256,17 +253,32 @@ def test_running_recovery_converges_with_single_pending_payload_for_same_task(
     session = fixture.session_factory()
     try:
         message = _queue_message_for(session, task_id=fixture.task_id)
-        first_duplicate = queue_adapter.enqueue_task(message)
-        second_duplicate = queue_adapter.enqueue_task(message)
-        assert first_duplicate.ok is True
-        assert second_duplicate.ok is True
+        redis_client.hset(
+            _queue_key(tenant_id=fixture.tenant_id, name="pending_payloads"),
+            str(fixture.task_id),
+            queue_adapter._encode_message(message),
+        )
+        redis_client.zadd(
+            _queue_key(tenant_id=fixture.tenant_id, name="pending"),
+            {str(fixture.task_id): 1},
+        )
     finally:
         session.close()
 
     assert _processing_count(redis_client, tenant_id=fixture.tenant_id, task_id=fixture.task_id) == 1
-    assert _pending_count(redis_client, tenant_id=fixture.tenant_id, task_id=fixture.task_id) == 2
-
-    _recover(fixture, queue_adapter)
-
-    assert _processing_count(redis_client, tenant_id=fixture.tenant_id, task_id=fixture.task_id) == 0
     assert _pending_count(redis_client, tenant_id=fixture.tenant_id, task_id=fixture.task_id) == 1
+
+    with pytest.raises(RuntimeError, match="task exists in both pending and processing queues"):
+        _recover(fixture, queue_adapter)
+
+    assert _processing_count(redis_client, tenant_id=fixture.tenant_id, task_id=fixture.task_id) == 1
+    assert _pending_count(redis_client, tenant_id=fixture.tenant_id, task_id=fixture.task_id) == 1
+
+    cleanup_session = fixture.session_factory()
+    try:
+        lease = cleanup_session.get(WorkerLease, fixture.lease_id)
+        assert lease is not None
+        lease.status = WorkerLeaseState.EXPIRED.value
+        cleanup_session.commit()
+    finally:
+        cleanup_session.close()

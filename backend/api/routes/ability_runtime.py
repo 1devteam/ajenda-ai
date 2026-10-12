@@ -292,7 +292,6 @@ def launch_task(
     try:
         if body.mission_id is None:
             quota.check_and_record_mission_creation(tenant_id)
-        quota.check_and_record_task_creation(tenant_id)
     except QuotaExceededError as exc:
         from backend.api.errors import quota_exceeded_http
 
@@ -366,10 +365,15 @@ def launch_task(
             )
         )
 
-    queued = ExecutionCoordinator(db, queue).queue_task(
-        tenant_id=str(tenant_id),
-        task_id=task.id,
-    )
+    try:
+        queued = ExecutionCoordinator(db, queue).queue_task(
+            tenant_id=str(tenant_id),
+            task_id=task.id,
+        )
+    except QuotaExceededError as exc:
+        from backend.api.errors import quota_exceeded_http
+
+        raise quota_exceeded_http(exc) from exc
     if not queued.ok:
         if queued.state == ExecutionTaskState.PENDING_REVIEW.value:
             db.commit()

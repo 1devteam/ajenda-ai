@@ -14,7 +14,6 @@ from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
 
@@ -57,9 +56,9 @@ def test_worker_executes_tool_invoke_task_and_persists_evidence_shaped_output(
         setup_session.add(task)
         setup_session.flush()
         task_id = task.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         queued = ExecutionCoordinator(setup_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task_id)
         assert queued.ok is True
+        setup_session.commit()
         runtime = WorkerRuntimeService(setup_session, queue_adapter)
         claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
         assert claimed is not None
@@ -116,7 +115,7 @@ def test_worker_executes_tool_invoke_task_and_persists_evidence_shaped_output(
         assert evidence.structured_payload["count"] >= 1
         assert evidence.materialization_reference["lineage_record_id"] == str(lineage[0].id)
         assert evidence.artifact_references[0]["lineage_record_id"] == str(lineage[0].id)
-        assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+        assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
     finally:
         verify_session.close()

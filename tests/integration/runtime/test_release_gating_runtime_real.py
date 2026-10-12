@@ -14,12 +14,13 @@ from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.governance_event import GovernanceEvent
 from backend.domain.mission import Mission
+from backend.domain.runtime_queue_dispatch import RuntimeQueueDispatch
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueMessage, QueueOperationResult
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.runtime_maintainer import RuntimeMaintainer
+from backend.services.runtime_queue_dispatcher import RuntimeQueueDispatchService
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers import task_dispatcher as task_dispatcher_module
 from backend.workers.task_dispatcher import TaskDispatcher
@@ -99,15 +100,15 @@ def test_rg_queue_admission_end_to_end(pg_session, queue_adapter, redis_client) 
     _create_tenant(pg_session, tenant_id)
     task = _create_task(pg_session, tenant_id)
 
-    QuotaEnforcementService(pg_session).check_and_record_task_creation(uuid.UUID(tenant_id))
     result = ExecutionCoordinator(pg_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task.id)
-    pg_session.flush()
-
     assert result.ok is True
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") == 0
+
+    pg_session.commit()
     pg_session.refresh(task)
     assert task.status == ExecutionTaskState.QUEUED.value
 
-    pending_len = redis_client.llen(f"ajenda:queue:{tenant_id}:pending")
+    pending_len = redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order")
     assert pending_len >= 1
     assert "queued" in _audit_actions(pg_session, tenant_id)
 
@@ -121,23 +122,26 @@ def test_rg_queue_interruption_rolls_back_authoritative_state(
     _create_tenant(pg_session, tenant_id)
     task = _create_task(pg_session, tenant_id)
 
-    QuotaEnforcementService(pg_session).check_and_record_task_creation(uuid.UUID(tenant_id))
-
     def interrupted_enqueue(*args, **kwargs) -> QueueOperationResult:
         return QueueOperationResult(ok=False, reason="redis unavailable during enqueue")
 
-    monkeypatch.setattr(queue_adapter, "enqueue_task", interrupted_enqueue)
+    monkeypatch.setattr(queue_adapter, "enqueue_task_idempotent", interrupted_enqueue)
 
     coordinator = ExecutionCoordinator(pg_session, queue_adapter)
-    with pytest.raises(ValueError, match="redis unavailable during enqueue"):
-        coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
+    result = coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
+    assert result.ok is True
+    pg_session.commit()
 
     pg_session.refresh(task)
     actions = _audit_actions(pg_session, tenant_id)
+    dispatch = pg_session.scalar(select(RuntimeQueueDispatch).where(RuntimeQueueDispatch.task_id == task.id))
 
-    assert task.status == ExecutionTaskState.PLANNED.value
+    assert task.status == ExecutionTaskState.QUEUED.value
     assert task.retry_count == 0
-    assert "queued" not in actions
+    assert dispatch is not None
+    assert dispatch.status == "pending"
+    assert dispatch.last_error == "redis unavailable during enqueue"
+    assert "queued" in actions
     assert "task_pending_review" not in actions
 
 
@@ -151,36 +155,37 @@ def test_rg_queue_retry_after_transient_interruption_succeeds_cleanly(
     _create_tenant(pg_session, tenant_id)
     task = _create_task(pg_session, tenant_id)
 
-    QuotaEnforcementService(pg_session).check_and_record_task_creation(uuid.UUID(tenant_id))
-
-    original_enqueue = queue_adapter.enqueue_task
+    original_enqueue = queue_adapter.enqueue_task_idempotent
     attempts = {"count": 0}
 
-    def flaky_enqueue(message):
+    def flaky_enqueue(message, *, idempotency_key):
         attempts["count"] += 1
         if attempts["count"] == 1:
             return QueueOperationResult(ok=False, reason="redis unavailable during enqueue")
-        return original_enqueue(message)
+        return original_enqueue(message, idempotency_key=idempotency_key)
 
-    monkeypatch.setattr(queue_adapter, "enqueue_task", flaky_enqueue)
+    monkeypatch.setattr(queue_adapter, "enqueue_task_idempotent", flaky_enqueue)
 
     coordinator = ExecutionCoordinator(pg_session, queue_adapter)
-    with pytest.raises(ValueError, match="redis unavailable during enqueue"):
-        coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
-
-    pg_session.refresh(task)
-    assert task.status == ExecutionTaskState.PLANNED.value
-
     result = coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
-    pg_session.flush()
+    assert result.ok is True
+    pg_session.commit()
+
+    dispatch = pg_session.scalar(select(RuntimeQueueDispatch).where(RuntimeQueueDispatch.task_id == task.id))
+    assert dispatch is not None
+    assert dispatch.status == "pending"
+    dispatch.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
+    pg_session.commit()
+    summary = RuntimeQueueDispatchService(pg_session, queue_adapter).publish_due()
+
     pg_session.refresh(task)
     actions = _audit_actions(pg_session, tenant_id)
 
-    assert result.ok is True
+    assert summary.published_count == 1
     assert attempts["count"] == 2
     assert task.status == ExecutionTaskState.QUEUED.value
     assert actions.count("queued") == 1
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") >= 1
 
 
 def test_rg_queued_work_survives_service_restart_boundary_and_claims_once(
@@ -203,7 +208,6 @@ def test_rg_queued_work_survives_service_restart_boundary_and_claims_once(
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
 
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
@@ -218,7 +222,7 @@ def test_rg_queued_work_survives_service_restart_boundary_and_claims_once(
         queued_task = restart_session.get(ExecutionTask, task_id)
         assert queued_task is not None
         assert queued_task.status == ExecutionTaskState.QUEUED.value
-        assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
+        assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") >= 1
 
         restarted_runtime = WorkerRuntimeService(restart_session, queue_adapter)
         claimed = restarted_runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
@@ -265,12 +269,12 @@ def test_rg_claimed_lease_survives_restart_boundary_and_completes_once(
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
 
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
         )
         assert result.ok is True
+        setup_session.commit()
 
         runtime = WorkerRuntimeService(setup_session, queue_adapter)
         claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
@@ -313,7 +317,7 @@ def test_rg_claimed_lease_survives_restart_boundary_and_completes_once(
         assert final_task.status == ExecutionTaskState.COMPLETED.value
         assert final_lease is not None
         assert final_lease.status == WorkerLeaseState.RELEASED.value
-        assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+        assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
         assert actions.count("task_completed") == 1
     finally:
@@ -349,7 +353,6 @@ def test_rg_concurrent_claim_timing_yields_one_claim_and_one_lease(
         _create_tenant(setup_session, tenant_id)
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
@@ -424,8 +427,6 @@ def test_rg_mixed_tenant_concurrent_claims_remain_isolated(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         result_a = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_a,
             task_id=task_a.id,
@@ -506,8 +507,8 @@ def test_rg_happy_execution_flow(pg_session, queue_adapter, redis_client) -> Non
     _create_tenant(pg_session, tenant_id)
     task = _create_task(pg_session, tenant_id)
 
-    QuotaEnforcementService(pg_session).check_and_record_task_creation(uuid.UUID(tenant_id))
     ExecutionCoordinator(pg_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task.id)
+    pg_session.commit()
 
     runtime = WorkerRuntimeService(pg_session, queue_adapter)
     claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
@@ -523,7 +524,7 @@ def test_rg_happy_execution_flow(pg_session, queue_adapter, redis_client) -> Non
     lease = pg_session.get(WorkerLease, lease_id)
     assert lease is not None
     assert lease.status == WorkerLeaseState.RELEASED.value
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task.id}") is None
     assert "task_completed" in _audit_actions(pg_session, tenant_id)
 
@@ -549,8 +550,8 @@ def test_rg_long_running_dispatcher_maintains_midflight_heartbeat(
         task = _create_task(setup_session, tenant_id, metadata_json={"task_type": task_type})
         task_id = task.id
 
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         ExecutionCoordinator(setup_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task_id)
+        setup_session.commit()
 
         runtime = WorkerRuntimeService(setup_session, queue_adapter)
         claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
@@ -639,8 +640,8 @@ def test_rg_started_work_interrupted_before_completion_recovers_safely(
     _create_tenant(pg_session, tenant_id)
     task = _create_task(pg_session, tenant_id)
 
-    QuotaEnforcementService(pg_session).check_and_record_task_creation(uuid.UUID(tenant_id))
     ExecutionCoordinator(pg_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task.id)
+    pg_session.commit()
 
     runtime = WorkerRuntimeService(pg_session, queue_adapter)
     claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
@@ -671,7 +672,7 @@ def test_rg_started_work_interrupted_before_completion_recovers_safely(
     assert lease.status == WorkerLeaseState.EXPIRED.value, (
         "releasing the Redis processing claim must not relabel the expired database lease as released"
     )
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") >= 1
     assert "lease_expired_task_requeued" in actions
     assert "task_completed" not in actions
     assert "task_failed" not in actions
@@ -687,8 +688,8 @@ def test_rg_duplicate_completion_rejected_without_processing_regression(
     _create_tenant(pg_session, tenant_id)
     task = _create_task(pg_session, tenant_id)
 
-    QuotaEnforcementService(pg_session).check_and_record_task_creation(uuid.UUID(tenant_id))
     ExecutionCoordinator(pg_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task.id)
+    pg_session.commit()
 
     runtime = WorkerRuntimeService(pg_session, queue_adapter)
     claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
@@ -717,7 +718,7 @@ def test_rg_duplicate_completion_rejected_without_processing_regression(
 
     assert task.status == ExecutionTaskState.COMPLETED.value
     assert lease.status == WorkerLeaseState.RELEASED.value
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task.id}") is None
     assert first_completed_audit_count == 1
     assert second_completed_audit_count == 1
@@ -729,8 +730,8 @@ def test_rg_forced_failure_path(pg_session, queue_adapter, redis_client) -> None
     _create_tenant(pg_session, tenant_id)
     task = _create_task(pg_session, tenant_id, metadata_json={"task_type": "force_fail"})
 
-    QuotaEnforcementService(pg_session).check_and_record_task_creation(uuid.UUID(tenant_id))
     ExecutionCoordinator(pg_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task.id)
+    pg_session.commit()
 
     runtime = WorkerRuntimeService(pg_session, queue_adapter)
     claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
@@ -741,7 +742,7 @@ def test_rg_forced_failure_path(pg_session, queue_adapter, redis_client) -> None
     pg_session.flush()
 
     assert failed.status == ExecutionTaskState.FAILED.value
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:dead_letter") >= 1
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:dead-letter-order") >= 1
     assert "task_failed" in _audit_actions(pg_session, tenant_id)
 
 
@@ -883,8 +884,8 @@ def test_rg_duplicate_active_lease_claim_rejected_with_queue_compensation(
     _create_tenant(pg_session, tenant_id)
     task = _create_task(pg_session, tenant_id)
 
-    QuotaEnforcementService(pg_session).check_and_record_task_creation(uuid.UUID(tenant_id))
     ExecutionCoordinator(pg_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task.id)
+    pg_session.commit()
 
     existing_lease = WorkerLease(
         tenant_id=tenant_id,
@@ -913,8 +914,8 @@ def test_rg_duplicate_active_lease_claim_rejected_with_queue_compensation(
     assert len(leases) == 1
     assert leases[0].id == existing_lease.id
     assert leases[0].status == WorkerLeaseState.ACTIVE.value
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") >= 1
+    assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task.id}") is None
 
 
@@ -930,7 +931,6 @@ def test_rg_pending_review_policy_gate(pg_session, queue_adapter, redis_client) 
         metadata_json={},
     )
 
-    QuotaEnforcementService(pg_session).check_and_record_task_creation(uuid.UUID(tenant_id))
     result = ExecutionCoordinator(pg_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task.id)
     pg_session.flush()
 
@@ -938,7 +938,7 @@ def test_rg_pending_review_policy_gate(pg_session, queue_adapter, redis_client) 
     pg_session.refresh(task)
     assert task.status == ExecutionTaskState.PENDING_REVIEW.value
     assert task.requires_human_review is True
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") == 0
 
     actions = _audit_actions(pg_session, tenant_id)
     assert "task_pending_review" in actions
@@ -954,7 +954,7 @@ def test_rg_dead_letter_queue_interruption_rolls_back_authoritative_state(
     _create_tenant(pg_session, tenant_id)
     task = _create_task(pg_session, tenant_id, status=ExecutionTaskState.FAILED)
 
-    initial_dead_letter_len = redis_client.llen(f"ajenda:queue:{tenant_id}:dead_letter")
+    initial_dead_letter_len = redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:dead-letter-order")
 
     def interrupted_dead_letter_move(*args, **kwargs) -> QueueOperationResult:
         return QueueOperationResult(ok=False, reason="redis unavailable during dead-letter move")
@@ -979,4 +979,4 @@ def test_rg_dead_letter_queue_interruption_rolls_back_authoritative_state(
 
     assert task.status == ExecutionTaskState.FAILED.value
     assert governance_events == []
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:dead_letter") == initial_dead_letter_len
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:dead-letter-order") == initial_dead_letter_len

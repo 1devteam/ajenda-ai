@@ -10,6 +10,7 @@ from backend.db.base import Base
 from backend.domain import (  # noqa: F401
     AssuranceSnapshot,
     AuditEvent,
+    BillingMeterDispatch,
     BusinessProfile,
     BusinessProfileSuggestion,
     Capability,
@@ -26,6 +27,7 @@ from backend.domain import (  # noqa: F401
     OutcomeReview,
     ProviderRuntimeCredential,
     RetrievalContract,
+    RuntimeQueueDispatch,
     TenantOnboardingState,
     UserWorkforceAgent,
     WorkerLease,

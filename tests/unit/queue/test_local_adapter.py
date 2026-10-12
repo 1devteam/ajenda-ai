@@ -32,6 +32,32 @@ def test_pending_depth_counts_only_matching_tenant_pending_messages() -> None:
     assert adapter.pending_depth(tenant_id="tenant-c") == 0
 
 
+def test_idempotent_enqueue_publishes_one_message_for_dispatch_key() -> None:
+    adapter = LocalQueueAdapter()
+    message = _message()
+
+    assert adapter.enqueue_task_idempotent(message, idempotency_key="dispatch-1").ok
+    assert adapter.enqueue_task_idempotent(message, idempotency_key="dispatch-1").ok
+
+    assert adapter.pending_depth(tenant_id="tenant-a") == 1
+
+
+def test_cancel_task_removes_pending_but_never_overrides_active_owner() -> None:
+    adapter = LocalQueueAdapter()
+    pending = _message()
+    claimed = _message()
+    adapter.enqueue_task(pending)
+    adapter.enqueue_task(claimed)
+    assert adapter.claim_task(tenant_id="tenant-a", worker_id="worker-1") == pending
+
+    denied = adapter.cancel_task(tenant_id="tenant-a", task_id=pending.task_id)
+    removed = adapter.cancel_task(tenant_id="tenant-a", task_id=claimed.task_id)
+
+    assert denied.ok is False
+    assert removed.ok is True
+    assert adapter.pending_depth(tenant_id="tenant-a") == 0
+
+
 def test_complete_task_removes_claimed_message_and_lease_without_requeue() -> None:
     adapter = LocalQueueAdapter()
     message = _message()

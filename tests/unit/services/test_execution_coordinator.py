@@ -63,6 +63,17 @@ def _coordinator_with_task(*, task: SimpleNamespace, queue: MagicMock | None = N
     coordinator._policy.evaluate_task.return_value = _policy_allowed()
     coordinator._governance = MagicMock()
     coordinator._audit = MagicMock()
+    coordinator._dispatches = MagicMock()
+    admitted = False
+
+    def _admit(*, task: SimpleNamespace, held_for_review: bool):
+        nonlocal admitted
+        created = not admitted
+        admitted = True
+        return MagicMock(status="held_review" if held_for_review else "pending"), created
+
+    coordinator._dispatches.admit.side_effect = _admit
+    coordinator._quota = MagicMock()
     return coordinator
 
 
@@ -107,26 +118,24 @@ def test_require_task_returns_task_for_matching_tenant() -> None:
     assert result is task
 
 
-def test_queue_task_restores_previous_planned_state_when_enqueue_fails() -> None:
+def test_queue_task_does_not_publish_to_queue_before_commit() -> None:
     tenant_id = str(uuid.uuid4())
     task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PLANNED.value)
     queue = MagicMock()
-    queue.enqueue_task.return_value = QueueOperationResult(ok=False, reason="redis unavailable")
     coordinator = _coordinator_with_task(task=task, queue=queue)
 
-    with pytest.raises(ValueError, match="redis unavailable"):
-        coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
+    result = coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
 
-    assert task.status == ExecutionTaskState.PLANNED.value
-    assert coordinator._session.flush.call_count == 2
-    coordinator._audit.append.assert_not_called()
+    assert result.ok is True
+    assert task.status == ExecutionTaskState.QUEUED.value
+    queue.enqueue_task.assert_not_called()
+    queue.enqueue_task_idempotent.assert_not_called()
 
 
-def test_queue_task_enqueues_after_transitioning_planned_task_to_queued() -> None:
+def test_queue_task_records_dispatch_after_transitioning_planned_task_to_queued() -> None:
     tenant_id = str(uuid.uuid4())
     task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PLANNED.value)
     queue = MagicMock()
-    queue.enqueue_task.return_value = QueueOperationResult(ok=True)
     coordinator = _coordinator_with_task(task=task, queue=queue)
 
     result = coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
@@ -134,25 +143,23 @@ def test_queue_task_enqueues_after_transitioning_planned_task_to_queued() -> Non
     assert result.ok is True
     assert result.state == ExecutionTaskState.QUEUED.value
     assert task.status == ExecutionTaskState.QUEUED.value
-    queue.enqueue_task.assert_called_once()
-    queued_message = queue.enqueue_task.call_args.args[0]
-    assert queued_message.tenant_id == tenant_id
-    assert queued_message.task_id == task.id
-    assert queued_message.payload == task.metadata_json
+    coordinator._dispatches.admit.assert_called_once_with(task=task, held_for_review=False)
+    coordinator._quota.check_and_record_task_creation.assert_called_once_with(uuid.UUID(tenant_id))
+    queue.enqueue_task.assert_not_called()
     coordinator._audit.append.assert_called_once()
 
 
-def test_queue_task_preserves_previous_retryable_state_on_enqueue_failure() -> None:
+def test_queue_task_rejects_invalid_running_transition_before_dispatch() -> None:
     tenant_id = str(uuid.uuid4())
-    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.FAILED.value)
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.RUNNING.value)
     queue = MagicMock()
-    queue.enqueue_task.return_value = QueueOperationResult(ok=False, reason=None)
     coordinator = _coordinator_with_task(task=task, queue=queue)
 
-    with pytest.raises(ValueError, match="queue enqueue failed"):
+    with pytest.raises(Exception):
         coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
 
-    assert task.status == ExecutionTaskState.FAILED.value
+    assert task.status == ExecutionTaskState.RUNNING.value
+    coordinator._dispatches.admit.assert_not_called()
     coordinator._audit.append.assert_not_called()
 
 
@@ -160,15 +167,19 @@ def test_approve_review_queues_pending_review_task() -> None:
     tenant_id = str(uuid.uuid4())
     task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PENDING_REVIEW.value)
     queue = MagicMock()
-    queue.enqueue_task.return_value = QueueOperationResult(ok=True)
     coordinator = _coordinator_with_task(task=task, queue=queue)
+    coordinator._dispatches.admit.return_value = (MagicMock(status="pending"), False)
 
     result = coordinator.approve_review_and_queue(tenant_id=tenant_id, task_id=task.id, actor="admin-test")
 
     assert result.ok is True
     assert result.state == ExecutionTaskState.QUEUED.value
-    coordinator._tasks.get_for_update.assert_called_once_with(task.id)
-    queue.enqueue_task.assert_called_once()
+    assert coordinator._tasks.get_for_update.call_args_list == [
+        ((task.id,), {}),
+        ((task.id,), {}),
+    ]
+    queue.enqueue_task.assert_not_called()
+    coordinator._dispatches.admit.assert_called_once_with(task=task, held_for_review=False)
     assert coordinator._governance.append.call_args.args[0].event_type == "human_review_approved"
     assert coordinator._audit.append.call_count == 2
     receipt = coordinator._session.scalar.return_value.metadata_json[MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY]
@@ -176,14 +187,14 @@ def test_approve_review_queues_pending_review_task() -> None:
     assert receipt["pending_review_execution_task_ids"] == []
 
 
-def test_reviewed_queue_admission_receipt_is_not_updated_when_enqueue_fails() -> None:
+def test_reviewed_queue_admission_receipt_is_not_updated_when_dispatch_release_fails() -> None:
     tenant_id = str(uuid.uuid4())
     task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PENDING_REVIEW.value)
     queue = MagicMock()
-    queue.enqueue_task.return_value = QueueOperationResult(ok=False, reason="redis unavailable")
     coordinator = _coordinator_with_task(task=task, queue=queue)
+    coordinator._dispatches.admit.side_effect = ValueError("held dispatch missing")
 
-    with pytest.raises(ValueError, match="redis unavailable"):
+    with pytest.raises(ValueError, match="held dispatch missing"):
         coordinator.approve_review_and_queue(tenant_id=tenant_id, task_id=task.id, actor="admin-test")
 
     coordinator._session.scalar.assert_not_called()
@@ -193,14 +204,14 @@ def test_reviewed_queue_admission_fails_closed_when_receipt_is_missing() -> None
     tenant_id = str(uuid.uuid4())
     task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PENDING_REVIEW.value)
     queue = MagicMock()
-    queue.enqueue_task.return_value = QueueOperationResult(ok=True)
     coordinator = _coordinator_with_task(task=task, queue=queue)
+    coordinator._dispatches.admit.return_value = (MagicMock(status="pending"), False)
     coordinator._session.scalar.return_value.metadata_json = {}
 
     with pytest.raises(ValueError, match="runtime queue admission receipt is missing"):
         coordinator.approve_review_and_queue(tenant_id=tenant_id, task_id=task.id, actor="admin-test")
 
-    queue.enqueue_task.assert_called_once()
+    queue.enqueue_task.assert_not_called()
     assert coordinator._governance.append.call_count == 0
 
 
@@ -243,8 +254,10 @@ def test_side_effect_task_requires_review_then_approval_issues_exact_action_gran
     assert grant["reason"] == "human_review_approved"
     assert grant["approved_by"] == "admin:user-123"
     assert grant["revoked_at"] is None
-    queued = queue.enqueue_task.call_args.args[0]
-    assert queued.payload == task.metadata_json
+    assert coordinator._dispatches.admit.call_args_list[-1].kwargs == {
+        "task": task,
+        "held_for_review": False,
+    }
     assert side_effect_authorized(
         task.metadata_json,
         "gtm.email_send",
@@ -348,7 +361,7 @@ def test_side_effect_approval_binds_dependency_outputs_before_hashing_and_queuei
         tenant_id=tenant_id,
         task_id=task.id,
     )
-    assert queue.enqueue_task.call_args.args[0].payload["tool_invocation"] == invocation
+    assert coordinator._dispatches.admit.call_args.kwargs["task"].metadata_json["tool_invocation"] == invocation
 
 
 def test_side_effect_approval_fails_closed_before_dependencies_complete() -> None:

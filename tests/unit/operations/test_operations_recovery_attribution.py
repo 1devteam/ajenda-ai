@@ -31,6 +31,9 @@ class _Maintainer:
             requeued_task_count=2,
             dead_lettered_count=1,
             mismatched_state_count=4,
+            billing_meter_delivered_count=5,
+            billing_meter_retry_scheduled_count=6,
+            billing_meter_skipped_count=7,
         )
 
 
@@ -53,4 +56,7 @@ def test_manual_global_recovery_records_human_trigger_identity() -> None:
     assert all(event.actor == "user:admin-1" for event in service._audit.events)
     assert service._audit.events[0].payload_json["trigger_source"] == "manual_api"
     assert service._audit.events[1].payload_json["mismatched_state_count"] == 4
+    assert service._audit.events[1].payload_json["billing_meter_delivered_count"] == 5
+    assert service._audit.events[1].payload_json["billing_meter_retry_scheduled_count"] == 6
+    assert service._audit.events[1].payload_json["billing_meter_skipped_count"] == 7
     assert service._session.commit_count == 2

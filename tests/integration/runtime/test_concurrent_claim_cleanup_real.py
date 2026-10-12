@@ -14,7 +14,6 @@ from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.runtime_maintainer import RuntimeMaintainer
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
@@ -71,7 +70,6 @@ def test_rg_concurrent_claim_race_leaves_no_duplicate_processing_residue(
         _create_tenant(setup_session, tenant_id)
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
@@ -121,7 +119,7 @@ def test_rg_concurrent_claim_race_leaves_no_duplicate_processing_residue(
 
     success_ids = [value for value in results.values() if value is not None]
     assert success_ids == [str(task_id)]
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 1
+    assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 1
     lease_key = redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}")
     assert lease_key is not None
 
@@ -161,7 +159,6 @@ def test_rg_concurrent_claim_winner_completes_with_clean_terminal_cleanup(
         _create_tenant(setup_session, tenant_id)
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
@@ -236,7 +233,7 @@ def test_rg_concurrent_claim_winner_completes_with_clean_terminal_cleanup(
     finally:
         completion_session.close()
 
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
 
     verify_session = session_factory()
@@ -274,7 +271,6 @@ def test_rg_concurrent_claim_winner_recovery_requeues_once_without_duplicate_res
         _create_tenant(setup_session, tenant_id)
         task = _create_task(setup_session, tenant_id)
         task_id = task.id
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_id))
         result = ExecutionCoordinator(setup_session, queue_adapter).queue_task(
             tenant_id=tenant_id,
             task_id=task_id,
@@ -349,9 +345,9 @@ def test_rg_concurrent_claim_winner_recovery_requeues_once_without_duplicate_res
     finally:
         stale_session.close()
 
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") >= 1
 
     verify_session = session_factory()
     try:

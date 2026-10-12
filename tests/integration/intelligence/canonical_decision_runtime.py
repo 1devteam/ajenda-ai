@@ -20,7 +20,6 @@ from backend.domain.worker_lease import WorkerLease
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.ontology.decision_feedback import DecisionLearningSignal
-from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
 from tests.integration.credentials._invoke_authority_helpers import (
@@ -120,9 +119,9 @@ def execute_canonical_action(
             )
         )
         setup.flush()
-        QuotaEnforcementService(setup).check_and_record_task_creation(uuid.UUID(tenant_id))
         queued = ExecutionCoordinator(setup, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task_id)
         assert queued.ok is True
+        setup.commit()
         runtime = WorkerRuntimeService(setup, queue_adapter)
         claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
         assert claimed is not None

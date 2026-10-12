@@ -14,7 +14,6 @@ from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.runtime_maintainer import RuntimeMaintainer
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
@@ -118,8 +117,6 @@ def test_rg_mixed_tenant_selective_recovery_leaves_healthy_claim_untouched(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
@@ -178,12 +175,12 @@ def test_rg_mixed_tenant_selective_recovery_leaves_healthy_claim_untouched(
     finally:
         recovery_session.close()
 
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:processing") == 1
+    assert redis_client.hlen(f"ajenda:queue:{tenant_a}:v2:processing-payloads") == 1
     assert redis_client.get(f"ajenda:queue:{tenant_a}:lease:{task_a.id}") is not None
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:pending") == 0
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:processing") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_a}:v2:pending-order") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_b}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_b}:lease:{task_b.id}") is None
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:pending") >= 1
+    assert redis_client.zcard(f"ajenda:queue:{tenant_b}:v2:pending-order") >= 1
 
     verify_session = session_factory()
     try:
@@ -235,8 +232,6 @@ def test_rg_mixed_tenant_selective_recovery_dead_letters_only_expired_tenant(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
@@ -296,12 +291,12 @@ def test_rg_mixed_tenant_selective_recovery_dead_letters_only_expired_tenant(
     finally:
         recovery_session.close()
 
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:processing") == 1
+    assert redis_client.hlen(f"ajenda:queue:{tenant_a}:v2:processing-payloads") == 1
     assert redis_client.get(f"ajenda:queue:{tenant_a}:lease:{task_a.id}") is not None
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:pending") == 0
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:processing") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_a}:v2:pending-order") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_b}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_b}:lease:{task_b.id}") is None
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:pending") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_b}:v2:pending-order") == 0
 
     verify_session = session_factory()
     try:
@@ -353,8 +348,6 @@ def test_rg_mixed_tenant_selective_recovery_preserves_healthy_running_tenant(
         _create_tenant(setup_session, tenant_b)
         task_a = _create_task(setup_session, tenant_a)
         task_b = _create_task(setup_session, tenant_b)
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_a))
-        QuotaEnforcementService(setup_session).check_and_record_task_creation(uuid.UUID(tenant_b))
         assert (
             ExecutionCoordinator(setup_session, queue_adapter)
             .queue_task(
@@ -421,12 +414,12 @@ def test_rg_mixed_tenant_selective_recovery_preserves_healthy_running_tenant(
     finally:
         mutation_session.close()
 
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:processing") == 1
+    assert redis_client.hlen(f"ajenda:queue:{tenant_a}:v2:processing-payloads") == 1
     assert redis_client.get(f"ajenda:queue:{tenant_a}:lease:{task_a.id}") is not None
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:pending") == 0
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:processing") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_a}:v2:pending-order") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_b}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_b}:lease:{task_b.id}") is None
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:pending") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_b}:v2:pending-order") == 0
 
     verify_session = session_factory()
     try:

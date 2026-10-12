@@ -66,12 +66,12 @@ def test_materialized_tasks_require_post_commit_queue_admission_and_execute_once
     tenant_id = str(uuid.uuid4())
     session_factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
-    pending_key = f"ajenda:queue:{tenant_id}:pending"
-    processing_key = f"ajenda:queue:{tenant_id}:processing"
-    dead_letter_key = f"ajenda:queue:{tenant_id}:dead_letter"
-    pending_baseline = redis_client.llen(pending_key)
-    processing_baseline = redis_client.llen(processing_key)
-    dead_letter_baseline = redis_client.hlen(dead_letter_key)
+    pending_key = f"ajenda:queue:{tenant_id}:v2:pending-order"
+    processing_key = f"ajenda:queue:{tenant_id}:v2:processing-payloads"
+    dead_letter_key = f"ajenda:queue:{tenant_id}:v2:dead-letter-order"
+    pending_baseline = redis_client.zcard(pending_key)
+    processing_baseline = redis_client.hlen(processing_key)
+    dead_letter_baseline = redis_client.zcard(dead_letter_key)
 
     seed = session_factory()
     try:
@@ -154,9 +154,9 @@ def test_materialized_tasks_require_post_commit_queue_admission_and_execute_once
     finally:
         verify.close()
 
-    assert redis_client.llen(pending_key) == pending_baseline
-    assert redis_client.llen(processing_key) == processing_baseline
-    assert redis_client.hlen(dead_letter_key) == dead_letter_baseline
+    assert redis_client.zcard(pending_key) == pending_baseline
+    assert redis_client.hlen(processing_key) == processing_baseline
+    assert redis_client.zcard(dead_letter_key) == dead_letter_baseline
 
 
 def test_runtime_queue_admission_route_admits_current_materialized_tasks_real(
@@ -250,6 +250,9 @@ def test_runtime_queue_admission_route_admits_current_materialized_tasks_real(
         queued_task = pg_session.get(ExecutionTask, uuid.UUID(task_id))
         assert queued_task is not None
         assert queued_task.status == ExecutionTaskState.QUEUED.value
+
+    assert queue_adapter.pending_depth(tenant_id=str(tenant.id)) == 0
+    pg_session.commit()
 
     claimed_ids = set()
     for index in range(2):

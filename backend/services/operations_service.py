@@ -129,6 +129,9 @@ class OperationsService:
                     "requeued_task_count": summary.requeued_task_count,
                     "dead_lettered_count": summary.dead_lettered_count,
                     "mismatched_state_count": summary.mismatched_state_count,
+                    "billing_meter_delivered_count": summary.billing_meter_delivered_count,
+                    "billing_meter_retry_scheduled_count": summary.billing_meter_retry_scheduled_count,
+                    "billing_meter_skipped_count": summary.billing_meter_skipped_count,
                 },
             )
         )

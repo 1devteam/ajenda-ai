@@ -21,247 +21,473 @@ class RedisProtocolError(RuntimeError):
 
 
 class RedisQueueAdapter(QueueAdapter):
-    """Redis-backed list queue adapter.
+    """Indexed, tenant-scoped Redis queue with atomic owner-safe transitions.
 
-    Queue model:
-    - pending list:    ajenda:queue:{tenant_id}:pending
-    - processing list: ajenda:queue:{tenant_id}:processing
-    - dead-letter list: ajenda:queue:{tenant_id}:dead_letter
-    - heartbeat key:   ajenda:queue:{tenant_id}:lease:{task_id}
+    Pending order is a sorted set while payloads and processing/dead-letter
+    state are hashes keyed by task id. Task-specific lifecycle operations are
+    O(1) hash lookups plus O(log n) sorted-set updates and never scan a full
+    tenant queue.
 
-    This adapter is intentionally strict:
-    - ping() performs a real Redis PING
-    - mutating methods fail closed on Redis errors
-    - claim_task() returns None only when Redis checked the queue and it was empty
+    The first operation for a tenant atomically migrates the legacy list
+    representation. Migration fails closed on malformed or duplicate task
+    identities and on legacy writes that appear after migration.
     """
 
-    _RECOVER_TASK_FOR_RETRY_SCRIPT = """
-local processing_key = KEYS[1]
-local pending_key = KEYS[2]
-local lease_key = KEYS[3]
-local task_id = ARGV[1]
+    _MIGRATE_LEGACY_SCRIPT = """
+local legacy_pending = KEYS[1]
+local legacy_processing = KEYS[2]
+local legacy_dead = KEYS[3]
+local pending_order = KEYS[4]
+local pending_payloads = KEYS[5]
+local processing_payloads = KEYS[6]
+local dead_order = KEYS[7]
+local dead_payloads = KEYS[8]
+local sequence_key = KEYS[9]
+local schema_key = KEYS[10]
+local expected_tenant_id = ARGV[1]
 
-local function payload_task_id(raw)
+local function key_type(key)
+    local value = redis.call("TYPE", key)
+    if type(value) == "table" then return value["ok"] end
+    return value
+end
+
+local function legacy_is_empty(key)
+    local kind = key_type(key)
+    if kind == "none" then return true end
+    if kind ~= "list" then return false end
+    return redis.call("LLEN", key) == 0
+end
+
+if redis.call("EXISTS", schema_key) == 1 then
+    if not legacy_is_empty(legacy_pending)
+        or not legacy_is_empty(legacy_processing)
+        or not legacy_is_empty(legacy_dead) then
+        return {0, "legacy queue received data after indexed migration"}
+    end
+    return {1, "ready"}
+end
+
+for _, key in ipairs({legacy_pending, legacy_processing, legacy_dead}) do
+    local kind = key_type(key)
+    if kind ~= "none" and kind ~= "list" then
+        return {0, "legacy queue key has unexpected type"}
+    end
+end
+for _, key in ipairs({pending_order, dead_order}) do
+    local kind = key_type(key)
+    if kind ~= "none" and kind ~= "zset" then
+        return {0, "indexed order key has unexpected type"}
+    end
+end
+for _, key in ipairs({pending_payloads, processing_payloads, dead_payloads}) do
+    local kind = key_type(key)
+    if kind ~= "none" and kind ~= "hash" then
+        return {0, "indexed payload key has unexpected type"}
+    end
+end
+
+if redis.call("EXISTS", pending_order) == 1
+    or redis.call("EXISTS", pending_payloads) == 1
+    or redis.call("EXISTS", processing_payloads) == 1
+    or redis.call("EXISTS", dead_order) == 1
+    or redis.call("EXISTS", dead_payloads) == 1 then
+    return {0, "partial indexed queue exists without schema marker"}
+end
+
+local pending_rows = {}
+local processing_rows = {}
+local dead_rows = {}
+local seen_live = {}
+local seen_dead = {}
+
+for _, raw in ipairs(redis.call("LRANGE", legacy_pending, 0, -1)) do
     local ok, payload = pcall(cjson.decode, raw)
-    if not ok or type(payload) ~= "table" then
-        return nil
+    if not ok or type(payload) ~= "table" or payload["task_id"] == nil then
+        return {0, "legacy pending payload is corrupt"}
     end
-    if payload["task_id"] == nil then
-        return nil
+    local task_id = tostring(payload["task_id"])
+    if payload["tenant_id"] == nil or tostring(payload["tenant_id"]) ~= expected_tenant_id then
+        return {0, "legacy pending payload tenant mismatch"}
     end
-    return tostring(payload["task_id"])
-end
-
-local processing_values = redis.call("LRANGE", processing_key, 0, -1)
-local pending_values = redis.call("LRANGE", pending_key, 0, -1)
-local canonical_payload = nil
-local kept_processing = {}
-local kept_pending = {}
-
-for _, raw in ipairs(pending_values) do
-    if payload_task_id(raw) == task_id then
-        if canonical_payload == nil then
-            canonical_payload = raw
-        end
-    else
-        table.insert(kept_pending, raw)
+    if seen_live[task_id] then
+        return {0, "legacy queue contains duplicate live task"}
     end
+    seen_live[task_id] = true
+    table.insert(pending_rows, {task_id, raw})
 end
-
-for _, raw in ipairs(processing_values) do
-    if payload_task_id(raw) == task_id then
-        if canonical_payload == nil then
-            canonical_payload = raw
-        end
-    else
-        table.insert(kept_processing, raw)
+for _, raw in ipairs(redis.call("LRANGE", legacy_processing, 0, -1)) do
+    local ok, payload = pcall(cjson.decode, raw)
+    if not ok or type(payload) ~= "table" or payload["task_id"] == nil then
+        return {0, "legacy processing payload is corrupt"}
     end
+    local task_id = tostring(payload["task_id"])
+    if payload["tenant_id"] == nil or tostring(payload["tenant_id"]) ~= expected_tenant_id then
+        return {0, "legacy processing payload tenant mismatch"}
+    end
+    if seen_live[task_id] then
+        return {0, "legacy queue contains duplicate live task"}
+    end
+    seen_live[task_id] = true
+    table.insert(processing_rows, {task_id, raw})
+end
+for _, raw in ipairs(redis.call("LRANGE", legacy_dead, 0, -1)) do
+    local ok, envelope = pcall(cjson.decode, raw)
+    if not ok or type(envelope) ~= "table" or envelope["task_id"] == nil then
+        return {0, "legacy dead-letter payload is corrupt"}
+    end
+    local task_id = tostring(envelope["task_id"])
+    local payload = envelope["payload"]
+    if type(payload) ~= "table"
+        or payload["tenant_id"] == nil
+        or tostring(payload["tenant_id"]) ~= expected_tenant_id then
+        return {0, "legacy dead-letter payload tenant mismatch"}
+    end
+    if seen_dead[task_id] then
+        return {0, "legacy queue contains duplicate dead-letter task"}
+    end
+    seen_dead[task_id] = true
+    table.insert(dead_rows, {task_id, raw})
 end
 
-if canonical_payload == nil then
-    return {0, "task not found in processing or pending queue"}
+for _, row in ipairs(pending_rows) do
+    local score = redis.call("INCR", sequence_key)
+    redis.call("HSET", pending_payloads, row[1], row[2])
+    redis.call("ZADD", pending_order, score, row[1])
 end
+for _, row in ipairs(processing_rows) do
+    redis.call("HSET", processing_payloads, row[1], row[2])
+end
+for _, row in ipairs(dead_rows) do
+    local score = redis.call("INCR", sequence_key)
+    redis.call("HSET", dead_payloads, row[1], row[2])
+    redis.call("ZADD", dead_order, score, row[1])
+end
+redis.call("DEL", legacy_pending)
+redis.call("DEL", legacy_processing)
+redis.call("DEL", legacy_dead)
+redis.call("SET", schema_key, "indexed-v2")
+return {1, "migrated"}
+"""
 
-table.insert(kept_pending, canonical_payload)
-redis.call("DEL", processing_key)
-redis.call("DEL", pending_key)
+    _ENQUEUE_SCRIPT = """
+local pending_order = KEYS[1]
+local pending_payloads = KEYS[2]
+local processing_payloads = KEYS[3]
+local sequence_key = KEYS[4]
+local task_id = ARGV[1]
+local payload = ARGV[2]
+if redis.call("HEXISTS", processing_payloads, task_id) == 1 then
+    return {0, "task already processing"}
+end
+if redis.call("HEXISTS", pending_payloads, task_id) == 1 then
+    return {0, "task already pending"}
+end
+local score = redis.call("INCR", sequence_key)
+redis.call("HSET", pending_payloads, task_id, payload)
+redis.call("ZADD", pending_order, score, task_id)
+return {1, "published"}
+"""
 
-for _, raw in ipairs(kept_processing) do
-    redis.call("RPUSH", processing_key, raw)
+    _IDEMPOTENT_ENQUEUE_SCRIPT = """
+local pending_order = KEYS[1]
+local pending_payloads = KEYS[2]
+local processing_payloads = KEYS[3]
+local sequence_key = KEYS[4]
+local idempotency_key = KEYS[5]
+local task_id = ARGV[1]
+local payload = ARGV[2]
+if redis.call("EXISTS", idempotency_key) == 1 then
+    return {1, "already_published"}
 end
-for _, raw in ipairs(kept_pending) do
-    redis.call("RPUSH", pending_key, raw)
+if redis.call("HEXISTS", processing_payloads, task_id) == 1 then
+    return {0, "task already processing"}
 end
-redis.call("DEL", lease_key)
-return {1, "ok"}
+if redis.call("HEXISTS", pending_payloads, task_id) == 1 then
+    return {0, "task already pending"}
+end
+local score = redis.call("INCR", sequence_key)
+redis.call("HSET", pending_payloads, task_id, payload)
+redis.call("ZADD", pending_order, score, task_id)
+redis.call("SET", idempotency_key, "published")
+return {1, "published"}
+"""
+
+    _CANCEL_PENDING_TASK_SCRIPT = """
+local pending_order = KEYS[1]
+local pending_payloads = KEYS[2]
+local processing_payloads = KEYS[3]
+local task_id = ARGV[1]
+if redis.call("HEXISTS", processing_payloads, task_id) == 1 then
+    return {0, "task is processing with an active owner"}
+end
+redis.call("ZREM", pending_order, task_id)
+redis.call("HDEL", pending_payloads, task_id)
+return {1, "cancelled"}
+"""
+
+    _CLAIM_NEXT_TASK_SCRIPT = """
+local pending_order = KEYS[1]
+local pending_payloads = KEYS[2]
+local processing_payloads = KEYS[3]
+local lease_prefix = ARGV[1]
+local worker_id = ARGV[2]
+local ttl_seconds = ARGV[3]
+local first = redis.call("ZRANGE", pending_order, 0, 0)
+if #first == 0 then return {0, "empty"} end
+local task_id = first[1]
+local payload = redis.call("HGET", pending_payloads, task_id)
+if payload == false then return {0, "pending index is missing payload"} end
+local lease_key = lease_prefix .. task_id
+if redis.call("EXISTS", lease_key) == 1 then
+    return {0, "task already claimed by different worker"}
+end
+redis.call("ZREM", pending_order, task_id)
+redis.call("HDEL", pending_payloads, task_id)
+redis.call("HSET", processing_payloads, task_id, payload)
+redis.call("SET", lease_key, worker_id, "EX", ttl_seconds)
+return {1, payload}
 """
 
     _CLAIM_EXISTING_TASK_SCRIPT = """
-local pending_key = KEYS[1]
-local processing_key = KEYS[2]
-local lease_key = KEYS[3]
+local pending_order = KEYS[1]
+local pending_payloads = KEYS[2]
+local processing_payloads = KEYS[3]
+local lease_key = KEYS[4]
 local task_id = ARGV[1]
 local worker_id = ARGV[2]
 local ttl_seconds = ARGV[3]
-
-local function payload_task_id(raw)
-    local ok, payload = pcall(cjson.decode, raw)
-    if not ok or type(payload) ~= "table" then
-        return nil
-    end
-    if payload["task_id"] == nil then
-        return nil
-    end
-    return tostring(payload["task_id"])
+local processing_payload = redis.call("HGET", processing_payloads, task_id)
+if processing_payload ~= false then
+    local owner = redis.call("GET", lease_key)
+    if owner == false then return {0, "processing payload has no worker owner"} end
+    if owner ~= worker_id then return {0, "task already claimed by different worker"} end
+    redis.call("EXPIRE", lease_key, ttl_seconds)
+    return {1, "ok"}
 end
-
-local processing_values = redis.call("LRANGE", processing_key, 0, -1)
-for _, raw in ipairs(processing_values) do
-    if payload_task_id(raw) == task_id then
-        local owner = redis.call("GET", lease_key)
-        if owner == false then
-            return {0, "processing payload has no worker owner"}
-        end
-        if owner ~= worker_id then
-            return {0, "task already claimed by different worker"}
-        end
-        redis.call("SET", lease_key, worker_id, "EX", ttl_seconds)
-        return {1, "ok"}
-    end
-end
-
-local pending_values = redis.call("LRANGE", pending_key, 0, -1)
-local claimed_payload = nil
-local kept_pending = {}
-
-for _, raw in ipairs(pending_values) do
-    if claimed_payload == nil and payload_task_id(raw) == task_id then
-        claimed_payload = raw
-    else
-        table.insert(kept_pending, raw)
-    end
-end
-
-if claimed_payload == nil then
+local pending_payload = redis.call("HGET", pending_payloads, task_id)
+if pending_payload == false then
     return {0, "task not found in pending or processing queue"}
 end
-
-redis.call("DEL", pending_key)
-for _, raw in ipairs(kept_pending) do
-    redis.call("RPUSH", pending_key, raw)
+local owner = redis.call("GET", lease_key)
+if owner ~= false and owner ~= worker_id then
+    return {0, "task already claimed by different worker"}
 end
-redis.call("RPUSH", processing_key, claimed_payload)
+redis.call("ZREM", pending_order, task_id)
+redis.call("HDEL", pending_payloads, task_id)
+redis.call("HSET", processing_payloads, task_id, pending_payload)
 redis.call("SET", lease_key, worker_id, "EX", ttl_seconds)
 return {1, "ok"}
 """
 
+    _HEARTBEAT_OWNER_SCRIPT = """
+local lease_key = KEYS[1]
+local worker_id = ARGV[1]
+local ttl_seconds = ARGV[2]
+local owner = redis.call("GET", lease_key)
+if owner == false then return {0, "lease owner missing"} end
+if owner ~= worker_id then return {0, "worker does not own claim"} end
+redis.call("EXPIRE", lease_key, ttl_seconds)
+return {1, "ok"}
+"""
+
+    _COMPLETE_OWNER_SCRIPT = """
+local processing_payloads = KEYS[1]
+local lease_key = KEYS[2]
+local task_id = ARGV[1]
+local worker_id = ARGV[2]
+local owner = redis.call("GET", lease_key)
+if owner == false then return {0, "lease owner missing"} end
+if owner ~= worker_id then return {0, "worker does not own claim"} end
+if redis.call("HEXISTS", processing_payloads, task_id) == 0 then
+    return {0, "task not found in processing queue"}
+end
+redis.call("HDEL", processing_payloads, task_id)
+redis.call("DEL", lease_key)
+return {1, "ok"}
+"""
+
+    _FAIL_OWNER_SCRIPT = """
+local processing_payloads = KEYS[1]
+local dead_order = KEYS[2]
+local dead_payloads = KEYS[3]
+local sequence_key = KEYS[4]
+local lease_key = KEYS[5]
+local task_id = ARGV[1]
+local worker_id = ARGV[2]
+local reason = ARGV[3]
+local failed_at = ARGV[4]
+local owner = redis.call("GET", lease_key)
+if owner == false then return {0, "lease owner missing"} end
+if owner ~= worker_id then return {0, "worker does not own claim"} end
+local raw = redis.call("HGET", processing_payloads, task_id)
+if raw == false then return {0, "task not found in processing queue"} end
+local ok, payload = pcall(cjson.decode, raw)
+if not ok or type(payload) ~= "table" then
+    return {0, "processing payload is corrupt"}
+end
+local envelope = cjson.encode({
+    task_id = task_id, worker_id = worker_id, reason = reason,
+    failed_at = failed_at, payload = payload
+})
+local score = redis.call("INCR", sequence_key)
+redis.call("HDEL", processing_payloads, task_id)
+redis.call("HSET", dead_payloads, task_id, envelope)
+redis.call("ZADD", dead_order, score, task_id)
+redis.call("DEL", lease_key)
+return {1, "ok"}
+"""
+
+    _RELEASE_OWNER_SCRIPT = """
+local processing_payloads = KEYS[1]
+local pending_order = KEYS[2]
+local pending_payloads = KEYS[3]
+local sequence_key = KEYS[4]
+local lease_key = KEYS[5]
+local task_id = ARGV[1]
+local worker_id = ARGV[2]
+local owner = redis.call("GET", lease_key)
+if owner == false then return {0, "lease owner missing"} end
+if owner ~= worker_id then return {0, "worker does not own claim"} end
+local payload = redis.call("HGET", processing_payloads, task_id)
+if payload == false then return {0, "task not found in processing queue"} end
+local score = redis.call("INCR", sequence_key)
+redis.call("HDEL", processing_payloads, task_id)
+redis.call("HSET", pending_payloads, task_id, payload)
+redis.call("ZADD", pending_order, score, task_id)
+redis.call("DEL", lease_key)
+return {1, "ok"}
+"""
+
+    _RECOVER_OWNER_SCRIPT = """
+local processing_payloads = KEYS[1]
+local pending_order = KEYS[2]
+local pending_payloads = KEYS[3]
+local sequence_key = KEYS[4]
+local lease_key = KEYS[5]
+local task_id = ARGV[1]
+local worker_id = ARGV[2]
+local owner = redis.call("GET", lease_key)
+if owner ~= false and owner ~= worker_id then
+    return {0, "worker does not own claim"}
+end
+local processing_payload = redis.call("HGET", processing_payloads, task_id)
+local pending_payload = redis.call("HGET", pending_payloads, task_id)
+if processing_payload ~= false and pending_payload ~= false then
+    return {0, "task exists in both pending and processing queues"}
+end
+local payload = processing_payload
+if payload == false then payload = pending_payload end
+if payload == false then
+    return {0, "task not found in processing or pending queue"}
+end
+local score = redis.call("INCR", sequence_key)
+redis.call("HDEL", processing_payloads, task_id)
+redis.call("HSET", pending_payloads, task_id, payload)
+redis.call("ZADD", pending_order, score, task_id)
+redis.call("DEL", lease_key)
+return {1, "ok"}
+"""
+
+    _DEAD_LETTER_SCRIPT = """
+local processing_payloads = KEYS[1]
+local pending_order = KEYS[2]
+local pending_payloads = KEYS[3]
+local dead_order = KEYS[4]
+local dead_payloads = KEYS[5]
+local sequence_key = KEYS[6]
+local lease_key = KEYS[7]
+local task_id = ARGV[1]
+local expected_owner = ARGV[2]
+local reason = ARGV[3]
+local moved_at = ARGV[4]
+local tenant_id = ARGV[5]
+local owner = redis.call("GET", lease_key)
+if expected_owner == "" then
+    if owner ~= false then return {0, "active worker owns claim"} end
+elseif owner ~= false and owner ~= expected_owner then
+    return {0, "worker does not own claim"}
+end
+local processing_payload = redis.call("HGET", processing_payloads, task_id)
+local pending_payload = redis.call("HGET", pending_payloads, task_id)
+if processing_payload ~= false and pending_payload ~= false then
+    return {0, "task exists in both pending and processing queues"}
+end
+local raw = processing_payload
+if raw == false then raw = pending_payload end
+local payload = nil
+if raw ~= false then
+    local ok, decoded = pcall(cjson.decode, raw)
+    if not ok or type(decoded) ~= "table" then
+        return {0, "queue payload is corrupt"}
+    end
+    payload = decoded
+else
+    payload = {
+        tenant_id = tenant_id, task_id = task_id,
+        source = "runtime_recovery_without_processing_payload"
+    }
+end
+local envelope = {
+    task_id = task_id, reason = reason, moved_at = moved_at, payload = payload
+}
+if expected_owner ~= "" then envelope["worker_id"] = expected_owner end
+local score = redis.call("INCR", sequence_key)
+redis.call("HDEL", processing_payloads, task_id)
+redis.call("HDEL", pending_payloads, task_id)
+redis.call("ZREM", pending_order, task_id)
+redis.call("HSET", dead_payloads, task_id, cjson.encode(envelope))
+redis.call("ZADD", dead_order, score, task_id)
+redis.call("DEL", lease_key)
+return {1, "ok"}
+"""
+
     _RETRY_DEAD_LETTER_SCRIPT = """
-local pending_key = KEYS[1]
-local processing_key = KEYS[2]
-local dead_letter_key = KEYS[3]
+local pending_order = KEYS[1]
+local pending_payloads = KEYS[2]
+local processing_payloads = KEYS[3]
+local dead_order = KEYS[4]
+local dead_payloads = KEYS[5]
+local sequence_key = KEYS[6]
 local tenant_id = ARGV[1]
 local task_id = ARGV[2]
-
-local function key_type(key)
-    local result = redis.call("TYPE", key)
-    if type(result) == "table" then
-        return result["ok"]
-    end
-    return result
+if redis.call("HEXISTS", pending_payloads, task_id) == 1 then
+    return {0, "task already pending"}
 end
-
-local function ensure_list_or_none(key, name)
-    local current_type = key_type(key)
-    if current_type ~= "none" and current_type ~= "list" then
-        return false, name .. " key is not a list"
-    end
-    return true, "ok"
+if redis.call("HEXISTS", processing_payloads, task_id) == 1 then
+    return {0, "task already processing"}
 end
-
-local function payload_task_id(raw)
-    local ok, payload = pcall(cjson.decode, raw)
-    if not ok or type(payload) ~= "table" then
-        return nil
-    end
-    if payload["task_id"] == nil then
-        return nil
-    end
-    return tostring(payload["task_id"])
+local raw = redis.call("HGET", dead_payloads, task_id)
+if raw == false then return {0, "dead-letter entry not found"} end
+local envelope_ok, envelope = pcall(cjson.decode, raw)
+if not envelope_ok or type(envelope) ~= "table" then
+    return {0, "dead-letter payload is corrupt: invalid envelope"}
 end
-
-local function validate_queue_message(payload)
-    if type(payload) ~= "table" then
-        return false, "dead-letter payload is corrupt: payload is not an object"
-    end
-    if payload["tenant_id"] == nil or tostring(payload["tenant_id"]) ~= tenant_id then
-        return false, "dead-letter payload is corrupt: tenant_id mismatch"
-    end
-    if payload["task_id"] == nil or tostring(payload["task_id"]) ~= task_id then
-        return false, "dead-letter payload is corrupt: task_id mismatch"
-    end
-    if payload["mission_id"] == nil then
-        return false, "dead-letter payload is corrupt: missing mission_id"
-    end
-    if payload["payload"] == nil or type(payload["payload"]) ~= "table" then
-        return false, "dead-letter payload is corrupt: missing payload"
-    end
-    if payload["enqueued_at"] == nil then
-        return false, "dead-letter payload is corrupt: missing enqueued_at"
-    end
-    return true, "ok"
+local payload = envelope["payload"]
+if type(payload) ~= "table" then
+    return {0, "dead-letter payload is corrupt: payload is not an object"}
 end
-
-local pending_ok, pending_reason = ensure_list_or_none(pending_key, "pending")
-if not pending_ok then
-    return {0, pending_reason}
+if payload["tenant_id"] == nil or tostring(payload["tenant_id"]) ~= tenant_id then
+    return {0, "dead-letter payload is corrupt: tenant_id mismatch"}
 end
-local processing_ok, processing_reason = ensure_list_or_none(processing_key, "processing")
-if not processing_ok then
-    return {0, processing_reason}
+if payload["task_id"] == nil or tostring(payload["task_id"]) ~= task_id then
+    return {0, "dead-letter payload is corrupt: task_id mismatch"}
 end
-local dead_letter_ok, dead_letter_reason = ensure_list_or_none(dead_letter_key, "dead-letter")
-if not dead_letter_ok then
-    return {0, dead_letter_reason}
+if payload["mission_id"] == nil then
+    return {0, "dead-letter payload is corrupt: missing mission_id"}
 end
-
-local pending_values = redis.call("LRANGE", pending_key, 0, -1)
-for _, raw in ipairs(pending_values) do
-    if payload_task_id(raw) == task_id then
-        return {0, "task already pending"}
-    end
+if payload["payload"] == nil or type(payload["payload"]) ~= "table" then
+    return {0, "dead-letter payload is corrupt: missing payload"}
 end
-
-local processing_values = redis.call("LRANGE", processing_key, 0, -1)
-for _, raw in ipairs(processing_values) do
-    if payload_task_id(raw) == task_id then
-        return {0, "task already processing"}
-    end
+if payload["enqueued_at"] == nil then
+    return {0, "dead-letter payload is corrupt: missing enqueued_at"}
 end
-
-local dead_letter_values = redis.call("LRANGE", dead_letter_key, 0, -1)
-for _, raw in ipairs(dead_letter_values) do
-    local envelope_ok, envelope = pcall(cjson.decode, raw)
-    if envelope_ok and type(envelope) == "table" then
-        local payload = envelope["payload"]
-        if type(payload) == "table"
-            and tostring(payload["tenant_id"]) == tenant_id
-            and tostring(envelope["task_id"]) == task_id then
-            local valid, validation_reason = validate_queue_message(payload)
-            if not valid then
-                return {0, validation_reason}
-            end
-            local pending_payload = cjson.encode(payload)
-            local removed = redis.call("LREM", dead_letter_key, 1, raw)
-            if removed < 1 then
-                return {0, "dead-letter entry not found"}
-            end
-            redis.call("RPUSH", pending_key, pending_payload)
-            return {1, "ok"}
-        end
-    end
-end
-
-return {0, "dead-letter entry not found"}
+local score = redis.call("INCR", sequence_key)
+redis.call("HDEL", dead_payloads, task_id)
+redis.call("ZREM", dead_order, task_id)
+redis.call("HSET", pending_payloads, task_id, cjson.encode(payload))
+redis.call("ZADD", pending_order, score, task_id)
+return {1, "ok"}
 """
 
     def __init__(self, redis_url: str, *, heartbeat_ttl_seconds: int = 90, block_seconds: int = 1) -> None:
@@ -284,122 +510,156 @@ return {0, "dead-letter entry not found"}
 
     def enqueue_task(self, message: QueueMessage) -> QueueOperationResult:
         try:
-            payload = self._encode_message(message)
-            result = self._execute(["RPUSH", self._pending_key(message.tenant_id), payload])
-            if not isinstance(result, int):
-                return QueueOperationResult(ok=False, reason="redis did not confirm enqueue")
-            return QueueOperationResult(ok=True)
-        except Exception as exc:
-            return QueueOperationResult(ok=False, reason=f"enqueue failed: {exc}")
-
-    def claim_task(self, *, tenant_id: str, worker_id: str) -> QueueMessage | None:
-        try:
-            result = self._execute(
-                [
-                    "BLMOVE",
-                    self._pending_key(tenant_id),
-                    self._processing_key(tenant_id),
-                    "LEFT",
-                    "RIGHT",
-                    str(self._block_seconds),
-                ]
-            )
-            if result is None:
-                return None
-            if not isinstance(result, str):
-                raise RedisProtocolError("claim returned unexpected payload type")
-            message = self._decode_message(result)
-            self._touch_lease_key(tenant_id=tenant_id, task_id=message.task_id, worker_id=worker_id)
-            return message
-        except Exception as exc:
-            raise RuntimeError(f"claim_task failed: {exc}") from exc
-
-    def claim_existing_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
-        try:
+            self._ensure_queue_schema(message.tenant_id)
             result = self._execute(
                 [
                     "EVAL",
-                    self._CLAIM_EXISTING_TASK_SCRIPT,
+                    self._ENQUEUE_SCRIPT,
+                    "4",
+                    self._pending_key(message.tenant_id),
+                    self._pending_payloads_key(message.tenant_id),
+                    self._processing_key(message.tenant_id),
+                    self._sequence_key(message.tenant_id),
+                    str(message.task_id),
+                    self._encode_message(message),
+                ]
+            )
+            return self._operation_result(result, "enqueue")
+        except Exception as exc:
+            return QueueOperationResult(ok=False, reason=f"enqueue failed: {exc}")
+
+    def enqueue_task_idempotent(
+        self,
+        message: QueueMessage,
+        *,
+        idempotency_key: str,
+    ) -> QueueOperationResult:
+        try:
+            self._ensure_queue_schema(message.tenant_id)
+            result = self._execute(
+                [
+                    "EVAL",
+                    self._IDEMPOTENT_ENQUEUE_SCRIPT,
+                    "5",
+                    self._pending_key(message.tenant_id),
+                    self._pending_payloads_key(message.tenant_id),
+                    self._processing_key(message.tenant_id),
+                    self._sequence_key(message.tenant_id),
+                    self._dispatch_key(message.tenant_id, idempotency_key),
+                    str(message.task_id),
+                    self._encode_message(message),
+                ]
+            )
+            return self._operation_result(result, "idempotent enqueue")
+        except Exception as exc:
+            return QueueOperationResult(ok=False, reason=f"idempotent enqueue failed: {exc}")
+
+    def cancel_task(self, *, tenant_id: str, task_id: uuid.UUID) -> QueueOperationResult:
+        return self._run_operation(
+            tenant_id=tenant_id,
+            script=self._CANCEL_PENDING_TASK_SCRIPT,
+            keys=[
+                self._pending_key(tenant_id),
+                self._pending_payloads_key(tenant_id),
+                self._processing_key(tenant_id),
+            ],
+            args=[str(task_id)],
+            operation="cancel",
+        )
+
+    def claim_task(self, *, tenant_id: str, worker_id: str) -> QueueMessage | None:
+        try:
+            self._ensure_queue_schema(tenant_id)
+            result = self._execute(
+                [
+                    "EVAL",
+                    self._CLAIM_NEXT_TASK_SCRIPT,
                     "3",
                     self._pending_key(tenant_id),
+                    self._pending_payloads_key(tenant_id),
                     self._processing_key(tenant_id),
-                    self._lease_key(tenant_id, task_id),
-                    str(task_id),
+                    self._lease_prefix(tenant_id),
                     worker_id,
                     str(self._heartbeat_ttl_seconds),
                 ]
             )
             if not isinstance(result, list) or len(result) != 2:
-                return QueueOperationResult(ok=False, reason="claim script returned unexpected result")
-            ok, reason = result
-            if ok != 1:
-                return QueueOperationResult(ok=False, reason=str(reason))
-            return QueueOperationResult(ok=True)
+                raise RedisProtocolError("claim script returned unexpected result")
+            ok, value = result
+            if ok == 0 and value == "empty":
+                return None
+            if ok != 1 or not isinstance(value, str):
+                raise RedisProtocolError(str(value))
+            return self._decode_message(value)
         except Exception as exc:
-            return QueueOperationResult(ok=False, reason=f"claim_existing_task failed: {exc}")
+            raise RuntimeError(f"claim_task failed: {exc}") from exc
+
+    def claim_existing_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
+        return self._run_operation(
+            tenant_id=tenant_id,
+            script=self._CLAIM_EXISTING_TASK_SCRIPT,
+            keys=[
+                self._pending_key(tenant_id),
+                self._pending_payloads_key(tenant_id),
+                self._processing_key(tenant_id),
+                self._lease_key(tenant_id, task_id),
+            ],
+            args=[str(task_id), worker_id, str(self._heartbeat_ttl_seconds)],
+            operation="claim",
+        )
 
     def heartbeat(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
-        try:
-            self._touch_lease_key(tenant_id=tenant_id, task_id=task_id, worker_id=worker_id)
-            return QueueOperationResult(ok=True)
-        except Exception as exc:
-            return QueueOperationResult(ok=False, reason=f"heartbeat failed: {exc}")
+        return self._run_operation(
+            tenant_id=tenant_id,
+            script=self._HEARTBEAT_OWNER_SCRIPT,
+            keys=[self._lease_key(tenant_id, task_id)],
+            args=[worker_id, str(self._heartbeat_ttl_seconds)],
+            operation="heartbeat",
+        )
 
     def complete_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
-        try:
-            payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
-            if payload is None:
-                return QueueOperationResult(ok=False, reason="task not found in processing queue")
-            removed = self._execute(["LREM", self._processing_key(tenant_id), "1", payload])
-            self._execute(["DEL", self._lease_key(tenant_id, task_id)])
-            if not isinstance(removed, int) or removed < 1:
-                return QueueOperationResult(ok=False, reason="processing payload was not removed")
-            return QueueOperationResult(ok=True)
-        except Exception as exc:
-            return QueueOperationResult(ok=False, reason=f"complete_task failed: {exc}")
+        return self._run_operation(
+            tenant_id=tenant_id,
+            script=self._COMPLETE_OWNER_SCRIPT,
+            keys=[self._processing_key(tenant_id), self._lease_key(tenant_id, task_id)],
+            args=[str(task_id), worker_id],
+            operation="complete",
+        )
 
     def fail_task(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str, reason: str) -> QueueOperationResult:
-        try:
-            payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
-            if payload is None:
-                return QueueOperationResult(ok=False, reason="task not found in processing queue")
-            removed = self._execute(["LREM", self._processing_key(tenant_id), "1", payload])
-            if not isinstance(removed, int) or removed < 1:
-                return QueueOperationResult(ok=False, reason="processing payload was not removed")
-            failed_envelope = json.dumps(
-                {
-                    "task_id": str(task_id),
-                    "worker_id": worker_id,
-                    "reason": reason,
-                    "failed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                    "payload": json.loads(payload),
-                },
-                separators=(",", ":"),
-                sort_keys=True,
-            )
-            self._execute(["LPUSH", self._dead_letter_key(tenant_id), failed_envelope])
-            self._execute(["DEL", self._lease_key(tenant_id, task_id)])
-            return QueueOperationResult(ok=True)
-        except Exception as exc:
-            return QueueOperationResult(ok=False, reason=f"fail_task failed: {exc}")
+        return self._run_operation(
+            tenant_id=tenant_id,
+            script=self._FAIL_OWNER_SCRIPT,
+            keys=[
+                self._processing_key(tenant_id),
+                self._dead_letter_key(tenant_id),
+                self._dead_letter_payloads_key(tenant_id),
+                self._sequence_key(tenant_id),
+                self._lease_key(tenant_id, task_id),
+            ],
+            args=[
+                str(task_id),
+                worker_id,
+                reason,
+                datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            ],
+            operation="fail",
+        )
 
     def release_lease(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> QueueOperationResult:
-        try:
-            payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
-            if payload is None:
-                return QueueOperationResult(ok=False, reason="task not found in processing queue")
-            removed = self._execute(["LREM", self._processing_key(tenant_id), "1", payload])
-            if not isinstance(removed, int) or removed < 1:
-                return QueueOperationResult(ok=False, reason="processing payload was not removed")
-            requeued = self._execute(["RPUSH", self._pending_key(tenant_id), payload])
-            if not isinstance(requeued, int):
-                return QueueOperationResult(ok=False, reason="redis did not confirm requeue")
-            deleted = self._execute(["DEL", self._lease_key(tenant_id, task_id)])
-            if not isinstance(deleted, int):
-                return QueueOperationResult(ok=False, reason="lease delete returned unexpected result")
-            return QueueOperationResult(ok=True)
-        except Exception as exc:
-            return QueueOperationResult(ok=False, reason=f"release_lease failed: {exc}")
+        return self._run_operation(
+            tenant_id=tenant_id,
+            script=self._RELEASE_OWNER_SCRIPT,
+            keys=[
+                self._processing_key(tenant_id),
+                self._pending_key(tenant_id),
+                self._pending_payloads_key(tenant_id),
+                self._sequence_key(tenant_id),
+                self._lease_key(tenant_id, task_id),
+            ],
+            args=[str(task_id), worker_id],
+            operation="release",
+        )
 
     def recover_task_for_retry(
         self,
@@ -408,68 +668,43 @@ return {0, "dead-letter entry not found"}
         task_id: uuid.UUID,
         worker_id: str,
     ) -> QueueOperationResult:
-        try:
-            result = self._execute(
-                [
-                    "EVAL",
-                    self._RECOVER_TASK_FOR_RETRY_SCRIPT,
-                    "3",
-                    self._processing_key(tenant_id),
-                    self._pending_key(tenant_id),
-                    self._lease_key(tenant_id, task_id),
-                    str(task_id),
-                ]
-            )
-            if not isinstance(result, list) or len(result) != 2:
-                return QueueOperationResult(ok=False, reason="recovery script returned unexpected result")
-            ok, reason = result
-            if ok != 1:
-                return QueueOperationResult(ok=False, reason=str(reason))
-            return QueueOperationResult(ok=True)
-        except Exception as exc:
-            return QueueOperationResult(ok=False, reason=f"recover_task_for_retry failed: {exc}")
+        return self._run_operation(
+            tenant_id=tenant_id,
+            script=self._RECOVER_OWNER_SCRIPT,
+            keys=[
+                self._processing_key(tenant_id),
+                self._pending_key(tenant_id),
+                self._pending_payloads_key(tenant_id),
+                self._sequence_key(tenant_id),
+                self._lease_key(tenant_id, task_id),
+            ],
+            args=[str(task_id), worker_id],
+            operation="recovery",
+        )
 
     def move_to_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> QueueOperationResult:
-        try:
-            payload = self._find_processing_payload(tenant_id=tenant_id, task_id=task_id)
-            if payload is not None:
-                removed = self._execute(["LREM", self._processing_key(tenant_id), "1", payload])
-                if not isinstance(removed, int) or removed < 1:
-                    return QueueOperationResult(ok=False, reason="processing payload was not removed")
-                envelope_payload: Any = json.loads(payload)
-            else:
-                pending_payload = self._find_pending_payload(tenant_id=tenant_id, task_id=task_id)
-                if pending_payload is not None:
-                    removed = self._execute(["LREM", self._pending_key(tenant_id), "1", pending_payload])
-                    if not isinstance(removed, int) or removed < 1:
-                        return QueueOperationResult(ok=False, reason="pending payload was not removed")
-                    envelope_payload = json.loads(pending_payload)
-                else:
-                    envelope_payload = {
-                        "tenant_id": tenant_id,
-                        "task_id": str(task_id),
-                        "source": "runtime_recovery_without_processing_payload",
-                    }
-            envelope = json.dumps(
-                {
-                    "task_id": str(task_id),
-                    "reason": reason,
-                    "moved_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                    "payload": envelope_payload,
-                },
-                separators=(",", ":"),
-                sort_keys=True,
-            )
-            self._execute(["LPUSH", self._dead_letter_key(tenant_id), envelope])
-            self._execute(["DEL", self._lease_key(tenant_id, task_id)])
-            return QueueOperationResult(ok=True)
-        except Exception as exc:
-            return QueueOperationResult(ok=False, reason=f"move_to_dead_letter failed: {exc}")
+        return self._move_to_dead_letter(tenant_id=tenant_id, task_id=task_id, worker_id=None, reason=reason)
+
+    def move_owned_to_dead_letter(
+        self,
+        *,
+        tenant_id: str,
+        task_id: uuid.UUID,
+        worker_id: str,
+        reason: str,
+    ) -> QueueOperationResult:
+        return self._move_to_dead_letter(
+            tenant_id=tenant_id,
+            task_id=task_id,
+            worker_id=worker_id,
+            reason=reason,
+        )
 
     def list_processing(self, *, tenant_id: str) -> list[QueuePayloadInspection]:
         try:
+            self._ensure_queue_schema(tenant_id)
             inspections: list[QueuePayloadInspection] = []
-            for raw in self._list_payloads(self._processing_key(tenant_id)):
+            for raw in self._hash_values(self._processing_key(tenant_id)):
                 try:
                     message = self._decode_message(raw)
                 except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -477,30 +712,21 @@ return {0, "dead-letter entry not found"}
                         QueuePayloadInspection(
                             tenant_id=tenant_id,
                             raw=raw,
-                            message=None,
                             error=f"processing payload is corrupt: {exc}",
                         )
                     )
                     continue
-                if message.tenant_id != tenant_id:
-                    inspections.append(
-                        QueuePayloadInspection(
-                            tenant_id=tenant_id,
-                            raw=raw,
-                            message=message,
-                            error="processing payload tenant mismatch",
-                        )
-                    )
-                    continue
-                inspections.append(QueuePayloadInspection(tenant_id=tenant_id, raw=raw, message=message))
+                error = "processing payload tenant mismatch" if message.tenant_id != tenant_id else None
+                inspections.append(QueuePayloadInspection(tenant_id=tenant_id, raw=raw, message=message, error=error))
             return inspections
         except Exception as exc:
             raise RuntimeError(f"list_processing failed: {exc}") from exc
 
     def list_dead_letter(self, *, tenant_id: str) -> list[QueueDeadLetterEntry]:
         try:
+            self._ensure_queue_schema(tenant_id)
             entries: list[QueueDeadLetterEntry] = []
-            for raw in self._list_payloads(self._dead_letter_key(tenant_id)):
+            for raw in self._hash_values(self._dead_letter_payloads_key(tenant_id)):
                 try:
                     envelope = json.loads(raw)
                 except json.JSONDecodeError as exc:
@@ -524,8 +750,7 @@ return {0, "dead-letter entry not found"}
                     )
                     continue
                 payload = envelope.get("payload")
-                payload_tenant = payload.get("tenant_id") if isinstance(payload, dict) else None
-                if payload_tenant != tenant_id:
+                if not isinstance(payload, dict) or payload.get("tenant_id") != tenant_id:
                     continue
                 task_id: uuid.UUID | None = None
                 error: str | None = None
@@ -548,81 +773,112 @@ return {0, "dead-letter entry not found"}
             raise RuntimeError(f"list_dead_letter failed: {exc}") from exc
 
     def retry_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID) -> QueueOperationResult:
-        try:
-            result = self._execute(
-                [
-                    "EVAL",
-                    self._RETRY_DEAD_LETTER_SCRIPT,
-                    "3",
-                    self._pending_key(tenant_id),
-                    self._processing_key(tenant_id),
-                    self._dead_letter_key(tenant_id),
-                    tenant_id,
-                    str(task_id),
-                ]
-            )
-            if not isinstance(result, list) or len(result) != 2:
-                return QueueOperationResult(ok=False, reason="retry script returned unexpected result")
-            ok, reason = result
-            if ok != 1:
-                return QueueOperationResult(ok=False, reason=str(reason))
-            return QueueOperationResult(ok=True)
-        except Exception as exc:
-            return QueueOperationResult(ok=False, reason=f"retry_dead_letter failed: {exc}")
+        return self._run_operation(
+            tenant_id=tenant_id,
+            script=self._RETRY_DEAD_LETTER_SCRIPT,
+            keys=[
+                self._pending_key(tenant_id),
+                self._pending_payloads_key(tenant_id),
+                self._processing_key(tenant_id),
+                self._dead_letter_key(tenant_id),
+                self._dead_letter_payloads_key(tenant_id),
+                self._sequence_key(tenant_id),
+            ],
+            args=[tenant_id, str(task_id)],
+            operation="retry",
+        )
 
     def pending_depth(self, *, tenant_id: str) -> int:
         try:
-            result = self._execute(["LLEN", self._pending_key(tenant_id)])
+            self._ensure_queue_schema(tenant_id)
+            result = self._execute(["ZCARD", self._pending_key(tenant_id)])
         except Exception:
             return 0
         return int(result) if isinstance(result, int) else 0
 
-    def _touch_lease_key(self, *, tenant_id: str, task_id: uuid.UUID, worker_id: str) -> None:
+    def _move_to_dead_letter(
+        self,
+        *,
+        tenant_id: str,
+        task_id: uuid.UUID,
+        worker_id: str | None,
+        reason: str,
+    ) -> QueueOperationResult:
+        return self._run_operation(
+            tenant_id=tenant_id,
+            script=self._DEAD_LETTER_SCRIPT,
+            keys=[
+                self._processing_key(tenant_id),
+                self._pending_key(tenant_id),
+                self._pending_payloads_key(tenant_id),
+                self._dead_letter_key(tenant_id),
+                self._dead_letter_payloads_key(tenant_id),
+                self._sequence_key(tenant_id),
+                self._lease_key(tenant_id, task_id),
+            ],
+            args=[
+                str(task_id),
+                worker_id or "",
+                reason,
+                datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                tenant_id,
+            ],
+            operation="owner dead-letter" if worker_id else "dead-letter",
+        )
+
+    def _run_operation(
+        self,
+        *,
+        tenant_id: str,
+        script: str,
+        keys: list[str],
+        args: list[str],
+        operation: str,
+    ) -> QueueOperationResult:
+        try:
+            self._ensure_queue_schema(tenant_id)
+            result = self._execute(["EVAL", script, str(len(keys)), *keys, *args])
+            return self._operation_result(result, operation)
+        except Exception as exc:
+            return QueueOperationResult(ok=False, reason=f"{operation} failed: {exc}")
+
+    def _ensure_queue_schema(self, tenant_id: str) -> None:
         result = self._execute(
             [
-                "SET",
-                self._lease_key(tenant_id, task_id),
-                worker_id,
-                "EX",
-                str(self._heartbeat_ttl_seconds),
+                "EVAL",
+                self._MIGRATE_LEGACY_SCRIPT,
+                "10",
+                self._legacy_pending_key(tenant_id),
+                self._legacy_processing_key(tenant_id),
+                self._legacy_dead_letter_key(tenant_id),
+                self._pending_key(tenant_id),
+                self._pending_payloads_key(tenant_id),
+                self._processing_key(tenant_id),
+                self._dead_letter_key(tenant_id),
+                self._dead_letter_payloads_key(tenant_id),
+                self._sequence_key(tenant_id),
+                self._schema_key(tenant_id),
+                tenant_id,
             ]
         )
-        if result != "OK":
-            raise RedisProtocolError("lease heartbeat SET did not return OK")
+        parsed = self._operation_result(result, "queue schema migration")
+        if not parsed.ok:
+            raise RedisProtocolError(parsed.reason or "queue schema migration failed")
 
-    def _find_processing_payload(self, *, tenant_id: str, task_id: uuid.UUID) -> str | None:
-        return self._find_payload(
-            key=self._processing_key(tenant_id),
-            task_id=task_id,
-        )
+    @staticmethod
+    def _operation_result(result: object, operation: str) -> QueueOperationResult:
+        if not isinstance(result, list) or len(result) != 2:
+            return QueueOperationResult(ok=False, reason=f"{operation} script returned unexpected result")
+        ok, reason = result
+        if ok != 1:
+            return QueueOperationResult(ok=False, reason=str(reason))
+        return QueueOperationResult(ok=True)
 
-    def _find_pending_payload(self, *, tenant_id: str, task_id: uuid.UUID) -> str | None:
-        return self._find_payload(
-            key=self._pending_key(tenant_id),
-            task_id=task_id,
-        )
-
-    def _find_payload(self, *, key: str, task_id: uuid.UUID) -> str | None:
-        payloads = self._find_payloads(key=key, task_id=task_id)
-        return payloads[0] if payloads else None
-
-    def _find_payloads(self, *, key: str, task_id: uuid.UUID) -> list[str]:
-        task_id_str = str(task_id)
-        return [payload for payload in self._list_payloads(key) if self._payload_task_id(payload) == task_id_str]
-
-    def _list_payloads(self, key: str) -> list[str]:
-        values = self._execute(["LRANGE", key, "0", "-1"])
+    def _hash_values(self, key: str) -> list[str]:
+        values = self._execute(["HVALS", key])
         if not isinstance(values, list):
-            raise RedisProtocolError("LRANGE returned unexpected type")
+            raise RedisProtocolError("HVALS returned unexpected type")
         return [item for item in values if isinstance(item, str)]
-
-    def _payload_task_id(self, raw: str) -> str | None:
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            return None
-        value = payload.get("task_id")
-        return str(value) if value is not None else None
 
     def _encode_message(self, message: QueueMessage) -> str:
         return json.dumps(
@@ -651,17 +907,56 @@ return {0, "dead-letter entry not found"}
             enqueued_at=datetime.fromisoformat(data["enqueued_at"]),
         )
 
-    def _pending_key(self, tenant_id: str) -> str:
+    @staticmethod
+    def _legacy_pending_key(tenant_id: str) -> str:
         return f"ajenda:queue:{tenant_id}:pending"
 
-    def _processing_key(self, tenant_id: str) -> str:
+    @staticmethod
+    def _legacy_processing_key(tenant_id: str) -> str:
         return f"ajenda:queue:{tenant_id}:processing"
 
-    def _dead_letter_key(self, tenant_id: str) -> str:
+    @staticmethod
+    def _legacy_dead_letter_key(tenant_id: str) -> str:
         return f"ajenda:queue:{tenant_id}:dead_letter"
 
+    @staticmethod
+    def _pending_key(tenant_id: str) -> str:
+        return f"ajenda:queue:{tenant_id}:v2:pending-order"
+
+    @staticmethod
+    def _pending_payloads_key(tenant_id: str) -> str:
+        return f"ajenda:queue:{tenant_id}:v2:pending-payloads"
+
+    @staticmethod
+    def _processing_key(tenant_id: str) -> str:
+        return f"ajenda:queue:{tenant_id}:v2:processing-payloads"
+
+    @staticmethod
+    def _dead_letter_key(tenant_id: str) -> str:
+        return f"ajenda:queue:{tenant_id}:v2:dead-letter-order"
+
+    @staticmethod
+    def _dead_letter_payloads_key(tenant_id: str) -> str:
+        return f"ajenda:queue:{tenant_id}:v2:dead-letter-payloads"
+
+    @staticmethod
+    def _sequence_key(tenant_id: str) -> str:
+        return f"ajenda:queue:{tenant_id}:v2:sequence"
+
+    @staticmethod
+    def _schema_key(tenant_id: str) -> str:
+        return f"ajenda:queue:{tenant_id}:v2:schema"
+
+    @staticmethod
+    def _dispatch_key(tenant_id: str, idempotency_key: str) -> str:
+        return f"ajenda:queue:{tenant_id}:dispatch:{idempotency_key}"
+
+    @staticmethod
+    def _lease_prefix(tenant_id: str) -> str:
+        return f"ajenda:queue:{tenant_id}:lease:"
+
     def _lease_key(self, tenant_id: str, task_id: uuid.UUID) -> str:
-        return f"ajenda:queue:{tenant_id}:lease:{task_id}"
+        return f"{self._lease_prefix(tenant_id)}{task_id}"
 
     def _execute(self, command: list[str]) -> Any:
         with socket.create_connection((self._host, self._port), timeout=5.0) as conn:

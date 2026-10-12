@@ -44,12 +44,16 @@ def _coordinator_with_policy_review_required(
     coordinator = ExecutionCoordinator(session, queue)
     coordinator._tasks = MagicMock()
     coordinator._tasks.get.return_value = task
+    coordinator._tasks.get_for_update.return_value = task
     coordinator._governor = MagicMock()
     coordinator._governor.evaluate.return_value = _allowed_decision()
     coordinator._policy = MagicMock()
     coordinator._policy.evaluate_task.return_value = _policy_denied()
     coordinator._governance = MagicMock()
     coordinator._audit = MagicMock()
+    coordinator._dispatches = MagicMock()
+    coordinator._dispatches.admit.return_value = (MagicMock(), True)
+    coordinator._quota = MagicMock()
     return coordinator
 
 
@@ -119,7 +123,7 @@ def test_queue_task_policy_review_flushes_state_and_evidence() -> None:
 
     coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
 
-    assert coordinator._session.flush.call_count == 2
+    assert coordinator._session.flush.call_count == 3
 
 
 def test_queue_task_policy_review_evaluates_policy_after_runtime_governor_allows() -> None:

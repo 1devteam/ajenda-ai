@@ -1,5 +1,6 @@
 from backend.domain.assurance_snapshot import AssuranceMetricState, AssuranceSnapshot
 from backend.domain.audit_event import AuditEvent
+from backend.domain.billing_meter_dispatch import BillingMeterDispatch
 from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
 from backend.domain.capability import Capability
 from backend.domain.capability_adapter import CapabilityAdapter
@@ -23,6 +24,7 @@ from backend.domain.mission_composition_proposal import MissionCompositionPropos
 from backend.domain.outcome_review import OutcomeReview
 from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
 from backend.domain.retrieval_contract import RetrievalContract
+from backend.domain.runtime_queue_dispatch import RuntimeQueueDispatch
 from backend.domain.tenant_onboarding_state import TenantOnboardingState
 from backend.domain.user_workforce_agent import UserWorkforceAgent
 from backend.domain.worker_lease import WorkerLease
@@ -32,6 +34,7 @@ __all__ = [
     "AssuranceMetricState",
     "AssuranceSnapshot",
     "AuditEvent",
+    "BillingMeterDispatch",
     "BusinessProfile",
     "BusinessProfileSuggestion",
     "Capability",
@@ -52,6 +55,7 @@ __all__ = [
     "OutcomeReview",
     "ProviderRuntimeCredential",
     "RetrievalContract",
+    "RuntimeQueueDispatch",
     "TenantOnboardingState",
     "UserWorkforceAgent",
     "UserWorkforceAgentState",
