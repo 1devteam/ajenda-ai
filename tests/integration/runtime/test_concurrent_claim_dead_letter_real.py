@@ -145,10 +145,10 @@ def test_rg_previously_raced_work_dead_letters_once_at_recovery_exhaustion(
     finally:
         exhaust_session.close()
 
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") == 0
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:dead_letter") >= 1
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:dead-letter-order") >= 1
 
     verify_session = session_factory()
     try:

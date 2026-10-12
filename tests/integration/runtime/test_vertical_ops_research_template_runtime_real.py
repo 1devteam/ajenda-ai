@@ -162,7 +162,7 @@ def test_vertical_research_template_queues_claims_executes_and_persists_evidence
         assert evidence.evidence_type == "execution_trace"
         assert evidence.provenance_metadata["tool_evidence_type"] == "action_result"
         assert evidence.structured_payload["query"] == "Acme competitors"
-        assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+        assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
     finally:
         verify_session.close()

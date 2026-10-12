@@ -40,4 +40,4 @@ def test_rg_dead_letter_retry_requeues_db_only_dead_letter_task(pg_session, queu
     pg_session.refresh(task)
     assert result == {"task_id": str(task.id), "status": ExecutionTaskState.QUEUED.value}
     assert task.status == ExecutionTaskState.QUEUED.value
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") == 1
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") == 1

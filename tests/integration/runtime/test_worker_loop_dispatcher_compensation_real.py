@@ -106,7 +106,7 @@ def test_worker_loop_compensates_when_dispatcher_raises_against_real_runtime(
         assert final_task.status == ExecutionTaskState.FAILED.value
         assert final_lease is not None
         assert final_lease.status == WorkerLeaseState.RELEASED.value
-        assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+        assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
     finally:
         verify_session.close()

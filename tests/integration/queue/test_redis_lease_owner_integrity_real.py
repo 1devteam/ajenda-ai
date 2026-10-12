@@ -36,15 +36,15 @@ def _lease_key(message: QueueMessage) -> str:
 
 
 def _processing_key(message: QueueMessage) -> str:
-    return f"ajenda:queue:{message.tenant_id}:processing"
+    return f"ajenda:queue:{message.tenant_id}:v2:processing-payloads"
 
 
 def _pending_key(message: QueueMessage) -> str:
-    return f"ajenda:queue:{message.tenant_id}:pending"
+    return f"ajenda:queue:{message.tenant_id}:v2:pending-order"
 
 
 def _dead_letter_key(message: QueueMessage) -> str:
-    return f"ajenda:queue:{message.tenant_id}:dead_letter"
+    return f"ajenda:queue:{message.tenant_id}:v2:dead-letter-order"
 
 
 def test_foreign_worker_cannot_heartbeat_or_replace_owner(queue_adapter, redis_client) -> None:
@@ -79,7 +79,7 @@ def test_foreign_worker_cannot_complete_claim(queue_adapter, redis_client) -> No
     )
     assert denied.ok is False
     assert denied.reason == "worker does not own claim"
-    assert redis_client.llen(_processing_key(claimed)) == 1
+    assert redis_client.hlen(_processing_key(claimed)) == 1
     assert redis_client.get(_lease_key(claimed)) == "worker-a"
 
     completed = queue_adapter.complete_task(
@@ -88,7 +88,7 @@ def test_foreign_worker_cannot_complete_claim(queue_adapter, redis_client) -> No
         worker_id="worker-a",
     )
     assert completed.ok is True
-    assert redis_client.llen(_processing_key(claimed)) == 0
+    assert redis_client.hlen(_processing_key(claimed)) == 0
     assert redis_client.get(_lease_key(claimed)) is None
 
 
@@ -103,8 +103,8 @@ def test_foreign_worker_cannot_fail_claim(queue_adapter, redis_client) -> None:
     )
     assert denied.ok is False
     assert denied.reason == "worker does not own claim"
-    assert redis_client.llen(_processing_key(claimed)) == 1
-    assert redis_client.llen(_dead_letter_key(claimed)) == 0
+    assert redis_client.hlen(_processing_key(claimed)) == 1
+    assert redis_client.zcard(_dead_letter_key(claimed)) == 0
     assert redis_client.get(_lease_key(claimed)) == "worker-a"
 
     failed = queue_adapter.fail_task(
@@ -114,8 +114,8 @@ def test_foreign_worker_cannot_fail_claim(queue_adapter, redis_client) -> None:
         reason="owner failure",
     )
     assert failed.ok is True
-    assert redis_client.llen(_processing_key(claimed)) == 0
-    assert redis_client.llen(_dead_letter_key(claimed)) == 1
+    assert redis_client.hlen(_processing_key(claimed)) == 0
+    assert redis_client.zcard(_dead_letter_key(claimed)) == 1
     assert redis_client.get(_lease_key(claimed)) is None
 
 
@@ -129,8 +129,8 @@ def test_foreign_worker_cannot_release_claim(queue_adapter, redis_client) -> Non
     )
     assert denied.ok is False
     assert denied.reason == "worker does not own claim"
-    assert redis_client.llen(_processing_key(claimed)) == 1
-    assert redis_client.llen(_pending_key(claimed)) == 0
+    assert redis_client.hlen(_processing_key(claimed)) == 1
+    assert redis_client.zcard(_pending_key(claimed)) == 0
     assert redis_client.get(_lease_key(claimed)) == "worker-a"
 
     released = queue_adapter.release_lease(
@@ -139,8 +139,8 @@ def test_foreign_worker_cannot_release_claim(queue_adapter, redis_client) -> Non
         worker_id="worker-a",
     )
     assert released.ok is True
-    assert redis_client.llen(_processing_key(claimed)) == 0
-    assert redis_client.llen(_pending_key(claimed)) == 1
+    assert redis_client.hlen(_processing_key(claimed)) == 0
+    assert redis_client.zcard(_pending_key(claimed)) == 1
     assert redis_client.get(_lease_key(claimed)) is None
 
 
@@ -154,7 +154,7 @@ def test_recovery_accepts_recorded_owner_and_rejects_different_owner(queue_adapt
     )
     assert denied.ok is False
     assert denied.reason == "worker does not own claim"
-    assert redis_client.llen(_processing_key(claimed)) == 1
+    assert redis_client.hlen(_processing_key(claimed)) == 1
     assert redis_client.get(_lease_key(claimed)) == "worker-a"
 
     recovered = queue_adapter.recover_task_for_retry(
@@ -163,8 +163,8 @@ def test_recovery_accepts_recorded_owner_and_rejects_different_owner(queue_adapt
         worker_id="worker-a",
     )
     assert recovered.ok is True
-    assert redis_client.llen(_processing_key(claimed)) == 0
-    assert redis_client.llen(_pending_key(claimed)) == 1
+    assert redis_client.hlen(_processing_key(claimed)) == 0
+    assert redis_client.zcard(_pending_key(claimed)) == 1
     assert redis_client.get(_lease_key(claimed)) is None
 
 
@@ -178,8 +178,8 @@ def test_ownerless_recovery_can_reconcile_abandoned_processing_payload(queue_ada
         worker_id="runtime_maintainer",
     )
     assert recovered.ok is True
-    assert redis_client.llen(_processing_key(claimed)) == 0
-    assert redis_client.llen(_pending_key(claimed)) == 1
+    assert redis_client.hlen(_processing_key(claimed)) == 0
+    assert redis_client.zcard(_pending_key(claimed)) == 1
 
 
 def test_ownerless_dead_letter_path_cannot_steal_live_claim(queue_adapter, redis_client) -> None:
@@ -192,8 +192,8 @@ def test_ownerless_dead_letter_path_cannot_steal_live_claim(queue_adapter, redis
     )
     assert denied.ok is False
     assert denied.reason == "active worker owns claim"
-    assert redis_client.llen(_processing_key(claimed)) == 1
-    assert redis_client.llen(_dead_letter_key(claimed)) == 0
+    assert redis_client.hlen(_processing_key(claimed)) == 1
+    assert redis_client.zcard(_dead_letter_key(claimed)) == 0
 
     redis_client.delete(_lease_key(claimed))
     moved = queue_adapter.move_to_dead_letter(
@@ -202,8 +202,8 @@ def test_ownerless_dead_letter_path_cannot_steal_live_claim(queue_adapter, redis
         reason="abandoned cleanup",
     )
     assert moved.ok is True
-    assert redis_client.llen(_processing_key(claimed)) == 0
-    assert redis_client.llen(_dead_letter_key(claimed)) == 1
+    assert redis_client.hlen(_processing_key(claimed)) == 0
+    assert redis_client.zcard(_dead_letter_key(claimed)) == 1
 
 
 def test_recovery_dead_letter_accepts_recorded_owner_and_rejects_foreign_owner(queue_adapter, redis_client) -> None:
@@ -217,8 +217,8 @@ def test_recovery_dead_letter_accepts_recorded_owner_and_rejects_foreign_owner(q
     )
     assert denied.ok is False
     assert denied.reason == "worker does not own claim"
-    assert redis_client.llen(_processing_key(claimed)) == 1
-    assert redis_client.llen(_dead_letter_key(claimed)) == 0
+    assert redis_client.hlen(_processing_key(claimed)) == 1
+    assert redis_client.zcard(_dead_letter_key(claimed)) == 0
     assert redis_client.get(_lease_key(claimed)) == "worker-a"
 
     moved = queue_adapter.move_owned_to_dead_letter(
@@ -228,8 +228,8 @@ def test_recovery_dead_letter_accepts_recorded_owner_and_rejects_foreign_owner(q
         reason="max retries",
     )
     assert moved.ok is True
-    assert redis_client.llen(_processing_key(claimed)) == 0
-    assert redis_client.llen(_dead_letter_key(claimed)) == 1
+    assert redis_client.hlen(_processing_key(claimed)) == 0
+    assert redis_client.zcard(_dead_letter_key(claimed)) == 1
     assert redis_client.get(_lease_key(claimed)) is None
 
 
@@ -244,8 +244,8 @@ def test_recovery_dead_letter_accepts_missing_redis_owner(queue_adapter, redis_c
         reason="lease ttl elapsed",
     )
     assert moved.ok is True
-    assert redis_client.llen(_processing_key(claimed)) == 0
-    assert redis_client.llen(_dead_letter_key(claimed)) == 1
+    assert redis_client.hlen(_processing_key(claimed)) == 0
+    assert redis_client.zcard(_dead_letter_key(claimed)) == 1
 
 
 def test_existing_claim_cannot_overwrite_foreign_lease_owner(queue_adapter, redis_client) -> None:
@@ -261,8 +261,8 @@ def test_existing_claim_cannot_overwrite_foreign_lease_owner(queue_adapter, redi
     assert denied.ok is False
     assert denied.reason == "task already claimed by different worker"
     assert redis_client.get(_lease_key(message)) == "worker-a"
-    assert redis_client.llen(_pending_key(message)) == 1
-    assert redis_client.llen(_processing_key(message)) == 0
+    assert redis_client.zcard(_pending_key(message)) == 1
+    assert redis_client.hlen(_processing_key(message)) == 0
 
 
 def test_new_claim_does_not_overwrite_foreign_lease_owner(queue_adapter, redis_client) -> None:
@@ -274,5 +274,5 @@ def test_new_claim_does_not_overwrite_foreign_lease_owner(queue_adapter, redis_c
         queue_adapter.claim_task(tenant_id=message.tenant_id, worker_id="worker-b")
 
     assert redis_client.get(_lease_key(message)) == "worker-a"
-    assert redis_client.llen(_pending_key(message)) == 1
-    assert redis_client.llen(_processing_key(message)) == 0
+    assert redis_client.zcard(_pending_key(message)) == 1
+    assert redis_client.hlen(_processing_key(message)) == 0

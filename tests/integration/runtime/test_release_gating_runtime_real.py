@@ -102,13 +102,13 @@ def test_rg_queue_admission_end_to_end(pg_session, queue_adapter, redis_client) 
 
     result = ExecutionCoordinator(pg_session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task.id)
     assert result.ok is True
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") == 0
 
     pg_session.commit()
     pg_session.refresh(task)
     assert task.status == ExecutionTaskState.QUEUED.value
 
-    pending_len = redis_client.llen(f"ajenda:queue:{tenant_id}:pending")
+    pending_len = redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order")
     assert pending_len >= 1
     assert "queued" in _audit_actions(pg_session, tenant_id)
 
@@ -185,7 +185,7 @@ def test_rg_queue_retry_after_transient_interruption_succeeds_cleanly(
     assert attempts["count"] == 2
     assert task.status == ExecutionTaskState.QUEUED.value
     assert actions.count("queued") == 1
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") >= 1
 
 
 def test_rg_queued_work_survives_service_restart_boundary_and_claims_once(
@@ -222,7 +222,7 @@ def test_rg_queued_work_survives_service_restart_boundary_and_claims_once(
         queued_task = restart_session.get(ExecutionTask, task_id)
         assert queued_task is not None
         assert queued_task.status == ExecutionTaskState.QUEUED.value
-        assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
+        assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") >= 1
 
         restarted_runtime = WorkerRuntimeService(restart_session, queue_adapter)
         claimed = restarted_runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
@@ -317,7 +317,7 @@ def test_rg_claimed_lease_survives_restart_boundary_and_completes_once(
         assert final_task.status == ExecutionTaskState.COMPLETED.value
         assert final_lease is not None
         assert final_lease.status == WorkerLeaseState.RELEASED.value
-        assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+        assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
         assert actions.count("task_completed") == 1
     finally:
@@ -524,7 +524,7 @@ def test_rg_happy_execution_flow(pg_session, queue_adapter, redis_client) -> Non
     lease = pg_session.get(WorkerLease, lease_id)
     assert lease is not None
     assert lease.status == WorkerLeaseState.RELEASED.value
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task.id}") is None
     assert "task_completed" in _audit_actions(pg_session, tenant_id)
 
@@ -672,7 +672,7 @@ def test_rg_started_work_interrupted_before_completion_recovers_safely(
     assert lease.status == WorkerLeaseState.EXPIRED.value, (
         "releasing the Redis processing claim must not relabel the expired database lease as released"
     )
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") >= 1
     assert "lease_expired_task_requeued" in actions
     assert "task_completed" not in actions
     assert "task_failed" not in actions
@@ -718,7 +718,7 @@ def test_rg_duplicate_completion_rejected_without_processing_regression(
 
     assert task.status == ExecutionTaskState.COMPLETED.value
     assert lease.status == WorkerLeaseState.RELEASED.value
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task.id}") is None
     assert first_completed_audit_count == 1
     assert second_completed_audit_count == 1
@@ -742,7 +742,7 @@ def test_rg_forced_failure_path(pg_session, queue_adapter, redis_client) -> None
     pg_session.flush()
 
     assert failed.status == ExecutionTaskState.FAILED.value
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:dead_letter") >= 1
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:dead-letter-order") >= 1
     assert "task_failed" in _audit_actions(pg_session, tenant_id)
 
 
@@ -914,8 +914,8 @@ def test_rg_duplicate_active_lease_claim_rejected_with_queue_compensation(
     assert len(leases) == 1
     assert leases[0].id == existing_lease.id
     assert leases[0].status == WorkerLeaseState.ACTIVE.value
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") >= 1
+    assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task.id}") is None
 
 
@@ -938,7 +938,7 @@ def test_rg_pending_review_policy_gate(pg_session, queue_adapter, redis_client) 
     pg_session.refresh(task)
     assert task.status == ExecutionTaskState.PENDING_REVIEW.value
     assert task.requires_human_review is True
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") == 0
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") == 0
 
     actions = _audit_actions(pg_session, tenant_id)
     assert "task_pending_review" in actions
@@ -954,7 +954,7 @@ def test_rg_dead_letter_queue_interruption_rolls_back_authoritative_state(
     _create_tenant(pg_session, tenant_id)
     task = _create_task(pg_session, tenant_id, status=ExecutionTaskState.FAILED)
 
-    initial_dead_letter_len = redis_client.llen(f"ajenda:queue:{tenant_id}:dead_letter")
+    initial_dead_letter_len = redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:dead-letter-order")
 
     def interrupted_dead_letter_move(*args, **kwargs) -> QueueOperationResult:
         return QueueOperationResult(ok=False, reason="redis unavailable during dead-letter move")
@@ -979,4 +979,4 @@ def test_rg_dead_letter_queue_interruption_rolls_back_authoritative_state(
 
     assert task.status == ExecutionTaskState.FAILED.value
     assert governance_events == []
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:dead_letter") == initial_dead_letter_len
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:dead-letter-order") == initial_dead_letter_len

@@ -140,7 +140,7 @@ def _assert_recoverable_and_reclaim_once(
         assert recovered_task.retry_count == 1
         assert recovered_lease is not None
         assert recovered_lease.status == WorkerLeaseState.EXPIRED.value
-        assert redis_client.llen(f"ajenda:queue:{queued.tenant_id}:processing") == 0
+        assert redis_client.hlen(f"ajenda:queue:{queued.tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{queued.tenant_id}:lease:{queued.task_id}") is None
         assert (
             _active_lease_count(
@@ -209,8 +209,8 @@ def test_claim_start_heartbeat_failure_remains_recoverable(
         ).one()
 
         assert lease.status == WorkerLeaseState.RELEASED.value
-        assert redis_client.llen(f"ajenda:queue:{queued.tenant_id}:pending") == 1
-        assert redis_client.llen(f"ajenda:queue:{queued.tenant_id}:processing") == 0
+        assert redis_client.zcard(f"ajenda:queue:{queued.tenant_id}:v2:pending-order") == 1
+        assert redis_client.hlen(f"ajenda:queue:{queued.tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{queued.tenant_id}:lease:{queued.task_id}") is None
 
         reclaimed = WorkerRuntimeService(verify_claim_session, queue_adapter).claim_next_task(
@@ -385,8 +385,8 @@ def test_worker_loop_releases_claim_when_heartbeat_fails_before_start(
         lease = verify_session.get(WorkerLease, lease_id)
         assert lease is not None
         assert lease.status == WorkerLeaseState.RELEASED.value
-        assert redis_client.llen(f"ajenda:queue:{queued.tenant_id}:pending") == 1
-        assert redis_client.llen(f"ajenda:queue:{queued.tenant_id}:processing") == 0
+        assert redis_client.zcard(f"ajenda:queue:{queued.tenant_id}:v2:pending-order") == 1
+        assert redis_client.hlen(f"ajenda:queue:{queued.tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{queued.tenant_id}:lease:{queued.task_id}") is None
 
         reclaimed = WorkerRuntimeService(verify_session, queue_adapter).claim_next_task(

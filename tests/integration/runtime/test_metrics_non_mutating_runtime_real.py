@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -118,9 +117,9 @@ def test_metrics_snapshot_does_not_trigger_runtime_recovery_or_mutate_stale_leas
 def test_dead_lettered_task_is_not_reprocessed_by_claim_path(pg_engine, queue_adapter, redis_client) -> None:
     tenant_id = str(uuid.uuid4())
     session_factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
-    pending_key = f"ajenda:queue:{tenant_id}:pending"
-    processing_key = f"ajenda:queue:{tenant_id}:processing"
-    dead_letter_key = f"ajenda:queue:{tenant_id}:dead_letter"
+    pending_key = f"ajenda:queue:{tenant_id}:v2:pending-order"
+    processing_key = f"ajenda:queue:{tenant_id}:v2:processing-payloads"
+    dead_letter_key = f"ajenda:queue:{tenant_id}:v2:dead-letter-order"
 
     try:
         setup_session = session_factory()
@@ -187,20 +186,20 @@ def test_dead_lettered_task_is_not_reprocessed_by_claim_path(pg_engine, queue_ad
             persisted_task.status = ExecutionTaskState.DEAD_LETTERED.value
             status_session.commit()
 
-        before_pending = redis_client.lrange(pending_key, 0, -1)
-        before_processing = redis_client.lrange(processing_key, 0, -1)
-        before_dead_letter = redis_client.lrange(dead_letter_key, 0, -1)
+        before_pending = redis_client.zrange(pending_key, 0, -1)
+        before_processing = redis_client.hvals(processing_key)
+        before_dead_letter = redis_client.zrange(dead_letter_key, 0, -1)
 
         assert before_pending == []
         assert before_processing == []
         assert len(before_dead_letter) >= 1
-        assert any(str(task_id) == json.loads(payload)["task_id"] for payload in before_dead_letter)
+        assert str(task_id) in before_dead_letter
 
         assert queue_adapter.claim_task(tenant_id=tenant_id, worker_id="worker-no-reprocess") is None
 
-        after_pending = redis_client.lrange(pending_key, 0, -1)
-        after_processing = redis_client.lrange(processing_key, 0, -1)
-        after_dead_letter = redis_client.lrange(dead_letter_key, 0, -1)
+        after_pending = redis_client.zrange(pending_key, 0, -1)
+        after_processing = redis_client.hvals(processing_key)
+        after_dead_letter = redis_client.zrange(dead_letter_key, 0, -1)
 
         assert after_pending == before_pending
         assert after_processing == before_processing

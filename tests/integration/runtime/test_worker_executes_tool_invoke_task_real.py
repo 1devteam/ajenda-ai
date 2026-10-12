@@ -115,7 +115,7 @@ def test_worker_executes_tool_invoke_task_and_persists_evidence_shaped_output(
         assert evidence.structured_payload["count"] >= 1
         assert evidence.materialization_reference["lineage_record_id"] == str(lineage[0].id)
         assert evidence.artifact_references[0]["lineage_record_id"] == str(lineage[0].id)
-        assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+        assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
     finally:
         verify_session.close()

@@ -121,7 +121,7 @@ def _assert_failed_without_output(
             )
             == 0
         )
-        assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+        assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
     finally:
         verify_session.close()

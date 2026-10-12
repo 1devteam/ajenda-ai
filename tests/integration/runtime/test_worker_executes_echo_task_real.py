@@ -108,7 +108,7 @@ def test_worker_executes_echo_task_and_persists_output(pg_engine, queue_adapter,
             "output": {"message": "hello"},
             "status": "completed",
         }
-        assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+        assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
     finally:
         verify_session.close()
@@ -207,6 +207,6 @@ def test_echo_output_is_persisted_when_db_commit_succeeds_before_queue_cleanup_f
         assert final_task.status == ExecutionTaskState.COMPLETED.value
         assert final_lease is not None
         assert final_lease.status == WorkerLeaseState.RELEASED.value
-        assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 1
+        assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 1
     finally:
         verify_session.close()

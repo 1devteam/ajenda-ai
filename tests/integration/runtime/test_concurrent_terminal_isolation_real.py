@@ -119,8 +119,8 @@ def test_rg_mixed_tenant_concurrent_completion_cleanup_remains_isolated(
     assert claimed[tenant_a][0] == str(task_a_id)
     assert claimed[tenant_b][0] == str(task_b_id)
 
-    assert redis_client.llen(f"ajenda:queue:{tenant_a}:processing") == 0
-    assert redis_client.llen(f"ajenda:queue:{tenant_b}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_a}:v2:processing-payloads") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_b}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_a}:lease:{task_a_id}") is None
     assert redis_client.get(f"ajenda:queue:{tenant_b}:lease:{task_b_id}") is None
 

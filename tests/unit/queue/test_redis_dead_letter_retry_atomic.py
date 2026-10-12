@@ -2,77 +2,79 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from backend.queue.adapters.redis_adapter import RedisQueueAdapter
 
 
-def test_retry_dead_letter_uses_single_eval_command(monkeypatch) -> None:
-    adapter = RedisQueueAdapter("redis://localhost:6379/0")
-    task_id = uuid.uuid4()
+def _capture(
+    monkeypatch: pytest.MonkeyPatch,
+    adapter: RedisQueueAdapter,
+    operation_response: object,
+) -> list[list[str]]:
     calls: list[list[str]] = []
+    responses = iter(([1, "ready"], operation_response))
 
-    def _execute(command: list[str]):
+    def _execute(command: list[str]) -> object:
         calls.append(command)
-        return [1, "ok"]
+        return next(responses)
 
     monkeypatch.setattr(adapter, "_execute", _execute)
+    return calls
+
+
+def test_retry_dead_letter_uses_indexed_atomic_eval(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = RedisQueueAdapter("redis://localhost:6379/0")
+    task_id = uuid.uuid4()
+    calls = _capture(monkeypatch, adapter, [1, "ok"])
 
     result = adapter.retry_dead_letter(tenant_id="tenant-a", task_id=task_id)
 
     assert result.ok is True
-    assert result.reason is None
-    assert len(calls) == 1
-    command = calls[0]
-    assert command[0] == "EVAL"
-    assert command[2] == "3"
-    assert command[3] == "ajenda:queue:tenant-a:pending"
-    assert command[4] == "ajenda:queue:tenant-a:processing"
-    assert command[5] == "ajenda:queue:tenant-a:dead_letter"
-    assert command[6:] == ["tenant-a", str(task_id)]
+    command = calls[1]
+    assert command[0:3] == ["EVAL", adapter._RETRY_DEAD_LETTER_SCRIPT, "6"]
+    assert command[3:9] == [
+        "ajenda:queue:tenant-a:v2:pending-order",
+        "ajenda:queue:tenant-a:v2:pending-payloads",
+        "ajenda:queue:tenant-a:v2:processing-payloads",
+        "ajenda:queue:tenant-a:v2:dead-letter-order",
+        "ajenda:queue:tenant-a:v2:dead-letter-payloads",
+        "ajenda:queue:tenant-a:v2:sequence",
+    ]
+    assert command[9:] == ["tenant-a", str(task_id)]
 
 
-def test_retry_dead_letter_script_failure_returns_reason(monkeypatch) -> None:
+def test_retry_dead_letter_preserves_script_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     adapter = RedisQueueAdapter("redis://localhost:6379/0")
-    task_id = uuid.uuid4()
-    calls: list[list[str]] = []
+    _capture(monkeypatch, adapter, [0, "task already pending"])
 
-    def _execute(command: list[str]):
-        calls.append(command)
-        return [0, "task already pending"]
-
-    monkeypatch.setattr(adapter, "_execute", _execute)
-
-    result = adapter.retry_dead_letter(tenant_id="tenant-a", task_id=task_id)
+    result = adapter.retry_dead_letter(tenant_id="tenant-a", task_id=uuid.uuid4())
 
     assert result.ok is False
     assert result.reason == "task already pending"
-    assert len(calls) == 1
-    assert calls[0][0] == "EVAL"
 
 
-def test_retry_dead_letter_unexpected_script_result_fails_closed(monkeypatch) -> None:
+def test_retry_dead_letter_unexpected_result_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     adapter = RedisQueueAdapter("redis://localhost:6379/0")
-    task_id = uuid.uuid4()
+    _capture(monkeypatch, adapter, "OK")
 
-    monkeypatch.setattr(adapter, "_execute", lambda command: "OK")
-
-    result = adapter.retry_dead_letter(tenant_id="tenant-a", task_id=task_id)
+    result = adapter.retry_dead_letter(tenant_id="tenant-a", task_id=uuid.uuid4())
 
     assert result.ok is False
     assert result.reason == "retry script returned unexpected result"
 
 
-def test_retry_dead_letter_script_validates_queue_message_payload_shape() -> None:
+def test_retry_dead_letter_validates_exact_indexed_payload() -> None:
     script = RedisQueueAdapter._RETRY_DEAD_LETTER_SCRIPT
 
-    assert "validate_queue_message" in script
+    assert 'redis.call("HGET", dead_payloads, task_id)' in script
+    assert 'redis.call("HDEL", dead_payloads, task_id)' in script
+    assert 'redis.call("ZREM", dead_order, task_id)' in script
+    assert "invalid envelope" in script
+    assert "tenant_id mismatch" in script
+    assert "task_id mismatch" in script
     assert "missing mission_id" in script
     assert "missing payload" in script
     assert "missing enqueued_at" in script
-    assert 'redis.call("RPUSH", pending_key, pending_payload)' in script
-
-
-def test_retry_dead_letter_script_skips_unrelated_corrupt_dead_letter_entries() -> None:
-    script = RedisQueueAdapter._RETRY_DEAD_LETTER_SCRIPT
-
-    assert 'if envelope_ok and type(envelope) == "table" then' in script
-    assert 'return {0, "dead-letter payload is corrupt: invalid envelope"}' not in script
+    assert 'redis.call("LRANGE"' not in script
+    assert 'redis.call("LREM"' not in script

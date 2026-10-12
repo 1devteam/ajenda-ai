@@ -315,6 +315,6 @@ def test_mission_materializes_queues_and_executes_retrieval_hybrid_task(
         assert lineage[0].metadata_json["action"] == "retrieval.hybrid_search"
         assert len(evidence_records) >= 1
         assert evidence_records[0].mission_id == mission_id
-        assert redis_client.llen(f"ajenda:queue:{tenant_id_str}:processing") == 0
+        assert redis_client.hlen(f"ajenda:queue:{tenant_id_str}:v2:processing-payloads") == 0
     finally:
         verify.close()

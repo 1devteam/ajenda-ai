@@ -205,7 +205,7 @@ def test_periodic_maintenance_refreshes_deliverable_read_model(
         session.close()
 
 
-def test_running_task_with_expired_active_lease_and_pending_duplicate_converges_to_single_pending(
+def test_running_task_rejects_duplicate_admission_then_recovers_to_single_pending(
     pg_engine,
     queue_adapter,
     redis_client,
@@ -241,7 +241,9 @@ def test_running_task_with_expired_active_lease_and_pending_duplicate_converges_
             payload=dict(task.metadata_json),
             enqueued_at=datetime.now(UTC),
         )
-        assert queue_adapter.enqueue_task(duplicate).ok is True
+        duplicate_result = queue_adapter.enqueue_task(duplicate)
+        assert duplicate_result.ok is False
+        assert duplicate_result.reason == "task already processing"
         session.commit()
 
         summary = RuntimeMaintainer(
@@ -254,11 +256,11 @@ def test_running_task_with_expired_active_lease_and_pending_duplicate_converges_
         session.refresh(task)
         session.refresh(lease)
 
-        pending_key = f"ajenda:queue:{tenant_id}:pending"
-        processing_key = f"ajenda:queue:{tenant_id}:processing"
+        pending_key = f"ajenda:queue:{tenant_id}:v2:pending-order"
+        processing_key = f"ajenda:queue:{tenant_id}:v2:processing-payloads"
 
-        pending_payloads = redis_client.lrange(pending_key, 0, -1)
-        processing_payloads = redis_client.lrange(processing_key, 0, -1)
+        pending_payloads = redis_client.zrange(pending_key, 0, -1)
+        processing_payloads = redis_client.hvals(processing_key)
 
         matching_pending = [payload for payload in pending_payloads if str(task.id) in payload]
         matching_processing = [payload for payload in processing_payloads if str(task.id) in payload]
@@ -301,8 +303,9 @@ def test_running_task_missing_queue_payload_fails_closed_without_state_mutation(
             heartbeat_age_seconds=120,
         )
         redis_client.delete(
-            f"ajenda:queue:{tenant_id}:pending",
-            f"ajenda:queue:{tenant_id}:processing",
+            f"ajenda:queue:{tenant_id}:v2:pending-order",
+            f"ajenda:queue:{tenant_id}:v2:pending-payloads",
+            f"ajenda:queue:{tenant_id}:v2:processing-payloads",
             f"ajenda:queue:{tenant_id}:lease:{task.id}",
         )
         session.commit()
@@ -367,16 +370,16 @@ def test_recovery_cleans_blocked_processing_payload_without_requeue(
 
         session.refresh(task)
         session.refresh(lease)
-        pending_key = f"ajenda:queue:{tenant_id}:pending"
-        processing_key = f"ajenda:queue:{tenant_id}:processing"
+        pending_key = f"ajenda:queue:{tenant_id}:v2:pending-order"
+        processing_key = f"ajenda:queue:{tenant_id}:v2:processing-payloads"
 
         assert summary.requeued_task_count == 0
         assert summary.dead_lettered_count == 0
         assert summary.mismatched_state_count == 0
         assert task.status == ExecutionTaskState.BLOCKED.value
         assert lease.status == WorkerLeaseState.RELEASED.value
-        assert redis_client.llen(pending_key) == 0
-        assert redis_client.llen(processing_key) == 0
+        assert redis_client.zcard(pending_key) == 0
+        assert redis_client.hlen(processing_key) == 0
     finally:
         session.close()
 
@@ -418,15 +421,15 @@ def test_recovery_cleans_terminal_processing_payload_without_requeue(
 
         session.refresh(task)
         session.refresh(lease)
-        pending_key = f"ajenda:queue:{tenant_id}:pending"
-        processing_key = f"ajenda:queue:{tenant_id}:processing"
+        pending_key = f"ajenda:queue:{tenant_id}:v2:pending-order"
+        processing_key = f"ajenda:queue:{tenant_id}:v2:processing-payloads"
 
         assert summary.requeued_task_count == 0
         assert summary.dead_lettered_count == 0
         assert summary.mismatched_state_count == 0
         assert task.status == ExecutionTaskState.COMPLETED.value
         assert lease.status == WorkerLeaseState.RELEASED.value
-        assert redis_client.llen(pending_key) == 0
-        assert redis_client.llen(processing_key) == 0
+        assert redis_client.zcard(pending_key) == 0
+        assert redis_client.hlen(processing_key) == 0
     finally:
         session.close()

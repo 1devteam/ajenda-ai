@@ -191,6 +191,6 @@ def test_hvac_dallas_research_persists_prospect_candidates_after_start(pg_engine
         companies = {str(row.get("company") or "") for row in candidates.payload if isinstance(row, dict)}
         assert "pending" not in {name.casefold() for name in companies}
         assert "companies" not in {name.casefold() for name in companies}
-        assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+        assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
     finally:
         verify.close()

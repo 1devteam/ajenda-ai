@@ -119,7 +119,7 @@ def test_rg_concurrent_claim_race_leaves_no_duplicate_processing_residue(
 
     success_ids = [value for value in results.values() if value is not None]
     assert success_ids == [str(task_id)]
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 1
+    assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 1
     lease_key = redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}")
     assert lease_key is not None
 
@@ -233,7 +233,7 @@ def test_rg_concurrent_claim_winner_completes_with_clean_terminal_cleanup(
     finally:
         completion_session.close()
 
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
 
     verify_session = session_factory()
@@ -345,9 +345,9 @@ def test_rg_concurrent_claim_winner_recovery_requeues_once_without_duplicate_res
     finally:
         stale_session.close()
 
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:processing") == 0
+    assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
     assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
-    assert redis_client.llen(f"ajenda:queue:{tenant_id}:pending") >= 1
+    assert redis_client.zcard(f"ajenda:queue:{tenant_id}:v2:pending-order") >= 1
 
     verify_session = session_factory()
     try:
