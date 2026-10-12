@@ -86,6 +86,23 @@ def test_inventory_reconciles_manifest_action_with_job_selection() -> None:
     assert "manifest-action-unselected:web.browser_session" not in findings
 
 
+def test_manifest_registration_does_not_imply_mission_selection_drift() -> None:
+    inventory = _inventory()
+    action_nodes = {node["id"]: node for node in inventory["action_nodes"]}
+    finding_ids = {finding["id"] for finding in inventory["findings"]}
+
+    direct = action_nodes["action:http.request"]
+    assert direct["runtime_registered"] is True
+    assert direct["mission_selection_state"] == "not_job_selected"
+    assert direct["mission_selection_authority"] == [
+        "backend/services/mission_composition/job_catalog.py",
+        "backend/services/mission_composition/capability_resolver.py",
+    ]
+    assert direct["implementation_sources"] == ["backend/services/tools/http_actions.py"]
+    assert not any(finding_id.startswith("manifest-action-unselected:") for finding_id in finding_ids)
+    assert inventory["metrics"]["not_job_selected_action_count"] == len(action_nodes)
+
+
 def test_synthetic_resolver_only_action_is_reproducibly_detected(tmp_path: Path) -> None:
     catalog = tmp_path / MODULE.JOB_CATALOG_PATH
     resolver = tmp_path / MODULE.RESOLVER_PATH
