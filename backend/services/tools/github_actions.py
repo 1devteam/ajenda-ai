@@ -12,7 +12,7 @@ from backend.services.network_egress import (
     STRUCTURED_API_READ_RESPONSE_LIMIT,
     get_default_network_egress_authority,
 )
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.provider_read_actions import PROVIDER_EXTERNAL_READ_PROVIDER
 from backend.services.tools.schemas import (
     ActionResult,
@@ -178,7 +178,7 @@ def github_repo_read(invocation: ToolInvocation, context: ActionRuntimeContext) 
     )
 
 
-def register_github_actions(registry: ActionRegistry) -> None:
+def register_github_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name=GITHUB_REPO_READ_ACTION,

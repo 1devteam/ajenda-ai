@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from backend.services.document_artifacts import DOCUMENT_RECORD_TYPE, read_artifact
 from backend.services.draft_generation import generate_and_persist_draft
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.record_store import resolve_record_store
 from backend.services.tools.schemas import (
     ActionResult,
@@ -165,7 +165,7 @@ def document_read_handler(invocation: ToolInvocation, context: ActionRuntimeCont
     )
 
 
-def register_document_actions(registry: ActionRegistry) -> None:
+def register_document_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name="document.generate",

@@ -10,7 +10,7 @@ from backend.services.business_profile.context_resolver import resolve_business_
 from backend.services.business_profile.record_sync import build_profile_brief
 from backend.services.data_plane.memory_chunk_store import resolve_memory_chunk_store
 from backend.services.ontology.product_knowledge import product_catalog_hits
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.record_store import resolve_record_store
 from backend.services.tools.schemas import (
     ActionResult,
@@ -272,7 +272,7 @@ def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeCo
     )
 
 
-def register_retrieval_actions(registry: ActionRegistry) -> None:
+def register_retrieval_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name="retrieval.hybrid_search",

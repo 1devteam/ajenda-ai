@@ -10,7 +10,7 @@ from backend.services.internet.search import DuckDuckGoInstantAnswerProvider
 from backend.services.network_egress import NetworkEgressError, get_default_network_egress_authority
 from backend.services.plugins.crm_client import default_crm_client
 from backend.services.retry_policy import RetryPolicy
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.record_store import record_store_limitations, resolve_record_store
 from backend.services.tools.schemas import (
     ActionResult,
@@ -926,7 +926,7 @@ def runtime_verify_controls(invocation: ToolInvocation, context: ActionRuntimeCo
     )
 
 
-def register_standalone_actions(registry: ActionRegistry) -> None:
+def register_standalone_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name="runtime.verify_controls",

@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 from backend.services.credentials.runtime_authority import CredentialRequirement
 from backend.services.network_egress import get_default_network_egress_authority
 from backend.services.security.redaction import contains_sensitive_key
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -222,7 +222,7 @@ def provider_external_read(invocation: ToolInvocation, context: ActionRuntimeCon
     )
 
 
-def register_provider_read_actions(registry: ActionRegistry) -> None:
+def register_provider_read_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name=PROVIDER_EXTERNAL_READ_ACTION,

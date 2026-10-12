@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 from backend.repositories.stripe_webhook_event_repository import StripeWebhookEventRepository
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -70,7 +70,7 @@ def sync_revenue(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     )
 
 
-def register_finance_actions(registry: ActionRegistry) -> None:
+def register_finance_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name="vertical.finance.sync_revenue",

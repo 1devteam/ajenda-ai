@@ -7,7 +7,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.record_store import record_store_limitations, resolve_record_store
 from backend.services.tools.schemas import (
     ActionResult,
@@ -341,7 +341,7 @@ def _sha256_json(value: Any) -> str:
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
-def register_crm_actions(registry: ActionRegistry) -> None:
+def register_crm_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name="crm.observe",

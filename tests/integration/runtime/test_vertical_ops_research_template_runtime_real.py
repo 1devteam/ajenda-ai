@@ -21,7 +21,7 @@ from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
-from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
+from backend.services.demo_tenant_bootstrap import DemoTenantBootstrapService
 from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.vertical_ops.template_service import (
     VERTICAL_TEMPLATE_METADATA_KEY,
@@ -66,7 +66,7 @@ def test_vertical_research_template_queues_claims_executes_and_persists_evidence
         # Pre-seed durable records so web.research does not seed inside the
         # dispatcher-held session (avoids long lock waits under concurrent heartbeat).
         activate_tenant_session(setup_session, tenant_id)
-        TenantInternalRecordRepository(setup_session).seed_defaults_if_empty(tenant_id=tenant_id)
+        DemoTenantBootstrapService(setup_session).ensure_seeded_if_empty(tenant_id=tenant_id)
         setup_session.flush()
 
         service = VerticalOpsTemplateService()

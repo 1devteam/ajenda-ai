@@ -135,8 +135,6 @@ export function parseApiKeyHeader(value: string): { keyId: string; apiKey: strin
   };
 }
 
-export { shouldRefreshAccessToken as isSessionNearExpiry } from "./sessionLifecycle";
-
 export function sessionFromOidcResponse(response: {
   access_token: string;
   refresh_token: string;

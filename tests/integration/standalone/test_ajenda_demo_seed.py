@@ -10,8 +10,8 @@ from sqlalchemy.orm import sessionmaker
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID
 from backend.repositories.business_profile_repository import BusinessProfileRepository
-from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.ajenda_demo_fixtures import DEMO_PROSPECT_ACCOUNT_ID
+from backend.services.demo_tenant_bootstrap import DemoTenantBootstrapService
 
 pytestmark = pytest.mark.integration
 
@@ -23,8 +23,7 @@ def test_seed_defaults_if_empty_bootstraps_ajenda_self_selling_demo(pg_engine) -
     session = session_factory()
     try:
         activate_tenant_session(session, tenant_id)
-        record_repo = TenantInternalRecordRepository(session)
-        record_repo.seed_defaults_if_empty(tenant_id=tenant_id)
+        DemoTenantBootstrapService(session).ensure_seeded_if_empty(tenant_id=tenant_id)
         session.commit()
     finally:
         session.close()

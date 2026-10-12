@@ -86,6 +86,7 @@ def test_real_graph_audit_has_integrity_and_rankings():
     assert report["top_betweenness"]
     assert report["top_transitive_consumers"]
     assert report["boundary_matrix"]
+    assert report["static_cycles"] == []
     assert report["integrity"]["pass"] is True
     assert report["integrity"]["missing_semantic_edge_evidence"] == []
     assert report["integrity"]["missing_invariant_sources"] == []

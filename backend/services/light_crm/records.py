@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
+from backend.services.demo_tenant_bootstrap import DemoTenantBootstrapService
 from backend.services.light_crm.schemas import (
     DEFAULT_OPPORTUNITY_STAGE,
     PIPELINE_STAGES,
@@ -24,6 +25,7 @@ from backend.services.light_crm.schemas import (
 class LightCrmRecordService:
     def __init__(self, *, session: Session) -> None:
         self._repo = TenantInternalRecordRepository(session)
+        self._demo_bootstrap = DemoTenantBootstrapService(session)
 
     def read_record(self, *, tenant_id: str, record_type: str, record_id: str) -> dict[str, Any] | None:
         return self._repo.read_record(tenant_id=tenant_id, record_type=record_type, record_id=record_id)
@@ -369,7 +371,7 @@ class LightCrmRecordService:
         limit: int = 25,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        self._repo.seed_defaults_if_empty(tenant_id=tenant_id)
+        self._demo_bootstrap.ensure_seeded_if_empty(tenant_id=tenant_id)
         return self._repo.search_records(
             tenant_id=tenant_id,
             record_type=record_type,

@@ -6,7 +6,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.services.credentials.runtime_authority import CredentialRuntimeAuthority
 from backend.services.credentials.sqlalchemy_repository import SQLAlchemyCredentialRuntimeRepository
 from backend.services.tools.runtime_authority import ToolRuntimeAuthority
-from backend.workers.task_dispatcher import TaskHandlerContext, register_handler
+from backend.workers.handler_registry import TaskHandlerContext, register_handler
 
 
 @register_handler("tool.invoke", output_reason="tool action completed")

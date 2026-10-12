@@ -52,7 +52,7 @@ from backend.services.ontology.outcome import (
     evaluate_outcome,
 )
 from backend.services.ontology.types import BusinessObjectRef
-from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
+from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
@@ -452,7 +452,7 @@ def analysis_qualify_pattern_knowledge(invocation: ToolInvocation, context: Acti
     )
 
 
-def register_analysis_actions(registry: ActionRegistry) -> None:
+def register_analysis_actions(registry: ActionRegistryPort) -> None:
     registry.register(
         ActionDefinition(
             name="analysis.materialize_decision_learning_signal",
