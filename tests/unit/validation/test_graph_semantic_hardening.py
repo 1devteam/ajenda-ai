@@ -156,6 +156,16 @@ def test_semantic_finding_ratchet_has_no_unacknowledged_blockers_at_baseline() -
     assert report["integrity"]["semantic_finding_count"] >= 0
 
 
+def test_runtime_registration_is_not_misreported_as_missing_job_selection() -> None:
+    graph = _graph()
+    finding_ids = {item["id"] for item in graph["semantic_findings"]}
+    nodes = {item["id"]: item for item in graph["nodes"]}
+
+    assert not any(item.startswith("manifest-action-unselected:") for item in finding_ids)
+    assert nodes["action:http.request"]["runtime_registered"] is True
+    assert nodes["action:http.request"]["mission_selection_state"] == "not_job_selected"
+
+
 def test_rls_migration_change_reaches_tenant_isolation_invariant() -> None:
     report = IMPACT.analyze_impact(_graph(), ["alembic/versions/0034_add_email_send_idempotency_receipts.py"])
     changed_ids = {item["id"] for item in report["changed_nodes"]}

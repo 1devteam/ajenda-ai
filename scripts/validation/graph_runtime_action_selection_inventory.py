@@ -453,7 +453,9 @@ def collect_runtime_action_selection_inventory(repo_root: Path) -> dict[str, Any
 
     # The ability catalog is an independent authority from mission selection.
     # Keep manifest-only actions visible so an executable action cannot disappear
-    # from GRAFT merely because no BusinessJob currently selects it.
+    # from GRAFT merely because no BusinessJob currently selects it. Absence from
+    # BusinessJob and resolver declarations means "not job-selected"; it is not
+    # selection drift because AbilityManifest does not grant composition authority.
     for action in sorted(manifest_actions - global_catalog_actions - resolver_actions):
         action_id = f"action:{action}"
         action_nodes.append(
@@ -465,6 +467,9 @@ def collect_runtime_action_selection_inventory(repo_root: Path) -> dict[str, Any
                 "declared_in": ability_catalog_source,
                 "implementation_sources": list(implementation_sources.get(action, ())),
                 "manifest_only": True,
+                "runtime_registered": True,
+                "mission_selection_state": "not_job_selected",
+                "mission_selection_authority": [catalog_source, resolver_source],
             }
         )
         edges.append(
@@ -487,21 +492,6 @@ def collect_runtime_action_selection_inventory(repo_root: Path) -> dict[str, Any
                     "evidence": source,
                 }
             )
-        findings.append(
-            {
-                "id": f"manifest-action-unselected:{action}",
-                "category": "runtime-action-selection",
-                "severity": "medium",
-                "summary": (
-                    f"Registered ability {action} is executable and policy-declared but is not currently "
-                    "a candidate in the mission job catalog or resolver."
-                ),
-                "evidence": [ability_catalog_source, catalog_source, resolver_source],
-                "related_nodes": [action_id],
-                "blocking": False,
-                "classification": "manifest_action_without_job_selection",
-            }
-        )
 
     return {
         "action_nodes": action_nodes,
@@ -520,6 +510,7 @@ def collect_runtime_action_selection_inventory(repo_root: Path) -> dict[str, Any
             "resolver_only_global_action_count": len(resolver_actions - global_catalog_actions),
             "manifest_action_count": len(manifest_actions),
             "manifest_only_action_count": len(manifest_actions - global_catalog_actions - resolver_actions),
+            "not_job_selected_action_count": len(manifest_actions - global_catalog_actions - resolver_actions),
             "connection_constrained_selection_count": sum(1 for node in nodes if node.get("connection_hint")),
             "source_override_count": len(overrides),
             "readiness_state_count": len(readiness_states),
