@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.business_profile_projection import PROFILE_ACCOUNT_RECORD_ID
 from backend.repositories.business_profile_repository import BusinessProfileRepository
+from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.ajenda_demo_fixtures import DEMO_PROSPECT_ACCOUNT_ID
 from backend.services.demo_tenant_bootstrap import DemoTenantBootstrapService
 
