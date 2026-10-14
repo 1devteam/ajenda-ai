@@ -97,8 +97,6 @@ jobs:
 
       - name: Build factual source topology
         run: |
-          python scripts/validation/graph_ascii_v2.py \
-            --preview-lines 24
           python scripts/validation/graph_source_topology.py \
             --output artifacts/graph-source-topology.v1.json \
             --top 25
