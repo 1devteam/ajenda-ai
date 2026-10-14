@@ -272,7 +272,7 @@ def test_historical_unknown_is_not_misreported_as_current_violation(monkeypatch)
     service._snapshots.latest_for_mission.return_value = None
     service._snapshots.append.side_effect = lambda snapshot: snapshot
     snapshot = service.reconcile_mission(tenant_id="tenant-a", mission=mission)
-    assert snapshot.status == "aligned"
+    assert snapshot.status == "incomplete"
     assert snapshot.findings == [
         {"category": "historical_unknown", "code": "task:old:evidence", "severity": "info"}
     ]
