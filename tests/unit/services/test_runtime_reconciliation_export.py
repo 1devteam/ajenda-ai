@@ -18,6 +18,9 @@ def _projection(*, with_evidence: bool) -> MissionRuntimeEvidenceProjection:
             "queue_admitted": True,
             "lease_ids": ["lease-a"],
             "evidence_ids": ["evidence-a"] if with_evidence else [],
+            "evidence_collection_statuses": [
+                {"evidence_id": "evidence-a", "collection_status": "collected"}
+            ] if with_evidence else [],
             "declared_output_contract": {"artifact": "research_report"},
             "observed_output_keys": ["research_report"],
         }],
@@ -48,3 +51,15 @@ def test_export_does_not_fabricate_selection() -> None:
     )
     with pytest.raises(ValueError, match="selected nodes"):
         export_runtime_reconciliation_snapshot(projection)
+
+
+def test_rejected_evidence_is_referenced_but_does_not_satisfy_stage() -> None:
+    projection = _projection(with_evidence=True)
+    projection.task_flows[0]["evidence_collection_statuses"] = [
+        {"evidence_id": "evidence-a", "collection_status": "rejected"}
+    ]
+    snapshot = export_runtime_reconciliation_snapshot(projection)
+    assert snapshot.evidence_nodes == ()
+    assert snapshot.provenance is not None
+    assert "evidence:evidence-a" in snapshot.provenance.source_record_ids
+    assert reconcile_snapshot(snapshot)["status"] == "blocked"
