@@ -131,12 +131,12 @@ RUNTIME_ADMISSION_COVERAGE: tuple[RuntimeAdmissionCoverage, ...] = (
 INVOCATION_ANCHORS: dict[str, tuple[str, str]] = {
     "mission.graph_runtime_admission": ("admit_mission_graph_to_runtime", "evaluate_admission_integrity"),
     "mission.runtime_task_materialization": ("materialize", "build_mission_runtime_readiness"),
-    "mission.runtime_queue_admission": ("admit", "ExecutionCoordinator"),
+    "mission.runtime_queue_admission": ("admit", "self._execution_coordinator_cls"),
     "mission.legacy_queue_wrapper": ("queue_mission", "_admit_mission_runtime_queue"),
     "task.single_queue": ("queue_task", "ExecutionCoordinator(db, queue).queue_task"),
     "vertical_ops.template_queue": ("queue_applied_template_tasks", "service.queue_planned_tasks"),
     "admin.review_approval_queue": ("approve_task_review", "approve_review_and_queue"),
-    "mission.bridge_runtime_authority": ("provision_bridge_runtime_authority", "get_default_action_registry"),
+    "mission.bridge_runtime_authority": ("provision_bridge_runtime_authority", "_ensure_bridge_authority"),
     "worker.claim_start": ("start_execution", "transition_task"),
     "worker.dispatcher": ("_run_claimed_task", "dispatcher.execute"),
 }
