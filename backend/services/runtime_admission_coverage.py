@@ -9,6 +9,7 @@ boundary cannot silently fall outside review.
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -123,6 +124,31 @@ RUNTIME_ADMISSION_COVERAGE: tuple[RuntimeAdmissionCoverage, ...] = (
 )
 
 
+
+# Verify that the declared control is invoked from its entry point, rather than
+# merely appearing somewhere in the same file. This remains static coverage
+# and must be paired with behavioral authorization/rejection tests.
+INVOCATION_ANCHORS: dict[str, tuple[str, str]] = {
+    "mission.graph_runtime_admission": ("admit_mission_graph_to_runtime", "evaluate_admission_integrity"),
+    "mission.runtime_task_materialization": ("materialize", "build_mission_runtime_readiness"),
+    "mission.runtime_queue_admission": ("admit", "ExecutionCoordinator"),
+    "mission.legacy_queue_wrapper": ("queue_mission", "_admit_mission_runtime_queue"),
+    "task.single_queue": ("queue_task", "ExecutionCoordinator(db, queue).queue_task"),
+    "vertical_ops.template_queue": ("queue_applied_template_tasks", "service.queue_planned_tasks"),
+    "admin.review_approval_queue": ("approve_task_review", "approve_review_and_queue"),
+    "mission.bridge_runtime_authority": ("provision_bridge_runtime_authority", "get_default_action_registry"),
+    "worker.claim_start": ("start_execution", "transition_task"),
+    "worker.dispatcher": ("_run_claimed_task", "dispatcher.execute"),
+}
+
+
+def _entry_contains_control(source: str, entry_name: str, control: str) -> bool:
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == entry_name:
+            return control in (ast.get_source_segment(source, node) or "")
+    return False
+
 def validate_runtime_admission_coverage(*, repo_root: Path = REPO_ROOT) -> None:
     """Fail closed when an admission boundary loses its declared proof anchor."""
 
@@ -142,6 +168,11 @@ def validate_runtime_admission_coverage(*, repo_root: Path = REPO_ROOT) -> None:
         missing = [token for token in boundary.source_tokens if token not in source]
         if missing:
             raise ValueError(f"runtime admission proof tokens missing for {boundary.boundary_id}: {missing}")
+        entry_name, control = INVOCATION_ANCHORS[boundary.boundary_id]
+        if not _entry_contains_control(source, entry_name, control):
+            raise ValueError(
+                f"runtime admission invocation anchor missing in {entry_name}: {boundary.boundary_id}"
+            )
 
 
 validate_runtime_admission_coverage()
