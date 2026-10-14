@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 _SENSITIVE_KEY_FRAGMENTS = ("secret", "token", "password", "credential", "authorization", "api_key", "cookie")
@@ -46,3 +47,14 @@ def describe_information(value: Any) -> dict[str, Any]:
         "truncated": len(public_keys) > 64,
         "sha256": "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
     }
+
+
+_TECHNICAL_KEY = re.compile(r"^[a-z][a-z0-9_.-]{0,79}$")
+
+
+def safe_decision_keys(values: list[str], *, limit: int) -> list[str]:
+    """Expose only bounded technical identifiers, never arbitrary prompt text."""
+    return [
+        value if _TECHNICAL_KEY.fullmatch(value) else "[redacted]"
+        for value in values[:limit]
+    ]
