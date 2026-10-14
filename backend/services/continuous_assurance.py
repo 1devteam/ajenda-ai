@@ -24,6 +24,10 @@ from backend.domain.worker_lease import WorkerLease
 from backend.repositories.assurance_snapshot_repository import AssuranceSnapshotRepository
 from backend.services import mission_runtime_evidence_projection
 from backend.services.mission_composition import deliverable_runtime_observability
+from backend.services.runtime_evidence_consumers import (
+    consume_intelligence_flow_evidence,
+    consume_runtime_security_evidence,
+)
 
 _STATUS_RANK = {
     "aligned": 0,
@@ -137,6 +141,12 @@ class ContinuousAssuranceService:
             findings.append({"category": "runtime_contradiction", "code": code, "severity": "error"})
         for code in runtime.missing_evidence:
             findings.append({"category": "missing_evidence", "code": code, "severity": "warning"})
+        # These consumers observe producer-owned ledger facts only.  They do
+        # not reconstruct plans, rewrite mission state, or grant authority.
+        security_evidence = consume_runtime_security_evidence(audits)
+        intelligence_flow = consume_intelligence_flow_evidence(audits)
+        findings.extend(security_evidence.findings)
+        findings.extend(intelligence_flow.findings)
 
         reconciliation_status = "not_available"
         semantic_status = "not_available"

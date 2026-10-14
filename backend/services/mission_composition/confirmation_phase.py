@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from typing import Any
 
@@ -30,6 +31,7 @@ from backend.services.mission_intake_quality import (
     validate_mission_intake_prompt,
 )
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaExceededError
+from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
 
 
 class MissionCompositionConfirmationPhase:
@@ -422,4 +424,33 @@ class MissionCompositionConfirmationPhase:
                         "durably stored; retry with the same idempotency_key after the store recovers"
                     ),
                 )
+        # Persist only a minimised composition fact: the raw instruction is
+        # customer content and remains owned by mission intake, not the audit
+        # ledger.  The digest lets independent consumers prove lineage without
+        # duplicating sensitive prompt text.
+        RuntimeEvidenceLedger(self._db).append_fact(
+            tenant_id=str(tenant_id),
+            mission_id=mission.id,
+            category="mission_composition",
+            action="confirmed",
+            producer="mission_composition.confirmation",
+            actor=actor_id or "unknown",
+            details=f"Composition proposal {record.proposal_id} was confirmed into mission {mission.id}.",
+            facts={
+                "proposal_id": record.proposal_id,
+                "plan_id": str(plan.id),
+                "instruction_sha256": "sha256:" + hashlib.sha256(record.instruction.encode("utf-8")).hexdigest(),
+                "objective": record.intent.objective,
+                "allowed_action_count": len(record.allowed_actions),
+                "forbidden_action_count": len(record.forbidden_actions),
+                "task_graph_node_count": len(normalized_graph.get("nodes") or []),
+            },
+            authority_context={
+                "runtime_queued": False,
+                "grants_execution_authority": False,
+                "proposal_ready": record.ready_to_start,
+            },
+            causation_id=record.proposal_id,
+            correlation_id=str(mission.id),
+        )
         return result

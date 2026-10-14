@@ -21,6 +21,7 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.transitions import transition_lease, transition_mission, transition_task
 from backend.services.mission_intake_quality import contains_composition_clarification
+from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
 from backend.services.runtime_queue_dispatcher import RuntimeQueueDispatchService
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
 from backend.services.tools.mission_input_binding import pending_dependency_keys
@@ -75,6 +76,7 @@ class WorkerRuntimeService:
         self._tasks = ExecutionTaskRepository(session)
         self._leases = WorkerLeaseRepository(session)
         self._audit = AuditEventRepository(session)
+        self._evidence_ledger = RuntimeEvidenceLedger(session, audit_repository=self._audit)
         self._dispatches = RuntimeQueueDispatchService(session, queue)
 
     def claim_next_task(self, *, tenant_id: str, worker_id: str) -> ExecutionTask | None:
@@ -298,6 +300,28 @@ class WorkerRuntimeService:
                 transition_lease(lease, WorkerLeaseState.ACTIVE)
             lease.heartbeat_at = datetime.now(UTC)
             transition_task(task, ExecutionTaskState.RUNNING)
+            metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+            invocation = metadata.get("tool_invocation")
+            action = invocation.get("action") if isinstance(invocation, dict) else None
+            self._evidence_ledger.append_fact(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="execution_task",
+                action="started",
+                producer="worker_runtime",
+                actor=worker_id,
+                details=f"Worker started task {task.id} under lease {lease.id}.",
+                facts={
+                    "task_id": str(task.id),
+                    "lease_id": str(lease.id),
+                    "state": task.status,
+                    "task_type": metadata.get("task_type"),
+                    "action": action if isinstance(action, str) else None,
+                },
+                authority_context={"lease_owner": worker_id, "lease_status": lease.status},
+                causation_id=str(lease.id),
+                correlation_id=str(task.mission_id),
+            )
             self._session.flush()
             self._session.commit()
         return task
@@ -393,16 +417,19 @@ class WorkerRuntimeService:
                     evidence_ids=evidence_ids_for_review,
                 )
 
-        self._audit.append(
-            AuditEvent(
-                tenant_id=tenant_id,
-                mission_id=task.mission_id,
-                category="worker",
-                action="task_completed",
-                actor=worker_id,
-                details=f"Completed task {task.id}",
-                payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
-            )
+        self._evidence_ledger.append_fact(
+            tenant_id=tenant_id,
+            mission_id=task.mission_id,
+            category="worker",
+            action="task_completed",
+            producer="worker_runtime",
+            actor=worker_id,
+            details=f"Completed task {task.id}",
+            facts={"task_id": str(task.id), "lease_id": str(lease.id), "state": task.status},
+            authority_context={"lease_owner": worker_id, "lease_status": lease.status},
+            causation_id=str(lease.id),
+            correlation_id=str(task.mission_id),
+            evidence_references=evidence_ids_for_review,
         )
         self._refresh_deliverable_completion_read_model(task=task)
         self._maybe_rollup_mission_status(task=task, worker_id=worker_id)
@@ -649,16 +676,18 @@ class WorkerRuntimeService:
         )
         self._transition_lease_to_released(lease)
         lease.heartbeat_at = datetime.now(UTC)
-        self._audit.append(
-            AuditEvent(
-                tenant_id=tenant_id,
-                mission_id=task.mission_id,
-                category="worker",
-                action="task_failed",
-                actor=worker_id,
-                details=reason,
-                payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
-            )
+        self._evidence_ledger.append_fact(
+            tenant_id=tenant_id,
+            mission_id=task.mission_id,
+            category="worker",
+            action="task_failed",
+            producer="worker_runtime",
+            actor=worker_id,
+            details=reason,
+            facts={"task_id": str(task.id), "lease_id": str(lease.id), "state": task.status, "reason": reason},
+            authority_context={"lease_owner": worker_id, "lease_status": lease.status},
+            causation_id=str(lease.id),
+            correlation_id=str(task.mission_id),
         )
         self._refresh_deliverable_completion_read_model(task=task)
         self._maybe_rollup_mission_status(task=task, worker_id=worker_id)

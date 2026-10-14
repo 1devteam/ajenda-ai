@@ -20,6 +20,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.worker_lease import WorkerLease
 from backend.services.mission_composition.deliverable_runtime_artifacts import declared_artifact_key
+from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
 from backend.services.tools.mission_input_binding import handler_output_for_task
 
 
@@ -214,6 +215,17 @@ def build_mission_runtime_evidence_projection(
 
     queue = _metadata(mission_metadata, "runtime_queue_admission")
     admitted_ids = _ids(queue, "admitted_execution_task_ids", "queued_execution_task_ids")
+    # Versioned audit-ledger facts are an independent durable admission receipt.
+    # They supplement (never rewrite) the mission metadata projection and let
+    # assurance distinguish a legacy metadata gap from an unadmitted task.
+    audited_admitted_ids = {
+        envelope.subject_references["task_id"]
+        for event in audit_events or []
+        if (envelope := RuntimeEvidenceLedger.read_envelope(event)) is not None
+        and envelope.event_type == "execution_task.queued"
+        and "task_id" in envelope.subject_references
+    }
+    admitted_ids.update(audited_admitted_ids)
     materialized_ids = _ids(_metadata(mission_metadata, "runtime_task_materialization"), "created_execution_task_ids")
     selected_keys = {
         str(node.get("node_key") or node.get("key"))
