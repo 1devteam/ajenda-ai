@@ -45,9 +45,15 @@ def export_runtime_reconciliation_snapshot(
         if flow.get("queue_admitted") is True:
             queued.append(current)
         evidence_ids = flow.get("evidence_ids")
-        if isinstance(evidence_ids, list) and evidence_ids:
-            evidenced.append(current)
+        if isinstance(evidence_ids, list):
             source_record_ids.extend(f"evidence:{item}" for item in evidence_ids)
+        evidence_statuses = flow.get("evidence_collection_statuses")
+        if isinstance(evidence_statuses, list) and any(
+            isinstance(item, dict)
+            and item.get("collection_status") in {"collected", "verified"}
+            for item in evidence_statuses
+        ):
+            evidenced.append(current)
         declared = flow.get("declared_output_contract")
         artifact_key = declared.get("artifact") if isinstance(declared, dict) else None
         output_keys = flow.get("observed_output_keys")
