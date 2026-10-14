@@ -1,4 +1,4 @@
-from backend.services.runtime_information_observation import describe_information
+from backend.services.runtime_information_observation import describe_information, safe_decision_keys
 
 
 def test_description_reveals_structure_not_values_or_sensitive_field_names() -> None:
@@ -21,3 +21,10 @@ def test_representation_fingerprint_does_not_change_with_private_values() -> Non
     first = describe_information({"target_market": "Phoenix", "password": "one"})
     second = describe_information({"target_market": "Dallas", "password": "two"})
     assert first["sha256"] == second["sha256"]
+
+
+def test_technical_decision_keys_redact_arbitrary_text() -> None:
+    assert safe_decision_keys(
+        ["research_prospects", "Send password abc to partner", "web.research"],
+        limit=3,
+    ) == ["research_prospects", "[redacted]", "web.research"]
