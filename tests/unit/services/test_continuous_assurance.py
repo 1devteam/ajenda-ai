@@ -381,3 +381,12 @@ def test_assurance_security_verdict_is_independent_of_operational_alignment(monk
     assert snapshot.runtime_summary["security_finding_count"] == 1
     assert any(item["category"] == "security_tenant_boundary" for item in snapshot.findings)
     assert snapshot.grants_execution_authority is False
+
+
+def test_security_scan_prioritizes_active_missions_before_newer_history() -> None:
+    session = MagicMock()
+    session.scalars.return_value = []
+    assert ContinuousAssuranceService(session).run_tenant(tenant_id="tenant-a") == []
+    statement = session.scalars.call_args.args[0]
+    assert "CASE WHEN" in str(statement)
+    assert "ORDER BY" in str(statement)
