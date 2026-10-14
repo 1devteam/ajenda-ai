@@ -574,6 +574,7 @@ def build_mission_runtime_evidence_projection(
             "composition_confirmed",
             "execution_started",
             "execution_completed",
+            "execution_failed",
         }
     ]
     return MissionRuntimeEvidenceProjection(
