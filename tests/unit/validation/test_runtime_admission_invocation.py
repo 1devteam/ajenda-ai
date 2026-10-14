@@ -32,12 +32,12 @@ def test_control_token_outside_entry_function_does_not_satisfy_coverage(tmp_path
         original[:invocation]
         + original[invocation:].replace(
             "graft_report = evaluate_admission_integrity(",
-            "graft_report = None  # evaluate_admission_integrity(",
+            "graft_report = fake_admission_check(",
             1,
         )
     )
-    # The token still exists in the file and in the function comment; textual
-    # scanning alone cannot prove invocation. The AST check below must reject.
+    # The import still preserves the token elsewhere in the file, but the
+    # entry function no longer invokes the required control.
     target.write_text(altered, encoding="utf-8")
-    with pytest.raises((ValueError, SyntaxError)):
+    with pytest.raises(ValueError, match="invocation anchor missing"):
         validate_runtime_admission_coverage(repo_root=tmp_path)
