@@ -33,6 +33,17 @@ def inspect_runtime_security(
         str(lease.task_id) for lease in leases
         if lease.tenant_id == tenant_id
     }
+    observed_starts = {
+        str(event.payload_json["task_id"])
+        for event in audits
+        if event.tenant_id == tenant_id
+        and event.mission_id == mission_id
+        and getattr(event, "category", None) == "mission_information"
+        and getattr(event, "action", None) == "execution_started"
+        and isinstance(getattr(event, "payload_json", None), dict)
+        and event.payload_json.get("schema_version") == 1
+        and isinstance(event.payload_json.get("task_id"), str)
+    }
     for task in tasks:
         metadata = task.metadata_json if isinstance(getattr(task, "metadata_json", None), dict) else {}
         if (
@@ -45,6 +56,18 @@ def inspect_runtime_security(
             findings.append({
                 "category": "security_lease_integrity",
                 "code": f"task:{task.id}:missing_lease_under_active_contract",
+                "severity": "error",
+            })
+        if (
+            task.tenant_id == tenant_id
+            and task.mission_id == mission_id
+            and metadata.get("runtime_evidence_contract_version") == "1"
+            and task.status in {"running", "completed", "failed", "dead_lettered"}
+            and str(task.id) not in observed_starts
+        ):
+            findings.append({
+                "category": "security_trace_integrity",
+                "code": f"task:{task.id}:missing_durable_execution_start",
                 "severity": "error",
             })
     for lease in leases:
