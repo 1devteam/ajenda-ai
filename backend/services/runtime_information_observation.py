@@ -49,12 +49,12 @@ def describe_information(value: Any) -> dict[str, Any]:
     }
 
 
-_TECHNICAL_KEY = re.compile(r"^[a-z][a-z0-9_.-]{0,79}$")
+_TECHNICAL_KEY = re.compile(r"^[a-z][a-z0-9_.-]*(?:\\[\\d{1,2}\\][a-z0-9_.-]*)*$")
 
 
 def safe_decision_keys(values: list[str], *, limit: int) -> list[str]:
     """Expose only bounded technical identifiers, never arbitrary prompt text."""
     return [
-        value if _TECHNICAL_KEY.fullmatch(value) else "[redacted]"
+        value if len(value) <= 80 and _TECHNICAL_KEY.fullmatch(value) else "[redacted]"
         for value in values[:limit]
     ]
