@@ -44,3 +44,29 @@ def test_security_monitor_reports_orphan_lease_and_evidence() -> None:
     assert {f["category"] for f in result} == {
         "security_lease_boundary", "security_evidence_boundary"
     }
+
+
+def test_security_monitor_flags_unleased_versioned_running_task() -> None:
+    mission = uuid4()
+    task = SimpleNamespace(
+        id=uuid4(), tenant_id="tenant-a", mission_id=mission,
+        status="running", metadata_json={"runtime_evidence_contract_version": "1"},
+    )
+    result = inspect_runtime_security(
+        tenant_id="tenant-a", mission_id=mission, tasks=[task],
+        leases=[], evidence=[], audits=[],
+    )
+    assert any(f["category"] == "security_lease_integrity" for f in result)
+
+
+def test_security_monitor_flags_observation_claiming_runtime_authority() -> None:
+    mission = uuid4()
+    event = SimpleNamespace(
+        id=uuid4(), tenant_id="tenant-a", mission_id=mission,
+        category="mission_information", payload_json={"grants_execution_authority": True},
+    )
+    result = inspect_runtime_security(
+        tenant_id="tenant-a", mission_id=mission, tasks=[], leases=[],
+        evidence=[], audits=[event],
+    )
+    assert result[0]["category"] == "security_observation_integrity"
