@@ -43,6 +43,10 @@ def run_once(runtime: DatabaseRuntime) -> int:
     metrics_session = runtime.session_factory()
     try:
         state = metrics_session.get(AssuranceMetricState, 1) or AssuranceMetricState(id=1)
+        security_alert_count = sum(
+            record.runtime_summary.get("security_status") == "alert"
+            for record in records_all
+        )
         state.snapshot_count = len(records_all)
         state.aligned_count = sum(record.status == "aligned" for record in records_all)
         state.incomplete_count = sum(record.status == "incomplete" for record in records_all)
@@ -54,6 +58,11 @@ def run_once(runtime: DatabaseRuntime) -> int:
         state.tenant_failure_count = tenant_failure_count
         metrics_session.add(state)
         metrics_session.commit()
+        if security_alert_count:
+            logger.error(
+                "ajenda_runtime_security_alerts",
+                extra={"security_alert_count": security_alert_count},
+            )
         if state.contradictory_count or state.drifted_count or state.tenant_failure_count:
             logger.warning(
                 "continuous_assurance_findings_present",
