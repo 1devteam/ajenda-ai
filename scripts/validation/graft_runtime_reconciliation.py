@@ -10,6 +10,7 @@ until the snapshot explicitly marks the finding resolved with an explanation.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -42,6 +43,19 @@ class ReconciliationFinding(BaseModel):
     resolution: str | None = Field(default=None, max_length=1000)
 
 
+class SnapshotProvenance(BaseModel):
+    """Capture metadata; a digest detects alteration, not dishonest producers."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    captured_at: str = Field(min_length=1)
+    producer: str = Field(min_length=1)
+    producer_version: str = Field(min_length=1)
+    source_record_ids: tuple[str, ...] = Field(min_length=1)
+    evidence_contract_version: str = Field(min_length=1)
+    sha256: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
 class RuntimeReconciliationSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -56,6 +70,14 @@ class RuntimeReconciliationSnapshot(BaseModel):
     deliverable_nodes: tuple[RuntimeStage, ...] = ()
     semantic_selection: SemanticSelection | None = None
     findings: tuple[ReconciliationFinding, ...] = ()
+    provenance: SnapshotProvenance | None = None
+
+
+def snapshot_digest(snapshot: RuntimeReconciliationSnapshot) -> str:
+    """Digest the entire exported payload except the self-referential digest."""
+    payload = snapshot.model_dump(mode="json", exclude={"provenance": {"sha256"}})
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 STAGES = (
@@ -69,6 +91,18 @@ STAGES = (
 
 def reconcile_snapshot(snapshot: RuntimeReconciliationSnapshot) -> dict[str, Any]:
     findings = list(snapshot.findings)
+    provenance_status = "legacy_unverified"
+    if snapshot.provenance is not None:
+        provenance_status = "digest_verified"
+        if snapshot_digest(snapshot) != snapshot.provenance.sha256:
+            provenance_status = "digest_mismatch"
+            findings.append(
+                ReconciliationFinding(
+                    finding_id="snapshot.provenance_digest_mismatch",
+                    category="provenance",
+                    message="Snapshot content does not match its declared capture digest.",
+                )
+            )
     if snapshot.semantic_selection is not None:
         if snapshot.semantic_selection.conflicts:
             findings.append(
@@ -151,6 +185,8 @@ def reconcile_snapshot(snapshot: RuntimeReconciliationSnapshot) -> dict[str, Any
         "schema_version": 1,
         "tenant_id": snapshot.tenant_id,
         "mission_id": snapshot.mission_id,
+        "provenance_status": provenance_status,
+        "source_authenticity_verified": False,
         "stage_counts": {stage_name: len(getattr(snapshot, stage_name)) for stage_name in STAGES},
         "semantic_reconciliation": (
             "not_available"
