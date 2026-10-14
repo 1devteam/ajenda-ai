@@ -78,7 +78,7 @@ def inspect_runtime_security(
         if (
             event.tenant_id == tenant_id
             and event.mission_id == mission_id
-            and event.category == "mission_information"
+            and getattr(event, "category", None) == "mission_information"
             and payload.get("grants_execution_authority") is not False
         ):
             findings.append({
