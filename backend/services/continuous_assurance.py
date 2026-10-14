@@ -23,6 +23,7 @@ from backend.domain.mission import Mission
 from backend.domain.worker_lease import WorkerLease
 from backend.repositories.assurance_snapshot_repository import AssuranceSnapshotRepository
 from backend.services import mission_runtime_evidence_projection
+from backend.services.runtime_security_monitor import inspect_runtime_security
 from backend.services.mission_composition import deliverable_runtime_observability
 
 _STATUS_RANK = {
@@ -124,7 +125,16 @@ class ContinuousAssuranceService:
             runtime_state = None
             runtime_state_error = str(exc)
 
-        findings: list[dict[str, Any]] = []
+        security_findings = inspect_runtime_security(
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            tasks=tasks,
+            leases=leases,
+            evidence=evidence,
+            audits=audits,
+        )
+        security_status = "alert" if security_findings else "clear"
+        findings: list[dict[str, Any]] = list(security_findings)
         if runtime_state_error is not None:
             findings.append(
                 {
@@ -178,10 +188,13 @@ class ContinuousAssuranceService:
 
         observation_payload = {
             "status": status,
+            "security_status": security_status,
             "first_divergence": runtime.first_divergence,
             "findings": findings,
             "runtime_summary": {
                 "mission_status": runtime.mission_status,
+                "security_status": security_status,
+                "security_finding_count": len(security_findings),
                 "node_count": len(runtime.nodes),
                 "edge_count": len(runtime.edges),
                 "contradiction_count": len(runtime.contradictions),
