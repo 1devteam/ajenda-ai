@@ -120,6 +120,7 @@ def test_projection_names_declared_artifact_when_completed_output_is_missing() -
         status="completed",
         metadata={
             "task_type": "tool.invoke",
+            "runtime_evidence_contract_version": "1",
             "expected_output_contract": {"artifact": "observed_contacts"},
             "output": {"verified_prospect_candidates": []},
         },
@@ -433,3 +434,25 @@ def test_unversioned_historical_task_preserves_unknown_without_violation() -> No
     assert f"task:{task.id}:evidence" in projection.historical_unknown
     assert f"task:{task.id}:evidence" in projection.missing_evidence
     assert f"task:{task.id}:completed_without_evidence" not in projection.contradictions
+
+
+def test_old_declared_artifact_absence_is_historical_unknown() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(
+        mission_id=mission_id, tenant_id=tenant_id, status="completed",
+        metadata={
+            "expected_output_contract": {"artifact": "legacy_report"},
+            "handler_result": {"output": {}},
+        },
+    )
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id, tenant_id=tenant_id,
+        mission_metadata={
+            "runtime_task_materialization": {"created_execution_task_ids": [str(task.id)]},
+            "runtime_queue_admission": {"admitted_execution_task_ids": [str(task.id)]},
+        },
+        tasks=[task], leases=[], lineage=[], evidence=[],
+    )
+    assert f"task:{task.id}:artifact:legacy_report" in projection.historical_unknown
+    assert f"task:{task.id}:completed_without_artifact:legacy_report" not in projection.contradictions
