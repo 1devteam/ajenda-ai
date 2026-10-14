@@ -66,6 +66,7 @@ class MissionRuntimeEvidenceProjection(BaseModel):
     execution_events: list[dict[str, Any]] = Field(default_factory=list)
     contradictions: list[str] = Field(default_factory=list)
     missing_evidence: list[str] = Field(default_factory=list)
+    historical_unknown: list[str] = Field(default_factory=list)
     first_divergence: str | None = None
 
 
@@ -184,6 +185,7 @@ def build_mission_runtime_evidence_projection(
     record_flows: list[dict[str, Any]] = []
     contradictions: list[str] = []
     missing: list[str] = []
+    historical_unknown: list[str] = []
 
     graph = _metadata(mission_metadata, "mission_task_graph")
     raw_graph_nodes = graph.get("nodes")
@@ -361,12 +363,19 @@ def build_mission_runtime_evidence_projection(
                     evidence=[str(evidence_record.id)],
                 )
             )
+        evidence_contract_version = (
+            task.metadata_json.get("runtime_evidence_contract_version")
+            if isinstance(task.metadata_json, dict)
+            else None
+        )
         if task.status in {"completed", "failed", "dead_lettered"} and not task_evidence:
             missing.append(f"task:{task_id}:evidence")
-            if task.status == "completed":
-                contradictions.append(f"task:{task_id}:completed_without_evidence")
-            else:
+            if evidence_contract_version == "1":
                 contradictions.append(f"task:{task_id}:{task.status}_without_evidence")
+            else:
+                # The historical contract cannot be reconstructed from absence.
+                # Preserve the missing observation without claiming violation.
+                historical_unknown.append(f"task:{task_id}:evidence")
 
         expected_artifact = declared_artifact_key(task)
         # Intermediate discovery rows can be intentionally filtered from the
@@ -558,5 +567,6 @@ def build_mission_runtime_evidence_projection(
         execution_events=execution_events,
         contradictions=sorted(set(contradictions)),
         missing_evidence=sorted(set(missing)),
+        historical_unknown=sorted(set(historical_unknown)),
         first_divergence=first_divergence,
     )
