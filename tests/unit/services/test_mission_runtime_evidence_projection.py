@@ -456,3 +456,39 @@ def test_old_declared_artifact_absence_is_historical_unknown() -> None:
     )
     assert f"task:{task.id}:artifact:legacy_report" in projection.historical_unknown
     assert f"task:{task.id}:completed_without_artifact:legacy_report" not in projection.contradictions
+
+
+def test_runtime_projection_exposes_ordered_tenant_scoped_information_flow() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    other_mission_id = uuid4()
+
+    def event(action, day, *, scope=mission_id, tenant=tenant_id):
+        return SimpleNamespace(
+            id=uuid4(), tenant_id=tenant, mission_id=scope,
+            created_at=datetime(2026, 10, day, tzinfo=UTC),
+            category="mission_information", action=action,
+            actor="observer", details="bounded observation",
+            payload_json={
+                "schema_version": 1,
+                "grants_execution_authority": False,
+                "input": {"shape": "object", "field_names": ["criteria"]},
+            },
+        )
+
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id, tenant_id=tenant_id,
+        mission_metadata={}, tasks=[], leases=[], lineage=[], evidence=[],
+        audit_events=[
+            event("execution_completed", 3),
+            event("execution_started", 2),
+            event("composition_confirmed", 1),
+            event("execution_failed", 4, scope=other_mission_id),
+            event("execution_failed", 5, tenant="another-tenant"),
+        ],
+    )
+    assert [item["stage"] for item in projection.information_flow] == [
+        "composition_confirmed", "execution_started", "execution_completed",
+    ]
+    assert all(item["grants_execution_authority"] is False for item in projection.information_flow)
+    assert all(item["observation"]["schema_version"] == 1 for item in projection.information_flow)
