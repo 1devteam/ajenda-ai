@@ -31,7 +31,7 @@ from backend.services.mission_intake_quality import (
     validate_mission_intake_prompt,
 )
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaExceededError
-from backend.services.runtime_information_observation import describe_information
+from backend.services.runtime_information_observation import describe_information, safe_decision_keys
 
 
 class MissionCompositionConfirmationPhase:
@@ -389,9 +389,9 @@ class MissionCompositionConfirmationPhase:
                     "graph": describe_information(normalized_graph),
                     "planned_steps": describe_information(record.planned_steps),
                     "semantic_decisions": {
-                        "requested_outcomes": list(record.intent.requested_outcomes)[:30],
-                        "allowed_action_keys": list(record.allowed_actions)[:50],
-                        "forbidden_action_keys": list(record.forbidden_actions)[:40],
+                        "requested_outcomes": safe_decision_keys(list(record.intent.requested_outcomes), limit=30),
+                        "allowed_action_keys": safe_decision_keys(list(record.allowed_actions), limit=50),
+                        "forbidden_action_keys": safe_decision_keys(list(record.forbidden_actions), limit=40),
                         "interpretation_ready": bool(record.intent.interpretation_ready),
                     },
                     "grants_execution_authority": False,
