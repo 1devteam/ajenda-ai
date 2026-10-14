@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_type": "graft_intelligence_runtime_workflow",
+  "source_commit": "6d3fafc433651101ea6a4f87ca4629b5876b822e",
+  "generated_at": "2026-10-14",
+  "authority_class": "diagnostic",
+  "grants_execution_authority": false,
+  "artifact_files": [
+    {
+      "path": "canonical-dependency-graph.v1.json",
+      "type": "canonical_dependency_graph",
+      "schema_version": "1.4",
+      "sha256": "sha256:77132735734056eb8f2578e16d22b8c36b5b2d42e38209d53190f5c9f90a3056",
+      "node_count": 2088,
+      "edge_count": 5776
+    },
+    {
+      "path": "dependency-graph.ascii.v2.txt",
+      "type": "compact_graph_rendering",
+      "sha256": "sha256:7c505699931c0abde70ff49079d81e2b69525f65e2457beaf9bda4b435b0f506"
+    },
+    {
+      "path": "source-topology.v1.json",
+      "type": "source_topology",
+      "sha256": "sha256:40e55bff3fedc3cc6f5b093cfeae7b6b9ba18cb0248c25845b1de42bc7813075",
+      "source_backed_file_count": 1291,
+      "production_or_frontend_file_count": 613
+    }
+  ],
+  "generation_commands": [
+    "python scripts/validation/build_dependency_graph.py --output /tmp/ajenda-intelligence-runtime-634735e4.json",
+    "python scripts/validation/graph_ascii_v2.py --output /tmp/ajenda-intelligence-runtime-634735e4.ascii.txt --preview-lines 80",
+    "python scripts/validation/graph_source_topology.py --output /tmp/ajenda-intelligence-runtime-634735e4.topology.json --top 50"
+  ],
+  "workflow_document": "docs/validation/AJENDA_INTELLIGENCE_RUNTIME_WORKFLOW_2026-10-14.md",
+  "limitations": [
+    "Static graph relationships are observation evidence, not runtime dispatch proof.",
+    "Provider credentials, actual external calls, queue delivery, worker crashes, and tenant data visibility require runtime or integration evidence.",
+    "The artifact was generated before this manifest and workflow document were added; it represents the audited implementation commit named above, excluding these documentation-only files."
+  ]
+}
