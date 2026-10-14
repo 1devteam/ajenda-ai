@@ -331,3 +331,43 @@ def test_actual_runtime_projection_drives_assurance_from_independent_fixture(mon
             "severity": "warning",
         },
     ]
+
+
+def test_assurance_security_verdict_is_independent_of_operational_alignment(monkeypatch) -> None:
+    mission_id = uuid.uuid4()
+    mission = SimpleNamespace(
+        id=mission_id, tenant_id="tenant-a", status="planned", metadata_json={},
+    )
+    foreign_task = SimpleNamespace(
+        id=uuid.uuid4(), tenant_id="tenant-b", mission_id=mission_id,
+        status="planned", metadata_json={},
+    )
+    runtime = SimpleNamespace(
+        contradictions=[], missing_evidence=[], historical_unknown=[],
+        first_divergence=None, mission_status="planned",
+        nodes=[], edges=[], task_flows=[], record_flows=[],
+    )
+    runtime_state = SimpleNamespace(
+        lifecycle_state="current", epistemic_confidence=None,
+        contradiction_codes=(), runtime_reconciliation=None,
+    )
+    monkeypatch.setattr(
+        "backend.services.continuous_assurance.mission_runtime_evidence_projection.build_mission_runtime_evidence_projection",
+        lambda **_: runtime,
+    )
+    monkeypatch.setattr(
+        "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
+        lambda _: runtime_state,
+    )
+    session = MagicMock()
+    session.scalars.side_effect = [[foreign_task], [], [], [], []]
+    service = ContinuousAssuranceService(session)
+    service._snapshots = MagicMock()
+    service._snapshots.latest_for_mission.return_value = None
+    service._snapshots.append.side_effect = lambda snapshot: snapshot
+    snapshot = service.reconcile_mission(tenant_id="tenant-a", mission=mission)
+
+    assert snapshot.runtime_summary["security_status"] == "alert"
+    assert snapshot.runtime_summary["security_finding_count"] == 1
+    assert any(item["category"] == "security_tenant_boundary" for item in snapshot.findings)
+    assert snapshot.grants_execution_authority is False
