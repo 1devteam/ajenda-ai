@@ -52,7 +52,7 @@ def test_projection_flags_completed_task_without_evidence() -> None:
         mission_id=mission_id,
         tenant_id=tenant_id,
         status="completed",
-        metadata={"task_type": "web.research"},
+        metadata={"task_type": "web.research", "runtime_evidence_contract_version": "1"},
     )
 
     projection = build_mission_runtime_evidence_projection(
@@ -81,6 +81,7 @@ def test_projection_exposes_terminal_failure_as_first_runtime_divergence() -> No
         status="failed",
         metadata={
             "task_type": "tool.invoke",
+            "runtime_evidence_contract_version": "1",
             "failure": {
                 "code": "HANDLER_FAILED",
                 "message": "qualified_prospects contained no acceptable rows",
@@ -411,3 +412,24 @@ def test_projection_preserves_dict_artifact_shape_and_digest() -> None:
     report_flow = next(item for item in projection.record_flows if item["artifact_key"] == "research_report")
     assert report_flow["value_shape"] == "dict"
     assert report_flow["output_summary"]["sha256"].startswith("sha256:")
+
+
+def test_unversioned_historical_task_preserves_unknown_without_violation() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(mission_id=mission_id, tenant_id=tenant_id, status="completed")
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        mission_metadata={
+            "runtime_task_materialization": {"created_execution_task_ids": [str(task.id)]},
+            "runtime_queue_admission": {"admitted_execution_task_ids": [str(task.id)]},
+        },
+        tasks=[task],
+        leases=[],
+        lineage=[],
+        evidence=[],
+    )
+    assert f"task:{task.id}:evidence" in projection.historical_unknown
+    assert f"task:{task.id}:evidence" in projection.missing_evidence
+    assert f"task:{task.id}:completed_without_evidence" not in projection.contradictions
