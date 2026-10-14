@@ -54,7 +54,7 @@ def describe_information(value: Any) -> dict[str, Any]:
     }
 
 
-_TECHNICAL_KEY = re.compile(r"^[a-z][a-z0-9_.-]*(?:\\[\\d{1,2}\\][a-z0-9_.-]*)*$")
+_TECHNICAL_KEY = re.compile(r"^[a-z][a-z0-9_.-]*(?:\[\d{1,2}\][a-z0-9_.-]*)*$")
 
 
 def safe_decision_keys(values: list[str], *, limit: int) -> list[str]:
