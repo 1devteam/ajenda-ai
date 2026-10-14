@@ -25,6 +25,6 @@ def test_representation_fingerprint_does_not_change_with_private_values() -> Non
 
 def test_technical_decision_keys_redact_arbitrary_text() -> None:
     assert safe_decision_keys(
-        ["research_prospects", "Send password abc to partner", "web.research"],
+        ["research_prospects", "Send password abc to partner", "target_entities[0].industry"],
         limit=3,
-    ) == ["research_prospects", "[redacted]", "web.research"]
+    ) == ["research_prospects", "[redacted]", "target_entities[0].industry"]
