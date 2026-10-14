@@ -385,8 +385,12 @@ def build_mission_runtime_evidence_projection(
         task_output = handler_output_for_task(task)
         has_declared_output = expected_artifact in task_output if expected_artifact else False
         if task.status == "completed" and expected_artifact and not has_declared_output:
-            missing.append(f"task:{task_id}:artifact:{expected_artifact}")
-            contradictions.append(f"task:{task_id}:completed_without_artifact:{expected_artifact}")
+            marker = f"task:{task_id}:artifact:{expected_artifact}"
+            missing.append(marker)
+            if evidence_contract_version == "1":
+                contradictions.append(f"task:{task_id}:completed_without_artifact:{expected_artifact}")
+            else:
+                historical_unknown.append(marker)
 
         for artifact_key, raw_records in task_output.items():
             if isinstance(raw_records, list):
