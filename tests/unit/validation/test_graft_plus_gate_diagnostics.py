@@ -34,9 +34,7 @@ def test_step_success_is_recorded_once(gate_report: Path) -> None:
 
 
 def test_failed_step_persists_command_exit_and_stderr(gate_report: Path) -> None:
-    result = MODULE._run(
-        "failed", [sys.executable, "-c", "import sys; print('broken', file=sys.stderr); sys.exit(7)"]
-    )
+    result = MODULE._run("failed", [sys.executable, "-c", "import sys; print('broken', file=sys.stderr); sys.exit(7)"])
     report = json.loads(gate_report.read_text(encoding="utf-8"))
     assert result["status"] == "failed"
     assert report["steps"][0]["returncode"] == 7
