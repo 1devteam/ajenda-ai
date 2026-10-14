@@ -11,12 +11,13 @@ import hashlib
 import json
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
 from backend.domain.assurance_snapshot import AssuranceSnapshot
 from backend.domain.audit_event import AuditEvent
 from backend.domain.evidence import EvidenceRecord
+from backend.domain.enums import MissionState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
@@ -49,7 +50,22 @@ class ContinuousAssuranceService:
             self._session.scalars(
                 select(Mission)
                 .where(Mission.tenant_id == tenant_id)
-                .order_by(Mission.created_at.desc())
+                .order_by(
+                    case(
+                        (
+                            Mission.status.in_(
+                                (
+                                    MissionState.RUNNING.value,
+                                    MissionState.QUEUED.value,
+                                    MissionState.PAUSED.value,
+                                )
+                            ),
+                            0,
+                        ),
+                        else_=1,
+                    ),
+                    Mission.created_at.desc(),
+                )
                 .limit(max(1, min(mission_limit, 500)))
             )
         )
