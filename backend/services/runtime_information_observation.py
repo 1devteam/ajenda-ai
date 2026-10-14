@@ -18,7 +18,12 @@ def describe_information(value: Any) -> dict[str, Any]:
     """Describe a payload without copying its values into the observation ledger."""
     if isinstance(value, dict):
         keys = sorted(str(key) for key in value)
-        public_keys = [key for key in keys if not any(part in key.lower() for part in _SENSITIVE_KEY_FRAGMENTS)]
+        public_keys = [
+            key for key in keys
+            if len(key) <= 80
+            and _TECHNICAL_KEY.fullmatch(key)
+            and not any(part in key.lower() for part in _SENSITIVE_KEY_FRAGMENTS)
+        ]
         shape = "object"
         count = len(value)
     elif isinstance(value, list):
