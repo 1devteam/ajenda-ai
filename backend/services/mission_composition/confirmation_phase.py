@@ -393,6 +393,29 @@ class MissionCompositionConfirmationPhase:
                         "allowed_action_keys": safe_decision_keys(list(record.allowed_actions), limit=50),
                         "forbidden_action_keys": safe_decision_keys(list(record.forbidden_actions), limit=40),
                         "interpretation_ready": bool(record.intent.interpretation_ready),
+                        "interpreter_version": record.intent.interpreter_version,
+                        "field_provenance": [
+                            {
+                                "field_path": safe_decision_keys([item.field_path], limit=1)[0],
+                                "source": item.source,
+                                "confidence": item.confidence,
+                                "rule_id": (
+                                    safe_decision_keys([item.rule_id], limit=1)[0]
+                                    if item.rule_id
+                                    else None
+                                ),
+                            }
+                            for item in record.intent.interpretation_evidence[:50]
+                        ],
+                        "interpreted_clauses": [
+                            {
+                                "clause_id": safe_decision_keys([item.clause_id], limit=1)[0],
+                                "status": item.status,
+                                "material": item.material,
+                                "mapped_outcomes": safe_decision_keys(item.mapped_outcomes, limit=10),
+                            }
+                            for item in record.intent.interpreted_clauses[:40]
+                        ],
                     },
                     "grants_execution_authority": False,
                 },
