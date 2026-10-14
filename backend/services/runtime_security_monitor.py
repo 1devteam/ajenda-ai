@@ -34,7 +34,7 @@ def inspect_runtime_security(
         if lease.tenant_id == tenant_id
     }
     observed_starts = {
-        str(event.payload_json["task_id"])
+        (str(event.payload_json["task_id"]), str(event.payload_json["lease_id"]))
         for event in audits
         if event.tenant_id == tenant_id
         and event.mission_id == mission_id
@@ -42,8 +42,14 @@ def inspect_runtime_security(
         and getattr(event, "action", None) == "execution_started"
         and isinstance(getattr(event, "payload_json", None), dict)
         and event.payload_json.get("schema_version") == 1
+        and event.payload_json.get("grants_execution_authority") is False
         and isinstance(event.payload_json.get("task_id"), str)
+        and isinstance(event.payload_json.get("lease_id"), str)
     }
+    lease_ids_by_task: dict[str, set[str]] = {}
+    for lease in leases:
+        if lease.tenant_id == tenant_id:
+            lease_ids_by_task.setdefault(str(lease.task_id), set()).add(str(lease.id))
     for task in tasks:
         metadata = task.metadata_json if isinstance(getattr(task, "metadata_json", None), dict) else {}
         if (
@@ -63,7 +69,7 @@ def inspect_runtime_security(
             and task.mission_id == mission_id
             and metadata.get("runtime_evidence_contract_version") == "1"
             and task.status in {"running", "completed", "failed", "dead_lettered"}
-            and str(task.id) not in observed_starts
+            and not any(\n                (str(task.id), lease_id) in observed_starts\n                for lease_id in lease_ids_by_task.get(str(task.id), set())\n            )
         ):
             findings.append({
                 "category": "security_trace_integrity",
