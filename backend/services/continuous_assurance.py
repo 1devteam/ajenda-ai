@@ -165,7 +165,7 @@ class ContinuousAssuranceService:
 
         status = self._status(
             runtime_contradictions=any(finding["severity"] == "error" for finding in findings),
-            missing_evidence=any(code not in historical_unknown for code in runtime.missing_evidence),
+            missing_evidence=bool(runtime.missing_evidence),
             reconciliation_status=reconciliation_status,
             lifecycle_state=lifecycle_state,
         )
