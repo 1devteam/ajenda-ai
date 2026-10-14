@@ -15,11 +15,9 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT_DIR = REPO_ROOT / "artifacts"
 
-
 _ACTIVE_REPORT: dict[str, Any] | None = None
 _REPORT_PATH: Path | None = None
 _ACTIVE_PROCESS: subprocess.Popen[str] | None = None
-
 
 def _save_report() -> None:
     """Persist a usable checkpoint even if a later subprocess never returns."""
@@ -29,7 +27,6 @@ def _save_report() -> None:
     temporary = _REPORT_PATH.with_name(_REPORT_PATH.name + ".tmp")
     temporary.write_text(json.dumps(_ACTIVE_REPORT, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temporary.replace(_REPORT_PATH)
-
 
 def _run(label: str, command: list[str]) -> dict[str, Any]:
     global _ACTIVE_PROCESS
@@ -94,10 +91,8 @@ def _run(label: str, command: list[str]) -> dict[str, Any]:
                 print(step["stdout_tail"], file=sys.stderr, flush=True)
     return step
 
-
 def _handle_signal(signum: int, _frame: Any) -> None:
     raise KeyboardInterrupt(f"signal {signum} received")
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -162,7 +157,6 @@ def main() -> int:
             ],
         )
 
-
     _run(
         "impact-analysis",
         [
@@ -178,7 +172,6 @@ def main() -> int:
         ],
     )
 
-
     _run(
         "proof-selection",
         [
@@ -192,7 +185,6 @@ def main() -> int:
         ],
     )
 
-
     _run(
         "completeness-audit",
         [
@@ -203,7 +195,6 @@ def main() -> int:
             "artifacts/graph-completeness-report.json",
         ],
     )
-
 
     _run(
         "architecture-decision",
@@ -230,7 +221,6 @@ def main() -> int:
         f"GRAFT+ gate: {report['status']} ({sum(step['status'] == 'passed' for step in steps)}/{len(steps)} steps passed)"
     )
     return 0 if report["status"] == "passed" else 1
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
