@@ -11,9 +11,7 @@ on:
       - "docs/contracts/dependency-graph.overlay.v1.json"
       - "scripts/validation/build_dependency_graph.py"
       - "scripts/validation/graph_function_inventory.py"
-      - "scripts/validation/graph_ascii_v2.py"
       - "scripts/validation/graph_source_topology.py"
-      - "tests/unit/validation/test_graph_ascii_v2.py"
       - "tests/unit/validation/test_graph_source_topology.py"
       - "scripts/validation/graph_semantic_inventory.py"
       - "scripts/validation/graph_runtime_contract_inventory.py"
@@ -47,9 +45,7 @@ on:
       - "docs/contracts/dependency-graph.overlay.v1.json"
       - "scripts/validation/build_dependency_graph.py"
       - "scripts/validation/graph_function_inventory.py"
-      - "scripts/validation/graph_ascii_v2.py"
       - "scripts/validation/graph_source_topology.py"
-      - "tests/unit/validation/test_graph_ascii_v2.py"
       - "tests/unit/validation/test_graph_source_topology.py"
       - "scripts/validation/graph_semantic_inventory.py"
       - "scripts/validation/graph_runtime_contract_inventory.py"
@@ -99,19 +95,17 @@ jobs:
       - name: Build graph
         run: python scripts/validation/build_dependency_graph.py
 
-      - name: Build Ajenda ASCII v2 draft and factual source topology
+      - name: Build factual source topology
         run: |
           python scripts/validation/graph_ascii_v2.py \
-            --output artifacts/dependency-graph.ascii.v2.txt \
             --preview-lines 24
           python scripts/validation/graph_source_topology.py \
             --output artifacts/graph-source-topology.v1.json \
             --top 25
 
-      - name: Prove Ajenda ASCII v2 and source topology probes
+      - name: Prove source topology probes
         run: >-
           pytest -q
-          tests/unit/validation/test_graph_ascii_v2.py
           tests/unit/validation/test_graph_source_topology.py
 
       - name: Resolve graph comparison baseline
@@ -180,7 +174,6 @@ jobs:
           name: canonical-dependency-graph
           path: |
             docs/architecture/dependency-graph.v1.json
-            artifacts/dependency-graph.ascii.v2.txt
             artifacts/graph-source-topology.v1.json
             artifacts/graph-impact-report.json
             artifacts/graph-proof-manifest.json
