@@ -485,6 +485,7 @@ def test_runtime_projection_exposes_ordered_tenant_scoped_information_flow() -> 
             event("composition_confirmed", 1),
             event("execution_failed", 4, scope=other_mission_id),
             event("execution_failed", 5, tenant="another-tenant"),
+            event("execution_failed", 6, scope=None),
         ],
     )
     assert [item["stage"] for item in projection.information_flow] == [
