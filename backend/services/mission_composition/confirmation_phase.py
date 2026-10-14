@@ -388,6 +388,12 @@ class MissionCompositionConfirmationPhase:
                     "intake": describe_information(intake),
                     "graph": describe_information(normalized_graph),
                     "planned_steps": describe_information(record.planned_steps),
+                    "semantic_decisions": {
+                        "requested_outcomes": list(record.intent.requested_outcomes)[:30],
+                        "allowed_action_keys": list(record.allowed_actions)[:50],
+                        "forbidden_action_keys": list(record.forbidden_actions)[:40],
+                        "interpretation_ready": bool(record.intent.interpretation_ready),
+                    },
                     "grants_execution_authority": False,
                 },
             )
