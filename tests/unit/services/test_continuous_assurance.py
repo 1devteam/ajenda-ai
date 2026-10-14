@@ -242,3 +242,38 @@ def test_artifact_and_semantic_errors_never_report_aligned(monkeypatch) -> None:
         assert any(finding["severity"] == "error" for finding in snapshot.findings)
         assert snapshot.status == "contradictory"
         assert snapshot.calibration_outcome_aligned is False
+
+
+def test_historical_unknown_is_not_misreported_as_current_violation(monkeypatch) -> None:
+    mission = SimpleNamespace(
+        id=uuid.uuid4(), tenant_id="tenant-a", status="completed", metadata_json={}
+    )
+    runtime = SimpleNamespace(
+        contradictions=[], missing_evidence=["task:old:evidence"],
+        historical_unknown=["task:old:evidence"], first_divergence=None,
+        mission_status="completed", nodes=[], edges=[], task_flows=[], record_flows=[],
+    )
+    runtime_state = SimpleNamespace(
+        lifecycle_state="current", epistemic_confidence=0.8,
+        contradiction_codes=(), runtime_reconciliation=None,
+    )
+    monkeypatch.setattr(
+        "backend.services.continuous_assurance.mission_runtime_evidence_projection.build_mission_runtime_evidence_projection",
+        lambda **_: runtime,
+    )
+    monkeypatch.setattr(
+        "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
+        lambda _: runtime_state,
+    )
+    session = MagicMock()
+    session.scalars.side_effect = [[], [], [], [], []]
+    service = ContinuousAssuranceService(session)
+    service._snapshots = MagicMock()
+    service._snapshots.latest_for_mission.return_value = None
+    service._snapshots.append.side_effect = lambda snapshot: snapshot
+    snapshot = service.reconcile_mission(tenant_id="tenant-a", mission=mission)
+    assert snapshot.status == "aligned"
+    assert snapshot.findings == [
+        {"category": "historical_unknown", "code": "task:old:evidence", "severity": "info"}
+    ]
+    assert snapshot.runtime_summary["historical_unknown_count"] == 1
