@@ -634,6 +634,23 @@ class WorkerRuntimeService:
             AuditEvent(
                 tenant_id=tenant_id,
                 mission_id=task.mission_id,
+                category="mission_information",
+                action="execution_completion_blocked",
+                actor=worker_id,
+                details="Observed completion persistence failure after side effect",
+                payload_json={
+                    "schema_version": 1,
+                    "task_id": str(task.id),
+                    "lease_id": str(lease.id),
+                    "side_effect_class": side_effect_class,
+                    "grants_execution_authority": False,
+                },
+            )
+        )
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
                 category="worker",
                 action="task_completion_failed_after_side_effect",
                 actor=worker_id,
