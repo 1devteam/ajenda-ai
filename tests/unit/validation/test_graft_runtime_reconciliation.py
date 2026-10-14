@@ -2,6 +2,7 @@ from backend.services.mission_composition.semantic_vocabulary import build_seman
 from scripts.validation.graft_runtime_reconciliation import (
     RuntimeReconciliationSnapshot,
     snapshot_digest,
+    seal_snapshot,
     reconcile_snapshot,
 )
 
@@ -138,3 +139,20 @@ def test_export_digest_detects_tampering() -> None:
     assert report["status"] == "blocked"
     assert report["provenance_status"] == "digest_mismatch"
     assert any(finding["category"] == "provenance" for finding in report["findings"])
+
+
+def test_seal_snapshot_binds_capture_identity_and_validates_integrity() -> None:
+    snapshot = RuntimeReconciliationSnapshot.model_validate(
+        {"tenant_id": "tenant-a", "mission_id": "mission-1", "graph_expected_nodes": ["research"]}
+    )
+    sealed = seal_snapshot(
+        snapshot,
+        producer="ajenda-runtime",
+        producer_version="1",
+        source_record_ids=("mission-1",),
+        evidence_contract_version="1",
+    )
+    assert sealed.provenance is not None
+    assert sealed.provenance.producer == "ajenda-runtime"
+    assert sealed.provenance.sha256 == snapshot_digest(sealed)
+    assert reconcile_snapshot(sealed)["provenance_status"] == "digest_verified"
