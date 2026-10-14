@@ -157,7 +157,7 @@ class ContinuousAssuranceService:
                     findings.append({"category": "semantic_drift", "code": code, "severity": "warning"})
 
         status = self._status(
-            runtime_contradictions=bool(runtime.contradictions) or runtime_state_error is not None,
+            runtime_contradictions=any(finding["severity"] == "error" for finding in findings),
             missing_evidence=bool(runtime.missing_evidence),
             reconciliation_status=reconciliation_status,
             lifecycle_state=lifecycle_state,
