@@ -5,11 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import signal
 import subprocess
-import time
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -129,22 +128,22 @@ def main() -> int:
     _save_report()
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
-    steps.append(_run("mission-contract-gate", [sys.executable, "scripts/validation/mission_contract_gate.py"]))
-    steps.append(
+    _run("mission-contract-gate", [sys.executable, "scripts/validation/mission_contract_gate.py"])
+    
         _run(
             "graft1st-reconciliation-and-lifecycle",
             [sys.executable, "scripts/validation/graft_plus_graft1st_reconciliation_check.py"],
         )
-    )
-    steps.append(_run("build-canonical-graph", [sys.executable, "scripts/validation/build_dependency_graph.py"]))
-    steps.append(
+    
+    _run("build-canonical-graph", [sys.executable, "scripts/validation/build_dependency_graph.py"])
+    
         _run(
             "graft-admission-and-drift-controls",
             [sys.executable, "scripts/validation/graft_drift_controls.py"],
         )
-    )
+    
     if not args.skip_graph_tests:
-        steps.append(
+        
             _run(
                 "graph-validator-tests",
                 [
@@ -161,8 +160,8 @@ def main() -> int:
                     "tests/unit/validation/test_mission_verification_portfolio.py",
                 ],
             )
-        )
-    steps.append(
+        
+    
         _run(
             "impact-analysis",
             [
@@ -177,8 +176,8 @@ def main() -> int:
                 "artifacts/graph-impact-report.json",
             ],
         )
-    )
-    steps.append(
+    
+    
         _run(
             "proof-selection",
             [
@@ -191,8 +190,8 @@ def main() -> int:
                 "artifacts/graph-proof-manifest.json",
             ],
         )
-    )
-    steps.append(
+    
+    
         _run(
             "completeness-audit",
             [
@@ -203,8 +202,8 @@ def main() -> int:
                 "artifacts/graph-completeness-report.json",
             ],
         )
-    )
-    steps.append(
+    
+    
         _run(
             "architecture-decision",
             [
@@ -221,7 +220,7 @@ def main() -> int:
                 "artifacts/graph-architecture-decision.json",
             ],
         )
-    )
+    
     report = _ACTIVE_REPORT
     assert report is not None
     report["status"] = "passed" if all(step["status"] == "passed" for step in steps) else "failed"
