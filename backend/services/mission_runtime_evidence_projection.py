@@ -510,6 +510,10 @@ def build_mission_runtime_evidence_projection(
                 "lease_ids": [str(item.id) for item in leases_by_task.get(task_id, [])],
                 "lineage_ids": [str(item.id) for item in lineage_by_task.get(task_id, [])],
                 "evidence_ids": [str(item.id) for item in evidence_by_task.get(task_id, [])],
+                "evidence_collection_statuses": [
+                    {"evidence_id": str(item.id), "collection_status": item.collection_status}
+                    for item in evidence_by_task.get(task_id, [])
+                ],
                 "artifact_ids": _task_artifact_ids(task),
             }
         )
