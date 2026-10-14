@@ -701,6 +701,23 @@ class WorkerRuntimeService:
             AuditEvent(
                 tenant_id=tenant_id,
                 mission_id=task.mission_id,
+                category="mission_information",
+                action="execution_failed",
+                actor=worker_id,
+                details="Observed terminal execution failure",
+                payload_json={
+                    "schema_version": 1,
+                    "task_id": str(task.id),
+                    "lease_id": str(lease.id),
+                    "failure_code": "HANDLER_FAILED",
+                    "grants_execution_authority": False,
+                },
+            )
+        )
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
                 category="worker",
                 action="task_failed",
                 actor=worker_id,
