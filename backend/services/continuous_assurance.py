@@ -156,8 +156,10 @@ class ContinuousAssuranceService:
                 for code in runtime_state.runtime_reconciliation.semantic_drift_codes:
                     findings.append({"category": "semantic_drift", "code": code, "severity": "warning"})
 
+        # Aggregate status must not contradict its own error-level findings.
+        # Include artifact/semantic findings, not only projection contradictions.
         status = self._status(
-            runtime_contradictions=bool(runtime.contradictions) or runtime_state_error is not None,
+            runtime_contradictions=any(finding["severity"] == "error" for finding in findings),
             missing_evidence=bool(runtime.missing_evidence),
             reconciliation_status=reconciliation_status,
             lifecycle_state=lifecycle_state,
