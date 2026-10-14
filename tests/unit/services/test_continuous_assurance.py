@@ -189,3 +189,56 @@ def test_unchanged_observation_reuses_latest_snapshot(monkeypatch) -> None:
 
     assert second is first
     assert service._snapshots.append.call_count == 1
+
+def test_artifact_and_semantic_errors_never_report_aligned(monkeypatch) -> None:
+    mission = SimpleNamespace(
+        id=uuid.uuid4(),
+        tenant_id="tenant-a",
+        status="completed",
+        metadata_json={},
+    )
+    runtime = SimpleNamespace(
+        contradictions=[],
+        missing_evidence=[],
+        first_divergence=None,
+        mission_status="completed",
+        nodes=[],
+        edges=[],
+        task_flows=[],
+        record_flows=[],
+    )
+    monkeypatch.setattr(
+        "backend.services.continuous_assurance.mission_runtime_evidence_projection.build_mission_runtime_evidence_projection",
+        lambda **_: runtime,
+    )
+    for artifact_codes, semantic_codes in [
+        (("missing_output_contract",), ()),
+        ((), ("selection_mismatch",)),
+        (("missing_output_contract",), ("selection_mismatch",)),
+    ]:
+        reconciliation = SimpleNamespace(
+            status="aligned",
+            semantic_status="aligned",
+            semantic_mismatch_codes=semantic_codes,
+            semantic_drift_codes=(),
+        )
+        runtime_state = SimpleNamespace(
+            lifecycle_state="current",
+            epistemic_confidence=0.9,
+            contradiction_codes=artifact_codes,
+            runtime_reconciliation=reconciliation,
+        )
+        monkeypatch.setattr(
+            "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
+            lambda _, state=runtime_state: state,
+        )
+        session = MagicMock()
+        session.scalars.side_effect = [[], [], [], [], []]
+        service = ContinuousAssuranceService(session)
+        service._snapshots = MagicMock()
+        service._snapshots.latest_for_mission.return_value = None
+        service._snapshots.append.side_effect = lambda snapshot: snapshot
+        snapshot = service.reconcile_mission(tenant_id="tenant-a", mission=mission)
+        assert any(finding["severity"] == "error" for finding in snapshot.findings)
+        assert snapshot.status == "contradictory"
+        assert snapshot.calibration_outcome_aligned is False
