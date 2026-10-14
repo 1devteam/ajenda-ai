@@ -15,8 +15,10 @@ responsibility. Its primary security result is
 `AssuranceSnapshot.runtime_summary.security_status`:
 `alert` when a positive security finding exists, and
 `no_findings_observed` otherwise. This is a *bounded observation*, not
-a declaration that a tenant is secure. The loop scans only the newest
-configured number of missions for each active tenant.
+a declaration that a tenant is secure. The loop prioritizes queued, running, and paused missions, then newer
+historical missions, within the configured per-tenant mission limit.
+This limit means monitoring coverage may be incomplete for tenants with
+more concurrent active missions than the cap.
 
 The legacy `AssuranceSnapshot.status`, semantic-drift findings and aggregate
 operational metrics remain readable for compatibility during this migration.
@@ -68,5 +70,9 @@ adversarial tests, and an end-to-end actual mission in a deployed environment.
 Do not claim provider outcome, crash recovery, complete RLS, or security
 coverage from static graph or unit fixtures.
 
-The exported reconciliation snapshot digest detects self-consistency only;
-trusted source export and independent origin authentication remain separate.
+The permission-scoped `/missions/{mission_id}/runtime-reconciliation-export`
+route now seals a snapshot generated from canonical runtime projections. It
+retains record identities and distinguishes collected/verified evidence from
+rejected evidence. The exported digest verifies self-consistency, but a copied
+file still requires independently authenticated provenance to prove its origin.
+The validator therefore keeps `source_authenticity_verified=false`.
