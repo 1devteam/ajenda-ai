@@ -133,7 +133,7 @@ class ContinuousAssuranceService:
             evidence=evidence,
             audits=audits,
         )
-        security_status = "alert" if security_findings else "clear"
+        security_status = "alert" if security_findings else "no_findings_observed"
         findings: list[dict[str, Any]] = list(security_findings)
         if runtime_state_error is not None:
             findings.append(
@@ -195,6 +195,8 @@ class ContinuousAssuranceService:
                 "mission_status": runtime.mission_status,
                 "security_status": security_status,
                 "security_finding_count": len(security_findings),
+                "security_scope": "tenant_scoped_mission_records",
+                "security_assertion": "bounded_observation_not_full_clearance",
                 "node_count": len(runtime.nodes),
                 "edge_count": len(runtime.edges),
                 "contradiction_count": len(runtime.contradictions),
