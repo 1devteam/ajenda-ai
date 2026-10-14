@@ -64,6 +64,7 @@ class MissionRuntimeEvidenceProjection(BaseModel):
     task_flows: list[dict[str, Any]] = Field(default_factory=list)
     record_flows: list[dict[str, Any]] = Field(default_factory=list)
     execution_events: list[dict[str, Any]] = Field(default_factory=list)
+    information_flow: list[dict[str, Any]] = Field(default_factory=list)
     contradictions: list[str] = Field(default_factory=list)
     missing_evidence: list[str] = Field(default_factory=list)
     historical_unknown: list[str] = Field(default_factory=list)
@@ -557,6 +558,24 @@ def build_mission_runtime_evidence_projection(
         if event.tenant_id == tenant_id and (event.mission_id is None or event.mission_id == mission_id)
     ]
 
+    information_flow = [
+        {
+            "event_id": event["event_id"],
+            "created_at": event["created_at"],
+            "stage": event["action"],
+            "producer": event["actor"],
+            "observation": event["payload"],
+            "grants_execution_authority": False,
+        }
+        for event in execution_events
+        if event["category"] == "mission_information"
+        and isinstance(event["payload"], dict)
+        and event["action"] in {
+            "composition_confirmed",
+            "execution_started",
+            "execution_completed",
+        }
+    ]
     return MissionRuntimeEvidenceProjection(
         mission_id=mission_id,
         tenant_id=tenant_id,
@@ -569,6 +588,7 @@ def build_mission_runtime_evidence_projection(
         task_flows=task_flows,
         record_flows=record_flows,
         execution_events=execution_events,
+        information_flow=information_flow,
         contradictions=sorted(set(contradictions)),
         missing_evidence=sorted(set(missing)),
         historical_unknown=sorted(set(historical_unknown)),
