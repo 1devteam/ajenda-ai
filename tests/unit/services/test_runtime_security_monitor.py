@@ -90,6 +90,7 @@ def test_versioned_task_requires_durable_start_event() -> None:
         category="mission_information", action="execution_started",
         payload_json={
             "schema_version": 1, "task_id": str(task.id),
+            "lease_id": str(lease.id),
             "grants_execution_authority": False,
         },
     )
@@ -98,3 +99,25 @@ def test_versioned_task_requires_durable_start_event() -> None:
         leases=[lease], evidence=[], audits=[event],
     )
     assert observed == []
+
+
+def test_security_monitor_rejects_start_event_bound_to_wrong_lease() -> None:
+    mission = uuid4()
+    task = SimpleNamespace(
+        id=uuid4(), tenant_id="tenant-a", mission_id=mission,
+        status="running", metadata_json={"runtime_evidence_contract_version": "1"},
+    )
+    lease = SimpleNamespace(id=uuid4(), tenant_id="tenant-a", task_id=task.id)
+    forged = SimpleNamespace(
+        id=uuid4(), tenant_id="tenant-a", mission_id=mission,
+        category="mission_information", action="execution_started",
+        payload_json={
+            "schema_version": 1, "task_id": str(task.id),
+            "lease_id": str(uuid4()), "grants_execution_authority": False,
+        },
+    )
+    findings = inspect_runtime_security(
+        tenant_id="tenant-a", mission_id=mission,
+        tasks=[task], leases=[lease], evidence=[], audits=[forged],
+    )
+    assert any(f["category"] == "security_trace_integrity" for f in findings)
