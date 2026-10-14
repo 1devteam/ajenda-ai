@@ -130,96 +130,96 @@ def main() -> int:
     signal.signal(signal.SIGINT, _handle_signal)
     _run("mission-contract-gate", [sys.executable, "scripts/validation/mission_contract_gate.py"])
     
-        _run(
-            "graft1st-reconciliation-and-lifecycle",
-            [sys.executable, "scripts/validation/graft_plus_graft1st_reconciliation_check.py"],
-        )
+    _run(
+        "graft1st-reconciliation-and-lifecycle",
+        [sys.executable, "scripts/validation/graft_plus_graft1st_reconciliation_check.py"],
+    )
     
     _run("build-canonical-graph", [sys.executable, "scripts/validation/build_dependency_graph.py"])
     
-        _run(
-            "graft-admission-and-drift-controls",
-            [sys.executable, "scripts/validation/graft_drift_controls.py"],
-        )
+    _run(
+        "graft-admission-and-drift-controls",
+        [sys.executable, "scripts/validation/graft_drift_controls.py"],
+    )
     
     if not args.skip_graph_tests:
         
-            _run(
-                "graph-validator-tests",
-                [
-                    sys.executable,
-                    "-m",
-                    "pytest",
-                    "-q",
-                    "tests/unit/validation/test_build_dependency_graph.py",
-                    "tests/unit/validation/test_graph_impact_analysis.py",
-                    "tests/unit/validation/test_graph_proof_selection.py",
-                    "tests/unit/validation/test_graph_completeness_audit.py",
-                    "tests/unit/validation/test_graph_architecture_decision.py",
-                    "tests/unit/validation/test_graph_runtime_impact.py",
-                    "tests/unit/validation/test_mission_verification_portfolio.py",
-                ],
-            )
+        _run(
+            "graph-validator-tests",
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/unit/validation/test_build_dependency_graph.py",
+                "tests/unit/validation/test_graph_impact_analysis.py",
+                "tests/unit/validation/test_graph_proof_selection.py",
+                "tests/unit/validation/test_graph_completeness_audit.py",
+                "tests/unit/validation/test_graph_architecture_decision.py",
+                "tests/unit/validation/test_graph_runtime_impact.py",
+                "tests/unit/validation/test_mission_verification_portfolio.py",
+            ],
+        )
         
     
-        _run(
-            "impact-analysis",
-            [
-                sys.executable,
-                "scripts/validation/graph_impact_analysis.py",
-                "--base-ref",
-                args.base_ref,
-                "--head-ref",
-                args.head_ref,
-                "--json",
-                "--output",
-                "artifacts/graph-impact-report.json",
-            ],
-        )
+    _run(
+        "impact-analysis",
+        [
+            sys.executable,
+            "scripts/validation/graph_impact_analysis.py",
+            "--base-ref",
+            args.base_ref,
+            "--head-ref",
+            args.head_ref,
+            "--json",
+            "--output",
+            "artifacts/graph-impact-report.json",
+        ],
+    )
     
     
-        _run(
-            "proof-selection",
-            [
-                sys.executable,
-                "scripts/validation/graph_proof_selection.py",
-                "--impact-report",
-                "artifacts/graph-impact-report.json",
-                "--json",
-                "--output",
-                "artifacts/graph-proof-manifest.json",
-            ],
-        )
+    _run(
+        "proof-selection",
+        [
+            sys.executable,
+            "scripts/validation/graph_proof_selection.py",
+            "--impact-report",
+            "artifacts/graph-impact-report.json",
+            "--json",
+            "--output",
+            "artifacts/graph-proof-manifest.json",
+        ],
+    )
     
     
-        _run(
-            "completeness-audit",
-            [
-                sys.executable,
-                "scripts/validation/graph_completeness_audit.py",
-                "--json",
-                "--output",
-                "artifacts/graph-completeness-report.json",
-            ],
-        )
+    _run(
+        "completeness-audit",
+        [
+            sys.executable,
+            "scripts/validation/graph_completeness_audit.py",
+            "--json",
+            "--output",
+            "artifacts/graph-completeness-report.json",
+        ],
+    )
     
     
-        _run(
-            "architecture-decision",
-            [
-                sys.executable,
-                "scripts/validation/graph_architecture_decision.py",
-                "--impact-report",
-                "artifacts/graph-impact-report.json",
-                "--proof-manifest",
-                "artifacts/graph-proof-manifest.json",
-                "--completeness-report",
-                "artifacts/graph-completeness-report.json",
-                "--json",
-                "--output",
-                "artifacts/graph-architecture-decision.json",
-            ],
-        )
+    _run(
+        "architecture-decision",
+        [
+            sys.executable,
+            "scripts/validation/graph_architecture_decision.py",
+            "--impact-report",
+            "artifacts/graph-impact-report.json",
+            "--proof-manifest",
+            "artifacts/graph-proof-manifest.json",
+            "--completeness-report",
+            "artifacts/graph-completeness-report.json",
+            "--json",
+            "--output",
+            "artifacts/graph-architecture-decision.json",
+        ],
+    )
     
     report = _ACTIVE_REPORT
     assert report is not None
