@@ -298,6 +298,12 @@ class WorkerRuntimeService:
                 transition_lease(lease, WorkerLeaseState.ACTIVE)
             lease.heartbeat_at = datetime.now(UTC)
             transition_task(task, ExecutionTaskState.RUNNING)
+            # Bind the evidence obligation to the producing execution, not its
+            # later observation. Historical tasks have no inferred version.
+            task.metadata_json = {
+                **(task.metadata_json if isinstance(task.metadata_json, dict) else {}),
+                "runtime_evidence_contract_version": "1",
+            }
             self._session.flush()
             self._session.commit()
         return task
