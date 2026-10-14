@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import MissionPlanStatus, MissionState
 from backend.domain.mission import (
     MISSION_INTAKE_METADATA_KEY,
@@ -30,6 +31,7 @@ from backend.services.mission_intake_quality import (
     validate_mission_intake_prompt,
 )
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaExceededError
+from backend.services.runtime_information_observation import describe_information
 
 
 class MissionCompositionConfirmationPhase:
@@ -369,6 +371,27 @@ class MissionCompositionConfirmationPhase:
         if MISSION_INTAKE_METADATA_KEY not in mission_metadata and MISSION_INTAKE_METADATA_KEY in intake:
             mission_metadata[MISSION_INTAKE_METADATA_KEY] = intake[MISSION_INTAKE_METADATA_KEY]
         mission.metadata_json = mission_metadata
+        # Persist a structural intake-to-graph observation alongside the mission
+        # transaction. No raw prompts, interpreted values, or credentials are
+        # duplicated into the audit ledger.
+        self._db.add(
+            AuditEvent(
+                tenant_id=str(tenant_id),
+                mission_id=mission.id,
+                category="mission_information",
+                action="composition_confirmed",
+                actor=actor_id or "mission_composition",
+                details="Observed confirmed mission intake and task graph representations",
+                payload_json={
+                    "schema_version": 1,
+                    "proposal_id": record.proposal_id,
+                    "intake": describe_information(intake),
+                    "graph": describe_information(normalized_graph),
+                    "planned_steps": describe_information(record.planned_steps),
+                    "grants_execution_authority": False,
+                },
+            )
+        )
         self._db.flush()
 
         result = {
