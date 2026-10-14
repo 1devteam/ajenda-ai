@@ -146,7 +146,10 @@ def _entry_contains_control(source: str, entry_name: str, control: str) -> bool:
     tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == entry_name:
-            return control in (ast.get_source_segment(source, node) or "")
+            return any(
+                isinstance(call, ast.Call) and ast.unparse(call.func) == control
+                for call in ast.walk(node)
+            )
     return False
 
 def validate_runtime_admission_coverage(*, repo_root: Path = REPO_ROOT) -> None:
