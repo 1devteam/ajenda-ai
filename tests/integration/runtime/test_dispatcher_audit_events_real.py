@@ -13,6 +13,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.services.execution_coordinator import ExecutionCoordinator
+from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers import task_dispatcher
 from backend.workers.task_dispatcher import TaskDispatcher, TaskHandler, TaskHandlerContext
@@ -131,7 +132,13 @@ def test_dispatcher_success_writes_completed_worker_audit_event(
         assert event.category == "worker"
         assert event.actor == worker_id
         assert event.details == f"Completed task {task_id}"
-        assert event.payload_json == {"task_id": str(task_id), "lease_id": str(lease_id)}
+        assert event.payload_json["task_id"] == str(task_id)
+        assert event.payload_json["lease_id"] == str(lease_id)
+        envelope = RuntimeEvidenceLedger.read_envelope(event)
+        assert envelope is not None
+        assert envelope.event_type == "worker.task_completed"
+        assert envelope.producer == "worker_runtime"
+        assert envelope.subject_references == {"task_id": str(task_id), "lease_id": str(lease_id)}
     finally:
         verify_session.close()
 
@@ -181,6 +188,10 @@ def test_dispatcher_failure_writes_failed_worker_audit_event(
         assert event.category == "worker"
         assert event.actor == worker_id
         assert event.details == failure_reason
-        assert event.payload_json == {"task_id": str(task_id), "lease_id": str(lease_id)}
+        assert event.payload_json["task_id"] == str(task_id)
+        assert event.payload_json["lease_id"] == str(lease_id)
+        envelope = RuntimeEvidenceLedger.read_envelope(event)
+        assert envelope is not None
+        assert envelope.event_type == "worker.task_failed"
     finally:
         verify_session.close()
