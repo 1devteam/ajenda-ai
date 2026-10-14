@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from backend.domain.audit_event import AuditEvent
+from backend.services.runtime_information_observation import describe_information
 from backend.domain.enums import ExecutionTaskState, MissionState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
@@ -304,6 +305,28 @@ class WorkerRuntimeService:
                 **(task.metadata_json if isinstance(task.metadata_json, dict) else {}),
                 "runtime_evidence_contract_version": "1",
             }
+            self._audit.append(
+                AuditEvent(
+                    tenant_id=tenant_id,
+                    mission_id=task.mission_id,
+                    category="mission_information",
+                    action="execution_started",
+                    actor=worker_id,
+                    details="Observed task input representation at execution start",
+                    payload_json={
+                        "schema_version": 1,
+                        "task_id": str(task.id),
+                        "lease_id": str(lease.id),
+                        "input": describe_information(
+                            (task.metadata_json or {}).get("input_bindings")
+                        ),
+                        "declared_output": describe_information(
+                            (task.metadata_json or {}).get("expected_output_contract")
+                        ),
+                        "grants_execution_authority": False,
+                    },
+                )
+            )
             self._session.flush()
             self._session.commit()
         return task
@@ -399,6 +422,25 @@ class WorkerRuntimeService:
                     evidence_ids=evidence_ids_for_review,
                 )
 
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="mission_information",
+                action="execution_completed",
+                actor=worker_id,
+                details="Observed task output representation at completion",
+                payload_json={
+                    "schema_version": 1,
+                    "task_id": str(task.id),
+                    "lease_id": str(lease.id),
+                    "output": describe_information(task_output),
+                    "evidence_record_ids": evidence_ids_for_review[:100],
+                    "evidence_ids_truncated": len(evidence_ids_for_review) > 100,
+                    "grants_execution_authority": False,
+                },
+            )
+        )
         self._audit.append(
             AuditEvent(
                 tenant_id=tenant_id,
