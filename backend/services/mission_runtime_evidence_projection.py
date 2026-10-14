@@ -559,7 +559,7 @@ def build_mission_runtime_evidence_projection(
             "payload": event.payload_json,
         }
         for event in sorted(audit_events or [], key=lambda item: item.created_at)
-        if event.tenant_id == tenant_id and (event.mission_id is None or event.mission_id == mission_id)
+        if event.tenant_id == tenant_id and event.mission_id == mission_id
     ]
 
     information_flow = [
