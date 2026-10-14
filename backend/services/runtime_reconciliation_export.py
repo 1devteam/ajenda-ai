@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from backend.services.mission_runtime_evidence_projection import MissionRuntimeEvidenceProjection
-from scripts.validation.graft_runtime_reconciliation import (
+from backend.services.runtime_reconciliation_contract import (
     RuntimeReconciliationSnapshot,
     seal_snapshot,
 )
