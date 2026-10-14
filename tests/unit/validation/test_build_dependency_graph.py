@@ -228,6 +228,7 @@ def test_display_path_accepts_repository_and_external_outputs(tmp_path: Path) ->
     assert MODULE._display_path(repository_output) == "artifacts/graph.json"
     assert MODULE._display_path(external_output) == str(external_output.resolve())
 
+
 def test_invalid_python_source_is_not_silently_omitted(tmp_path: Path) -> None:
     broken = tmp_path / "broken.py"
     broken.write_text("def broken(:\\n", encoding="utf-8")
