@@ -32,9 +32,12 @@ def describe_information(value: Any) -> dict[str, Any]:
         public_keys = []
         shape = type(value).__name__
         count = 1
-    # The digest is for correlating unchanged representations, not authenticating
-    # the source or rendering low-entropy personal data irreversible.
-    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    # Fingerprint the *structure*, never raw values or secret material.
+    # Canonical record references, not this digest, identify full contents.
+    canonical = json.dumps(
+        {"shape": shape, "count": count, "field_names": public_keys[:64]},
+        sort_keys=True, separators=(",", ":"),
+    )
     return {
         "shape": shape,
         "item_count": count,
