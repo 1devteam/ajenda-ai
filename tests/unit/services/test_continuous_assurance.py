@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -310,7 +311,16 @@ def test_actual_runtime_projection_drives_assurance_from_independent_fixture(mon
         lambda _: runtime_state,
     )
     session = MagicMock()
-    session.scalars.side_effect = [[task], [lease], [], [], []]
+    start_event = SimpleNamespace(
+        id=uuid.uuid4(), tenant_id="tenant-a", mission_id=mission_id,
+        category="mission_information", action="execution_started",
+        actor="worker-a", details="observed", created_at=datetime.now(UTC),
+        payload_json={
+            "schema_version": 1, "task_id": str(task_id),
+            "lease_id": str(lease_id), "grants_execution_authority": False,
+        },
+    )
+    session.scalars.side_effect = [[task], [lease], [], [], [start_event]]
     service = ContinuousAssuranceService(session)
     service._snapshots = MagicMock()
     service._snapshots.latest_for_mission.return_value = None
