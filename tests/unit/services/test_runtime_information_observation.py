@@ -28,3 +28,14 @@ def test_technical_decision_keys_redact_arbitrary_text() -> None:
         ["research_prospects", "Send password abc to partner", "target_entities[0].industry"],
         limit=3,
     ) == ["research_prospects", "[redacted]", "target_entities[0].industry"]
+
+
+def test_free_form_dictionary_keys_are_not_copied_into_audit_observation() -> None:
+    description = describe_information({
+        "person@example.com": "private value",
+        "results": [],
+        "Bearer token secret": "sensitive",
+    })
+    assert description["field_names"] == ["results"]
+    assert "person@example.com" not in str(description)
+    assert "Bearer token secret" not in str(description)
