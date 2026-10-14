@@ -493,3 +493,23 @@ def test_runtime_projection_exposes_ordered_tenant_scoped_information_flow() -> 
     ]
     assert all(item["grants_execution_authority"] is False for item in projection.information_flow)
     assert all(item["observation"]["schema_version"] == 1 for item in projection.information_flow)
+
+
+def test_historical_unknown_evidence_cannot_be_first_proven_divergence() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(mission_id=mission_id, tenant_id=tenant_id, status="completed")
+    lease = SimpleNamespace(
+        id=uuid4(), tenant_id=tenant_id, task_id=task.id,
+        status="released", holder_identity="worker",
+    )
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id, tenant_id=tenant_id,
+        mission_metadata={
+            "runtime_task_materialization": {"created_execution_task_ids": [str(task.id)]},
+            "runtime_queue_admission": {"admitted_execution_task_ids": [str(task.id)]},
+        },
+        tasks=[task], leases=[lease], lineage=[], evidence=[],
+    )
+    assert f"task:{task.id}:evidence" in projection.historical_unknown
+    assert projection.first_divergence is None
