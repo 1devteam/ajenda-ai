@@ -583,6 +583,7 @@ def build_mission_runtime_evidence_projection(
             "execution_started",
             "execution_completed",
             "execution_failed",
+            "execution_completion_blocked",
         }
     ]
     return MissionRuntimeEvidenceProjection(
