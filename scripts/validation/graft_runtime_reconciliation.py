@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +79,30 @@ def snapshot_digest(snapshot: RuntimeReconciliationSnapshot) -> str:
     payload = snapshot.model_dump(mode="json", exclude={"provenance": {"sha256"}})
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def seal_snapshot(
+    snapshot: RuntimeReconciliationSnapshot,
+    *,
+    producer: str,
+    producer_version: str,
+    source_record_ids: tuple[str, ...],
+    evidence_contract_version: str,
+) -> RuntimeReconciliationSnapshot:
+    """Create an internally consistent export; source trust is checked separately."""
+    if snapshot.provenance is not None:
+        raise ValueError("snapshot is already sealed")
+    provenance = SnapshotProvenance(
+        captured_at=datetime.now(UTC).isoformat(),
+        producer=producer,
+        producer_version=producer_version,
+        source_record_ids=source_record_ids,
+        evidence_contract_version=evidence_contract_version,
+        sha256="sha256:" + "0" * 64,
+    )
+    unsealed = snapshot.model_copy(update={"provenance": provenance})
+    digest = snapshot_digest(unsealed)
+    return unsealed.model_copy(update={"provenance": provenance.model_copy(update={"sha256": digest})})
 
 
 STAGES = (
