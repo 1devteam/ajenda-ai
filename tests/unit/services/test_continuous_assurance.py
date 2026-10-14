@@ -277,3 +277,57 @@ def test_historical_unknown_is_not_misreported_as_current_violation(monkeypatch)
         {"category": "historical_unknown", "code": "task:old:evidence", "severity": "info"}
     ]
     assert snapshot.runtime_summary["historical_unknown_count"] == 1
+
+
+def test_actual_runtime_projection_drives_assurance_from_independent_fixture(monkeypatch) -> None:
+    """Use the real projection, not a mocked projection asserting its own result."""
+    mission_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    lease_id = uuid.uuid4()
+    mission = SimpleNamespace(
+        id=mission_id,
+        tenant_id="tenant-a",
+        status="completed",
+        metadata_json={
+            "runtime_task_materialization": {"created_execution_task_ids": [str(task_id)]},
+            "runtime_queue_admission": {"admitted_execution_task_ids": [str(task_id)]},
+        },
+    )
+    task = SimpleNamespace(
+        id=task_id, mission_id=mission_id, tenant_id="tenant-a",
+        status="completed", metadata_json={"runtime_evidence_contract_version": "1"},
+    )
+    lease = SimpleNamespace(
+        id=lease_id, task_id=task_id, tenant_id="tenant-a",
+        status="released", holder_identity="worker-a",
+    )
+    runtime_state = SimpleNamespace(
+        lifecycle_state="current", epistemic_confidence=0.8,
+        contradiction_codes=(), runtime_reconciliation=None,
+    )
+    monkeypatch.setattr(
+        "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
+        lambda _: runtime_state,
+    )
+    session = MagicMock()
+    session.scalars.side_effect = [[task], [lease], [], [], []]
+    service = ContinuousAssuranceService(session)
+    service._snapshots = MagicMock()
+    service._snapshots.latest_for_mission.return_value = None
+    service._snapshots.append.side_effect = lambda snapshot: snapshot
+
+    snapshot = service.reconcile_mission(tenant_id="tenant-a", mission=mission)
+
+    assert snapshot.status == "contradictory"
+    assert snapshot.findings == [
+        {
+            "category": "runtime_contradiction",
+            "code": f"task:{task_id}:completed_without_evidence",
+            "severity": "error",
+        },
+        {
+            "category": "missing_evidence",
+            "code": f"task:{task_id}:evidence",
+            "severity": "warning",
+        },
+    ]
