@@ -51,9 +51,10 @@ def _run(label: str, command: list[str]) -> dict[str, Any]:
         # Separate files prevent a verbose test suite from filling pipe buffers.
         import tempfile
 
-        with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as out, tempfile.TemporaryFile(
-            mode="w+t", encoding="utf-8"
-        ) as err:
+        with (
+            tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as out,
+            tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as err,
+        ):
             _ACTIVE_PROCESS = subprocess.Popen(command, cwd=REPO_ROOT, text=True, stdout=out, stderr=err)
             try:
                 while True:
@@ -129,21 +130,21 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
     _run("mission-contract-gate", [sys.executable, "scripts/validation/mission_contract_gate.py"])
-    
+
     _run(
         "graft1st-reconciliation-and-lifecycle",
         [sys.executable, "scripts/validation/graft_plus_graft1st_reconciliation_check.py"],
     )
-    
+
     _run("build-canonical-graph", [sys.executable, "scripts/validation/build_dependency_graph.py"])
-    
+
     _run(
         "graft-admission-and-drift-controls",
         [sys.executable, "scripts/validation/graft_drift_controls.py"],
     )
-    
+
     if not args.skip_graph_tests:
-        
+
         _run(
             "graph-validator-tests",
             [
@@ -160,8 +161,8 @@ def main() -> int:
                 "tests/unit/validation/test_mission_verification_portfolio.py",
             ],
         )
-        
-    
+
+
     _run(
         "impact-analysis",
         [
@@ -176,8 +177,8 @@ def main() -> int:
             "artifacts/graph-impact-report.json",
         ],
     )
-    
-    
+
+
     _run(
         "proof-selection",
         [
@@ -190,8 +191,8 @@ def main() -> int:
             "artifacts/graph-proof-manifest.json",
         ],
     )
-    
-    
+
+
     _run(
         "completeness-audit",
         [
@@ -202,8 +203,8 @@ def main() -> int:
             "artifacts/graph-completeness-report.json",
         ],
     )
-    
-    
+
+
     _run(
         "architecture-decision",
         [
@@ -220,7 +221,7 @@ def main() -> int:
             "artifacts/graph-architecture-decision.json",
         ],
     )
-    
+
     report = _ACTIVE_REPORT
     assert report is not None
     report["status"] = "passed" if all(step["status"] == "passed" for step in steps) else "failed"
