@@ -204,6 +204,7 @@ def reconcile_snapshot(snapshot: RuntimeReconciliationSnapshot) -> dict[str, Any
             if snapshot.semantic_selection is None
             else "blocked"
             if snapshot.semantic_selection.conflicts
+            or any(binding.status == "conflict" for binding in snapshot.semantic_selection.bindings)
             else "aligned"
         ),
         "finding_count": len(findings),
