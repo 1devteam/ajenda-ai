@@ -135,8 +135,15 @@ class ContinuousAssuranceService:
             )
         for code in runtime.contradictions:
             findings.append({"category": "runtime_contradiction", "code": code, "severity": "error"})
+        historical_unknown = set(getattr(runtime, "historical_unknown", []))
         for code in runtime.missing_evidence:
-            findings.append({"category": "missing_evidence", "code": code, "severity": "warning"})
+            findings.append(
+                {
+                    "category": "historical_unknown" if code in historical_unknown else "missing_evidence",
+                    "code": code,
+                    "severity": "info" if code in historical_unknown else "warning",
+                }
+            )
 
         reconciliation_status = "not_available"
         semantic_status = "not_available"
@@ -158,7 +165,7 @@ class ContinuousAssuranceService:
 
         status = self._status(
             runtime_contradictions=any(finding["severity"] == "error" for finding in findings),
-            missing_evidence=bool(runtime.missing_evidence),
+            missing_evidence=any(code not in historical_unknown for code in runtime.missing_evidence),
             reconciliation_status=reconciliation_status,
             lifecycle_state=lifecycle_state,
         )
@@ -179,6 +186,7 @@ class ContinuousAssuranceService:
                 "edge_count": len(runtime.edges),
                 "contradiction_count": len(runtime.contradictions),
                 "missing_evidence_count": len(runtime.missing_evidence),
+                "historical_unknown_count": len(historical_unknown),
                 "task_flow_count": len(runtime.task_flows),
                 "record_flow_count": len(runtime.record_flows),
             },
