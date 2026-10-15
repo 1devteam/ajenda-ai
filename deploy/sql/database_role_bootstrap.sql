@@ -1,15 +1,13 @@
 -- Ajenda database authority bootstrap.
 --
--- Run this only through an independently authorized PostgreSQL administrator:
---   psql "$AJENDA_DATABASE_BOOTSTRAP_URL" -v ON_ERROR_STOP=1 \
---     -v api_password="$AJENDA_API_DATABASE_PASSWORD" \
---     -v worker_password="$AJENDA_WORKER_DATABASE_PASSWORD" \
---     -v assurance_password="$AJENDA_ASSURANCE_DATABASE_PASSWORD" \
---     -v migrator_password="$AJENDA_MIGRATOR_DATABASE_PASSWORD" \
---     -f deploy/sql/database_role_bootstrap.sql
---
--- Password values are deliberately supplied as psql variables, never stored in
--- this file.  The bootstrap administrator is not a runtime identity.
+-- Run only through the authorized bootstrap script or a deployment operator.
+-- PostgreSQL psql reads the role credentials from its environment, never
+-- from argv, and SQL literal quoting is handled by psql (:'variable').
+-- Values must not be committed, echoed, or written to logs.
+\\getenv api_password AJENDA_API_DATABASE_PASSWORD
+\\getenv worker_password AJENDA_WORKER_DATABASE_PASSWORD
+\\getenv assurance_password AJENDA_ASSURANCE_DATABASE_PASSWORD
+\\getenv migrator_password AJENDA_MIGRATOR_DATABASE_PASSWORD
 
 DO $$
 BEGIN
