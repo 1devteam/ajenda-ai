@@ -76,3 +76,43 @@ retains record identities and distinguishes collected/verified evidence from
 rejected evidence. The exported digest verifies self-consistency, but a copied
 file still requires independently authenticated provenance to prove its origin.
 The validator therefore keeps `source_authenticity_verified=false`.
+
+
+## Information observability sufficiency contract
+
+The authenticated runtime-evidence read model now exposes both
+`information_flow` (actual ordered producing observations) and
+`information_coverage` (expected observations with explicit applicability).
+These sections are **not synonymous**: a missing historical event is not
+proof of a broken contemporary contract.
+
+Each emitted representation includes bounded nested field paths, type labels,
+cardinality and a **structure-only** fingerprint, never raw data values.
+Worker-start evidence includes input bindings, current resolved input shape,
+declared output contract and tool invocation shape. Worker-completion events
+link generated evidence records to the output shape. The projection separately
+retains task output summaries, artifact keys, source lineage, evidence status,
+and chronological audit records.
+
+Coverage reports `recorded`, `missing_under_active_contract`, or
+`not_recorded_or_legacy` for task start and applicable terminal stages.
+A missing `composition_confirmed` event is treated as
+`not_recorded_or_legacy` until a producing contract is known.
+
+**The following are not established by structural telemetry alone:**
+
+- Fidelity of the original prompt-to-intent semantics or correctness of
+  transformations that preserve the same field structure
+- Actual provider requests/responses and external effects absent canonical
+  provider receipts
+- Completeness of observation for pre-confirmation proposals or abandoned
+  composition attempts
+- End-to-end correlation for failures outside committed transactions
+- Runtime evidence that these fields are populated in a deployed credentialed
+  mission rather than represented only in tests
+
+For full investigation, follow tenant-authorized references back to canonical
+mission intake, proposal, task, lineage, provider and evidence records. Never
+replace those records with monitoring copies. Before declaring sufficiency,
+execute one real mission and check every applicable stage against its durable
+source record, including rejected actions and recovery paths.
