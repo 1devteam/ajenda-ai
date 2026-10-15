@@ -233,19 +233,19 @@ jobs:
           bash deploy/scripts/provision-database-roles.sh
 
       - name: Upgrade to head
-        env:
-          AJENDA_DATABASE_URL: "postgresql+psycopg://ajenda_migrator:${{ env.AJENDA_MIGRATOR_DATABASE_PASSWORD }}@localhost:5432/ajenda_test"
-        run: alembic upgrade head
+        run: |
+          export AJENDA_DATABASE_URL="postgresql+psycopg://ajenda_migrator:${AJENDA_MIGRATOR_DATABASE_PASSWORD}@localhost:5432/ajenda_test"
+          alembic upgrade head
 
       - name: Downgrade to base
-        env:
-          AJENDA_DATABASE_URL: "postgresql+psycopg://ajenda_migrator:${{ env.AJENDA_MIGRATOR_DATABASE_PASSWORD }}@localhost:5432/ajenda_test"
-        run: alembic downgrade base
+        run: |
+          export AJENDA_DATABASE_URL="postgresql+psycopg://ajenda_migrator:${AJENDA_MIGRATOR_DATABASE_PASSWORD}@localhost:5432/ajenda_test"
+          alembic downgrade base
 
       - name: Upgrade again (verify idempotency)
-        env:
-          AJENDA_DATABASE_URL: "postgresql+psycopg://ajenda_migrator:${{ env.AJENDA_MIGRATOR_DATABASE_PASSWORD }}@localhost:5432/ajenda_test"
-        run: alembic upgrade head
+        run: |
+          export AJENDA_DATABASE_URL="postgresql+psycopg://ajenda_migrator:${AJENDA_MIGRATOR_DATABASE_PASSWORD}@localhost:5432/ajenda_test"
+          alembic upgrade head
 
   # ─────────────────────────────────────────────────────────────────────────
   # Job 5: Docker build — verify the image builds cleanly
