@@ -7,6 +7,7 @@ import pytest
 from backend.services.runtime_admission_coverage import (
     INVOCATION_ANCHORS,
     RUNTIME_ADMISSION_COVERAGE,
+    _entry_contains_control,
     validate_runtime_admission_coverage,
 )
 
@@ -28,16 +29,23 @@ def test_control_token_outside_entry_function_does_not_satisfy_coverage(tmp_path
     original = target.read_text(encoding="utf-8")
     entry_start = original.index("def admit_mission_graph_to_runtime(")
     invocation = original.index("graft_report = evaluate_admission_integrity(", entry_start)
-    altered = (
-        original[:invocation]
-        + original[invocation:].replace(
-            "graft_report = evaluate_admission_integrity(",
-            "graft_report = fake_admission_check(",
-            1,
-        )
+    altered = original[:invocation] + original[invocation:].replace(
+        "graft_report = evaluate_admission_integrity(",
+        "graft_report = fake_admission_check(",
+        1,
     )
     # The import still preserves the token elsewhere in the file, but the
     # entry function no longer invokes the required control.
     target.write_text(altered, encoding="utf-8")
     with pytest.raises(ValueError, match="invocation anchor missing"):
         validate_runtime_admission_coverage(repo_root=tmp_path)
+
+
+def test_leaf_method_anchor_accepts_owned_call_but_not_unrelated_qualified_call() -> None:
+    source = """
+def entry():
+    Other().approve_review_and_queue()
+    Other().different_method()
+"""
+    assert _entry_contains_control(source, "entry", "approve_review_and_queue")
+    assert not _entry_contains_control(source, "entry", "Owner().approve_review_and_queue")

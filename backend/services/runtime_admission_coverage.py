@@ -124,7 +124,6 @@ RUNTIME_ADMISSION_COVERAGE: tuple[RuntimeAdmissionCoverage, ...] = (
 )
 
 
-
 # Verify that the declared control is invoked from its entry point, rather than
 # merely appearing somewhere in the same file. This remains static coverage
 # and must be paired with behavioral authorization/rejection tests.
@@ -147,10 +146,21 @@ def _entry_contains_control(source: str, entry_name: str, control: str) -> bool:
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == entry_name:
             return any(
-                isinstance(call, ast.Call) and ast.unparse(call.func) == control
+                isinstance(call, ast.Call)
+                and (
+                    ast.unparse(call.func) == control
+                    # A declared leaf method is still an invocation anchor
+                    # when the implementation calls it through its actual
+                    # authority owner (for example,
+                    # ExecutionCoordinator(...).approve_review_and_queue()).
+                    # Qualified controls remain exact so the validator cannot
+                    # mistake an unrelated method with the same leaf name.
+                    or (control.isidentifier() and isinstance(call.func, ast.Attribute) and call.func.attr == control)
+                )
                 for call in ast.walk(node)
             )
     return False
+
 
 def validate_runtime_admission_coverage(*, repo_root: Path = REPO_ROOT) -> None:
     """Fail closed when an admission boundary loses its declared proof anchor."""
@@ -173,9 +183,7 @@ def validate_runtime_admission_coverage(*, repo_root: Path = REPO_ROOT) -> None:
             raise ValueError(f"runtime admission proof tokens missing for {boundary.boundary_id}: {missing}")
         entry_name, control = INVOCATION_ANCHORS[boundary.boundary_id]
         if not _entry_contains_control(source, entry_name, control):
-            raise ValueError(
-                f"runtime admission invocation anchor missing in {entry_name}: {boundary.boundary_id}"
-            )
+            raise ValueError(f"runtime admission invocation anchor missing in {entry_name}: {boundary.boundary_id}")
 
 
 validate_runtime_admission_coverage()
