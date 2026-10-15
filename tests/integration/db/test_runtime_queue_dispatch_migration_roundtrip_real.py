@@ -9,7 +9,9 @@ from alembic import command
 pytestmark = pytest.mark.integration
 
 
-def test_runtime_queue_dispatch_migration_round_trip(pg_engine, pg_url: str) -> None:  # type: ignore[no-untyped-def]
+def test_runtime_queue_dispatch_migration_round_trip(  # type: ignore[no-untyped-def]
+    pg_engine, pg_url: str, transfer_public_table_ownership_to_migrator
+) -> None:
     config = Config("alembic.ini")
     config.set_main_option("sqlalchemy.url", pg_url)
 
@@ -17,6 +19,8 @@ def test_runtime_queue_dispatch_migration_round_trip(pg_engine, pg_url: str) -> 
     try:
         assert inspect(pg_engine).has_table("runtime_queue_dispatches") is False
 
+        command.upgrade(config, "0051_billing_meter_dispatches")
+        transfer_public_table_ownership_to_migrator()
         command.upgrade(config, "head")
 
         assert inspect(pg_engine).has_table("runtime_queue_dispatches") is True
@@ -36,6 +40,8 @@ def test_runtime_queue_dispatch_migration_round_trip(pg_engine, pg_url: str) -> 
                 ).scalars()
             )
         assert rls == (True, True)
-        assert policies == {"admin_bypass", "tenant_runtime_queue_dispatch_isolation"}
+        assert policies == {"tenant_runtime_queue_dispatch_isolation"}
     finally:
+        command.upgrade(config, "0051_billing_meter_dispatches")
+        transfer_public_table_ownership_to_migrator()
         command.upgrade(config, "head")

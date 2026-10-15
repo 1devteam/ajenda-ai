@@ -70,6 +70,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Step 1: Load and validate settings. validate_runtime_contract() raises
     # ValueError on misconfiguration (e.g. redis adapter with no URL in prod).
     settings = get_settings()
+    settings.validate_runtime_contract()
+    settings.validate_database_identity(expected_identity="api")
 
     # Step 2: Configure structured logging before any other output
     configure_logging(settings)
@@ -81,7 +83,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     vector_database_runtime: VectorDatabaseRuntime | None = None
     if settings.vector_db_enabled and settings.resolved_vector_database_url:
         vector_database_runtime = VectorDatabaseRuntime(settings)
-        vector_database_runtime.ensure_schema()
+        vector_database_runtime.verify_schema()
         if not vector_database_runtime.ping():
             raise RuntimeError(
                 "Vector database failed startup ping. "

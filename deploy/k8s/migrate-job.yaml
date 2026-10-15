@@ -21,3 +21,11 @@ spec:
                 name: ajenda-config
             - secretRef:
                 name: ajenda-secrets
+          env:
+            - name: AJENDA_DATABASE_IDENTITY
+              value: migrator
+            - name: AJENDA_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ajenda-secrets
+                  key: AJENDA_MIGRATOR_DATABASE_URL

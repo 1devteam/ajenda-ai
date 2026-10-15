@@ -17,6 +17,7 @@ REQUIRED_SERVICES = frozenset(
         "api",
         "worker",
         "assurance",
+        "role-bootstrap",
         "migrate",
         "db",
         "redis",
@@ -72,6 +73,36 @@ def test_runtime_services_load_prod_env_file() -> None:
         block = _service_block(compose, service_name)
         assert "env_file:" in block
         assert "- .env.prod" in block
+
+
+def test_runtime_services_receive_only_their_own_database_identity() -> None:
+    compose = _read(COMPOSE_FILE)
+    expected = {
+        "api": ("AJENDA_DATABASE_IDENTITY: api", "ajenda_api:${AJENDA_API_DATABASE_PASSWORD"),
+        "worker": ("AJENDA_DATABASE_IDENTITY: worker", "ajenda_worker:${AJENDA_WORKER_DATABASE_PASSWORD"),
+        "assurance": (
+            "AJENDA_DATABASE_IDENTITY: assurance",
+            "ajenda_assurance:${AJENDA_ASSURANCE_DATABASE_PASSWORD",
+        ),
+        "migrate": (
+            "AJENDA_DATABASE_IDENTITY: migrator",
+            "ajenda_migrator:${AJENDA_MIGRATOR_DATABASE_PASSWORD",
+        ),
+    }
+    for service, fragments in expected.items():
+        block = _service_block(compose, service)
+        assert all(fragment in block for fragment in fragments)
+
+
+def test_migrations_wait_for_database_role_bootstrap() -> None:
+    compose = _read(COMPOSE_FILE)
+    migration = _service_block(compose, "migrate")
+    bootstrap = _service_block(compose, "role-bootstrap")
+
+    assert "role-bootstrap:" in migration
+    assert "condition: service_completed_successfully" in migration
+    assert "database_role_bootstrap.sql" in bootstrap
+    assert "AJENDA_MIGRATOR_DATABASE_PASSWORD" in bootstrap
 
 
 def test_api_service_waits_for_required_dependencies() -> None:

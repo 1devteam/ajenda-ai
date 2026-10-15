@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export AJENDA_MIGRATION_CONTEXT=1
+
+python - <<'PY'
+from backend.app.config import get_settings
+
+settings = get_settings()
+settings.validate_database_identity(expected_identity="migrator")
+PY
+
 alembic upgrade head
 
 python - <<'PY'
