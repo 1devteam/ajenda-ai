@@ -155,6 +155,53 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                 )
                 continue
             if not fixture_contacts:
+                # Discovery fixtures represent authoritative company identity
+                # evidence, not contact records.  Public-candidate
+                # verification must therefore accept a fixture company even
+                # when it has no email or phone field; requiring a contact
+                # here incorrectly rejects the verifier's input artifact.
+                company = prospect.get("company") or prospect.get("name")
+                source_url = f"fixture://{prospect.get('prospect_id') or prospect.get('id') or company}"
+                product_description = str(
+                    prospect.get("product_description")
+                    or prospect.get("description")
+                    or prospect.get("automation_opportunity")
+                    or "Local fixture company record."
+                )
+                research_summary = str(
+                    prospect.get("research_summary") or prospect.get("automation_opportunity") or product_description
+                )
+                pages.append(
+                    {
+                        "url": source_url,
+                        "real": bool(prospect.get("real", False)),
+                        "status_code": None,
+                        "title": company,
+                        "error": None,
+                        "company": company,
+                        "domain": prospect.get("domain"),
+                        "identity_status": "verified",
+                        "source_reliability": "local_fixture",
+                        "identity_evidence_urls": [source_url],
+                        "evidence_class": "fixture",
+                    }
+                )
+                verified_prospect_candidates.append(
+                    {
+                        **prospect,
+                        "company": company,
+                        "real": bool(prospect.get("real", False)),
+                        "source": "local_fixture",
+                        "product_description": product_description,
+                        "research_summary": research_summary,
+                        "identity_status": "verified",
+                        "identity_evidence_urls": [source_url],
+                        "sources": prospect.get("sources") if isinstance(prospect.get("sources"), list) else [],
+                        "observed_contacts": [],
+                    }
+                )
+                continue
+            if not fixture_contacts:
                 unobserved.append(
                     {
                         "company": prospect.get("company"),

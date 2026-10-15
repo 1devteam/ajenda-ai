@@ -202,6 +202,48 @@ def _set_input_path(tool_input: dict[str, Any], path: str, value: Any) -> None:
     cursor[keys[-1]] = value
 
 
+def _binding_value(output: dict[str, Any], output_path: str) -> Any:
+    """Read a declared output, preserving the canonical prospect contract.
+
+    Older worker projections exposed the source partitions without the
+    aggregate ``prospect_candidates`` field.  The aggregate is the declared
+    contract consumed by downstream abilities, so reconstruct it from those
+    partitions only when the canonical field is absent.  This keeps binding
+    fail-closed for unrelated missing outputs while allowing an otherwise
+    valid provider result to cross the task boundary.
+    """
+    value = _json_path_get(output, output_path)
+    if value is not None:
+        return value
+    if output_path == "$.prospect_candidates":
+        candidates: list[Any] = []
+        for key in ("internal_prospect_candidates", "public_prospect_candidates"):
+            partition = output.get(key)
+            if isinstance(partition, list):
+                candidates.extend(partition)
+        return candidates or None
+    return None
+
+
+def _propagate_research_provenance(
+    *, bound: dict[str, Any], upstream_output: dict[str, Any], action_name: str | None
+) -> None:
+    """Carry provider scope across the binding boundary without inventing it."""
+    if action_name not in {"research.observe_contacts", "research.verify_public_candidates"}:
+        return
+    if "local_fixture_only" in upstream_output:
+        bound["local_fixture_only"] = bool(upstream_output["local_fixture_only"])
+    raw_context = bound.get("context")
+    context = dict(raw_context) if isinstance(raw_context, dict) else {}
+    if upstream_output.get("source"):
+        context["source"] = upstream_output["source"]
+    if upstream_output.get("source_partitions"):
+        context["source_partitions"] = upstream_output["source_partitions"]
+    if "local_fixture_only" in upstream_output:
+        context["local_fixture_only"] = bool(upstream_output["local_fixture_only"])
+    bound["context"] = context
+
+
 def collect_upstream_world_state(mission_tasks: list[ExecutionTask]) -> dict[str, Any]:
     """Merge completed ability outputs into a mission world-state document."""
     world: dict[str, Any] = {
@@ -529,7 +571,8 @@ def apply_input_bindings(
                 f"binding source step not complete: {from_step}",
                 pending_keys=[from_step],
             )
-        value = _json_path_get(handler_output_for_task(upstream), output_path)
+        upstream_output = handler_output_for_task(upstream)
+        value = _binding_value(upstream_output, output_path)
         if value is None:
             continue
         existing = _get_input_path(bound, input_path)
@@ -538,6 +581,11 @@ def apply_input_bindings(
         if isinstance(value, list) and isinstance(existing, list):
             value = _merge_prospect_lists(existing, value)
         _set_input_path(bound, input_path, value)
+        _propagate_research_provenance(
+            bound=bound,
+            upstream_output=upstream_output,
+            action_name=_action_name_from_metadata(metadata),
+        )
         applied.append(
             {
                 "from_step": from_step,

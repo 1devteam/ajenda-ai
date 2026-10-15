@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
-from backend.services.tools.web_actions import research_observe_contacts
+from backend.services.tools.web_actions import research_observe_contacts, research_verify_public_candidates
 
 
 def test_observe_contacts_uses_fixture_without_network() -> None:
@@ -53,6 +53,33 @@ def test_observe_contacts_preserves_internal_crm_identity_without_contact_fields
     assert result.output["verified_prospect_candidates"][0]["source"] == "internal_crm"
     assert result.output["verified_prospect_candidates"][0]["identity_status"] == "verified"
     assert result.output["observed_contacts"] == []
+
+
+def test_verify_public_candidates_accepts_fixture_identity_without_contact_fields() -> None:
+    result = research_verify_public_candidates(
+        ToolInvocation(
+            action="research.verify_public_candidates",
+            input={
+                "prospects": [
+                    {
+                        "prospect_id": "fixture-company-1",
+                        "company": "Fixture Software Co",
+                        "industry": "software development",
+                        "location": "Austin",
+                        "real": True,
+                    }
+                ],
+                "requested_quantity": 1,
+                "binding_required": True,
+                "local_fixture_only": True,
+            },
+        ),
+        ActionRuntimeContext(tenant_id=str(uuid4()), task_id=uuid4(), worker_id=str(uuid4()), lease_id=str(uuid4())),
+    )
+
+    assert result.output["accept_met"] is True
+    assert result.output["verified_prospect_candidates"][0]["identity_status"] == "verified"
+    assert result.output["verified_prospect_candidates"][0]["observed_contacts"] == []
 
 
 def test_observe_contacts_preserves_real_internal_crm_contact_evidence() -> None:

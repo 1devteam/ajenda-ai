@@ -116,12 +116,13 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
             },
         }
     if action_name == "research.verify_public_candidates":
+        local_fixture_only = _local_fixture_only(intent)
         return {
             "prospects": [],
             "requested_quantity": limit,
             "timeout_seconds": 8.0,
             "binding_required": True,
-            "local_fixture_only": False,
+            "local_fixture_only": local_fixture_only,
             "collect_contacts": False,
             "context": {
                 "binding_required": True,
@@ -130,7 +131,7 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
                 "requested_quantity": limit,
                 "industry": industry,
                 "location": location,
-                "source": "public_search",
+                "source": "local_fixture" if local_fixture_only else "public_search",
             },
         }
     if action_name == "research.verify_public_identity":
