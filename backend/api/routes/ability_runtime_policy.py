@@ -25,6 +25,7 @@ READ_SAFE_ACTIONS: set[str] = {
     "web.search",
     "web.page_read",
     "research.observe_contacts",
+    "research.verify_public_candidates",
     "knowledge.retrieve_current",
     "decision.recommend_next_action",
     "web.browser_session",

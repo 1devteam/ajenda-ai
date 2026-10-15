@@ -24,15 +24,14 @@ def inspect_runtime_security(
 
     for task in tasks:
         if task.tenant_id != tenant_id or task.mission_id != mission_id:
-            findings.append({
-                "category": "security_tenant_boundary",
-                "code": f"task:{task.id}:scope_mismatch",
-                "severity": "error",
-            })
-    leases_by_task = {
-        str(lease.task_id) for lease in leases
-        if lease.tenant_id == tenant_id
-    }
+            findings.append(
+                {
+                    "category": "security_tenant_boundary",
+                    "code": f"task:{task.id}:scope_mismatch",
+                    "severity": "error",
+                }
+            )
+    leases_by_task = {str(lease.task_id) for lease in leases if lease.tenant_id == tenant_id}
     observed_starts = {
         (str(event.payload_json["task_id"]), str(event.payload_json["lease_id"]))
         for event in audits
@@ -59,50 +58,64 @@ def inspect_runtime_security(
             and task.status in {"claimed", "running", "completed", "failed", "dead_lettered"}
             and str(task.id) not in leases_by_task
         ):
-            findings.append({
-                "category": "security_lease_integrity",
-                "code": f"task:{task.id}:missing_lease_under_active_contract",
-                "severity": "error",
-            })
+            findings.append(
+                {
+                    "category": "security_lease_integrity",
+                    "code": f"task:{task.id}:missing_lease_under_active_contract",
+                    "severity": "error",
+                }
+            )
         if (
             task.tenant_id == tenant_id
             and task.mission_id == mission_id
             and metadata.get("runtime_evidence_contract_version") == "1"
             and task.status in {"running", "completed", "failed", "dead_lettered"}
-            and not any(\n                (str(task.id), lease_id) in observed_starts\n                for lease_id in lease_ids_by_task.get(str(task.id), set())\n            )
+            and not any(
+                (str(task.id), lease_id) in observed_starts for lease_id in lease_ids_by_task.get(str(task.id), set())
+            )
         ):
-            findings.append({
-                "category": "security_trace_integrity",
-                "code": f"task:{task.id}:missing_durable_execution_start",
-                "severity": "error",
-            })
+            findings.append(
+                {
+                    "category": "security_trace_integrity",
+                    "code": f"task:{task.id}:missing_durable_execution_start",
+                    "severity": "error",
+                }
+            )
     for lease in leases:
         if lease.tenant_id != tenant_id or str(lease.task_id) not in known_tasks:
-            findings.append({
-                "category": "security_lease_boundary",
-                "code": f"lease:{lease.id}:tenant_or_task_mismatch",
-                "severity": "error",
-            })
+            findings.append(
+                {
+                    "category": "security_lease_boundary",
+                    "code": f"lease:{lease.id}:tenant_or_task_mismatch",
+                    "severity": "error",
+                }
+            )
     for record in evidence:
         if record.tenant_id != tenant_id or record.mission_id != mission_id:
-            findings.append({
-                "category": "security_evidence_boundary",
-                "code": f"evidence:{record.id}:scope_mismatch",
-                "severity": "error",
-            })
+            findings.append(
+                {
+                    "category": "security_evidence_boundary",
+                    "code": f"evidence:{record.id}:scope_mismatch",
+                    "severity": "error",
+                }
+            )
         elif record.execution_task_id is not None and str(record.execution_task_id) not in known_tasks:
-            findings.append({
-                "category": "security_evidence_boundary",
-                "code": f"evidence:{record.id}:unrecognized_task",
-                "severity": "error",
-            })
+            findings.append(
+                {
+                    "category": "security_evidence_boundary",
+                    "code": f"evidence:{record.id}:unrecognized_task",
+                    "severity": "error",
+                }
+            )
     for event in audits:
         if event.tenant_id != tenant_id or event.mission_id != mission_id:
-            findings.append({
-                "category": "security_audit_boundary",
-                "code": f"audit:{event.id}:scope_mismatch",
-                "severity": "error",
-            })
+            findings.append(
+                {
+                    "category": "security_audit_boundary",
+                    "code": f"audit:{event.id}:scope_mismatch",
+                    "severity": "error",
+                }
+            )
         payload = event.payload_json if isinstance(getattr(event, "payload_json", None), dict) else {}
         if (
             event.tenant_id == tenant_id
@@ -110,9 +123,11 @@ def inspect_runtime_security(
             and getattr(event, "category", None) == "mission_information"
             and payload.get("grants_execution_authority") is not False
         ):
-            findings.append({
-                "category": "security_observation_integrity",
-                "code": f"audit:{event.id}:invalid_observation_authority",
-                "severity": "error",
-            })
+            findings.append(
+                {
+                    "category": "security_observation_integrity",
+                    "code": f"audit:{event.id}:invalid_observation_authority",
+                    "severity": "error",
+                }
+            )
     return findings

@@ -20,6 +20,7 @@ from backend.services.tools.schemas import (
     ActionRuntimeContext,
     EvidenceItem,
     ResearchObserveContactsInput,
+    ResearchVerifyPublicCandidatesInput,
     SideEffectClass,
     ToolInvocation,
 )
@@ -35,9 +36,10 @@ from backend.services.tools.web_action_identity_policy import (
 
 def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = ResearchObserveContactsInput.model_validate(invocation.input)
+    action_name = invocation.action
     raw_prospects = [item for item in payload.prospects if isinstance(item, dict)]
     if payload.binding_required and not raw_prospects:
-        raise ValueError("research.observe_contacts requires bound prospect_candidates")
+        raise ValueError(f"{action_name} requires bound prospect_candidates")
 
     seen_urls: set[str] = set()
     duplicate_url_count = 0
@@ -49,6 +51,15 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     followed_link_hosts: set[str] = set()
     limit = payload.requested_quantity
     page_attempt_limit = min(max(limit * 3, limit), 50)
+    location = str(payload.context.get("location") or "").casefold()
+    location_markers = tuple(
+        token for token in re.findall(r"[a-z0-9]{3,}", location) if token not in {"the", "and", "area"}
+    )
+    # Preserve the legacy conservative fallback for direct callers that have
+    # not supplied a structured market location. Composition always supplies
+    # location for both explicit contact observation and public verification.
+    if not location_markers:
+        location_markers = ("dallas", "dfw", "texas", " tx ")
 
     for prospect in raw_prospects:
         if len(verified_prospect_candidates) >= limit:
@@ -313,7 +324,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         snapshot = fetch_public_page(
             url_or_domain=url,
             timeout_seconds=payload.timeout_seconds,
-            action_name="research.observe_contacts",
+            action_name=action_name,
             text_preview_chars=8000,
         )
         page_record: dict[str, object] = {
@@ -354,7 +365,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             or prospect.get("company")
         )
         industry_evidence = any(marker in page_text for marker in industry_markers)
-        locality_evidence = any(marker in page_text for marker in ("dallas", "dfw", "texas", " tx "))
+        locality_evidence = any(marker in page_text for marker in location_markers)
         identity_status = (
             "verified"
             if host_matches
@@ -409,7 +420,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                 linked_snapshot = fetch_public_page(
                     url_or_domain=linked_url,
                     timeout_seconds=payload.timeout_seconds,
-                    action_name="research.observe_contacts",
+                    action_name=action_name,
                     text_preview_chars=8000,
                 )
                 linked_text = " ".join(
@@ -438,7 +449,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                 identity_text_match = bool(tokens) and any(token in linked_text for token in tokens)
                 host_text_match = bool(host_tokens) and any(token in linked_text for token in host_tokens)
                 industry_text_match = any(marker in linked_text for marker in industry_markers)
-                locality_text_match = any(marker in linked_text for marker in ("dallas", "dfw", "texas", " tx "))
+                locality_text_match = any(marker in linked_text for marker in location_markers)
                 if (
                     not linked_snapshot.real
                     or linked_actual_host != linked_host
@@ -466,13 +477,21 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     "observed_contacts": [],
                 }
                 verified_prospect_candidates.append(candidate)
-                extracted = extract_observed_contacts(
-                    text=" ".join(
-                        part
-                        for part in (linked_snapshot.title, linked_snapshot.text_preview, linked_snapshot.body_preview)
-                        if isinstance(part, str)
-                    ),
-                    source_url=linked_snapshot.url,
+                extracted = (
+                    extract_observed_contacts(
+                        text=" ".join(
+                            part
+                            for part in (
+                                linked_snapshot.title,
+                                linked_snapshot.text_preview,
+                                linked_snapshot.body_preview,
+                            )
+                            if isinstance(part, str)
+                        ),
+                        source_url=linked_snapshot.url,
+                    )
+                    if payload.collect_contacts
+                    else []
                 )
                 for item in extracted:
                     contact = {
@@ -489,7 +508,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     }
                     observed_contacts.append(contact)
                     candidate["observed_contacts"].append(contact)
-                if not extracted:
+                if payload.collect_contacts and not extracted:
                     contact = {
                         "kind": None,
                         "value": None,
@@ -523,6 +542,37 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         ]
         if snapshot.url and snapshot.url not in sources:
             sources.append(snapshot.url[:500])
+        if not payload.collect_contacts:
+            raw_research_summary = prospect.get("research_summary")
+            research_summary = raw_research_summary if isinstance(raw_research_summary, str) else ""
+            if not research_summary.strip():
+                raw_signals = prospect.get("signals")
+                research_summary = (
+                    " ".join(
+                        str(signal).strip() for signal in raw_signals if isinstance(signal, str) and signal.strip()
+                    )
+                    if isinstance(raw_signals, list)
+                    else ""
+                )
+            raw_product_description = prospect.get("product_description")
+            product_description = raw_product_description if isinstance(raw_product_description, str) else ""
+            verified_prospect_candidates.append(
+                {
+                    **prospect,
+                    "website": str(prospect.get("website") or prospect.get("url") or snapshot.url or "")[:500],
+                    "real": True,
+                    "identity_status": "verified",
+                    "identity_evidence_urls": page_record["identity_evidence_urls"],
+                    "sources": sources,
+                    "research_summary": research_summary.strip()[:1000],
+                    "product_description": product_description.strip()[:1000],
+                    "observed_contacts": [],
+                }
+            )
+            if len(verified_prospect_candidates) >= limit:
+                break
+            continue
+
         extracted = extract_observed_contacts(text=haystack, source_url=snapshot.url)
         if not extracted:
             if identity_status == "verified":
@@ -636,12 +686,20 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         for item in observed_contacts
         if item.get("real") is True or item.get("via") == "local_fixture"
     }
-    accept_met = len(accepted_observation_urls) >= limit
-    limitations = [
-        "contacts are extracted from fetched HTML text only",
-        "page locality is not verified",
-        "javascript-only contact widgets are unobserved",
-    ]
+    accept_met = (
+        len(accepted_observation_urls) >= limit
+        if payload.collect_contacts
+        else len(verified_prospect_candidates) >= limit
+    )
+    limitations = (
+        [
+            "contacts are extracted from fetched HTML text only",
+            "page locality is not verified",
+            "javascript-only contact widgets are unobserved",
+        ]
+        if payload.collect_contacts
+        else ["public company identity is verified from fetched HTML text only"]
+    )
     output = {
         "prospect_candidates": [
             {
@@ -667,7 +725,9 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         ],
         "verified_prospect_candidates": verified_prospect_candidates,
         "observed_contacts": observed_contacts,
-        "observed_count": len(accepted_observation_urls),
+        "observed_count": len(accepted_observation_urls)
+        if payload.collect_contacts
+        else len(verified_prospect_candidates),
         "contact_value_count": len(observed_contacts),
         "unobserved": unobserved,
         "pages": pages,
@@ -684,7 +744,11 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             if not verified_prospect_candidates
             else None
         ),
-        "real": any(item.get("real") is True for item in observed_contacts),
+        "real": (
+            any(item.get("real") is True for item in observed_contacts)
+            if payload.collect_contacts
+            else any(item.get("real") is True for item in verified_prospect_candidates)
+        ),
         "limitations": limitations,
         "condition_observations": [
             {
@@ -722,11 +786,14 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     summary = (
         f"Observed contacts on {len(accepted_observation_urls)}/{limit} source page(s); "
         f"{len(unobserved)} unobserved; accept_met={accept_met}."
+        if payload.collect_contacts
+        else f"Verified public company identities for {len(verified_prospect_candidates)}/{limit} candidate(s); "
+        f"{len(unobserved)} unresolved; accept_met={accept_met}."
     )
     evidence = EvidenceItem(
         evidence_type="action_result",
-        evidence_source="tool.invoke.research.observe_contacts",
-        action_name="research.observe_contacts",
+        evidence_source=f"tool.invoke.{action_name}",
+        action_name=action_name,
         tool_provider="ajenda_internet",
         tenant_id=context.tenant_id,
         task_id=str(context.task_id),
@@ -744,12 +811,12 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         confidence=0.85 if accept_met else 0.55,
         limitations=list(limitations),
         provenance={
-            "runtime_path": "TaskDispatcher -> tool.invoke -> research.observe_contacts",
+            "runtime_path": f"TaskDispatcher -> tool.invoke -> {action_name}",
             "network_egress_authority": "backend.services.network_egress.NetworkEgressAuthority",
             "internet_access": "backend.services.internet.page_read",
         },
         lineage=EvidenceLineage(
-            artifact_evidence_id=f"observe-contacts:{context.task_id}",
+            artifact_evidence_id=f"{action_name}:{context.task_id}",
             origin_type=EvidenceOriginType.SOURCE_OBSERVATION,
             source_identity=(
                 EvidenceSourceIdentity(
@@ -766,7 +833,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         side_effect_class=SideEffectClass.EXTERNAL_READ,
     )
     return ActionResult(
-        action="research.observe_contacts",
+        action=action_name,
         provider="ajenda_internet",
         side_effect_class=SideEffectClass.EXTERNAL_READ,
         output=output,
@@ -775,3 +842,11 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         summary=summary,
         confidence=0.85 if accept_met else 0.55,
     )
+
+
+def research_verify_public_candidates(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
+    """Verify bound public company candidates without extracting contacts."""
+
+    payload = ResearchVerifyPublicCandidatesInput.model_validate(invocation.input)
+    verification_invocation = invocation.model_copy(update={"input": payload.model_dump()})
+    return research_observe_contacts(verification_invocation, context)
