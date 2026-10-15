@@ -220,25 +220,25 @@ jobs:
       - name: Bootstrap restricted database identities
         env:
           AJENDA_DATABASE_BOOTSTRAP_URL: "postgresql://ajenda_test:ajenda_test@localhost:5432/ajenda_test"
-          AJENDA_API_DATABASE_PASSWORD: "ci-api-role-only"
-          AJENDA_WORKER_DATABASE_PASSWORD: "ci-worker-role-only"
-          AJENDA_ASSURANCE_DATABASE_PASSWORD: "ci-assurance-role-only"
-          AJENDA_MIGRATOR_DATABASE_PASSWORD: "ci-migrator-role-only"
+          AJENDA_API_DATABASE_PASSWORD: "ci-${{ github.run_id }}-api"
+          AJENDA_WORKER_DATABASE_PASSWORD: "ci-${{ github.run_id }}-worker"
+          AJENDA_ASSURANCE_DATABASE_PASSWORD: "ci-${{ github.run_id }}-assurance"
+          AJENDA_MIGRATOR_DATABASE_PASSWORD: "ci-${{ github.run_id }}-migrator"
         run: bash deploy/scripts/provision-database-roles.sh
 
       - name: Upgrade to head
         env:
-          AJENDA_DATABASE_URL: "postgresql+psycopg://ajenda_migrator:ci-migrator-role-only@localhost:5432/ajenda_test"
+          AJENDA_DATABASE_URL: "postgresql+psycopg://ajenda_migrator:${{ env.AJENDA_MIGRATOR_DATABASE_PASSWORD }}@localhost:5432/ajenda_test"
         run: alembic upgrade head
 
       - name: Downgrade to base
         env:
-          AJENDA_DATABASE_URL: "postgresql+psycopg://ajenda_migrator:ci-migrator-role-only@localhost:5432/ajenda_test"
+          AJENDA_DATABASE_URL: "postgresql+psycopg://ajenda_migrator:${{ env.AJENDA_MIGRATOR_DATABASE_PASSWORD }}@localhost:5432/ajenda_test"
         run: alembic downgrade base
 
       - name: Upgrade again (verify idempotency)
         env:
-          AJENDA_DATABASE_URL: "postgresql+psycopg://ajenda_migrator:ci-migrator-role-only@localhost:5432/ajenda_test"
+          AJENDA_DATABASE_URL: "postgresql+psycopg://ajenda_migrator:${{ env.AJENDA_MIGRATOR_DATABASE_PASSWORD }}@localhost:5432/ajenda_test"
         run: alembic upgrade head
 
   # ─────────────────────────────────────────────────────────────────────────

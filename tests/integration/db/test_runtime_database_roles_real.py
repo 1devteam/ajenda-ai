@@ -5,20 +5,28 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from secrets import token_urlsafe
 
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import DBAPIError
 
+_ROLE_PASSWORDS = {
+    "api": f"test-{token_urlsafe(24)}",
+    "worker": f"test-{token_urlsafe(24)}",
+    "assurance": f"test-{token_urlsafe(24)}",
+    "migrator": f"test-{token_urlsafe(24)}",
+}
+
 
 def _bootstrap_roles(pg_engine) -> None:
     sql = Path("deploy/sql/database_role_bootstrap.sql").read_text(encoding="utf-8")
     sql = (
-        sql.replace(":'api_password'", "'integration-api'")
-        .replace(":'worker_password'", "'integration-worker'")
-        .replace(":'assurance_password'", "'integration-assurance'")
-        .replace(":'migrator_password'", "'integration-migrator'")
+        sql.replace(":'api_password'", f"'{_ROLE_PASSWORDS['api']}'")
+        .replace(":'worker_password'", f"'{_ROLE_PASSWORDS['worker']}'")
+        .replace(":'assurance_password'", f"'{_ROLE_PASSWORDS['assurance']}'")
+        .replace(":'migrator_password'", f"'{_ROLE_PASSWORDS['migrator']}'")
     )
     raw_connection = pg_engine.raw_connection()
     try:
@@ -62,9 +70,11 @@ def _set_tenant(connection, tenant_id: uuid.UUID) -> None:
 
 def test_runtime_roles_are_restricted_and_billing_rows_are_tenant_isolated_real(pg_engine, pg_url: str) -> None:
     tenant_a, tenant_b = _seed_tenants(pg_engine)
-    api_engine = create_engine(_role_url(pg_url, username="ajenda_api", password="integration-api"))
-    worker_engine = create_engine(_role_url(pg_url, username="ajenda_worker", password="integration-worker"))
-    assurance_engine = create_engine(_role_url(pg_url, username="ajenda_assurance", password="integration-assurance"))
+    api_engine = create_engine(_role_url(pg_url, username="ajenda_api", password=_ROLE_PASSWORDS["api"]))
+    worker_engine = create_engine(_role_url(pg_url, username="ajenda_worker", password=_ROLE_PASSWORDS["worker"]))
+    assurance_engine = create_engine(
+        _role_url(pg_url, username="ajenda_assurance", password=_ROLE_PASSWORDS["assurance"])
+    )
     try:
         with api_engine.begin() as conn:
             identity = conn.execute(
