@@ -218,13 +218,19 @@ jobs:
           pip install ".[dev]"
 
       - name: Bootstrap restricted database identities
-        env:
-          AJENDA_DATABASE_BOOTSTRAP_URL: "postgresql://ajenda_test:ajenda_test@localhost:5432/ajenda_test"
-          AJENDA_API_DATABASE_PASSWORD: "ci-${{ github.run_id }}-api"
-          AJENDA_WORKER_DATABASE_PASSWORD: "ci-${{ github.run_id }}-worker"
-          AJENDA_ASSURANCE_DATABASE_PASSWORD: "ci-${{ github.run_id }}-assurance"
-          AJENDA_MIGRATOR_DATABASE_PASSWORD: "ci-${{ github.run_id }}-migrator"
-        run: bash deploy/scripts/provision-database-roles.sh
+        run: |
+          export AJENDA_DATABASE_BOOTSTRAP_URL="postgresql://ajenda_test:ajenda_test@localhost:5432/ajenda_test"
+          export AJENDA_API_DATABASE_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          export AJENDA_WORKER_DATABASE_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          export AJENDA_ASSURANCE_DATABASE_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          export AJENDA_MIGRATOR_DATABASE_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          {
+            echo "AJENDA_API_DATABASE_PASSWORD=$AJENDA_API_DATABASE_PASSWORD"
+            echo "AJENDA_WORKER_DATABASE_PASSWORD=$AJENDA_WORKER_DATABASE_PASSWORD"
+            echo "AJENDA_ASSURANCE_DATABASE_PASSWORD=$AJENDA_ASSURANCE_DATABASE_PASSWORD"
+            echo "AJENDA_MIGRATOR_DATABASE_PASSWORD=$AJENDA_MIGRATOR_DATABASE_PASSWORD"
+          } >> "$GITHUB_ENV"
+          bash deploy/scripts/provision-database-roles.sh
 
       - name: Upgrade to head
         env:
