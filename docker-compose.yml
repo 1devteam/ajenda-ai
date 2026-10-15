@@ -123,10 +123,6 @@ services:
       - -ec
       - >-
         psql -h db -U ajenda -d ajenda -v ON_ERROR_STOP=1
-        -v api_password="$$AJENDA_API_DATABASE_PASSWORD"
-        -v worker_password="$$AJENDA_WORKER_DATABASE_PASSWORD"
-        -v assurance_password="$$AJENDA_ASSURANCE_DATABASE_PASSWORD"
-        -v migrator_password="$$AJENDA_MIGRATOR_DATABASE_PASSWORD"
         -f /bootstrap/database_role_bootstrap.sql
     volumes:
       - ./deploy/sql/database_role_bootstrap.sql:/bootstrap/database_role_bootstrap.sql:ro
