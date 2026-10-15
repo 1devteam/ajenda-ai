@@ -198,8 +198,8 @@ jobs:
           pg_password="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
           echo "::add-mask::$pg_password"
           echo "CI_POSTGRES_PASSWORD=$pg_password" >> "$GITHUB_ENV"
-          docker run -d --name ajenda-migration-postgres --rm \\
-            -e POSTGRES_DB=ajenda_test -e POSTGRES_USER=ajenda_test \\
+          docker run -d --name ajenda-migration-postgres --rm \
+            -e POSTGRES_DB=ajenda_test -e POSTGRES_USER=ajenda_test \
             -e POSTGRES_PASSWORD="$pg_password" -p 5432:5432 postgres:16-alpine
           for attempt in {1..60}; do
             if docker exec ajenda-migration-postgres pg_isready -U ajenda_test -d ajenda_test >/dev/null 2>&1; then
