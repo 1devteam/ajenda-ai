@@ -52,6 +52,12 @@ class _FakeSessionScope:
         return None
 
 
+class _FakeDbSession:
+    def execute(self, statement: object, parameters: object = None) -> None:
+        # A real scoped session can set transaction-local PostgreSQL RLS state.
+        return None
+
+
 class _FakeDatabaseRuntime:
     def __init__(self, session: object) -> None:
         self._session = session
@@ -99,7 +105,7 @@ def test_malformed_api_key_returns_401() -> None:
     request = _request(
         headers={"X-Api-Key": "malformed"},
         tenant_id="tenant-a",
-        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(_FakeDbSession())),
     )
 
     response = asyncio.run(middleware.dispatch(request, _call_next))
@@ -122,7 +128,7 @@ def test_invalid_api_key_returns_401(monkeypatch) -> None:
     request = _request(
         headers={"X-Api-Key": "kid.secret"},
         tenant_id="tenant-a",
-        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(_FakeDbSession())),
     )
 
     response = asyncio.run(middleware.dispatch(request, _call_next))
@@ -145,7 +151,7 @@ def test_valid_api_key_sets_principal(monkeypatch) -> None:
     request = _request(
         headers={"X-Api-Key": "kid.secret"},
         tenant_id="tenant-a",
-        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(_FakeDbSession())),
     )
 
     response = asyncio.run(middleware.dispatch(request, _call_next))
@@ -168,7 +174,7 @@ def test_cross_tenant_api_key_returns_403(monkeypatch) -> None:
     request = _request(
         headers={"X-Api-Key": "kid.secret"},
         tenant_id="tenant-a",
-        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(_FakeDbSession())),
     )
 
     response = asyncio.run(middleware.dispatch(request, _call_next))
@@ -248,7 +254,7 @@ def test_api_key_value_error_returns_401(monkeypatch) -> None:
     request = _request(
         headers={"X-Api-Key": "kid.secret"},
         tenant_id="tenant-a",
-        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(_FakeDbSession())),
     )
 
     response = asyncio.run(middleware.dispatch(request, _call_next))
@@ -429,7 +435,7 @@ def test_api_key_auth_activates_rls_tenant_before_key_lookup(monkeypatch) -> Non
     request = _request(
         headers={"X-Api-Key": "kid.secret"},
         tenant_id="tenant-a",
-        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(_FakeDbSession())),
     )
 
     response = asyncio.run(middleware.dispatch(request, _call_next))
