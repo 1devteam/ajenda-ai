@@ -405,11 +405,7 @@ class MissionCompositionConfirmationPhase:
                                 "field_path": safe_decision_keys([item.field_path], limit=1)[0],
                                 "source": item.source,
                                 "confidence": item.confidence,
-                                "rule_id": (
-                                    safe_decision_keys([item.rule_id], limit=1)[0]
-                                    if item.rule_id
-                                    else None
-                                ),
+                                "rule_id": (safe_decision_keys([item.rule_id], limit=1)[0] if item.rule_id else None),
                             }
                             for item in record.intent.interpretation_evidence[:50]
                         ],

@@ -14,7 +14,6 @@ from typing import Any
 _SENSITIVE_KEY_FRAGMENTS = ("secret", "token", "password", "credential", "authorization", "api_key", "cookie")
 
 
-
 def _structural_paths(value: Any, *, max_depth: int = 4, max_paths: int = 80) -> tuple[list[dict[str, Any]], bool]:
     """Explore bounded nested structure, never persisting leaf contents."""
     paths: list[dict[str, Any]] = []
@@ -64,7 +63,8 @@ def describe_information(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         keys = sorted(str(key) for key in value)
         public_keys = [
-            key for key in keys
+            key
+            for key in keys
             if len(key) <= 80
             and _TECHNICAL_KEY.fullmatch(key)
             and not any(part in key.lower() for part in _SENSITIVE_KEY_FRAGMENTS)
@@ -88,7 +88,8 @@ def describe_information(value: Any) -> dict[str, Any]:
     # Canonical record references, not this digest, identify full contents.
     canonical = json.dumps(
         {"shape": shape, "count": count, "field_names": public_keys[:64], "paths": structural_paths},
-        sort_keys=True, separators=(",", ":"),
+        sort_keys=True,
+        separators=(",", ":"),
     )
     return {
         "shape": shape,
@@ -106,7 +107,4 @@ _TECHNICAL_KEY = re.compile(r"^[a-z][a-z0-9_.-]*(?:\[\d{1,2}\][a-z0-9_.-]*)*$")
 
 def safe_decision_keys(values: list[str], *, limit: int) -> list[str]:
     """Expose only bounded technical identifiers, never arbitrary prompt text."""
-    return [
-        value if len(value) <= 80 and _TECHNICAL_KEY.fullmatch(value) else "[redacted]"
-        for value in values[:limit]
-    ]
+    return [value if len(value) <= 80 and _TECHNICAL_KEY.fullmatch(value) else "[redacted]" for value in values[:limit]]

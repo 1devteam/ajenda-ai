@@ -546,8 +546,7 @@ def build_mission_runtime_evidence_projection(
                 first_divergence = candidate
                 break
         elif any(
-            (item == marker or item.endswith(marker) or f"{marker}:" in item)
-            and item not in historical_unknown
+            (item == marker or item.endswith(marker) or f"{marker}:" in item) and item not in historical_unknown
             for item in missing
         ):
             first_divergence = candidate
@@ -579,7 +578,8 @@ def build_mission_runtime_evidence_projection(
         for event in execution_events
         if event["category"] == "mission_information"
         and isinstance(event["payload"], dict)
-        and event["action"] in {
+        and event["action"]
+        in {
             "composition_confirmed",
             "execution_started",
             "execution_completed",
@@ -626,8 +626,10 @@ def build_mission_runtime_evidence_projection(
                     "scope": f"task:{task.id}",
                     "required_stage": required_stage,
                     "observation": (
-                        "recorded" if required_stage in stages
-                        else "missing_under_active_contract" if applicable
+                        "recorded"
+                        if required_stage in stages
+                        else "missing_under_active_contract"
+                        if applicable
                         else "not_recorded_or_legacy"
                     ),
                     "source": "mission_information_audit",

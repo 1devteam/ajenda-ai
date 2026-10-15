@@ -1015,9 +1015,7 @@ def test_start_execution_binds_evidence_contract_before_commit() -> None:
     lease.status = WorkerLeaseState.CLAIMED.value
     assert "runtime_evidence_contract_version" not in task.metadata_json
 
-    started = service.start_execution(
-        tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id
-    )
+    started = service.start_execution(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id)
 
     assert started is task
     assert started.status == ExecutionTaskState.RUNNING.value
