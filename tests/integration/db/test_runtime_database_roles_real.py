@@ -22,6 +22,9 @@ _ROLE_PASSWORDS = {
 
 def _bootstrap_roles(pg_engine) -> None:
     sql = Path("deploy/sql/database_role_bootstrap.sql").read_text(encoding="utf-8")
+    # psql client directives are stripped for this direct DBAPI execution.
+    sql = "\n".join(line for line in sql.splitlines() if not line.startswith("\\getenv "))
+
     sql = (
         sql.replace(":'api_password'", f"'{_ROLE_PASSWORDS['api']}'")
         .replace(":'worker_password'", f"'{_ROLE_PASSWORDS['worker']}'")
