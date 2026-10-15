@@ -187,24 +187,28 @@ jobs:
     name: Migration Round-Trip
     runs-on: ubuntu-24.04
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: ajenda_test
-          POSTGRES_USER: ajenda_test
-          POSTGRES_PASSWORD: ajenda_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ajenda_test -d ajenda_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Start isolated PostgreSQL with an ephemeral credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          pg_password="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          echo "::add-mask::$pg_password"
+          echo "CI_POSTGRES_PASSWORD=$pg_password" >> "$GITHUB_ENV"
+          docker run -d --name ajenda-migration-postgres --rm \\
+            -e POSTGRES_DB=ajenda_test -e POSTGRES_USER=ajenda_test \\
+            -e POSTGRES_PASSWORD="$pg_password" -p 5432:5432 postgres:16-alpine
+          for attempt in {1..60}; do
+            if docker exec ajenda-migration-postgres pg_isready -U ajenda_test -d ajenda_test >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs ajenda-migration-postgres
+          exit 1
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v7
@@ -219,7 +223,8 @@ jobs:
 
       - name: Bootstrap restricted database identities
         run: |
-          export AJENDA_DATABASE_BOOTSTRAP_URL="postgresql://ajenda_test:ajenda_test@localhost:5432/ajenda_test"
+          export AJENDA_DATABASE_BOOTSTRAP_URL="postgresql://ajenda_test@localhost:5432/ajenda_test"
+          export PGPASSWORD="$CI_POSTGRES_PASSWORD"
           export AJENDA_API_DATABASE_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
           export AJENDA_WORKER_DATABASE_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
           export AJENDA_ASSURANCE_DATABASE_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
