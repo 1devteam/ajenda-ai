@@ -513,3 +513,31 @@ def test_historical_unknown_evidence_cannot_be_first_proven_divergence() -> None
     )
     assert f"task:{task.id}:evidence" in projection.historical_unknown
     assert projection.first_divergence is None
+
+
+def test_information_coverage_distinguishes_active_missing_from_legacy_unknown() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    current = _task(
+        mission_id=mission_id, tenant_id=tenant_id, status="completed",
+        metadata={"runtime_evidence_contract_version": "1"},
+    )
+    legacy = _task(mission_id=mission_id, tenant_id=tenant_id, status="completed")
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id, tenant_id=tenant_id,
+        mission_metadata={}, tasks=[current, legacy],
+        leases=[], lineage=[], evidence=[], audit_events=[],
+    )
+    current_coverage = [
+        entry for entry in projection.information_coverage
+        if entry["scope"] == f"task:{current.id}"
+    ]
+    legacy_coverage = [
+        entry for entry in projection.information_coverage
+        if entry["scope"] == f"task:{legacy.id}"
+    ]
+    assert {entry["required_stage"] for entry in current_coverage} == {
+        "execution_started", "execution_completed"
+    }
+    assert all(entry["observation"] == "missing_under_active_contract" for entry in current_coverage)
+    assert all(entry["observation"] == "not_recorded_or_legacy" for entry in legacy_coverage)
