@@ -25,6 +25,9 @@ from backend.services.tools.schemas import (
 
 
 class _Session:
+    def execute(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
     def close(self) -> None:
         pass
 
@@ -114,6 +117,12 @@ def test_runtime_authority_returns_deterministic_promotion_denial(monkeypatch: p
         raise PromotionDenied("runtime promotion requires explicit capability/adapter authority")
 
     monkeypatch.setattr(runtime_authority, "validate_capability_action_authority", deny_with_capability_error)
+    activated: list[tuple[object, str]] = []
+    monkeypatch.setattr(
+        runtime_authority,
+        "activate_tenant_session",
+        lambda session, tenant_id: activated.append((session, tenant_id)),
+    )
 
     with pytest.raises(
         ToolRuntimeAuthorityError,
@@ -123,6 +132,8 @@ def test_runtime_authority_returns_deterministic_promotion_denial(monkeypatch: p
             task=_task(action="http.request", input_payload={"url": "https://example.com"}),
             context=_context(),
         )
+    assert len(activated) == 1
+    assert activated[0][1] == "tenant"
 
 
 def _credential_registry() -> ActionRegistry:

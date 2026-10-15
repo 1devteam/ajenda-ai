@@ -16,8 +16,8 @@ from sqlalchemy.orm import Session
 
 from backend.domain.assurance_snapshot import AssuranceSnapshot
 from backend.domain.audit_event import AuditEvent
-from backend.domain.evidence import EvidenceRecord
 from backend.domain.enums import MissionState
+from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission

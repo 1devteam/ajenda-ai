@@ -591,8 +591,9 @@ def build_mission_runtime_evidence_projection(
     for item in information_flow:
         observation = item["observation"]
         task_ref = observation.get("task_id") if isinstance(observation, dict) else None
-        if isinstance(task_ref, str):
-            observed_stages_by_task.setdefault(task_ref, set()).add(item["stage"])
+        stage = item["stage"]
+        if isinstance(task_ref, str) and isinstance(stage, str):
+            observed_stages_by_task.setdefault(task_ref, set()).add(stage)
     information_coverage: list[dict[str, Any]] = []
     information_coverage.append(
         {

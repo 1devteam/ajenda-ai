@@ -37,6 +37,7 @@ from backend.services.runtime_reconciliation_contract import (
     snapshot_digest as snapshot_digest,
 )
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("snapshot", type=Path, help="Tenant-scoped exported reconciliation snapshot JSON")
