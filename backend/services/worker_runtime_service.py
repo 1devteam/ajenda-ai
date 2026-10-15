@@ -323,6 +323,12 @@ class WorkerRuntimeService:
                         "declared_output": describe_information(
                             (task.metadata_json or {}).get("expected_output_contract")
                         ),
+                        "resolved_input": describe_information(
+                            (task.metadata_json or {}).get("input")
+                        ),
+                        "tool_invocation": describe_information(
+                            (task.metadata_json or {}).get("tool_invocation")
+                        ),
                         "grants_execution_authority": False,
                     },
                 )
