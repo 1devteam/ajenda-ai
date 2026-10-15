@@ -65,6 +65,7 @@ class MissionRuntimeEvidenceProjection(BaseModel):
     record_flows: list[dict[str, Any]] = Field(default_factory=list)
     execution_events: list[dict[str, Any]] = Field(default_factory=list)
     information_flow: list[dict[str, Any]] = Field(default_factory=list)
+    information_coverage: list[dict[str, Any]] = Field(default_factory=list)
     contradictions: list[str] = Field(default_factory=list)
     missing_evidence: list[str] = Field(default_factory=list)
     historical_unknown: list[str] = Field(default_factory=list)
@@ -586,6 +587,51 @@ def build_mission_runtime_evidence_projection(
             "execution_completion_blocked",
         }
     ]
+    observed_stages_by_task: dict[str, set[str]] = {}
+    for item in information_flow:
+        observation = item["observation"]
+        task_ref = observation.get("task_id") if isinstance(observation, dict) else None
+        if isinstance(task_ref, str):
+            observed_stages_by_task.setdefault(task_ref, set()).add(item["stage"])
+    information_coverage: list[dict[str, Any]] = []
+    information_coverage.append(
+        {
+            "scope": "mission",
+            "required_stage": "composition_confirmed",
+            "observation": (
+                "recorded"
+                if any(item["stage"] == "composition_confirmed" for item in information_flow)
+                else "not_recorded_or_legacy"
+            ),
+            "source": "mission_information_audit",
+        }
+    )
+    for task in tasks:
+        if task.tenant_id != tenant_id or task.mission_id != mission_id:
+            continue
+        metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        applicable = metadata.get("runtime_evidence_contract_version") == "1"
+        stages = observed_stages_by_task.get(str(task.id), set())
+        for required_stage, relevant in (
+            ("execution_started", task.status in {"running", "completed", "failed", "blocked", "dead_lettered"}),
+            ("execution_completed", task.status == "completed"),
+            ("execution_failed", task.status == "failed"),
+            ("execution_completion_blocked", task.status == "blocked"),
+        ):
+            if not relevant:
+                continue
+            information_coverage.append(
+                {
+                    "scope": f"task:{task.id}",
+                    "required_stage": required_stage,
+                    "observation": (
+                        "recorded" if required_stage in stages
+                        else "missing_under_active_contract" if applicable
+                        else "not_recorded_or_legacy"
+                    ),
+                    "source": "mission_information_audit",
+                }
+            )
     return MissionRuntimeEvidenceProjection(
         mission_id=mission_id,
         tenant_id=tenant_id,
@@ -599,6 +645,7 @@ def build_mission_runtime_evidence_projection(
         record_flows=record_flows,
         execution_events=execution_events,
         information_flow=information_flow,
+        information_coverage=information_coverage,
         contradictions=sorted(set(contradictions)),
         missing_evidence=sorted(set(missing)),
         historical_unknown=sorted(set(historical_unknown)),
