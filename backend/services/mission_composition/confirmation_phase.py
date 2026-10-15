@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import MissionPlanStatus, MissionState
 from backend.domain.mission import (
@@ -117,6 +118,11 @@ class MissionCompositionConfirmationPhase:
             )
 
         record = self.compose(tenant_id=tenant_id, instruction=instruction)
+        # Composition persists its durable proposal using this session and can
+        # commit the request's previous transaction. PostgreSQL SET LOCAL tenant
+        # context is transaction-scoped, so re-establish it before the quota,
+        # mission, billing, graph, and evidence writes in this confirmation.
+        activate_tenant_session(self._db, str(tenant_id))
         if client_proposal_id:
             record = record.model_copy(update={"proposal_id": client_proposal_id})
             put_proposal(tenant_id=tenant_id, record=record)
