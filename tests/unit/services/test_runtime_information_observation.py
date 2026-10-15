@@ -39,3 +39,27 @@ def test_free_form_dictionary_keys_are_not_copied_into_audit_observation() -> No
     assert description["field_names"] == ["results"]
     assert "person@example.com" not in str(description)
     assert "Bearer token secret" not in str(description)
+
+
+def test_nested_schema_observes_field_transformations_without_values() -> None:
+    first = describe_information({
+        "input": {"criteria": [{"industry": "HVAC", "city": "Phoenix"}]}
+    })
+    second = describe_information({
+        "input": {"criteria": [{"industry": "plumbing", "city": "Dallas"}]}
+    })
+    assert first["structural_paths"] == second["structural_paths"]
+    assert first["sha256"] == second["sha256"]
+    paths = {item["path"] for item in first["structural_paths"]}
+    assert "input.criteria[].industry" in paths
+    assert "input.criteria[].city" in paths
+    assert "Phoenix" not in str(first)
+    assert "HVAC" not in str(first)
+
+
+def test_nested_schema_is_bounded_and_sensitive_keys_are_excluded() -> None:
+    described = describe_information({"credential": {"password": "private"}, "records": [{"name": "A"}]})
+    paths = {item["path"] for item in described["structural_paths"]}
+    assert "credential" not in paths
+    assert "credential.password" not in paths
+    assert "records[].name" in paths
