@@ -24,8 +24,8 @@ from backend.domain.mission import Mission
 from backend.domain.worker_lease import WorkerLease
 from backend.repositories.assurance_snapshot_repository import AssuranceSnapshotRepository
 from backend.services import mission_runtime_evidence_projection
-from backend.services.runtime_security_monitor import inspect_runtime_security
 from backend.services.mission_composition import deliverable_runtime_observability
+from backend.services.runtime_security_monitor import inspect_runtime_security
 
 _STATUS_RANK = {
     "aligned": 0,
