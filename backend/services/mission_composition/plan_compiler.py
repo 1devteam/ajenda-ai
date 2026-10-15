@@ -56,6 +56,7 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
         "gtm.email_draft",
         "sales.draft_followup",
         "research.observe_contacts",
+        "research.verify_public_candidates",
     }:
         return "$.input.prospects"
     if action_name == "research.synthesize_report":
@@ -109,6 +110,8 @@ def _dependency_output_name(*, dependency: BusinessJob, downstream_action: str) 
         # qualification must consume verified identities, while contacts are
         # supplementary evidence and must not stand in for companies.
         return "verified_prospect_candidates"
+    if dependency.job_key == "research.verify_public_candidates":
+        return "verified_prospect_candidates"
     if dependency.job_key == "research.observe_sources" and downstream_action == "gtm.crm_upsert":
         return "verified_prospect_candidates"
     if dependency.job_key == "research.observe_sources" and downstream_action == "record.write":
@@ -139,6 +142,7 @@ def _dependency_jobs_for_selection(
         and "internal_crm_source" in {str(item) for item in intent.context_requirements}
         and job.job_key
         in {
+            "research.verify_public_candidates",
             "research.observe_sources",
             "sales.qualify_prospects",
             "gtm.enrich_contacts",
@@ -158,6 +162,10 @@ def _dependency_jobs_for_selection(
         # requested outcome so missions that do not ask for enrichment retain
         # the smaller governed write graph.
         dependencies.append("gtm.enrich_contacts")
+    if job.job_key == "research.synthesize_report" and "research.verify_public_candidates" in selected_keys:
+        # Public reports consume the terminal verified identity artifact, not
+        # raw discovery hits. The verifier is absent for CRM-source research.
+        dependencies.append("research.verify_public_candidates")
     return list(dict.fromkeys(dependencies))
 
 
@@ -227,8 +235,8 @@ def compile_planned_steps(
                 dep_job_spec = BUSINESS_JOBS_BY_KEY.get(dep_job)
                 if (
                     dep_job == "research.discover_prospects"
-                    and selection.action_name in {"sales.qualify", "sales.score_lead"}
-                    and "research.observe_sources" in selected_keys
+                    and selection.action_name in {"sales.qualify", "sales.score_lead", "research.synthesize_report"}
+                    and {"research.observe_sources", "research.verify_public_candidates"}.intersection(selected_keys)
                 ):
                     # Raw discovery is an intermediate artifact. Once the
                     # observer is in the graph, bind only its verified terminal
@@ -385,7 +393,7 @@ def compile_task_graph_preview(
             step.action_name == "web.research"
             and bool(step.tool_input.get("include_public_search"))
             and any(
-                item.action_name == "research.observe_contacts"
+                item.action_name in {"research.observe_contacts", "research.verify_public_candidates"}
                 and any(binding.get("from_step") == step.step_key for binding in item.input_bindings)
                 for item in steps
             )

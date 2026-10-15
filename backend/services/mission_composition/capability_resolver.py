@@ -33,6 +33,7 @@ from backend.services.tools.schemas import SideEffectClass
 # Preferred order when multiple candidates are ready.
 _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "research.discover_prospects": ("web.research", "sales.research", "web.search", "web.page_read", "crm.research"),
+    "research.verify_public_candidates": ("research.verify_public_candidates",),
     "research.observe_sources": ("research.observe_contacts",),
     "research.observe_web_page": ("web.browser_session",),
     "research.verify_public_identity": ("research.verify_public_identity",),
@@ -255,20 +256,19 @@ def route_jobs_for_intent(intent: MissionIntent) -> list[BusinessJob]:
                 selected.append(job)
                 selected_keys.add(job.job_key)
 
-    # Public discovery is only a source-observation stage. Always carry it
-    # through the existing identity verifier when the mission is not explicitly
-    # scoped to an internal CRM source. Qualification remains opt-in ("best",
-    # "rank", "qualify", etc.), but raw public hits must not be the terminal
-    # research path.
+    # Public discovery is only a source stage.  It must be followed by company
+    # identity verification, but that verification must not silently become
+    # contact collection.  Contact observation remains opt-in through the
+    # explicit observe_contacts outcome below.
     if (
         "research_prospects" in outcomes
         and not ({"internal_crm_source", "hubspot_source"} & set(intent.context_requirements))
-        and "research.observe_sources" not in selected_keys
+        and "research.verify_public_candidates" not in selected_keys
     ):
-        observe_job = BUSINESS_JOBS_BY_KEY.get("research.observe_sources")
-        if observe_job is not None:
-            selected.append(observe_job)
-            selected_keys.add(observe_job.job_key)
+        verifier_job = BUSINESS_JOBS_BY_KEY.get("research.verify_public_candidates")
+        if verifier_job is not None:
+            selected.append(verifier_job)
+            selected_keys.add(verifier_job.job_key)
 
     expanded = list(selected)
     pending = list(selected)

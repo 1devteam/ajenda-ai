@@ -279,7 +279,7 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                     "input_path": "$.input.prospects",
                 }
             )
-        if action_name == "research.observe_contacts" and "web-research" in dep:
+        if action_name in {"research.observe_contacts", "research.verify_public_candidates"} and "web-research" in dep:
             specs.append(
                 {
                     "from_step": dep,
@@ -287,7 +287,9 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                     "input_path": "$.input.prospects",
                 }
             )
-        elif action_name == "research.observe_contacts" and "record-search" in dep:
+        elif (
+            action_name in {"research.observe_contacts", "research.verify_public_candidates"} and "record-search" in dep
+        ):
             specs.append(
                 {
                     "from_step": dep,
@@ -657,6 +659,7 @@ def action_needs_prospect_world(metadata: dict[str, Any]) -> bool:
         "gtm.email_send",
         "sales.draft_followup",
         "research.observe_contacts",
+        "research.verify_public_candidates",
         "research.synthesize_report",
     }
 

@@ -189,7 +189,12 @@ REVOPS_V1_KNOW_HOW = VerticalKnowHowContract(
     stages=(
         KnowHowStage(
             stage_key="research",
-            job_keys=("research.discover_prospects", "research.observe_sources", "sales.research_context"),
+            job_keys=(
+                "research.discover_prospects",
+                "research.verify_public_candidates",
+                "research.observe_sources",
+                "sales.research_context",
+            ),
         ),
         KnowHowStage(
             stage_key="decision_support",

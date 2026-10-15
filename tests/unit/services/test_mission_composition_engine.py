@@ -358,8 +358,8 @@ def test_detailed_report_deliverable_materializes_synthesis_node() -> None:
     assert synthesis["input_contract"]["tool_invocation"]["input"]["binding_required"] is True
     assert synthesis["metadata"]["input_bindings"] == [
         {
-            "from_step": "ability-web-research",
-            "output_path": "$.prospect_candidates",
+            "from_step": "ability-research-verify_public_candidates",
+            "output_path": "$.verified_prospect_candidates",
             "to_step": "ability-research-synthesize_report",
             "input_path": "$.input.prospects",
         }
@@ -476,6 +476,7 @@ def test_valid_injected_structured_planner_is_persisted_as_non_authoritative_pro
             clause_ids = tuple(item["clause_id"] for item in request.material_clauses)  # type: ignore[attr-defined]
             job_keys = (
                 "research.discover_prospects",
+                "research.verify_public_candidates",
                 "research.observe_sources",
                 "sales.qualify_prospects",
                 "gtm.enrich_contacts",
@@ -557,13 +558,40 @@ def test_route_jobs_excludes_send_when_forbidden() -> None:
     assert "email.deliver_outreach" not in keys
 
 
-def test_public_discovery_always_routes_through_identity_observation() -> None:
+def test_public_discovery_routes_through_identity_verification_not_contact_collection() -> None:
     intent = interpret_instruction("Find 10 HVAC companies in Dallas")
     keys = {job.job_key for job in route_jobs_for_intent(intent)}
 
     assert "research.discover_prospects" in keys
-    assert "research.observe_sources" in keys
+    assert "research.verify_public_candidates" in keys
+    assert "research.observe_sources" not in keys
     assert "sales.qualify_prospects" not in keys
+
+
+def test_phoenix_public_research_does_not_insert_contact_collection() -> None:
+    instruction = (
+        "Research five HVAC companies in Phoenix, Arizona using public web sources. "
+        "Verify each company identity, operating location, HVAC services, official website, "
+        "and supporting public sources. Return a research report."
+    )
+    intent = interpret_instruction(instruction)
+    assert intent.requested_outcomes == ["research_prospects", "synthesize_research_report"]
+    assert intent.target_entities[0].industry == "HVAC"
+    assert intent.target_entities[0].location == "Phoenix"
+
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        instruction=instruction,
+    )
+    actions = {step.action_name for step in record.planned_steps}
+    assert actions == {
+        "web.research",
+        "research.verify_public_candidates",
+        "research.synthesize_report",
+    }
+    assert "research.observe_contacts" not in actions
+    assert "gtm.email_send" not in actions
+    assert "gtm.crm_upsert" not in actions
 
 
 def test_capability_resolver_selects_draft_not_send() -> None:

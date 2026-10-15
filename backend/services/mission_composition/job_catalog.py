@@ -25,6 +25,31 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         seed_brain_missions=("M3", "M10"),
     ),
     BusinessJob(
+        job_key="research.verify_public_candidates",
+        display_name="Verify public company identities",
+        vertical_role="vertical.research",
+        # This is required for public market research, but is deliberately
+        # added by the resolver only for that source lane.  Internal CRM
+        # research has its own authoritative identity source.
+        supported_outcomes=(),
+        required_inputs=("prospect_candidates",),
+        produced_outputs=("verified_prospect_candidates",),
+        candidate_actions=("research.verify_public_candidates",),
+        risk_level="medium",
+        maturity="runtime_bound",
+        credential_policy="none",
+        evidence_requirements=("action_result_evidence",),
+        dependencies=(
+            JobDependency(
+                job_key="research.discover_prospects",
+                kind="conditional",
+                required_when_missing=("prospect_candidates",),
+                satisfied_by=("explicit_company", "crm_record", "prior_artifact"),
+            ),
+        ),
+        depends_on_jobs=(),
+    ),
+    BusinessJob(
         job_key="research.observe_sources",
         display_name="Observe contacts from sources",
         vertical_role="vertical.research",

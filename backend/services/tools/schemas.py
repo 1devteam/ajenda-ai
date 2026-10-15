@@ -585,7 +585,18 @@ class ResearchObserveContactsInput(BaseModel):
     timeout_seconds: float = Field(default=8.0, ge=0.5, le=15.0)
     binding_required: bool = False
     local_fixture_only: bool = False
+    # Identity verification and contact extraction are separate governed
+    # operations.  The contact action keeps the historical default; the
+    # public-candidate verifier fixes this to False through its dedicated
+    # schema and registry entry.
+    collect_contacts: bool = True
     context: dict[str, Any] = Field(default_factory=dict)
+
+
+class ResearchVerifyPublicCandidatesInput(ResearchObserveContactsInput):
+    """Bound public candidates → verified company identities, without contacts."""
+
+    collect_contacts: Literal[False] = False
 
 
 class ResearchVerifyPublicIdentityInput(BaseModel):
