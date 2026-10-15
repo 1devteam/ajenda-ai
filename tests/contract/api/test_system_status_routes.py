@@ -1,5 +1,7 @@
 from unittest.mock import Mock
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -7,6 +9,11 @@ from backend.api.routes.system import router
 from backend.main import create_app
 from backend.metrics.prometheus_exporter import PrometheusExporter
 from backend.observability.metrics import MetricsSnapshot
+
+
+@pytest.fixture(autouse=True)
+def _mock_vector_schema_for_status_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("backend.main.VectorDatabaseRuntime.verify_schema", lambda self: None)
 
 
 def test_system_status_routes_register() -> None:
