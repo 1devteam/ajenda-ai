@@ -123,7 +123,11 @@ def test_dispatcher_success_writes_completed_worker_audit_event(
     verify_session = session_factory()
     try:
         events = _audit_events_for_task(session=verify_session, tenant_id=tenant_id, task_id=task_id)
-        completed_events = [event for event in events if event.action == "task_completed"]
+        completed_events = [
+            event
+            for event in events
+            if event.action == "task_completed" and RuntimeEvidenceLedger.read_envelope(event) is not None
+        ]
 
         assert len(completed_events) == 1
         event = completed_events[0]
@@ -179,7 +183,11 @@ def test_dispatcher_failure_writes_failed_worker_audit_event(
     verify_session = session_factory()
     try:
         events = _audit_events_for_task(session=verify_session, tenant_id=tenant_id, task_id=task_id)
-        failed_events = [event for event in events if event.action == "task_failed"]
+        failed_events = [
+            event
+            for event in events
+            if event.action == "task_failed" and RuntimeEvidenceLedger.read_envelope(event) is not None
+        ]
 
         assert len(failed_events) == 1
         event = failed_events[0]

@@ -218,6 +218,14 @@ class TaskDispatcher:
                     task=task,
                     result=result if output_reason is not None else None,
                     output_reason=output_reason,
+                    runtime_metadata=(
+                        {
+                            key: task.metadata_json[key]
+                            for key in ("runtime_causal_observations", "input_binding_audit", "tool_invocation")
+                            if isinstance(task.metadata_json, dict) and key in task.metadata_json
+                        }
+                        or None
+                    ),
                 )
             except Exception as exc:
                 side_effect_class = _side_effecting_tool_invoke_class(task_type=task_type, result=result)
@@ -283,6 +291,7 @@ class TaskDispatcher:
         task: ExecutionTask,
         result: dict[str, Any] | None = None,
         output_reason: str | None = None,
+        runtime_metadata: dict[str, Any] | None = None,
     ) -> None:
         session = self._open_tenant_session()
         try:
@@ -293,6 +302,7 @@ class TaskDispatcher:
                 worker_id=self.worker_id,
                 task_output=result,
                 output_reason=output_reason,
+                runtime_metadata=runtime_metadata,
             )
         except Exception as exc:
             session.rollback()

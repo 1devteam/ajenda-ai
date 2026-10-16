@@ -474,12 +474,27 @@ class WorkerRuntimeService:
         worker_id: str,
         task_output: dict[str, Any] | None = None,
         output_reason: str | None = None,
+        runtime_metadata: dict[str, Any] | None = None,
     ) -> ExecutionTask:
         lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
         task = self._get_task_for_lease(lease)
         if task.status != ExecutionTaskState.RUNNING.value:
             raise ValueError("task is not running")
         metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        if isinstance(runtime_metadata, dict):
+            # Tool authority runs in the dispatcher session, while completion
+            # intentionally uses a fresh lease-owned transaction. Carry only
+            # the bounded runtime metadata required for causal evidence and
+            # rebound inputs; never replace the authoritative task projection.
+            metadata = {
+                **metadata,
+                **{
+                    key: value
+                    for key, value in runtime_metadata.items()
+                    if key in {"runtime_causal_observations", "input_binding_audit", "tool_invocation"}
+                },
+            }
+            task.metadata_json = metadata
         if metadata.get("cancel_requested"):
             return self._complete_cancel_requested(
                 tenant_id=tenant_id,
