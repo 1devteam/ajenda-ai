@@ -94,13 +94,13 @@ def test_runtime_services_receive_only_their_own_database_identity() -> None:
         assert all(fragment in block for fragment in fragments)
 
 
-def test_migrations_wait_for_database_role_bootstrap() -> None:
+def test_role_bootstrap_is_explicit_and_migrations_do_not_require_it() -> None:
     compose = _read(COMPOSE_FILE)
     migration = _service_block(compose, "migrate")
     bootstrap = _service_block(compose, "role-bootstrap")
 
-    assert "role-bootstrap:" in migration
-    assert "condition: service_completed_successfully" in migration
+    assert "role-bootstrap:" not in migration
+    assert 'profiles: ["bootstrap"]' in bootstrap
     assert "database_role_bootstrap.sql" in bootstrap
     assert "AJENDA_MIGRATOR_DATABASE_PASSWORD" in bootstrap
 

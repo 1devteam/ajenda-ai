@@ -72,6 +72,15 @@ def _set_tenant(connection, tenant_id: uuid.UUID) -> None:
 
 
 def test_runtime_roles_are_restricted_and_billing_rows_are_tenant_isolated_real(pg_engine, pg_url: str) -> None:
+    # The migration fixture creates the restricted roles with deterministic
+    # bootstrap passwords.  This test deliberately uses fresh credentials so
+    # the TCP authentication path is exercised; provision them in the
+    # ephemeral test database before opening the role-scoped engines.
+    with pg_engine.begin() as conn:
+        for role, password in _ROLE_PASSWORDS.items():
+            escaped_password = password.replace("'", "''")
+            conn.execute(text(f"ALTER ROLE ajenda_{role} PASSWORD '{escaped_password}'"))
+
     tenant_a, tenant_b = _seed_tenants(pg_engine)
     api_engine = create_engine(_role_url(pg_url, username="ajenda_api", password=_ROLE_PASSWORDS["api"]))
     worker_engine = create_engine(_role_url(pg_url, username="ajenda_worker", password=_ROLE_PASSWORDS["worker"]))

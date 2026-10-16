@@ -90,13 +90,12 @@ services:
       AJENDA_DATABASE_IDENTITY: migrator
       AJENDA_DATABASE_URL: postgresql+psycopg://ajenda_migrator:${AJENDA_MIGRATOR_DATABASE_PASSWORD:?AJENDA_MIGRATOR_DATABASE_PASSWORD must be set}@db:5432/ajenda
     depends_on:
-      role-bootstrap:
-        condition: service_completed_successfully
       db:
         condition: service_healthy
     restart: "no"
 
   role-bootstrap:
+    profiles: ["bootstrap"]
     image: postgres:16
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.prod}

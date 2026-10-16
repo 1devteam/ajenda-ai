@@ -104,25 +104,29 @@ services:
       # Colocated vector plane: ephemeral_memory_chunks on the primary Postgres instance.
       AJENDA_VECTOR_DB_ENABLED: "true"
     depends_on:
-      role-bootstrap:
-        condition: service_completed_successfully
       db:
         condition: service_healthy
     restart: "no"
 
   role-bootstrap:
+    profiles: ["bootstrap"]
     image: postgres:16
     environment:
-      AJENDA_BOOTSTRAP_DATABASE_USER: ${AJENDA_BOOTSTRAP_DATABASE_USER:?AJENDA_BOOTSTRAP_DATABASE_USER must be set}
-      PGPASSWORD: ${AJENDA_BOOTSTRAP_DATABASE_PASSWORD:?AJENDA_BOOTSTRAP_DATABASE_PASSWORD must be set}
-      AJENDA_API_DATABASE_PASSWORD: ${AJENDA_API_DATABASE_PASSWORD:?AJENDA_API_DATABASE_PASSWORD must be set}
-      AJENDA_WORKER_DATABASE_PASSWORD: ${AJENDA_WORKER_DATABASE_PASSWORD:?AJENDA_WORKER_DATABASE_PASSWORD must be set}
-      AJENDA_ASSURANCE_DATABASE_PASSWORD: ${AJENDA_ASSURANCE_DATABASE_PASSWORD:?AJENDA_ASSURANCE_DATABASE_PASSWORD must be set}
-      AJENDA_MIGRATOR_DATABASE_PASSWORD: ${AJENDA_MIGRATOR_DATABASE_PASSWORD:?AJENDA_MIGRATOR_DATABASE_PASSWORD must be set}
+      AJENDA_BOOTSTRAP_DATABASE_USER: ${AJENDA_BOOTSTRAP_DATABASE_USER:-}
+      PGPASSWORD: ${AJENDA_BOOTSTRAP_DATABASE_PASSWORD:-}
+      AJENDA_API_DATABASE_PASSWORD: ${AJENDA_API_DATABASE_PASSWORD:-}
+      AJENDA_WORKER_DATABASE_PASSWORD: ${AJENDA_WORKER_DATABASE_PASSWORD:-}
+      AJENDA_ASSURANCE_DATABASE_PASSWORD: ${AJENDA_ASSURANCE_DATABASE_PASSWORD:-}
+      AJENDA_MIGRATOR_DATABASE_PASSWORD: ${AJENDA_MIGRATOR_DATABASE_PASSWORD:-}
     command:
       - sh
       - -ec
       - >-
+        test -n "$AJENDA_BOOTSTRAP_DATABASE_USER" && test -n "$PGPASSWORD" &&
+        test -n "$AJENDA_API_DATABASE_PASSWORD" && test -n "$AJENDA_WORKER_DATABASE_PASSWORD" &&
+        test -n "$AJENDA_ASSURANCE_DATABASE_PASSWORD" && test -n "$AJENDA_MIGRATOR_DATABASE_PASSWORD" ||
+        { echo 'bootstrap credentials are required for explicit role provisioning' >&2; exit 64; }
+        &&
         psql -h db -U "$AJENDA_BOOTSTRAP_DATABASE_USER" -d ajenda -v ON_ERROR_STOP=1
         -f /bootstrap/database_role_bootstrap.sql
     volumes:
