@@ -197,17 +197,20 @@ class TenantRepository:
         INSERT ... ON CONFLICT DO NOTHING to handle concurrent first-requests.
         """
         period = billing_period or date.today().replace(day=1)
+        # Use a database-level idempotent insert.  The former query-then-add
+        # sequence allowed two first requests to race on the unique period
+        # key, leaving one transaction waiting on the other's row lock while
+        # the rate-limit lock timeout elapsed.
+        self._session.execute(
+            text(
+                "INSERT INTO tenant_usage "
+                "(id, tenant_id, billing_period_start) "
+                "VALUES (:id, :tenant_id, :period) "
+                "ON CONFLICT (tenant_id, billing_period_start) DO NOTHING"
+            ),
+            {"id": uuid.uuid4(), "tenant_id": tenant_id, "period": period},
+        )
         usage = self._session.query(TenantUsage).filter_by(tenant_id=tenant_id, billing_period_start=period).first()
-        if usage is None:
-            usage = TenantUsage(
-                id=uuid.uuid4(),
-                tenant_id=tenant_id,
-                billing_period_start=period,
-            )
-            self._session.add(usage)
-            self._session.flush()
-            # Re-query in case a concurrent request inserted first
-            usage = self._session.query(TenantUsage).filter_by(tenant_id=tenant_id, billing_period_start=period).first()
         if usage is None:
             # Should never happen: we just inserted and flushed above.
             raise RuntimeError(f"Failed to create TenantUsage for tenant {tenant_id} period {period}")

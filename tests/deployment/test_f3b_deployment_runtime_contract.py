@@ -21,9 +21,26 @@ DEPLOYMENT_CONTRACT_PATHS = (
     Path("docs/deployment/production-env-contract.md"),
 )
 
+DATABASE_ROLE_DEPLOYMENT_ENV = frozenset(
+    {
+        "AJENDA_DATABASE_BOOTSTRAP_URL",
+        "AJENDA_API_DATABASE_PASSWORD",
+        "AJENDA_WORKER_DATABASE_PASSWORD",
+        "AJENDA_ASSURANCE_DATABASE_PASSWORD",
+        "AJENDA_MIGRATOR_DATABASE_PASSWORD",
+        "AJENDA_API_DATABASE_URL",
+        "AJENDA_WORKER_DATABASE_URL",
+        "AJENDA_ASSURANCE_DATABASE_URL",
+        "AJENDA_MIGRATOR_DATABASE_URL",
+    }
+)
+
 PRODUCTION_REQUIRED_APP_ENV = frozenset(
     {
-        "AJENDA_DATABASE_URL",
+        "AJENDA_API_DATABASE_PASSWORD",
+        "AJENDA_WORKER_DATABASE_PASSWORD",
+        "AJENDA_ASSURANCE_DATABASE_PASSWORD",
+        "AJENDA_MIGRATOR_DATABASE_PASSWORD",
         "AJENDA_ENV",
         "AJENDA_QUEUE_ADAPTER",
         "AJENDA_QUEUE_URL",
@@ -51,7 +68,10 @@ PRODUCTION_REQUIRED_APP_ENV = frozenset(
 
 LIVE_PROOF_REQUIRED_APP_ENV = frozenset(
     {
-        "AJENDA_DATABASE_URL",
+        "AJENDA_API_DATABASE_PASSWORD",
+        "AJENDA_WORKER_DATABASE_PASSWORD",
+        "AJENDA_ASSURANCE_DATABASE_PASSWORD",
+        "AJENDA_MIGRATOR_DATABASE_PASSWORD",
         "AJENDA_ENV",
         "AJENDA_QUEUE_ADAPTER",
         "AJENDA_QUEUE_URL",
@@ -104,6 +124,7 @@ LEGACY_UNSUPPORTED_APP_ENV = frozenset(
 NON_SETTINGS_DEPLOYMENT_ENV = frozenset(
     {
         "AJENDA_OPERATOR_MISSION_PROOF",
+        *DATABASE_ROLE_DEPLOYMENT_ENV,
         "AJENDA_OPERATOR_PROOF_EXPECTED_PROSPECT_COUNT",
         "AJENDA_OPERATOR_PROOF_INSTRUCTION",
         "AJENDA_PROOF_API_BASE_URL",
@@ -125,7 +146,10 @@ NON_SETTINGS_DEPLOYMENT_ENV = frozenset(
 
 SECRET_ENV = frozenset(
     {
-        "AJENDA_DATABASE_URL",
+        "AJENDA_API_DATABASE_URL",
+        "AJENDA_WORKER_DATABASE_URL",
+        "AJENDA_ASSURANCE_DATABASE_URL",
+        "AJENDA_MIGRATOR_DATABASE_URL",
         "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY",
         "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV",
         "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY",
@@ -186,7 +210,7 @@ def _deployment_text(paths: tuple[Path, ...] = DEPLOYMENT_CONTRACT_PATHS) -> str
 def test_config_exposes_only_canonical_ajenda_env_aliases() -> None:
     aliases = _settings_env_aliases()
 
-    assert PRODUCTION_REQUIRED_APP_ENV <= aliases
+    assert (PRODUCTION_REQUIRED_APP_ENV - DATABASE_ROLE_DEPLOYMENT_ENV) <= aliases
     assert PRODUCTION_OPTIONAL_APP_ENV <= aliases
     assert "DATABASE_URL" not in aliases
     assert "QUEUE_URL" not in aliases
@@ -232,10 +256,21 @@ def test_k8s_config_and_secret_partition_canonical_env_names() -> None:
     config_names = _k8s_data_names(configmap)
     secret_names = _k8s_data_names(secret)
     supported = _settings_env_aliases() | NON_SETTINGS_DEPLOYMENT_ENV
+    k8s_required = PRODUCTION_REQUIRED_APP_ENV - {
+        "AJENDA_API_DATABASE_PASSWORD",
+        "AJENDA_WORKER_DATABASE_PASSWORD",
+        "AJENDA_ASSURANCE_DATABASE_PASSWORD",
+        "AJENDA_MIGRATOR_DATABASE_PASSWORD",
+    } | {
+        "AJENDA_API_DATABASE_URL",
+        "AJENDA_WORKER_DATABASE_URL",
+        "AJENDA_ASSURANCE_DATABASE_URL",
+        "AJENDA_MIGRATOR_DATABASE_URL",
+    }
 
     assert not (config_names & SECRET_ENV), f"Secrets must not be in ConfigMap: {sorted(config_names & SECRET_ENV)}"
     assert SECRET_ENV <= secret_names
-    assert PRODUCTION_REQUIRED_APP_ENV <= (config_names | secret_names)
+    assert k8s_required <= (config_names | secret_names)
     assert not ((config_names | secret_names) - supported)
 
 

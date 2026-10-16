@@ -40,7 +40,10 @@ REQUIRED_K8S_CONFIG_KEYS = frozenset(
 REQUIRED_K8S_SECRET_KEYS = frozenset(
     {
         "POSTGRES_PASSWORD",
-        "AJENDA_DATABASE_URL",
+        "AJENDA_API_DATABASE_URL",
+        "AJENDA_WORKER_DATABASE_URL",
+        "AJENDA_ASSURANCE_DATABASE_URL",
+        "AJENDA_MIGRATOR_DATABASE_URL",
         "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY",
         "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY",
     }
@@ -59,7 +62,11 @@ def _read(path: Path) -> str:
 
 
 def _yaml_mapping_keys_under_section(text: str, section: str) -> set[str]:
-    section_match = re.search(rf"^{re.escape(section)}:\n(?P<body>(?:^  [A-Z0-9_]+:.*\n?)+)", text, flags=re.MULTILINE)
+    section_match = re.search(
+        rf"^{re.escape(section)}:\n(?P<body>(?:^  (?:[A-Z0-9_]+:.*|#.*)\n?)+)",
+        text,
+        flags=re.MULTILINE,
+    )
     if section_match is None:
         return set()
     return set(re.findall(r"^  ([A-Z][A-Z0-9_]*):", section_match.group("body"), flags=re.MULTILINE))
@@ -113,6 +120,8 @@ def test_worker_deployment_imports_configmap_and_secret() -> None:
     assert "name: ajenda-config" in deployment
     assert "secretRef:" in deployment
     assert "name: ajenda-secrets" in deployment
+    assert "AJENDA_DATABASE_IDENTITY" in deployment
+    assert "AJENDA_WORKER_DATABASE_URL" in deployment
 
 
 def test_worker_deployment_preserves_pod_name_worker_identity_source() -> None:

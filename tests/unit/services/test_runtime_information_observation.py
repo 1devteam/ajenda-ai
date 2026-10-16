@@ -31,23 +31,21 @@ def test_technical_decision_keys_redact_arbitrary_text() -> None:
 
 
 def test_free_form_dictionary_keys_are_not_copied_into_audit_observation() -> None:
-    description = describe_information({
-        "person@example.com": "private value",
-        "results": [],
-        "Bearer token secret": "sensitive",
-    })
+    description = describe_information(
+        {
+            "person@example.com": "private value",
+            "results": [],
+            "Bearer token secret": "sensitive",
+        }
+    )
     assert description["field_names"] == ["results"]
     assert "person@example.com" not in str(description)
     assert "Bearer token secret" not in str(description)
 
 
 def test_nested_schema_observes_field_transformations_without_values() -> None:
-    first = describe_information({
-        "input": {"criteria": [{"industry": "HVAC", "city": "Phoenix"}]}
-    })
-    second = describe_information({
-        "input": {"criteria": [{"industry": "plumbing", "city": "Dallas"}]}
-    })
+    first = describe_information({"input": {"criteria": [{"industry": "HVAC", "city": "Phoenix"}]}})
+    second = describe_information({"input": {"criteria": [{"industry": "plumbing", "city": "Dallas"}]}})
     assert first["structural_paths"] == second["structural_paths"]
     assert first["sha256"] == second["sha256"]
     paths = {item["path"] for item in first["structural_paths"]}

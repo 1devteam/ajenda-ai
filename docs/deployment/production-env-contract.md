@@ -7,7 +7,11 @@ Ajenda AI production deployments must not rely on development defaults.
 | Variable | Required | Secret | Purpose |
 |---|---:|---:|---|
 | `POSTGRES_PASSWORD` | yes | yes | Database password. |
-| `AJENDA_DATABASE_URL` | yes | yes | SQLAlchemy database URL. |
+| `AJENDA_DATABASE_BOOTSTRAP_URL` | bootstrap only | yes | Separately authorized administrator URL; never injected into runtime services. |
+| `AJENDA_API_DATABASE_PASSWORD` | API only | yes | Password used by Compose to construct the `ajenda_api` runtime URL. |
+| `AJENDA_WORKER_DATABASE_PASSWORD` | worker only | yes | Password used by Compose to construct the `ajenda_worker` runtime URL. |
+| `AJENDA_ASSURANCE_DATABASE_PASSWORD` | assurance only | yes | Password used by Compose to construct the read-only `ajenda_assurance` URL. |
+| `AJENDA_MIGRATOR_DATABASE_PASSWORD` | migration job only | yes | Password used by Compose to construct the `ajenda_migrator` URL. |
 | `AJENDA_ENV=production` | yes | no | Enables production runtime validation. |
 | `AJENDA_QUEUE_ADAPTER=redis` | yes | no | Production queue backend. |
 | `AJENDA_QUEUE_URL` | yes | maybe | Redis URL. Secret if it includes a password. |
@@ -109,7 +113,7 @@ Non-application deployment variables are limited to deployment tooling or platfo
 |---|---|---|---|
 | Docker Compose prod | `deploy/compose/docker-compose.prod.yml` loads `deploy/compose/.env.prod` for `api`, `worker`, and `migrate`; `.env.prod.example` documents required values. | API uses `deploy/scripts/start-api.sh`; worker uses `deploy/scripts/start-worker.sh`; migrations use `deploy/scripts/run-migrations.sh`. | API healthcheck uses `/health`; Prometheus scrapes `/v1/observability/metrics`. |
 | Live runtime proof | `.github/workflows/live-runtime-proof.yml` writes `deploy/compose/.env.prod`; `deploy/scripts/live-runtime-proof.sh` runs Compose with `--env-file "$COMPOSE_ENV_FILE"` for `config`, `up`, `exec`, and related commands. | Starts `db redis migrate api worker prometheus otel-collector` and verifies worker completion through the supported worker image entrypoint. | Verifies `/health`, `/readiness`, `/v1/system/health`, `/v1/system/readiness`, Prometheus target health, live metrics, and Redis lease cleanup. |
-| Kubernetes | `deploy/k8s/configmap.yaml` contains non-secret `AJENDA_*` values; `deploy/k8s/secret.example.yaml` contains secret placeholders for database URL, database password, and webhook encryption keys. | API, worker, and migration workloads rely on their image entrypoints. Worker images must use `deploy/scripts/start-worker.sh`, which starts `backend.workers.worker_loop.WorkerLoop`. | API probes use `/health` and `/readiness`; worker probes use `/tmp/worker-alive`; ServiceMonitor uses `/v1/observability/metrics`. |
+| Kubernetes | `deploy/k8s/configmap.yaml` contains non-secret `AJENDA_*` values; `deploy/k8s/secret.example.yaml` contains distinct API, worker, assurance, and migrator database URLs. A separately authorized operator provisions the roles before the migration Job runs. | API, worker, and migration workloads set their matching `AJENDA_DATABASE_IDENTITY` and rely on their image entrypoints. Worker images must use `deploy/scripts/start-worker.sh`, which starts `backend.workers.worker_loop.WorkerLoop`. | API probes use `/health` and `/readiness`; worker probes use `/tmp/worker-alive`; ServiceMonitor uses `/v1/observability/metrics`. |
 | Terraform/ECS | No Terraform/ECS deployment files are present in this repository snapshot. | Not present. Add F3-B static env/command/secret tests before adding ECS task definitions. | Not present. |
 
 ## Worker runtime entrypoint

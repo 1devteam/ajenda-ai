@@ -24,6 +24,8 @@ services:
     env_file:
       - .env
     environment:
+      AJENDA_DATABASE_IDENTITY: api
+      AJENDA_DATABASE_URL: postgresql+psycopg://ajenda_api:${AJENDA_API_DATABASE_PASSWORD:?AJENDA_API_DATABASE_PASSWORD must be set}@db:5432/ajenda
       # API and worker are separate processes, so the in-memory queue is invalid here.
       AJENDA_QUEUE_ADAPTER: redis
       AJENDA_QUEUE_URL: redis://redis:6379/0
@@ -53,6 +55,8 @@ services:
     env_file:
       - .env
     environment:
+      AJENDA_DATABASE_IDENTITY: worker
+      AJENDA_DATABASE_URL: postgresql+psycopg://ajenda_worker:${AJENDA_WORKER_DATABASE_PASSWORD:?AJENDA_WORKER_DATABASE_PASSWORD must be set}@db:5432/ajenda
       # Multi-tenant scheduling discovers active tenants instead of polling a stale ID.
       AJENDA_QUEUE_ADAPTER: redis
       AJENDA_QUEUE_URL: redis://redis:6379/0
@@ -78,6 +82,8 @@ services:
       - .env
     entrypoint: ["sh", "/app/deploy/scripts/start-assurance.sh"]
     environment:
+      AJENDA_DATABASE_IDENTITY: assurance
+      AJENDA_DATABASE_URL: postgresql+psycopg://ajenda_assurance:${AJENDA_ASSURANCE_DATABASE_PASSWORD:?AJENDA_ASSURANCE_DATABASE_PASSWORD must be set}@db:5432/ajenda
       AJENDA_ASSURANCE_INTERVAL_SECONDS: "${AJENDA_ASSURANCE_INTERVAL_SECONDS:-300}"
     depends_on:
       migrate:
@@ -93,8 +99,33 @@ services:
     env_file:
       - .env
     environment:
+      AJENDA_DATABASE_IDENTITY: migrator
+      AJENDA_DATABASE_URL: postgresql+psycopg://ajenda_migrator:${AJENDA_MIGRATOR_DATABASE_PASSWORD:?AJENDA_MIGRATOR_DATABASE_PASSWORD must be set}@db:5432/ajenda
       # Colocated vector plane: ephemeral_memory_chunks on the primary Postgres instance.
       AJENDA_VECTOR_DB_ENABLED: "true"
+    depends_on:
+      role-bootstrap:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  role-bootstrap:
+    image: postgres:16
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      AJENDA_API_DATABASE_PASSWORD: ${AJENDA_API_DATABASE_PASSWORD:?AJENDA_API_DATABASE_PASSWORD must be set}
+      AJENDA_WORKER_DATABASE_PASSWORD: ${AJENDA_WORKER_DATABASE_PASSWORD:?AJENDA_WORKER_DATABASE_PASSWORD must be set}
+      AJENDA_ASSURANCE_DATABASE_PASSWORD: ${AJENDA_ASSURANCE_DATABASE_PASSWORD:?AJENDA_ASSURANCE_DATABASE_PASSWORD must be set}
+      AJENDA_MIGRATOR_DATABASE_PASSWORD: ${AJENDA_MIGRATOR_DATABASE_PASSWORD:?AJENDA_MIGRATOR_DATABASE_PASSWORD must be set}
+    command:
+      - sh
+      - -ec
+      - >-
+        psql -h db -U ajenda -d ajenda -v ON_ERROR_STOP=1
+        -f /bootstrap/database_role_bootstrap.sql
+    volumes:
+      - ./deploy/sql/database_role_bootstrap.sql:/bootstrap/database_role_bootstrap.sql:ro
     depends_on:
       db:
         condition: service_healthy

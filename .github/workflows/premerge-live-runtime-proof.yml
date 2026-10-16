@@ -53,7 +53,10 @@ jobs:
               "\n".join(
                   [
                       f"POSTGRES_PASSWORD={postgres_password}",
-                      f"AJENDA_DATABASE_URL=postgresql+psycopg://ajenda:{postgres_password}@db:5432/ajenda",
+                      f"AJENDA_API_DATABASE_PASSWORD={postgres_password}-api",
+                      f"AJENDA_WORKER_DATABASE_PASSWORD={postgres_password}-worker",
+                      f"AJENDA_ASSURANCE_DATABASE_PASSWORD={postgres_password}-assurance",
+                      f"AJENDA_MIGRATOR_DATABASE_PASSWORD={postgres_password}-migrator",
                       "AJENDA_DB_POOL_SIZE=10",
                       "AJENDA_DB_MAX_OVERFLOW=20",
                       "AJENDA_DB_POOL_TIMEOUT=30",

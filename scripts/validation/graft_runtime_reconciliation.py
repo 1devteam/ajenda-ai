@@ -13,6 +13,9 @@ from pydantic import ValidationError
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from backend.services.runtime_reconciliation_contract import (
+    STAGES as STAGES,
+)
+from backend.services.runtime_reconciliation_contract import (
     ReconciliationFinding as ReconciliationFinding,
 )
 from backend.services.runtime_reconciliation_contract import (
@@ -20,9 +23,6 @@ from backend.services.runtime_reconciliation_contract import (
 )
 from backend.services.runtime_reconciliation_contract import (
     RuntimeStage as RuntimeStage,
-)
-from backend.services.runtime_reconciliation_contract import (
-    STAGES as STAGES,
 )
 from backend.services.runtime_reconciliation_contract import (
     SnapshotProvenance as SnapshotProvenance,

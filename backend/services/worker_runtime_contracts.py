@@ -140,7 +140,7 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
         return
     # A public discovery node can be explicitly marked as an intermediate
     # source stage. Its payload is intentionally raw and may contain unresolved
-    # identities; research.observe_contacts owns verification before any
+    # identities; the public verification action owns verification before any
     # terminal artifact is materialized. Never infer this from the action name.
     if raw_contract.get("materialization_role") == "intermediate":
         invocation = metadata.get("tool_invocation")

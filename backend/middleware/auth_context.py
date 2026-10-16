@@ -39,6 +39,7 @@ from backend.auth.oidc import OidcAuthenticator
 from backend.auth.principal import PrincipalType, UserPrincipal
 from backend.auth.rbac import RbacAuthorizer
 from backend.auth.session_token import SessionTokenService
+from backend.db.tenant_session import activate_tenant_session
 from backend.middleware.public_paths import is_public_path
 from backend.repositories.customer_auth_session_repository import CustomerAuthSessionRepository
 from backend.services.api_key_service import ApiKeyService
@@ -202,6 +203,9 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
 
         db_runtime = request.app.state.database_runtime
         with _db_session_context(db_runtime) as session:
+            # The untrusted tenant header scopes the *lookup*, not the authority.
+            # The key's stored tenant and secret are still validated below.
+            activate_tenant_session(session, tenant_id)
             service = ApiKeyService(session=session)
             try:
                 principal = service.authenticate_machine(

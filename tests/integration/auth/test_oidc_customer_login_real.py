@@ -55,6 +55,7 @@ class TestOidcCustomerLoginHttpReal:
         self,
         monkeypatch: pytest.MonkeyPatch,
         integration_env: None,
+        pg_engine: object,
     ) -> None:
         configure_oidc_integration_env(monkeypatch)
         get_settings.cache_clear()

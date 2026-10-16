@@ -49,8 +49,7 @@ def export_runtime_reconciliation_snapshot(
             source_record_ids.extend(f"evidence:{item}" for item in evidence_ids)
         evidence_statuses = flow.get("evidence_collection_statuses")
         if isinstance(evidence_statuses, list) and any(
-            isinstance(item, dict)
-            and item.get("collection_status") in {"collected", "verified"}
+            isinstance(item, dict) and item.get("collection_status") in {"collected", "verified"}
             for item in evidence_statuses
         ):
             evidenced.append(current)

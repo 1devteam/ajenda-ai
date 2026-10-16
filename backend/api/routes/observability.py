@@ -327,9 +327,7 @@ def security_monitoring_history(
 ) -> list[SecurityMonitoringSnapshotRead]:
     """Tenant-scoped, read-only security observations, excluding operational findings."""
     require_route_permission(request=request, db=session, permission=Permission.RUNTIME_VIEW, tenant_id=tenant_id)
-    rows = AssuranceSnapshotRepository(session).list_for_tenant(
-        tenant_id=str(tenant_id), limit=max(1, min(limit, 500))
-    )
+    rows = AssuranceSnapshotRepository(session).list_for_tenant(tenant_id=str(tenant_id), limit=max(1, min(limit, 500)))
     return [
         SecurityMonitoringSnapshotRead(
             snapshot_id=row.id,
@@ -359,8 +357,7 @@ def security_monitoring_summary(
     for row in rows:
         latest_by_mission.setdefault(row.mission_id, row)
     statuses = [
-        (row.runtime_summary or {}).get("security_status") or "unassessed"
-        for row in latest_by_mission.values()
+        (row.runtime_summary or {}).get("security_status") or "unassessed" for row in latest_by_mission.values()
     ]
     return SecurityMonitoringSummaryRead(
         observed_mission_count=len(statuses),

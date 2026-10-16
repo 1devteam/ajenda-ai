@@ -6,7 +6,7 @@ from alembic.script import ScriptDirectory
 
 def test_runtime_queue_dispatch_migration_is_current_head_and_durable() -> None:
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["0052_merge_runtime_billing_heads"]
+    assert script.get_heads() == ["0054_merge_runtime_roles_and_evidence"]
 
     migration = Path("alembic/versions/0050_runtime_queue_dispatches.py").read_text(encoding="utf-8")
     assert 'down_revision = "0049_continuous_assurance"' in migration

@@ -273,6 +273,45 @@ def test_observe_contacts_marks_matching_site_verified_and_directory_unverified(
     assert any(item.get("reason") == "identity_unverified" for item in result.output["unobserved"])
 
 
+def test_verify_public_candidates_does_not_extract_contacts_and_uses_phoenix_location() -> None:
+    from backend.services.tools.web_actions import research_verify_public_candidates
+
+    official = PageSnapshot(
+        url="https://acmehvac.example/",
+        real=True,
+        status_code=200,
+        title="Acme HVAC | Heating and cooling",
+        text_preview="Acme HVAC provides HVAC repair services in Phoenix, Arizona. service@acmehvac.example",
+        body_preview="",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.verify_public_candidates",
+        input={
+            "prospects": [
+                {
+                    "company": "Acme HVAC",
+                    "domain": "acmehvac.example",
+                    "url": official.url,
+                    "website": official.url,
+                    "sources": [official.url],
+                }
+            ],
+            "requested_quantity": 1,
+            "binding_required": True,
+            "collect_contacts": False,
+            "context": {"industry": "HVAC", "location": "Phoenix"},
+        },
+    )
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=official):
+        result = research_verify_public_candidates(invocation, _context())
+
+    assert result.action == "research.verify_public_candidates"
+    assert result.output["accept_met"] is True
+    assert len(result.output["verified_prospect_candidates"]) == 1
+    assert result.output["observed_contacts"] == []
+
+
 def test_observe_contacts_promotes_external_directory_links_after_verification() -> None:
     from backend.services.tools.web_actions import research_observe_contacts
 

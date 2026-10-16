@@ -98,11 +98,14 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
             "timeout_seconds": 8.0,
             "binding_required": True,
             "local_fixture_only": local_fixture_only,
+            "collect_contacts": True,
             "context": {
                 "binding_required": True,
                 "binding_source": "upstream_prospect_candidates",
                 "objective": intent.objective,
                 "requested_quantity": limit,
+                "industry": industry,
+                "location": location,
                 "source": (
                     "internal_crm"
                     if _ajenda_internal_crm_only(intent)
@@ -110,6 +113,25 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
                     if "hubspot_source" in intent.context_requirements
                     else "local_fixture"
                 ),
+            },
+        }
+    if action_name == "research.verify_public_candidates":
+        local_fixture_only = _local_fixture_only(intent)
+        return {
+            "prospects": [],
+            "requested_quantity": limit,
+            "timeout_seconds": 8.0,
+            "binding_required": True,
+            "local_fixture_only": local_fixture_only,
+            "collect_contacts": False,
+            "context": {
+                "binding_required": True,
+                "binding_source": "upstream_prospect_candidates",
+                "objective": intent.objective,
+                "requested_quantity": limit,
+                "industry": industry,
+                "location": location,
+                "source": "local_fixture" if local_fixture_only else "public_search",
             },
         }
     if action_name == "research.verify_public_identity":

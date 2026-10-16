@@ -112,6 +112,12 @@ class WorkerLoop:
                 return None
             self.claim_target.record_claim_result(tenant_id=tenant_id, claimed=True)
 
+            # Claim persistence commits the transaction so the queue payload is
+            # durably paired with its lease before execution starts. Tenant
+            # context uses PostgreSQL SET LOCAL and therefore expires at that
+            # commit; establish it again for the heartbeat/start transitions.
+            activate_tenant_session(session, tenant_id)
+
             lease_id_str = task.metadata_json.get("worker_lease_id")
             if not isinstance(lease_id_str, str):
                 raise ValueError("claimed task missing worker_lease_id in metadata")
@@ -122,6 +128,10 @@ class WorkerLoop:
                 lease_id=lease_id,
                 worker_id=self.worker_id,
             )
+            # Heartbeat persists its lease transition with a commit as well;
+            # restore the transaction-local tenant scope before start_execution
+            # writes the running state and its execution evidence.
+            activate_tenant_session(session, tenant_id)
             runtime.start_execution(
                 tenant_id=tenant_id,
                 lease_id=lease_id,

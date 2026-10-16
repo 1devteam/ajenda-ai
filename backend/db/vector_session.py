@@ -81,6 +81,11 @@ class VectorDatabaseRuntime:
 
         ensure_vector_schema(self._engine)
 
+    def verify_schema(self) -> None:
+        from backend.db.vector_schema import verify_vector_schema
+
+        verify_vector_schema(self._engine)
+
     def ping(self) -> bool:
         try:
             with self._engine.connect() as connection:

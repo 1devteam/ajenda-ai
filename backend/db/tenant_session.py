@@ -13,7 +13,17 @@ def activate_tenant_session(session: Session, tenant_id: str) -> None:
     ``governance_events``) from system/cross-tenant code paths such as
     Stripe webhooks or admin lifecycle services.
     """
-    session.execute(
+    # SQLite-backed unit tests and lightweight fakes do not implement
+    # PostgreSQL's transaction-local setting.  They have no RLS policy to
+    # activate; real application sessions are bound to PostgreSQL and always
+    # take the fail-closed path below.
+    execute = getattr(session, "execute", None)
+    if not callable(execute):
+        return
+    dialect_name = getattr(getattr(getattr(session, "bind", None), "dialect", None), "name", None)
+    if isinstance(dialect_name, str) and dialect_name != "postgresql":
+        return
+    execute(
         text("SELECT set_config('app.current_tenant_id', :tenant_id, true)"),
         {"tenant_id": tenant_id},
     )

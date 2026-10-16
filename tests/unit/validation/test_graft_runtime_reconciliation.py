@@ -1,9 +1,9 @@
 from backend.services.mission_composition.semantic_vocabulary import build_semantic_selection
 from scripts.validation.graft_runtime_reconciliation import (
     RuntimeReconciliationSnapshot,
-    snapshot_digest,
-    seal_snapshot,
     reconcile_snapshot,
+    seal_snapshot,
+    snapshot_digest,
 )
 
 
