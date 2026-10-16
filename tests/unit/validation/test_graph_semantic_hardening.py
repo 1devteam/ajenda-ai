@@ -39,6 +39,10 @@ def test_rls_inventory_models_complete_and_missing_table_envelopes() -> None:
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
     findings = {item["id"]: item for item in graph["semantic_findings"]}
+    invariants = {item["id"]: item for item in graph["invariants"]}
+
+    assert invariants["tenant-isolation"]["status"] == "enforced"
+    assert "alembic/versions/0044_restore_composition_onboarding_rls.py" in invariants["tenant-isolation"]["sources"]
 
     protected = nodes["db:table:tenant_internal_records"]
     assert protected["tenant_associated"] is True
@@ -89,7 +93,9 @@ def test_production_egress_is_inventory_backed_and_known_bypasses_are_visible() 
     graph = _graph()
     nodes = {node["id"]: node for node in graph["nodes"]}
     findings = {item["id"]: item for item in graph["semantic_findings"]}
+    invariants = {item["id"]: item for item in graph["invariants"]}
 
+    assert invariants["governed-egress"]["status"] == "enforced"
     authority_sink = nodes["egress:backend.services.network_egress"]
     assert authority_sink["classification"] == "governed_authority"
     assert "egress:backend.services.llm.openai_compatible" not in nodes

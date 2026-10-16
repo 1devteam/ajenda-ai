@@ -11,18 +11,20 @@ import hashlib
 import json
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
 from backend.domain.assurance_snapshot import AssuranceSnapshot
 from backend.domain.audit_event import AuditEvent
 from backend.domain.evidence import EvidenceRecord
+from backend.domain.enums import MissionState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.domain.worker_lease import WorkerLease
 from backend.repositories.assurance_snapshot_repository import AssuranceSnapshotRepository
 from backend.services import mission_runtime_evidence_projection
+from backend.services.runtime_security_monitor import inspect_runtime_security
 from backend.services.mission_composition import deliverable_runtime_observability
 from backend.services.runtime_evidence_consumers import (
     consume_intelligence_flow_evidence,
@@ -52,7 +54,22 @@ class ContinuousAssuranceService:
             self._session.scalars(
                 select(Mission)
                 .where(Mission.tenant_id == tenant_id)
-                .order_by(Mission.created_at.desc())
+                .order_by(
+                    case(
+                        (
+                            Mission.status.in_(
+                                (
+                                    MissionState.RUNNING.value,
+                                    MissionState.QUEUED.value,
+                                    MissionState.PAUSED.value,
+                                )
+                            ),
+                            0,
+                        ),
+                        else_=1,
+                    ),
+                    Mission.created_at.desc(),
+                )
                 .limit(max(1, min(mission_limit, 500)))
             )
         )
@@ -128,7 +145,16 @@ class ContinuousAssuranceService:
             runtime_state = None
             runtime_state_error = str(exc)
 
-        findings: list[dict[str, Any]] = []
+        security_findings = inspect_runtime_security(
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            tasks=tasks,
+            leases=leases,
+            evidence=evidence,
+            audits=audits,
+        )
+        security_status = "alert" if security_findings else "no_findings_observed"
+        findings: list[dict[str, Any]] = list(security_findings)
         if runtime_state_error is not None:
             findings.append(
                 {
@@ -139,9 +165,16 @@ class ContinuousAssuranceService:
             )
         for code in runtime.contradictions:
             findings.append({"category": "runtime_contradiction", "code": code, "severity": "error"})
+        historical_unknown = set(getattr(runtime, "historical_unknown", []))
         for code in runtime.missing_evidence:
-            findings.append({"category": "missing_evidence", "code": code, "severity": "warning"})
-        # These consumers observe producer-owned ledger facts only.  They do
+            findings.append(
+                {
+                    "category": "historical_unknown" if code in historical_unknown else "missing_evidence",
+                    "code": code,
+                    "severity": "info" if code in historical_unknown else "warning",
+                }
+            )
+        # These consumers observe producer-owned ledger facts only. They do
         # not reconstruct plans, rewrite mission state, or grant authority.
         security_evidence = consume_runtime_security_evidence(audits)
         intelligence_flow = consume_intelligence_flow_evidence(audits)
@@ -167,7 +200,7 @@ class ContinuousAssuranceService:
                     findings.append({"category": "semantic_drift", "code": code, "severity": "warning"})
 
         status = self._status(
-            runtime_contradictions=bool(runtime.contradictions) or runtime_state_error is not None,
+            runtime_contradictions=any(finding["severity"] == "error" for finding in findings),
             missing_evidence=bool(runtime.missing_evidence),
             reconciliation_status=reconciliation_status,
             lifecycle_state=lifecycle_state,
@@ -181,14 +214,20 @@ class ContinuousAssuranceService:
 
         observation_payload = {
             "status": status,
+            "security_status": security_status,
             "first_divergence": runtime.first_divergence,
             "findings": findings,
             "runtime_summary": {
                 "mission_status": runtime.mission_status,
+                "security_status": security_status,
+                "security_finding_count": len(security_findings),
+                "security_scope": "tenant_scoped_mission_records",
+                "security_assertion": "bounded_observation_not_full_clearance",
                 "node_count": len(runtime.nodes),
                 "edge_count": len(runtime.edges),
                 "contradiction_count": len(runtime.contradictions),
                 "missing_evidence_count": len(runtime.missing_evidence),
+                "historical_unknown_count": len(historical_unknown),
                 "task_flow_count": len(runtime.task_flows),
                 "record_flow_count": len(runtime.record_flows),
             },

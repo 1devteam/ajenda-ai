@@ -1006,3 +1006,21 @@ def test_block_completion_failure_fails_closed_for_non_running_task() -> None:
     queue.fail_task.assert_not_called()
     session.flush.assert_not_called()
     session.commit.assert_not_called()
+
+
+def test_start_execution_binds_evidence_contract_before_commit() -> None:
+    service, session, _queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.CLAIMED.value
+    )
+    lease.status = WorkerLeaseState.CLAIMED.value
+    assert "runtime_evidence_contract_version" not in task.metadata_json
+
+    started = service.start_execution(
+        tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id
+    )
+
+    assert started is task
+    assert started.status == ExecutionTaskState.RUNNING.value
+    assert task.metadata_json["runtime_evidence_contract_version"] == "1"
+    session.flush.assert_called_once()
+    session.commit.assert_called_once()

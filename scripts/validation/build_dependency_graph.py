@@ -94,8 +94,8 @@ def _best_python_target(imported: str, modules: set[str]) -> str | None:
 def _python_imports(path: Path, module: str, modules: set[str]) -> set[str]:
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    except (OSError, SyntaxError):
-        return set()
+    except (OSError, SyntaxError) as exc:
+        raise ValueError(f"Cannot observe Python imports in {path}: {type(exc).__name__}: {exc}") from exc
     imported_modules: set[str] = set()
     is_package = path.name == "__init__.py"
     for item in ast.walk(tree):

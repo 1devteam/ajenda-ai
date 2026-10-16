@@ -48,6 +48,7 @@ from backend.services.mission_composition.revops_deliverable import (
     RevOpsMissionDeliverableRead,
     assemble_revops_mission_deliverable,
 )
+from backend.services.runtime_reconciliation_export import export_runtime_reconciliation_snapshot
 from backend.services.mission_runtime_evidence_projection import (
     MissionRuntimeEvidenceProjection,
     build_mission_runtime_evidence_projection,
@@ -445,3 +446,24 @@ def read_mission_runtime_evidence(
         evidence=evidence,
         audit_events=audit_events,
     )
+
+
+@router.get("/{mission_id}/runtime-reconciliation-export")
+def read_runtime_reconciliation_export(
+    mission_id: uuid.UUID,
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> dict[str, object]:
+    """Export a sealed, tenant-authorized observation; never authorize runtime."""
+    projection = read_mission_runtime_evidence(
+        mission_id=mission_id,
+        request=request,
+        tenant_id=tenant_id,
+        db=db,
+    )
+    try:
+        snapshot = export_runtime_reconciliation_snapshot(projection)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return snapshot.model_dump(mode="json")

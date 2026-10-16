@@ -293,6 +293,83 @@ def assurance_summary(
     )
 
 
+class SecurityMonitoringSnapshotRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: _uuid.UUID
+    mission_id: _uuid.UUID
+    security_status: str
+    security_findings: list[dict[str, object]]
+    observed_at: str
+    authority_class: str = "read_model"
+    grants_execution_authority: bool = False
+
+
+class SecurityMonitoringSummaryRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    observed_mission_count: int
+    alert_count: int
+    no_findings_observed_count: int
+    unassessed_count: int
+    snapshot_window: int = 500
+    full_tenant_clearance: bool = False
+    authority_class: str = "read_model"
+    grants_execution_authority: bool = False
+
+
+@router.get("/observability/security/history", response_model=list[SecurityMonitoringSnapshotRead])
+def security_monitoring_history(
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    session: Session = Depends(get_tenant_db_session),
+    limit: int = 100,
+) -> list[SecurityMonitoringSnapshotRead]:
+    """Tenant-scoped, read-only security observations, excluding operational findings."""
+    require_route_permission(request=request, db=session, permission=Permission.RUNTIME_VIEW, tenant_id=tenant_id)
+    rows = AssuranceSnapshotRepository(session).list_for_tenant(
+        tenant_id=str(tenant_id), limit=max(1, min(limit, 500))
+    )
+    return [
+        SecurityMonitoringSnapshotRead(
+            snapshot_id=row.id,
+            mission_id=row.mission_id,
+            security_status=str((row.runtime_summary or {}).get("security_status") or "unassessed"),
+            security_findings=[
+                finding
+                for finding in (row.findings or [])
+                if str(finding.get("category") or "").startswith("security_")
+            ],
+            observed_at=row.observed_at.isoformat(),
+        )
+        for row in rows
+    ]
+
+
+@router.get("/observability/security/summary", response_model=SecurityMonitoringSummaryRead)
+def security_monitoring_summary(
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    session: Session = Depends(get_tenant_db_session),
+) -> SecurityMonitoringSummaryRead:
+    """Bounded security monitor status; absence of findings is not clearance."""
+    require_route_permission(request=request, db=session, permission=Permission.RUNTIME_VIEW, tenant_id=tenant_id)
+    rows = AssuranceSnapshotRepository(session).list_for_tenant(tenant_id=str(tenant_id), limit=500)
+    latest_by_mission: dict[_uuid.UUID, AssuranceSnapshot] = {}
+    for row in rows:
+        latest_by_mission.setdefault(row.mission_id, row)
+    statuses = [
+        (row.runtime_summary or {}).get("security_status") or "unassessed"
+        for row in latest_by_mission.values()
+    ]
+    return SecurityMonitoringSummaryRead(
+        observed_mission_count=len(statuses),
+        alert_count=statuses.count("alert"),
+        no_findings_observed_count=statuses.count("no_findings_observed"),
+        unassessed_count=sum(status not in {"alert", "no_findings_observed"} for status in statuses),
+    )
+
+
 @router.get("/observability/compliance/export")
 def compliance_export(
     request: Request,

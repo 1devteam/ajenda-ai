@@ -4,6 +4,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 MODULE_PATH = Path(__file__).resolve().parents[3] / "scripts/validation/build_dependency_graph.py"
 SPEC = importlib.util.spec_from_file_location("ajenda_build_dependency_graph", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
@@ -225,3 +227,10 @@ def test_display_path_accepts_repository_and_external_outputs(tmp_path: Path) ->
 
     assert MODULE._display_path(repository_output) == "artifacts/graph.json"
     assert MODULE._display_path(external_output) == str(external_output.resolve())
+
+
+def test_invalid_python_source_is_not_silently_omitted(tmp_path: Path) -> None:
+    broken = tmp_path / "broken.py"
+    broken.write_text("def broken(:\\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Cannot observe Python imports"):
+        MODULE._python_imports(broken, "backend.broken", {"backend.broken"})

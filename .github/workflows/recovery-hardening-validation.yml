@@ -32,6 +32,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
 
+      - name: Verify Docker and pre-pull integration fixture images
+        run: |
+          set -euo pipefail
+          docker info >/dev/null
+          docker pull testcontainers/ryuk:0.8.1
+          docker pull postgres:16-alpine
+          docker pull redis:7-alpine
+          docker image inspect testcontainers/ryuk:0.8.1 postgres:16-alpine redis:7-alpine >/dev/null
+
       - name: Run contract operations tests
         run: pytest -q -ra tests/contract/operations
 

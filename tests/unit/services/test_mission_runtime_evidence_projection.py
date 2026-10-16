@@ -52,7 +52,7 @@ def test_projection_flags_completed_task_without_evidence() -> None:
         mission_id=mission_id,
         tenant_id=tenant_id,
         status="completed",
-        metadata={"task_type": "web.research"},
+        metadata={"task_type": "web.research", "runtime_evidence_contract_version": "1"},
     )
 
     projection = build_mission_runtime_evidence_projection(
@@ -81,6 +81,7 @@ def test_projection_exposes_terminal_failure_as_first_runtime_divergence() -> No
         status="failed",
         metadata={
             "task_type": "tool.invoke",
+            "runtime_evidence_contract_version": "1",
             "failure": {
                 "code": "HANDLER_FAILED",
                 "message": "qualified_prospects contained no acceptable rows",
@@ -119,6 +120,7 @@ def test_projection_names_declared_artifact_when_completed_output_is_missing() -
         status="completed",
         metadata={
             "task_type": "tool.invoke",
+            "runtime_evidence_contract_version": "1",
             "expected_output_contract": {"artifact": "observed_contacts"},
             "output": {"verified_prospect_candidates": []},
         },
@@ -411,3 +413,131 @@ def test_projection_preserves_dict_artifact_shape_and_digest() -> None:
     report_flow = next(item for item in projection.record_flows if item["artifact_key"] == "research_report")
     assert report_flow["value_shape"] == "dict"
     assert report_flow["output_summary"]["sha256"].startswith("sha256:")
+
+
+def test_unversioned_historical_task_preserves_unknown_without_violation() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(mission_id=mission_id, tenant_id=tenant_id, status="completed")
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        mission_metadata={
+            "runtime_task_materialization": {"created_execution_task_ids": [str(task.id)]},
+            "runtime_queue_admission": {"admitted_execution_task_ids": [str(task.id)]},
+        },
+        tasks=[task],
+        leases=[],
+        lineage=[],
+        evidence=[],
+    )
+    assert f"task:{task.id}:evidence" in projection.historical_unknown
+    assert f"task:{task.id}:evidence" in projection.missing_evidence
+    assert f"task:{task.id}:completed_without_evidence" not in projection.contradictions
+
+
+def test_old_declared_artifact_absence_is_historical_unknown() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(
+        mission_id=mission_id, tenant_id=tenant_id, status="completed",
+        metadata={
+            "expected_output_contract": {"artifact": "legacy_report"},
+            "handler_result": {"output": {}},
+        },
+    )
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id, tenant_id=tenant_id,
+        mission_metadata={
+            "runtime_task_materialization": {"created_execution_task_ids": [str(task.id)]},
+            "runtime_queue_admission": {"admitted_execution_task_ids": [str(task.id)]},
+        },
+        tasks=[task], leases=[], lineage=[], evidence=[],
+    )
+    assert f"task:{task.id}:artifact:legacy_report" in projection.historical_unknown
+    assert f"task:{task.id}:completed_without_artifact:legacy_report" not in projection.contradictions
+
+
+def test_runtime_projection_exposes_ordered_tenant_scoped_information_flow() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    other_mission_id = uuid4()
+
+    def event(action, day, *, scope=mission_id, tenant=tenant_id):
+        return SimpleNamespace(
+            id=uuid4(), tenant_id=tenant, mission_id=scope,
+            created_at=datetime(2026, 10, day, tzinfo=UTC),
+            category="mission_information", action=action,
+            actor="observer", details="bounded observation",
+            payload_json={
+                "schema_version": 1,
+                "grants_execution_authority": False,
+                "input": {"shape": "object", "field_names": ["criteria"]},
+            },
+        )
+
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id, tenant_id=tenant_id,
+        mission_metadata={}, tasks=[], leases=[], lineage=[], evidence=[],
+        audit_events=[
+            event("execution_completed", 3),
+            event("execution_started", 2),
+            event("composition_confirmed", 1),
+            event("execution_failed", 4, scope=other_mission_id),
+            event("execution_failed", 5, tenant="another-tenant"),
+            event("execution_failed", 6, scope=None),
+        ],
+    )
+    assert [item["stage"] for item in projection.information_flow] == [
+        "composition_confirmed", "execution_started", "execution_completed",
+    ]
+    assert all(item["grants_execution_authority"] is False for item in projection.information_flow)
+    assert all(item["observation"]["schema_version"] == 1 for item in projection.information_flow)
+
+
+def test_historical_unknown_evidence_cannot_be_first_proven_divergence() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(mission_id=mission_id, tenant_id=tenant_id, status="completed")
+    lease = SimpleNamespace(
+        id=uuid4(), tenant_id=tenant_id, task_id=task.id,
+        status="released", holder_identity="worker",
+    )
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id, tenant_id=tenant_id,
+        mission_metadata={
+            "runtime_task_materialization": {"created_execution_task_ids": [str(task.id)]},
+            "runtime_queue_admission": {"admitted_execution_task_ids": [str(task.id)]},
+        },
+        tasks=[task], leases=[lease], lineage=[], evidence=[],
+    )
+    assert f"task:{task.id}:evidence" in projection.historical_unknown
+    assert projection.first_divergence is None
+
+
+def test_information_coverage_distinguishes_active_missing_from_legacy_unknown() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    current = _task(
+        mission_id=mission_id, tenant_id=tenant_id, status="completed",
+        metadata={"runtime_evidence_contract_version": "1"},
+    )
+    legacy = _task(mission_id=mission_id, tenant_id=tenant_id, status="completed")
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id, tenant_id=tenant_id,
+        mission_metadata={}, tasks=[current, legacy],
+        leases=[], lineage=[], evidence=[], audit_events=[],
+    )
+    current_coverage = [
+        entry for entry in projection.information_coverage
+        if entry["scope"] == f"task:{current.id}"
+    ]
+    legacy_coverage = [
+        entry for entry in projection.information_coverage
+        if entry["scope"] == f"task:{legacy.id}"
+    ]
+    assert {entry["required_stage"] for entry in current_coverage} == {
+        "execution_started", "execution_completed"
+    }
+    assert all(entry["observation"] == "missing_under_active_contract" for entry in current_coverage)
+    assert all(entry["observation"] == "not_recorded_or_legacy" for entry in legacy_coverage)

@@ -391,12 +391,19 @@ def build_mission_runtime_evidence_projection(
                     evidence=[str(evidence_record.id)],
                 )
             )
+        evidence_contract_version = (
+            task.metadata_json.get("runtime_evidence_contract_version")
+            if isinstance(task.metadata_json, dict)
+            else None
+        )
         if task.status in {"completed", "failed", "dead_lettered"} and not task_evidence:
             missing.append(f"task:{task_id}:evidence")
-            if task.status == "completed":
-                contradictions.append(f"task:{task_id}:completed_without_evidence")
-            else:
+            if evidence_contract_version == "1":
                 contradictions.append(f"task:{task_id}:{task.status}_without_evidence")
+            else:
+                # The historical contract cannot be reconstructed from absence.
+                # Preserve the missing observation without claiming violation.
+                historical_unknown.append(f"task:{task_id}:evidence")
 
         expected_artifact = declared_artifact_key(task)
         # Intermediate discovery rows can be intentionally filtered from the
@@ -406,8 +413,12 @@ def build_mission_runtime_evidence_projection(
         task_output = handler_output_for_task(task)
         has_declared_output = expected_artifact in task_output if expected_artifact else False
         if task.status == "completed" and expected_artifact and not has_declared_output:
-            missing.append(f"task:{task_id}:artifact:{expected_artifact}")
-            contradictions.append(f"task:{task_id}:completed_without_artifact:{expected_artifact}")
+            marker = f"task:{task_id}:artifact:{expected_artifact}"
+            missing.append(marker)
+            if evidence_contract_version == "1":
+                contradictions.append(f"task:{task_id}:completed_without_artifact:{expected_artifact}")
+            else:
+                historical_unknown.append(marker)
 
         for artifact_key, raw_records in task_output.items():
             if isinstance(raw_records, list):
@@ -526,6 +537,10 @@ def build_mission_runtime_evidence_projection(
                 "lease_ids": [str(item.id) for item in leases_by_task.get(task_id, [])],
                 "lineage_ids": [str(item.id) for item in lineage_by_task.get(task_id, [])],
                 "evidence_ids": [str(item.id) for item in evidence_by_task.get(task_id, [])],
+                "evidence_collection_statuses": [
+                    {"evidence_id": str(item.id), "collection_status": item.collection_status}
+                    for item in evidence_by_task.get(task_id, [])
+                ],
                 "artifact_ids": _task_artifact_ids(task),
             }
         )
@@ -556,7 +571,11 @@ def build_mission_runtime_evidence_projection(
             if any(marker in item for item in contradictions):
                 first_divergence = candidate
                 break
-        elif any(item == marker or item.endswith(marker) or f"{marker}:" in item for item in missing):
+        elif any(
+            (item == marker or item.endswith(marker) or f"{marker}:" in item)
+            and item not in historical_unknown
+            for item in missing
+        ):
             first_divergence = candidate
             break
 
@@ -571,7 +590,7 @@ def build_mission_runtime_evidence_projection(
             "payload": event.payload_json,
         }
         for event in sorted(audit_events or [], key=lambda item: item.created_at)
-        if event.tenant_id == tenant_id and (event.mission_id is None or event.mission_id == mission_id)
+        if event.tenant_id == tenant_id and event.mission_id == mission_id
     ]
 
     causal_observations: list[dict[str, Any]] = []

@@ -1,0 +1,181 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_type": "graft_runtime_reconciliation_assessment",
+  "generated_at": "2026-10-14",
+  "source_commit": "634735e4a23f7ae7cd0755e12592ccc9830ba410",
+  "scope": "Comparison of Ajenda Runtime, Continuous Assurance, and G.R.A.F.T. source and available local verification evidence.",
+  "authority": {
+    "artifact_authority": "diagnostic",
+    "grants_execution_authority": false,
+    "mutates_runtime": false
+  },
+  "canonical_graph": {
+    "generated_path": "/tmp/ajenda-graft-runtime-reconciliation-634735e4.json",
+    "schema_version": "1.4",
+    "sha256": "sha256:77132735734056eb8f2578e16d22b8c36b5b2d42e38209d53190f5c9f90a3056",
+    "node_count": 2088,
+    "edge_count": 5776,
+    "generation_status": "passed",
+    "limitation": "The canonical graph output has no embedded source commit, generation timestamp, or content digest. This assessment binds the external digest and audited commit."
+  },
+  "verification": [
+    {
+      "command": "python scripts/validation/build_dependency_graph.py --output /tmp/ajenda-graft-runtime-reconciliation-634735e4.json",
+      "status": "passed",
+      "evidence": "Generated 2,088 nodes and 5,776 edges."
+    },
+    {
+      "command": "python scripts/validation/graft_drift_controls.py",
+      "status": "passed",
+      "evidence": "G.R.A.F.T. authority-boundary, lifecycle registry, admission-coverage anchor, and current-graph checks passed."
+    },
+    {
+      "command": "python -m pytest tests/unit/services/test_continuous_assurance.py tests/unit/validation/test_graft_runtime_reconciliation.py tests/integration/assurance/test_continuous_assurance_real.py -q",
+      "status": "partial",
+      "evidence": "9 passed; 2 integration tests skipped because the Docker daemon is inaccessible in this execution environment."
+    }
+  ],
+  "systems": [
+    {
+      "name": "Ajenda Runtime",
+      "responsibility": "Authorize, admit, materialize, queue, lease, execute, and persist canonical mission and task state.",
+      "owners": [
+        "backend/api/routes/mission.py",
+        "backend/services/mission_runtime_task_materialization_service.py",
+        "backend/services/mission_runtime_queue_admission_service.py",
+        "backend/services/worker_runtime_service.py",
+        "backend/workers/worker_loop.py"
+      ],
+      "timing": "Synchronous request handling and asynchronous queue/worker execution.",
+      "authority": ["enforce", "mutate", "recover"],
+      "evidence": ["Mission", "ExecutionTask", "WorkerLease", "LineageRecord", "EvidenceRecord", "AuditEvent"],
+      "output": ["Canonical state transitions", "tenant-scoped evidence", "audit events", "provider outcomes"]
+    },
+    {
+      "name": "G.R.A.F.T.",
+      "responsibility": "Generate structural graph facts, select change proof, validate declared admission coverage, and project/reconcile runtime evidence diagnostically.",
+      "owners": [
+        "scripts/validation/build_dependency_graph.py",
+        "scripts/validation/graft_drift_controls.py",
+        "backend/services/mission_runtime_evidence_projection.py",
+        "scripts/validation/graft_runtime_reconciliation.py"
+      ],
+      "timing": "Development/CI, on-demand API read, and exported-snapshot review.",
+      "authority": ["observe", "evaluate"],
+      "evidence": ["Static imports and semantic overlay", "source anchors", "tenant-scoped runtime read model", "exported reconciliation snapshot"],
+      "output": ["Canonical graph", "impact/proof reports", "runtime evidence projection", "blocked/passed reconciliation result"]
+    },
+    {
+      "name": "Continuous Assurance",
+      "responsibility": "Periodically reread tenant runtime state, append assurance-only history, and expose operational status/metrics without altering runtime authority.",
+      "owners": [
+        "backend/services/continuous_assurance.py",
+        "backend/workers/assurance_loop.py",
+        "backend/domain/assurance_snapshot.py",
+        "backend/repositories/assurance_snapshot_repository.py"
+      ],
+      "timing": "Periodic per active tenant; configured by AJENDA_ASSURANCE_INTERVAL_SECONDS.",
+      "authority": ["observe", "evaluate"],
+      "evidence": ["Mission", "ExecutionTask", "WorkerLease", "LineageRecord", "EvidenceRecord", "AuditEvent", "deliverable runtime state"],
+      "output": ["Append-only AssuranceSnapshot rows", "aggregate assurance metrics", "operator findings"]
+    }
+  ],
+  "overlap_assessment": [
+    {
+      "capability": "Runtime fact projection",
+      "participants": ["G.R.A.F.T. runtime evidence route", "Continuous Assurance"],
+      "assessment": "Legitimate shared collector with common-mode risk, not duplicate authority.",
+      "evidence": "Both call build_mission_runtime_evidence_projection; only Continuous Assurance persists AssuranceSnapshot history."
+    },
+    {
+      "capability": "Lifecycle lineage evaluation",
+      "participants": ["G.R.A.F.T. exported-snapshot reconciliation", "MissionRuntimeEvidenceProjection", "Continuous Assurance"],
+      "assessment": "Partially duplicated evaluation with no normalized cross-tool finding identity or status mapping.",
+      "evidence": "graft_runtime_reconciliation.py evaluates five supplied stages; the projection derives queue/lease/evidence/artifact conditions; Continuous Assurance maps both runtime and deliverable findings to a separate status vocabulary."
+    },
+    {
+      "capability": "Admission-boundary coverage",
+      "participants": ["Ajenda Runtime", "G.R.A.F.T. runtime_admission_coverage"],
+      "assessment": "Complementary: Runtime enforces; G.R.A.F.T. verifies declared source anchors. The current G.R.A.F.T. check is not invocation proof.",
+      "evidence": "validate_runtime_admission_coverage checks source file presence and string tokens only."
+    }
+  ],
+  "findings": [
+    {
+      "id": "GRT-REC-001",
+      "severity": "P2",
+      "classification": "confirmed evidence-applicability gap",
+      "title": "Historical missions cannot be distinguished from missions missing currently required evidence.",
+      "sources": [
+        "backend/services/mission_runtime_evidence_projection.py:318-346",
+        "backend/services/mission_runtime_evidence_projection.py:480-493",
+        "backend/services/continuous_assurance.py:39-49"
+      ],
+      "evidence": "Completed, failed, and dead-lettered tasks are marked missing/contradictory when evidence or declared output is absent. The scan includes existing missions and neither the projection nor assurance snapshot carries an instrumentation applicability epoch, contract version, or migration provenance.",
+      "impact": "A mission completed before the relevant evidence contract existed can be reported as a current contradiction, conflating lost or historically inapplicable evidence with a contract violation.",
+      "corrective_action": "Add an explicit evidence-contract applicability/version record at the canonical producing transition. Evaluate absence as a violation only when that contract was applicable; otherwise emit historical-unknown or not-applicable. Preserve old records unchanged."
+    },
+    {
+      "id": "GRT-REC-002",
+      "severity": "P2",
+      "classification": "confirmed conflicting-evaluation path",
+      "title": "An artifact contradiction can be recorded as an error while the assurance snapshot remains aligned.",
+      "sources": [
+        "backend/services/continuous_assurance.py:118-137",
+        "backend/services/continuous_assurance.py:145-151",
+        "backend/services/continuous_assurance.py:204-222"
+      ],
+      "evidence": "reconcile_mission appends runtime_state.contradiction_codes as severity=error, but _status receives only projection contradictions, runtime-state parse failure, missing evidence, reconciliation status, and lifecycle state. Artifact contradiction codes are not themselves an input to status selection.",
+      "impact": "Operators can receive an aligned aggregate status despite an error finding, producing a conflict between detailed and summarized evaluations.",
+      "corrective_action": "Define a shared severity-to-status mapping owned by the existing assurance/G.R.A.F.T. contract, pass artifact and semantic error conditions into status calculation, and add a regression test asserting no error finding yields aligned."
+    },
+    {
+      "id": "GRT-REC-003",
+      "severity": "P2",
+      "classification": "confirmed provenance gap",
+      "title": "Exported G.R.A.F.T. reconciliation snapshots have no capture provenance or integrity binding.",
+      "sources": [
+        "scripts/validation/graft_runtime_reconciliation.py:38-79",
+        "scripts/validation/graft_runtime_reconciliation.py:89-166"
+      ],
+      "evidence": "RuntimeReconciliationSnapshot accepts tenant, mission, stages, semantic selection, and findings but has no source commit, source record references, capture time, producer identity, or content digest. The command explicitly consumes an exported JSON snapshot and does not query runtime.",
+      "impact": "A passed reconciliation establishes internal consistency of the supplied snapshot, not that the snapshot was complete, current, or faithfully exported from Ajenda Runtime.",
+      "corrective_action": "Extend the existing snapshot contract with capture provenance, canonical record identifiers, producer/version, and digest; retain the validator as read-only and verify export provenance separately."
+    },
+    {
+      "id": "GRT-REC-004",
+      "severity": "P2",
+      "classification": "confirmed coverage limitation",
+      "title": "G.R.A.F.T. admission coverage proves named source anchors, not complete control-flow invocation.",
+      "sources": [
+        "backend/services/runtime_admission_coverage.py:120-141",
+        "scripts/validation/graft_drift_controls.py:74-79"
+      ],
+      "evidence": "The coverage validator fails if a listed file or source token disappears. It does not trace calls or prove that every listed admission path invokes its named integrity control in every branch.",
+      "impact": "A moved or conditionally bypassed control can retain the expected tokens and pass the inventory check.",
+      "corrective_action": "Keep the inventory as a drift sentinel, but add call-path/negative integration proof for each listed boundary. Do not promote the inventory to runtime enforcement authority."
+    },
+    {
+      "id": "GRT-REC-005",
+      "severity": "P3",
+      "classification": "confirmed independence limitation",
+      "title": "Continuous Assurance is independently scheduled and persisted, but not independent of G.R.A.F.T. projection semantics.",
+      "sources": [
+        "backend/services/continuous_assurance.py:105-115",
+        "backend/services/mission_runtime_evidence_projection.py:157-547",
+        "backend/workers/assurance_loop.py:26-46"
+      ],
+      "evidence": "The assurance daemon runs separately and stores its own snapshots, but both its runtime-fact interpretation and the G.R.A.F.T. runtime-evidence API call the same projection function.",
+      "impact": "A defect in that shared projection can affect both on-demand G.R.A.F.T. review and periodic assurance, reducing independence of the finding logic while preserving separate scheduling and storage.",
+      "corrective_action": "Document this as shared producer logic; keep canonical facts in the runtime, and add independently specified fixture-based assertions for the assurance consumer rather than duplicating another event store or runtime interpreter."
+    }
+  ],
+  "decision": {
+    "runtime_authority_overlap": "none confirmed",
+    "duplicated_authority": "none confirmed",
+    "duplicated_evaluation": "present and partially unnormalized",
+    "conflicting_evaluation": "source-proven reachable status conflict in GRT-REC-002; no live production instance observed in this run",
+    "runtime_evidence_status": "partial: unit and static validation passed; Docker-backed integration verification is blocked in this environment",
+    "next_action": "Resolve GRT-REC-001 through GRT-REC-004 in their existing owners before claiming independently reliable runtime reconciliation."
+  }
+}

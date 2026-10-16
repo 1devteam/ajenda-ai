@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from backend.domain.audit_event import AuditEvent
+from backend.services.runtime_information_observation import describe_information
 from backend.domain.enums import ExecutionTaskState, MissionState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
@@ -445,6 +446,40 @@ class WorkerRuntimeService:
                 causation_id=str(lease.id),
                 correlation_id=str(task.mission_id),
             )
+            # Bind the evidence obligation to the producing execution, not its
+            # later observation. Historical tasks have no inferred version.
+            task.metadata_json = {
+                **(task.metadata_json if isinstance(task.metadata_json, dict) else {}),
+                "runtime_evidence_contract_version": "1",
+            }
+            self._audit.append(
+                AuditEvent(
+                    tenant_id=tenant_id,
+                    mission_id=task.mission_id,
+                    category="mission_information",
+                    action="execution_started",
+                    actor=worker_id,
+                    details="Observed task input representation at execution start",
+                    payload_json={
+                        "schema_version": 1,
+                        "task_id": str(task.id),
+                        "lease_id": str(lease.id),
+                        "input": describe_information(
+                            (task.metadata_json or {}).get("input_bindings")
+                        ),
+                        "declared_output": describe_information(
+                            (task.metadata_json or {}).get("expected_output_contract")
+                        ),
+                        "resolved_input": describe_information(
+                            (task.metadata_json or {}).get("input")
+                        ),
+                        "tool_invocation": describe_information(
+                            (task.metadata_json or {}).get("tool_invocation")
+                        ),
+                        "grants_execution_authority": False,
+                    },
+                )
+            )
             self._session.flush()
             self._session.commit()
         return task
@@ -562,6 +597,25 @@ class WorkerRuntimeService:
         # Existing operational consumers depend on this direct event; the
         # versioned envelope below adds integrity and causal references without
         # changing the runtime authority boundary.
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="mission_information",
+                action="execution_completed",
+                actor=worker_id,
+                details="Observed task output representation at completion",
+                payload_json={
+                    "schema_version": 1,
+                    "task_id": str(task.id),
+                    "lease_id": str(lease.id),
+                    "output": describe_information(task_output),
+                    "evidence_record_ids": evidence_ids_for_review[:100],
+                    "evidence_ids_truncated": len(evidence_ids_for_review) > 100,
+                    "grants_execution_authority": False,
+                },
+            )
+        )
         self._audit.append(
             AuditEvent(
                 tenant_id=tenant_id,
@@ -788,6 +842,23 @@ class WorkerRuntimeService:
             AuditEvent(
                 tenant_id=tenant_id,
                 mission_id=task.mission_id,
+                category="mission_information",
+                action="execution_completion_blocked",
+                actor=worker_id,
+                details="Observed completion persistence failure after side effect",
+                payload_json={
+                    "schema_version": 1,
+                    "task_id": str(task.id),
+                    "lease_id": str(lease.id),
+                    "side_effect_class": side_effect_class,
+                    "grants_execution_authority": False,
+                },
+            )
+        )
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
                 category="worker",
                 action="task_completion_failed_after_side_effect",
                 actor=worker_id,
@@ -869,6 +940,34 @@ class WorkerRuntimeService:
             worker_id=worker_id,
             lease_id=lease.id,
             evidence_references=[],
+        )
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="mission_information",
+                action="execution_failed",
+                actor=worker_id,
+                details="Observed terminal execution failure",
+                payload_json={
+                    "schema_version": 1,
+                    "task_id": str(task.id),
+                    "lease_id": str(lease.id),
+                    "failure_code": "HANDLER_FAILED",
+                    "grants_execution_authority": False,
+                },
+            )
+        )
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="worker",
+                action="task_failed",
+                actor=worker_id,
+                details=reason,
+                payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
+            )
         )
         self._refresh_deliverable_completion_read_model(task=task)
         self._maybe_rollup_mission_status(task=task, worker_id=worker_id)
