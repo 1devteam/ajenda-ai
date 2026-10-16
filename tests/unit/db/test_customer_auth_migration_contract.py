@@ -13,7 +13,7 @@ def test_customer_auth_migration_is_current_head_and_short_revision_id() -> None
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0051_billing_meter_dispatches"]
+    assert heads == ["0052_merge_runtime_billing_heads"]
     assert len(heads[0]) <= 32
 
 
