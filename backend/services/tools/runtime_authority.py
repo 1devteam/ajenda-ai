@@ -11,6 +11,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
 from backend.services.abilities.rollout_validation import validate_action_manifest_alignment
 from backend.services.credentials.runtime_authority import CredentialRuntimeAuthority, CredentialRuntimeAuthorityError
+from backend.services.runtime_evidence_ledger import RuntimeCausalObservation
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry, get_default_action_registry
 from backend.services.tools.capability_validation import (
     CapabilityActionValidationError,
@@ -76,6 +77,38 @@ class ToolRuntimeAuthority:
             raise ToolRuntimeAuthorityError(f"tool.invoke input binding failed: {exc}") from exc
 
         invocation, action, effective_side_effect_class = self.authorize(task=task, context=context)
+        if isinstance(task.metadata_json, dict):
+            task.metadata_json = {
+                **task.metadata_json,
+                "runtime_causal_observations": [
+                    RuntimeCausalObservation(
+                        stage="input_binding",
+                        decision="invocation_bound",
+                        reason_code="dependency_binding"
+                        if binding_audit and not binding_audit.get("skipped")
+                        else "no_dependencies",
+                        transformation_id="mission-input-binding:v1",
+                        selected_path=action.name,
+                        field_lineage={
+                            "task.input": "upstream.artifact"
+                            if not binding_audit.get("skipped")
+                            else "task.declared_input",
+                        },
+                        safe_metadata={
+                            "binding_skipped": bool(binding_audit.get("skipped")),
+                            "binding_key_count": len(binding_audit.get("bindings_applied") or []),
+                        },
+                    ).model_dump(mode="json"),
+                    RuntimeCausalObservation(
+                        stage="provider_selection",
+                        decision="provider_selected",
+                        reason_code="registered_action_provider",
+                        transformation_id="action-registry:provider-selection:v1",
+                        selected_path=action.provider,
+                        safe_metadata={"action": action.name, "side_effect_class": effective_side_effect_class.value},
+                    ).model_dump(mode="json"),
+                ],
+            }
         runtime_credentials = {}
         resolved_credential = self._resolve_runtime_credential(
             task=task,

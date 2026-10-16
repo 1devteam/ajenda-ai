@@ -18,6 +18,7 @@ class WorkerRuntimeCollaborator(Protocol):
     _queue: Any
     _audit: Any
     _tasks: Any
+    _evidence_ledger: Any
 
     def _maybe_rollup_mission_status(self, *, task: ExecutionTask, worker_id: str) -> None: ...
 
