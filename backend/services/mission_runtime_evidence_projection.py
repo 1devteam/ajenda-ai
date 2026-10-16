@@ -696,7 +696,9 @@ def build_mission_runtime_evidence_projection(
             "dead_lettered",
         }
         required_causal_stages: list[str] = []
-        if is_tool_path and terminal_or_started:
+        # Legacy tasks without an active evidence contract cannot be treated
+        # as missing a contract that was never attached to their execution.
+        if applicable and is_tool_path and terminal_or_started:
             required_causal_stages.extend(("input_binding", "provider_selection"))
         if task.status == "completed" and is_tool_path:
             required_causal_stages.append("output_validation")
