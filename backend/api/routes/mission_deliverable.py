@@ -52,6 +52,7 @@ from backend.services.mission_runtime_evidence_projection import (
     MissionRuntimeEvidenceProjection,
     build_mission_runtime_evidence_projection,
 )
+from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
 from backend.services.runtime_reconciliation_export import export_runtime_reconciliation_snapshot
 
 router = APIRouter(prefix="/missions", tags=["missions"])
@@ -431,9 +432,24 @@ def read_mission_runtime_evidence(
         tenant_id=tenant_scope,
     )
     evidence = EvidenceRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_scope)
-    audit_events = AuditEventRepository(db).list_for_mission_for_tenant(
+    audit_repository = AuditEventRepository(db)
+    audit_events = audit_repository.list_for_mission_for_tenant(
         mission_id=mission_id,
         tenant_id=tenant_scope,
+    )
+    confirmed_proposal_ids = {
+        str(proposal_id)
+        for event in audit_events
+        if (envelope := RuntimeEvidenceLedger.read_envelope(event)) is not None
+        and envelope.event_type == "mission_composition.confirmed"
+        for proposal_id in (envelope.facts.get("proposal_id"),)
+        if isinstance(proposal_id, str) and proposal_id
+    }
+    audit_events.extend(
+        audit_repository.list_pre_mission_runtime_observations_for_tenant(
+            tenant_id=tenant_scope,
+            correlation_ids=tuple(confirmed_proposal_ids),
+        )
     )
     return build_mission_runtime_evidence_projection(
         mission_id=mission_id,

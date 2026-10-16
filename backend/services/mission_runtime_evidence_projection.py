@@ -205,6 +205,26 @@ def build_mission_runtime_evidence_projection(
         intake_proposal_id = raw_intake.get("proposal_id")
         if isinstance(intake_proposal_id, str) and intake_proposal_id:
             causal_correlations.add(intake_proposal_id)
+    # Composition decisions are emitted before a mission exists and are
+    # correlated by proposal id.  Confirmation is the durable bridge from
+    # that pre-mission proposal to the mission.  Prefer the confirmed fact
+    # when older or reduced mission metadata does not retain proposal_id.
+    confirmed_proposal_ids: set[str] = set()
+    confirmed_without_proposal_id = False
+    for event in audit_events or []:
+        if event.tenant_id != tenant_id or event.mission_id != mission_id:
+            continue
+        envelope = RuntimeEvidenceLedger.read_envelope(event)
+        if envelope is None or envelope.event_type != "mission_composition.confirmed":
+            continue
+        proposal_id = envelope.facts.get("proposal_id")
+        if isinstance(proposal_id, str) and proposal_id:
+            confirmed_proposal_ids.add(proposal_id)
+        else:
+            confirmed_without_proposal_id = True
+    causal_correlations.update(confirmed_proposal_ids)
+    if confirmed_without_proposal_id and not confirmed_proposal_ids and len(causal_correlations) == 1:
+        missing.append(f"mission:{mission_id}:information:proposal_identity")
     raw_graph_nodes = graph.get("nodes")
     available_nodes = (
         [dict(node) for node in raw_graph_nodes if isinstance(node, dict)] if isinstance(raw_graph_nodes, list) else []

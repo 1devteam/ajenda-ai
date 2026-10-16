@@ -285,3 +285,57 @@ def test_route_distinguishes_absent_and_invalid_runtime_state(monkeypatch) -> No
 
     assert invalid.status_code == 409
     assert invalid.json() == {"detail": "mission deliverable assembly is invalid"}
+
+
+def test_runtime_evidence_route_fetches_confirmed_proposal_observations(monkeypatch) -> None:
+    tenant_id = uuid.uuid4()
+    mission = _mission(tenant_id=str(tenant_id), instruction="Return company name.")
+    confirmed = MagicMock(tenant_id=str(tenant_id), mission_id=mission.id)
+    pre_mission = [MagicMock(tenant_id=str(tenant_id), mission_id=None) for _ in range(4)]
+
+    mission_repo = MagicMock()
+    mission_repo.get_for_tenant.return_value = mission
+    task_repo = MagicMock()
+    task_repo.list_for_mission_for_tenant.return_value = []
+    lineage_repo = MagicMock()
+    lineage_repo.list_for_mission_for_tenant.return_value = []
+    evidence_repo = MagicMock()
+    evidence_repo.list_for_mission.return_value = []
+    audit_repo = MagicMock()
+    audit_repo.list_for_mission_for_tenant.return_value = [confirmed]
+    audit_repo.list_pre_mission_runtime_observations_for_tenant.return_value = pre_mission
+    monkeypatch.setattr(route_module, "MissionRepository", lambda _db: mission_repo)
+    monkeypatch.setattr(route_module, "ExecutionTaskRepository", lambda _db: task_repo)
+    monkeypatch.setattr(route_module, "LineageRecordRepository", lambda _db: lineage_repo)
+    monkeypatch.setattr(route_module, "EvidenceRepository", lambda _db: evidence_repo)
+    monkeypatch.setattr(route_module, "AuditEventRepository", lambda _db: audit_repo)
+    monkeypatch.setattr(route_module, "require_route_permission", lambda **_: None)
+    confirmed_envelope = MagicMock(event_type="mission_composition.confirmed")
+    confirmed_envelope.facts = {"proposal_id": "proposal-1"}
+    monkeypatch.setattr(
+        route_module.RuntimeEvidenceLedger,
+        "read_envelope",
+        lambda event: confirmed_envelope if event is confirmed else None,
+    )
+    projection = MagicMock()
+    projection_kwargs: dict[str, object] = {}
+
+    def capture_projection(**kwargs):  # type: ignore[no-untyped-def]
+        projection_kwargs.update(kwargs)
+        return projection
+
+    monkeypatch.setattr(route_module, "build_mission_runtime_evidence_projection", capture_projection)
+
+    result = route_module.read_mission_runtime_evidence(
+        mission_id=mission.id,
+        request=MagicMock(),
+        tenant_id=tenant_id,
+        db=MagicMock(),
+    )
+
+    assert result is projection
+    audit_repo.list_pre_mission_runtime_observations_for_tenant.assert_called_once_with(
+        tenant_id=str(tenant_id),
+        correlation_ids=("proposal-1",),
+    )
+    assert projection_kwargs["audit_events"] == [confirmed, *pre_mission]
