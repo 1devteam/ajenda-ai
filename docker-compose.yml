@@ -113,7 +113,8 @@ services:
   role-bootstrap:
     image: postgres:16
     environment:
-      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      AJENDA_BOOTSTRAP_DATABASE_USER: ${AJENDA_BOOTSTRAP_DATABASE_USER:?AJENDA_BOOTSTRAP_DATABASE_USER must be set}
+      PGPASSWORD: ${AJENDA_BOOTSTRAP_DATABASE_PASSWORD:?AJENDA_BOOTSTRAP_DATABASE_PASSWORD must be set}
       AJENDA_API_DATABASE_PASSWORD: ${AJENDA_API_DATABASE_PASSWORD:?AJENDA_API_DATABASE_PASSWORD must be set}
       AJENDA_WORKER_DATABASE_PASSWORD: ${AJENDA_WORKER_DATABASE_PASSWORD:?AJENDA_WORKER_DATABASE_PASSWORD must be set}
       AJENDA_ASSURANCE_DATABASE_PASSWORD: ${AJENDA_ASSURANCE_DATABASE_PASSWORD:?AJENDA_ASSURANCE_DATABASE_PASSWORD must be set}
@@ -122,7 +123,7 @@ services:
       - sh
       - -ec
       - >-
-        psql -h db -U ajenda -d ajenda -v ON_ERROR_STOP=1
+        psql -h db -U "$AJENDA_BOOTSTRAP_DATABASE_USER" -d ajenda -v ON_ERROR_STOP=1
         -f /bootstrap/database_role_bootstrap.sql
     volumes:
       - ./deploy/sql/database_role_bootstrap.sql:/bootstrap/database_role_bootstrap.sql:ro
