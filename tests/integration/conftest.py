@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from collections.abc import Generator
 from pathlib import Path
+from secrets import token_urlsafe
 from typing import Any
 
 import pytest
@@ -100,10 +101,11 @@ def _restore_env(previous: dict[str, str | None]) -> None:
 @pytest.fixture(scope="session")
 def postgres_container() -> Generator[Any, None, None]:
     postgres_container_cls, _ = _testcontainer_classes()
+    password = f"test-{token_urlsafe(24)}"
     with postgres_container_cls(
         image="postgres:16-alpine",
         username="ajenda_test",
-        password="ajenda_test",
+        password=password,
         dbname="ajenda_test",
     ) as pg:
         yield pg
@@ -165,6 +167,52 @@ def pg_engine(pg_url: str, integration_env: None):
     alembic_cfg.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
     alembic_cfg.set_main_option("sqlalchemy.url", pg_url)
 
+    # Revision 0052 establishes least-privilege runtime roles.  Exercise the
+    # same two-step transition used by an existing deployment: migrate through
+    # 0051 with the bootstrap administrator, transfer ownership, then let the
+    # authorized migrator revision grant runtime access.
+    alembic_command.upgrade(alembic_cfg, "0051_billing_meter_dispatches")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ajenda_migrator') THEN
+                        CREATE ROLE ajenda_migrator LOGIN PASSWORD 'integration-migrator' NOSUPERUSER NOBYPASSRLS;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ajenda_api') THEN
+                        CREATE ROLE ajenda_api LOGIN PASSWORD 'integration-api' NOSUPERUSER NOBYPASSRLS;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ajenda_worker') THEN
+                        CREATE ROLE ajenda_worker LOGIN PASSWORD 'integration-worker' NOSUPERUSER NOBYPASSRLS;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ajenda_assurance') THEN
+                        CREATE ROLE ajenda_assurance LOGIN PASSWORD 'integration-assurance' NOSUPERUSER NOBYPASSRLS;
+                    END IF;
+                END
+                $$;
+                """
+            )
+        )
+        for role, password in (
+            ("ajenda_migrator", "integration-migrator"),
+            ("ajenda_api", "integration-api"),
+            ("ajenda_worker", "integration-worker"),
+            ("ajenda_assurance", "integration-assurance"),
+        ):
+            conn.execute(text(f"ALTER ROLE {role} PASSWORD '{password}'"))
+        tables = conn.execute(
+            text(
+                "SELECT quote_ident(c.relname) FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'public' AND c.relkind = 'r'"
+            )
+        ).scalars()
+        for table in tables:
+            conn.execute(text(f"ALTER TABLE public.{table} OWNER TO ajenda_migrator"))
+        conn.execute(text("ALTER SCHEMA public OWNER TO ajenda_migrator"))
+
     alembic_command.upgrade(alembic_cfg, "head")
 
     from backend.db.vector_schema import ensure_vector_schema
@@ -173,6 +221,26 @@ def pg_engine(pg_url: str, integration_env: None):
 
     yield engine
     engine.dispose()
+
+
+@pytest.fixture()
+def transfer_public_table_ownership_to_migrator(pg_engine):
+    """Model the explicit bootstrap step required before revision 0052."""
+
+    def transfer() -> None:
+        with pg_engine.begin() as connection:
+            tables = connection.execute(
+                text(
+                    "SELECT quote_ident(c.relname) FROM pg_class c "
+                    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')"
+                )
+            ).scalars()
+            for table in tables:
+                connection.execute(text(f"ALTER TABLE public.{table} OWNER TO ajenda_migrator"))
+            connection.execute(text("ALTER SCHEMA public OWNER TO ajenda_migrator"))
+
+    return transfer
 
 
 @pytest.fixture()

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import cast
 
 from sqlalchemy import Table, inspect, text
 from sqlalchemy.engine import Engine
 
+from backend.db.roles import MIGRATOR_ROLE
 from backend.db.vector_base import VectorBase
 from backend.domain.ephemeral_memory_chunk import EphemeralMemoryChunk
 
@@ -13,7 +15,9 @@ logger = logging.getLogger("ajenda.vector_schema")
 
 
 def ensure_vector_schema(engine: Engine) -> None:
-    """Create vector-plane tables and tenant RLS policies if missing."""
+    """Create vector-plane tables during the dedicated migration process only."""
+    if os.environ.get("AJENDA_MIGRATION_CONTEXT") != "1":
+        raise RuntimeError("vector schema changes are restricted to the migration process")
     inspector = inspect(engine)
     if not inspector.has_table("ephemeral_memory_chunks"):
         VectorBase.metadata.create_all(
@@ -47,42 +51,12 @@ def ensure_vector_schema(engine: Engine) -> None:
                 """
             )
         )
-        connection.execute(
-            text(
-                """
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM pg_roles WHERE rolname = 'ajenda_admin'
-                    ) THEN
-                        CREATE ROLE ajenda_admin;
-                    END IF;
-                END
-                $$;
-                """
-            )
-        )
-        connection.execute(
-            text(
-                """
-                DO $$
-                BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM pg_policies
-                        WHERE schemaname = current_schema()
-                          AND tablename = 'ephemeral_memory_chunks'
-                          AND policyname = 'admin_bypass'
-                    ) THEN
-                        CREATE POLICY admin_bypass ON ephemeral_memory_chunks
-                            AS PERMISSIVE
-                            FOR ALL
-                            TO ajenda_admin
-                            USING (true)
-                            WITH CHECK (true);
-                    END IF;
-                END
-                $$;
-                """
-            )
-        )
+        connection.execute(text(f"ALTER TABLE ephemeral_memory_chunks OWNER TO {MIGRATOR_ROLE}"))
     logger.info("vector_schema_ready")
+
+
+def verify_vector_schema(engine: Engine) -> None:
+    """Verify the migrator provisioned the vector table; do not mutate it."""
+    inspector = inspect(engine)
+    if not inspector.has_table("ephemeral_memory_chunks"):
+        raise RuntimeError("ephemeral_memory_chunks is missing; run the migrator before starting runtime services")

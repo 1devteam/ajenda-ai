@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.domain.enums import MissionPlanStatus
 from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
@@ -95,6 +96,11 @@ class MissionCompositionCompilePhase:
             )
 
         record = self.compose(tenant_id=tenant_id, instruction=instruction_text)
+        # Composition persists its durable proposal and commits the current
+        # transaction. Tenant context is applied with PostgreSQL SET LOCAL, so
+        # it expires at that commit. Re-establish it before the tenant-owned
+        # graph, plan, and task-materialization writes below.
+        activate_tenant_session(self._db, tenant_id)
         graph_preview = compile_task_graph_preview(
             record.planned_steps,
             selections=list(record.ability_selections),

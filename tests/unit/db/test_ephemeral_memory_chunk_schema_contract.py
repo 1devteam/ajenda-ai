@@ -9,7 +9,9 @@ def test_ephemeral_memory_chunk_schema_defines_table_rls_and_orm_alignment() -> 
 
     assert "ephemeral_memory_chunks" in schema
     assert "ephemeral_memory_chunk_isolation" in schema
-    assert "admin_bypass" in schema
+    assert "AJENDA_MIGRATION_CONTEXT" in schema
+    assert "verify_vector_schema" in schema
+    assert "admin_bypass" not in schema
     assert "ENABLE ROW LEVEL SECURITY" in schema
     assert "EphemeralMemoryChunk" in model
     assert "embedding_json" in model

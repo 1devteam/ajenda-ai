@@ -18,6 +18,7 @@ DEFAULT_MAY_PREPARE: tuple[str, ...] = (
     "web.search",
     "web.page_read",
     "research.observe_contacts",
+    "research.verify_public_candidates",
     "research.verify_public_identity",
     "research.synthesize_report",
     "knowledge.retrieve_current",

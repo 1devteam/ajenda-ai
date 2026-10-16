@@ -17,8 +17,6 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.12"
-  # Test database — migration job service containers and integration Testcontainers use this contract
-  AJENDA_DATABASE_URL: "postgresql+psycopg://ajenda_test:ajenda_test@localhost:5432/ajenda_test"
   AJENDA_QUEUE_URL: "redis://localhost:6379/0"
   AJENDA_ENV: "test"
   AJENDA_LOG_LEVEL: "WARNING"
@@ -187,24 +185,28 @@ jobs:
     name: Migration Round-Trip
     runs-on: ubuntu-24.04
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: ajenda_test
-          POSTGRES_USER: ajenda_test
-          POSTGRES_PASSWORD: ajenda_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ajenda_test -d ajenda_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Start isolated PostgreSQL with an ephemeral credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          pg_password="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          echo "::add-mask::$pg_password"
+          echo "CI_POSTGRES_PASSWORD=$pg_password" >> "$GITHUB_ENV"
+          docker run -d --name ajenda-migration-postgres --rm \
+            -e POSTGRES_DB=ajenda_test -e POSTGRES_USER=ajenda_test \
+            -e POSTGRES_PASSWORD="$pg_password" -p 5432:5432 postgres:16-alpine
+          for attempt in {1..60}; do
+            if docker exec ajenda-migration-postgres pg_isready -U ajenda_test -d ajenda_test >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs ajenda-migration-postgres
+          exit 1
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v7
@@ -217,14 +219,36 @@ jobs:
           pip install --upgrade pip
           pip install ".[dev]"
 
+      - name: Bootstrap restricted database identities
+        run: |
+          export AJENDA_DATABASE_BOOTSTRAP_URL="postgresql://ajenda_test@localhost:5432/ajenda_test"
+          export PGPASSWORD="$CI_POSTGRES_PASSWORD"
+          export AJENDA_API_DATABASE_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          export AJENDA_WORKER_DATABASE_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          export AJENDA_ASSURANCE_DATABASE_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          export AJENDA_MIGRATOR_DATABASE_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          {
+            echo "AJENDA_API_DATABASE_PASSWORD=$AJENDA_API_DATABASE_PASSWORD"
+            echo "AJENDA_WORKER_DATABASE_PASSWORD=$AJENDA_WORKER_DATABASE_PASSWORD"
+            echo "AJENDA_ASSURANCE_DATABASE_PASSWORD=$AJENDA_ASSURANCE_DATABASE_PASSWORD"
+            echo "AJENDA_MIGRATOR_DATABASE_PASSWORD=$AJENDA_MIGRATOR_DATABASE_PASSWORD"
+          } >> "$GITHUB_ENV"
+          bash deploy/scripts/provision-database-roles.sh
+
       - name: Upgrade to head
-        run: alembic upgrade head
+        run: |
+          export AJENDA_DATABASE_URL="postgresql+psycopg://ajenda_migrator:${AJENDA_MIGRATOR_DATABASE_PASSWORD}@localhost:5432/ajenda_test"
+          alembic upgrade head
 
       - name: Downgrade to base
-        run: alembic downgrade base
+        run: |
+          export AJENDA_DATABASE_URL="postgresql+psycopg://ajenda_migrator:${AJENDA_MIGRATOR_DATABASE_PASSWORD}@localhost:5432/ajenda_test"
+          alembic downgrade base
 
       - name: Upgrade again (verify idempotency)
-        run: alembic upgrade head
+        run: |
+          export AJENDA_DATABASE_URL="postgresql+psycopg://ajenda_migrator:${AJENDA_MIGRATOR_DATABASE_PASSWORD}@localhost:5432/ajenda_test"
+          alembic upgrade head
 
   # ─────────────────────────────────────────────────────────────────────────
   # Job 5: Docker build — verify the image builds cleanly
@@ -309,7 +333,10 @@ jobs:
               "\n".join(
                   [
                       f"POSTGRES_PASSWORD={postgres_password}",
-                      f"AJENDA_DATABASE_URL=postgresql+psycopg://ajenda:{postgres_password}@db:5432/ajenda",
+                      f"AJENDA_API_DATABASE_PASSWORD={postgres_password}-api",
+                      f"AJENDA_WORKER_DATABASE_PASSWORD={postgres_password}-worker",
+                      f"AJENDA_ASSURANCE_DATABASE_PASSWORD={postgres_password}-assurance",
+                      f"AJENDA_MIGRATOR_DATABASE_PASSWORD={postgres_password}-migrator",
                       "AJENDA_DB_POOL_SIZE=10",
                       "AJENDA_DB_MAX_OVERFLOW=20",
                       "AJENDA_DB_POOL_TIMEOUT=30",

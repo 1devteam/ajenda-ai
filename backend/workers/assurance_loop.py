@@ -43,10 +43,7 @@ def run_once(runtime: DatabaseRuntime) -> int:
     metrics_session = runtime.session_factory()
     try:
         state = metrics_session.get(AssuranceMetricState, 1) or AssuranceMetricState(id=1)
-        security_alert_count = sum(
-            record.runtime_summary.get("security_status") == "alert"
-            for record in records_all
-        )
+        security_alert_count = sum(record.runtime_summary.get("security_status") == "alert" for record in records_all)
         state.snapshot_count = len(records_all)
         state.aligned_count = sum(record.status == "aligned" for record in records_all)
         state.incomplete_count = sum(record.status == "incomplete" for record in records_all)
@@ -86,6 +83,8 @@ def main() -> int:
     parser.add_argument("--once", action="store_true", help="Run one assurance cycle and exit.")
     args = parser.parse_args()
     settings = get_settings()
+    settings.validate_runtime_contract()
+    settings.validate_database_identity(expected_identity="assurance")
     runtime = DatabaseRuntime(settings)
     interval = max(30.0, float(settings.assurance_interval_seconds))
     logger.info("continuous_assurance_started", extra={"interval_seconds": interval, "once": args.once})

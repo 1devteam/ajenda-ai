@@ -42,8 +42,12 @@ class Settings(BaseSettings):
         alias="AJENDA_CORS_ALLOWED_ORIGINS",
     )
     database_url: str = Field(
-        default="postgresql+psycopg://ajenda:ajenda@db:5432/ajenda",
+        default="postgresql+psycopg://ajenda_api:ajenda@db:5432/ajenda",
         alias="AJENDA_DATABASE_URL",
+    )
+    database_identity: Literal["development", "test", "api", "worker", "assurance", "migrator"] = Field(
+        default="development",
+        alias="AJENDA_DATABASE_IDENTITY",
     )
     vector_database_url: str | None = Field(default=None, alias="AJENDA_VECTOR_DATABASE_URL")
     vector_db_enabled: bool = Field(default=True, alias="AJENDA_VECTOR_DB_ENABLED")
@@ -705,6 +709,34 @@ class Settings(BaseSettings):
             raise ValueError("AJENDA_BUDGET_POLICY_ENFORCE requires at least one opted-in tenant or plan")
         if not self.budget_policy_enabled and not self.budget_policy_observe_only:
             raise ValueError("AJENDA_BUDGET_POLICY_OBSERVE_ONLY must be true when AJENDA_BUDGET_POLICY_ENABLED=false")
+
+    def validate_database_identity(self, *, expected_identity: str) -> None:
+        """Require this process to use its declared least-privilege DB role."""
+        from backend.db.roles import validate_database_identity
+
+        if self.database_identity in {"development", "test"}:
+            if self.env in {"staging", "production"}:
+                raise ValueError(
+                    "AJENDA_DATABASE_IDENTITY must be a least-privilege process identity outside development/test"
+                )
+            return
+        if self.database_identity != expected_identity:
+            raise ValueError(
+                f"AJENDA_DATABASE_IDENTITY must be {expected_identity!r} for this process; "
+                f"got {self.database_identity!r}"
+            )
+        validate_database_identity(
+            database_url=self.database_url,
+            identity=self.database_identity,
+            environment=self.env,
+        )
+        vector_url = self.resolved_vector_database_url
+        if vector_url:
+            validate_database_identity(
+                database_url=vector_url,
+                identity=self.database_identity,
+                environment=self.env,
+            )
 
     @staticmethod
     def _validate_required_fernet_key(*, value: str | None, env_name: str) -> None:

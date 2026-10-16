@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
 from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
@@ -151,6 +152,10 @@ class ToolRuntimeAuthority:
         session_factory = context["session_factory"]
         session = session_factory()
         try:
+            # This is a fresh worker transaction. Capability and adapter
+            # visibility is tenant-scoped under forced RLS, so activate the
+            # transaction-local tenant context before resolving authority.
+            activate_tenant_session(session, task.tenant_id)
             try:
                 validate_capability_action_authority(
                     session=session,

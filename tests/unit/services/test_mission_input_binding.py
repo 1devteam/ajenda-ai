@@ -535,3 +535,56 @@ def test_bind_raises_dependency_not_ready() -> None:
             task=draft,
             mission_tasks=[research, draft],
         )
+
+
+def test_public_verification_binding_preserves_fixture_partition_and_scope() -> None:
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    research = _task(
+        node_key="ability-web-research",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={
+            # This is the source-partition projection emitted by older worker
+            # rows; the canonical aggregate is absent from this projection.
+            "internal_prospect_candidates": [
+                {"prospect_id": "fixture-1", "company": "Fixture Software Co", "real": False}
+            ],
+            "local_fixture_only": True,
+            "source": "ajenda_brain",
+            "source_partitions": {"tenant_internal": {"evidence_class": "fixture"}},
+        },
+    )
+    verifier = _task(
+        node_key="ability-research-verify_public_candidates",
+        status=ExecutionTaskState.RUNNING.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        dependency_keys=["ability-web-research"],
+        tool_input={
+            "prospects": [],
+            "binding_required": True,
+            "local_fixture_only": False,
+            "context": {"binding_required": True, "source": "public_search"},
+        },
+        input_bindings=[
+            {
+                "from_step": "ability-web-research",
+                "output_path": "$.prospect_candidates",
+                "input_path": "$.input.prospects",
+            }
+        ],
+    )
+    verifier.metadata_json["tool_invocation"]["action"] = "research.verify_public_candidates"
+
+    bound, audit = apply_input_bindings(
+        tool_input=verifier.metadata_json["tool_invocation"]["input"],
+        task=verifier,
+        mission_tasks=[research, verifier],
+    )
+
+    assert bound["prospects"][0]["company"] == "Fixture Software Co"
+    assert bound["local_fixture_only"] is True
+    assert bound["context"]["local_fixture_only"] is True
+    assert audit["prospect_count"] == 1

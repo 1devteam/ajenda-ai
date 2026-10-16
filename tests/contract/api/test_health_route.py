@@ -7,6 +7,13 @@ from backend.main import create_app
 from backend.metrics.prometheus_exporter import readiness_dependency_samples
 
 
+@pytest.fixture(autouse=True)
+def _mock_vector_schema_for_health_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    # This suite tests HTTP health/readiness behavior, not migration readiness.
+    # Production startup retains the real fail-closed vector schema check.
+    monkeypatch.setattr("backend.main.VectorDatabaseRuntime.verify_schema", lambda self: None)
+
+
 class _FailIfCalled:
     def ping(self) -> bool:
         raise AssertionError("dependency ping should not be called for health")

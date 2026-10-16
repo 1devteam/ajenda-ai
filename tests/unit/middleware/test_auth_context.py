@@ -52,6 +52,12 @@ class _FakeSessionScope:
         return None
 
 
+class _FakeDbSession:
+    def execute(self, statement: object, parameters: object = None) -> None:
+        # A real scoped session can set transaction-local PostgreSQL RLS state.
+        return None
+
+
 class _FakeDatabaseRuntime:
     def __init__(self, session: object) -> None:
         self._session = session
@@ -99,7 +105,7 @@ def test_malformed_api_key_returns_401() -> None:
     request = _request(
         headers={"X-Api-Key": "malformed"},
         tenant_id="tenant-a",
-        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(_FakeDbSession())),
     )
 
     response = asyncio.run(middleware.dispatch(request, _call_next))
@@ -122,7 +128,7 @@ def test_invalid_api_key_returns_401(monkeypatch) -> None:
     request = _request(
         headers={"X-Api-Key": "kid.secret"},
         tenant_id="tenant-a",
-        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(_FakeDbSession())),
     )
 
     response = asyncio.run(middleware.dispatch(request, _call_next))
@@ -145,7 +151,7 @@ def test_valid_api_key_sets_principal(monkeypatch) -> None:
     request = _request(
         headers={"X-Api-Key": "kid.secret"},
         tenant_id="tenant-a",
-        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(_FakeDbSession())),
     )
 
     response = asyncio.run(middleware.dispatch(request, _call_next))
@@ -168,7 +174,7 @@ def test_cross_tenant_api_key_returns_403(monkeypatch) -> None:
     request = _request(
         headers={"X-Api-Key": "kid.secret"},
         tenant_id="tenant-a",
-        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(_FakeDbSession())),
     )
 
     response = asyncio.run(middleware.dispatch(request, _call_next))
@@ -248,7 +254,7 @@ def test_api_key_value_error_returns_401(monkeypatch) -> None:
     request = _request(
         headers={"X-Api-Key": "kid.secret"},
         tenant_id="tenant-a",
-        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(object())),
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(_FakeDbSession())),
     )
 
     response = asyncio.run(middleware.dispatch(request, _call_next))
@@ -407,3 +413,32 @@ def test_bearer_auth_reuses_app_state_oidc_authenticator() -> None:
 
     assert response.status_code == 200
     assert reusable.calls == 1
+
+
+def test_api_key_auth_activates_rls_tenant_before_key_lookup(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def activate(session: object, tenant_id: str) -> None:
+        calls.append(("tenant_context", tenant_id))
+
+    class _Service:
+        def __init__(self, session: object) -> None:
+            pass
+
+        def authenticate_machine(self, *, tenant_id: str, key_id: str, plaintext: str):
+            calls.append(("authenticate", tenant_id))
+            return _Principal(tenant_id)
+
+    monkeypatch.setattr("backend.middleware.auth_context.activate_tenant_session", activate)
+    monkeypatch.setattr("backend.middleware.auth_context.ApiKeyService", _Service)
+    middleware = AuthContextMiddleware(app=lambda scope, receive, send: None)
+    request = _request(
+        headers={"X-Api-Key": "kid.secret"},
+        tenant_id="tenant-a",
+        app_state=SimpleNamespace(database_runtime=_FakeDatabaseRuntime(_FakeDbSession())),
+    )
+
+    response = asyncio.run(middleware.dispatch(request, _call_next))
+
+    assert response.status_code == 200
+    assert calls == [("tenant_context", "tenant-a"), ("authenticate", "tenant-a")]

@@ -13,7 +13,7 @@ def test_onboarding_migrations_have_single_head() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0051_billing_meter_dispatches"]
+    assert heads == ["0053_restrict_auth_runtime"]
     assert len(heads[0]) <= 32
 
 

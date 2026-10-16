@@ -13,6 +13,7 @@ from backend.workers.worker_loop import WorkerLoop
 settings = get_settings()
 configure_logging(settings)
 settings.validate_runtime_contract()
+settings.validate_database_identity(expected_identity="worker")
 
 from backend.services.internet.browser_session import assert_browser_runtime_ready
 
@@ -26,7 +27,7 @@ database_runtime = DatabaseRuntime(settings)
 vector_database_runtime = None
 if settings.vector_db_enabled and settings.resolved_vector_database_url:
     vector_database_runtime = VectorDatabaseRuntime(settings)
-    vector_database_runtime.ensure_schema()
+    vector_database_runtime.verify_schema()
     if not vector_database_runtime.ping():
         raise SystemExit("vector database failed startup ping")
 

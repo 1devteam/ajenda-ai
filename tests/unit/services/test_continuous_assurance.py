@@ -191,6 +191,7 @@ def test_unchanged_observation_reuses_latest_snapshot(monkeypatch) -> None:
     assert second is first
     assert service._snapshots.append.call_count == 1
 
+
 def test_artifact_and_semantic_errors_never_report_aligned(monkeypatch) -> None:
     mission = SimpleNamespace(
         id=uuid.uuid4(),
@@ -246,17 +247,23 @@ def test_artifact_and_semantic_errors_never_report_aligned(monkeypatch) -> None:
 
 
 def test_historical_unknown_is_not_misreported_as_current_violation(monkeypatch) -> None:
-    mission = SimpleNamespace(
-        id=uuid.uuid4(), tenant_id="tenant-a", status="completed", metadata_json={}
-    )
+    mission = SimpleNamespace(id=uuid.uuid4(), tenant_id="tenant-a", status="completed", metadata_json={})
     runtime = SimpleNamespace(
-        contradictions=[], missing_evidence=["task:old:evidence"],
-        historical_unknown=["task:old:evidence"], first_divergence=None,
-        mission_status="completed", nodes=[], edges=[], task_flows=[], record_flows=[],
+        contradictions=[],
+        missing_evidence=["task:old:evidence"],
+        historical_unknown=["task:old:evidence"],
+        first_divergence=None,
+        mission_status="completed",
+        nodes=[],
+        edges=[],
+        task_flows=[],
+        record_flows=[],
     )
     runtime_state = SimpleNamespace(
-        lifecycle_state="current", epistemic_confidence=0.8,
-        contradiction_codes=(), runtime_reconciliation=None,
+        lifecycle_state="current",
+        epistemic_confidence=0.8,
+        contradiction_codes=(),
+        runtime_reconciliation=None,
     )
     monkeypatch.setattr(
         "backend.services.continuous_assurance.mission_runtime_evidence_projection.build_mission_runtime_evidence_projection",
@@ -274,9 +281,7 @@ def test_historical_unknown_is_not_misreported_as_current_violation(monkeypatch)
     service._snapshots.append.side_effect = lambda snapshot: snapshot
     snapshot = service.reconcile_mission(tenant_id="tenant-a", mission=mission)
     assert snapshot.status == "incomplete"
-    assert snapshot.findings == [
-        {"category": "historical_unknown", "code": "task:old:evidence", "severity": "info"}
-    ]
+    assert snapshot.findings == [{"category": "historical_unknown", "code": "task:old:evidence", "severity": "info"}]
     assert snapshot.runtime_summary["historical_unknown_count"] == 1
 
 
@@ -295,16 +300,24 @@ def test_actual_runtime_projection_drives_assurance_from_independent_fixture(mon
         },
     )
     task = SimpleNamespace(
-        id=task_id, mission_id=mission_id, tenant_id="tenant-a",
-        status="completed", metadata_json={"runtime_evidence_contract_version": "1"},
+        id=task_id,
+        mission_id=mission_id,
+        tenant_id="tenant-a",
+        status="completed",
+        metadata_json={"runtime_evidence_contract_version": "1"},
     )
     lease = SimpleNamespace(
-        id=lease_id, task_id=task_id, tenant_id="tenant-a",
-        status="released", holder_identity="worker-a",
+        id=lease_id,
+        task_id=task_id,
+        tenant_id="tenant-a",
+        status="released",
+        holder_identity="worker-a",
     )
     runtime_state = SimpleNamespace(
-        lifecycle_state="current", epistemic_confidence=0.8,
-        contradiction_codes=(), runtime_reconciliation=None,
+        lifecycle_state="current",
+        epistemic_confidence=0.8,
+        contradiction_codes=(),
+        runtime_reconciliation=None,
     )
     monkeypatch.setattr(
         "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
@@ -312,12 +325,19 @@ def test_actual_runtime_projection_drives_assurance_from_independent_fixture(mon
     )
     session = MagicMock()
     start_event = SimpleNamespace(
-        id=uuid.uuid4(), tenant_id="tenant-a", mission_id=mission_id,
-        category="mission_information", action="execution_started",
-        actor="worker-a", details="observed", created_at=datetime.now(UTC),
+        id=uuid.uuid4(),
+        tenant_id="tenant-a",
+        mission_id=mission_id,
+        category="mission_information",
+        action="execution_started",
+        actor="worker-a",
+        details="observed",
+        created_at=datetime.now(UTC),
         payload_json={
-            "schema_version": 1, "task_id": str(task_id),
-            "lease_id": str(lease_id), "grants_execution_authority": False,
+            "schema_version": 1,
+            "task_id": str(task_id),
+            "lease_id": str(lease_id),
+            "grants_execution_authority": False,
         },
     )
     session.scalars.side_effect = [[task], [lease], [], [], [start_event]]
@@ -346,20 +366,34 @@ def test_actual_runtime_projection_drives_assurance_from_independent_fixture(mon
 def test_assurance_security_verdict_is_independent_of_operational_alignment(monkeypatch) -> None:
     mission_id = uuid.uuid4()
     mission = SimpleNamespace(
-        id=mission_id, tenant_id="tenant-a", status="planned", metadata_json={},
+        id=mission_id,
+        tenant_id="tenant-a",
+        status="planned",
+        metadata_json={},
     )
     foreign_task = SimpleNamespace(
-        id=uuid.uuid4(), tenant_id="tenant-b", mission_id=mission_id,
-        status="planned", metadata_json={},
+        id=uuid.uuid4(),
+        tenant_id="tenant-b",
+        mission_id=mission_id,
+        status="planned",
+        metadata_json={},
     )
     runtime = SimpleNamespace(
-        contradictions=[], missing_evidence=[], historical_unknown=[],
-        first_divergence=None, mission_status="planned",
-        nodes=[], edges=[], task_flows=[], record_flows=[],
+        contradictions=[],
+        missing_evidence=[],
+        historical_unknown=[],
+        first_divergence=None,
+        mission_status="planned",
+        nodes=[],
+        edges=[],
+        task_flows=[],
+        record_flows=[],
     )
     runtime_state = SimpleNamespace(
-        lifecycle_state="current", epistemic_confidence=None,
-        contradiction_codes=(), runtime_reconciliation=None,
+        lifecycle_state="current",
+        epistemic_confidence=None,
+        contradiction_codes=(),
+        runtime_reconciliation=None,
     )
     monkeypatch.setattr(
         "backend.services.continuous_assurance.mission_runtime_evidence_projection.build_mission_runtime_evidence_projection",

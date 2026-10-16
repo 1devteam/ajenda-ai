@@ -212,4 +212,3 @@ def reconcile_snapshot(snapshot: RuntimeReconciliationSnapshot) -> dict[str, Any
         "status": "passed" if not unresolved else "blocked",
         "findings": [finding.model_dump(mode="json") for finding in findings],
     }
-

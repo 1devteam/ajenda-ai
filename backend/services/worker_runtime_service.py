@@ -8,7 +8,6 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from backend.domain.audit_event import AuditEvent
-from backend.services.runtime_information_observation import describe_information
 from backend.domain.enums import ExecutionTaskState, MissionState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
@@ -22,6 +21,7 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.transitions import transition_lease, transition_mission, transition_task
 from backend.services.mission_intake_quality import contains_composition_clarification
+from backend.services.runtime_information_observation import describe_information
 from backend.services.runtime_queue_dispatcher import RuntimeQueueDispatchService
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
 from backend.services.tools.mission_input_binding import pending_dependency_keys
@@ -317,18 +317,12 @@ class WorkerRuntimeService:
                         "schema_version": 1,
                         "task_id": str(task.id),
                         "lease_id": str(lease.id),
-                        "input": describe_information(
-                            (task.metadata_json or {}).get("input_bindings")
-                        ),
+                        "input": describe_information((task.metadata_json or {}).get("input_bindings")),
                         "declared_output": describe_information(
                             (task.metadata_json or {}).get("expected_output_contract")
                         ),
-                        "resolved_input": describe_information(
-                            (task.metadata_json or {}).get("input")
-                        ),
-                        "tool_invocation": describe_information(
-                            (task.metadata_json or {}).get("tool_invocation")
-                        ),
+                        "resolved_input": describe_information((task.metadata_json or {}).get("input")),
+                        "tool_invocation": describe_information((task.metadata_json or {}).get("tool_invocation")),
                         "grants_execution_authority": False,
                     },
                 )
