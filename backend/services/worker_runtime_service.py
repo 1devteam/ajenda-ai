@@ -623,8 +623,8 @@ class WorkerRuntimeService:
         self._evidence_ledger.append_fact(
             tenant_id=tenant_id,
             mission_id=task.mission_id,
-            category="worker",
-            action="task_completed",
+            category="runtime_evidence",
+            action="worker_completion_recorded",
             producer="worker_runtime",
             actor=worker_id,
             details=f"Completed task {task.id}",
@@ -945,8 +945,8 @@ class WorkerRuntimeService:
         self._evidence_ledger.append_fact(
             tenant_id=tenant_id,
             mission_id=task.mission_id,
-            category="worker",
-            action="task_failed",
+            category="runtime_evidence",
+            action="worker_failure_recorded",
             producer="worker_runtime",
             actor=worker_id,
             details=reason,
