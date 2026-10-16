@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from alembic import op  # noqa: F401
 
-revision = "0052_runtime_evidence_billing_merge"
+revision = "0052_runtime_evidence_merge"
 down_revision = ("0050_runtime_evidence_ckpts", "0051_billing_meter_dispatches")
 branch_labels = None
 depends_on = None

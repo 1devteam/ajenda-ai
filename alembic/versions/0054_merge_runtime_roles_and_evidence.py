@@ -12,8 +12,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0054_merge_runtime_roles_and_evidence"
-down_revision = ("0052_runtime_evidence_billing_merge", "0053_restrict_auth_runtime")
+revision = "0054_merge_roles_evidence"
+down_revision = ("0052_runtime_evidence_merge", "0053_restrict_auth_runtime")
 branch_labels = None
 depends_on = None
 

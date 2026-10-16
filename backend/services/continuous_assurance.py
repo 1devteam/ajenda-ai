@@ -16,20 +16,20 @@ from sqlalchemy.orm import Session
 
 from backend.domain.assurance_snapshot import AssuranceSnapshot
 from backend.domain.audit_event import AuditEvent
-from backend.domain.evidence import EvidenceRecord
 from backend.domain.enums import MissionState
+from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.domain.worker_lease import WorkerLease
 from backend.repositories.assurance_snapshot_repository import AssuranceSnapshotRepository
 from backend.services import mission_runtime_evidence_projection
-from backend.services.runtime_security_monitor import inspect_runtime_security
 from backend.services.mission_composition import deliverable_runtime_observability
 from backend.services.runtime_evidence_consumers import (
     consume_intelligence_flow_evidence,
     consume_runtime_security_evidence,
 )
+from backend.services.runtime_security_monitor import inspect_runtime_security
 
 _STATUS_RANK = {
     "aligned": 0,

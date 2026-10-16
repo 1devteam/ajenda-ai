@@ -572,8 +572,7 @@ def build_mission_runtime_evidence_projection(
                 first_divergence = candidate
                 break
         elif any(
-            (item == marker or item.endswith(marker) or f"{marker}:" in item)
-            and item not in historical_unknown
+            (item == marker or item.endswith(marker) or f"{marker}:" in item) and item not in historical_unknown
             for item in missing
         ):
             first_divergence = candidate

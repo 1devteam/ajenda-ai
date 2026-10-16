@@ -8,9 +8,9 @@ def test_continuous_assurance_migration_is_current_head_and_tenant_scoped() -> N
     config = Config("alembic.ini")
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["0054_merge_runtime_roles_and_evidence"]
+    assert script.get_heads() == ["0054_merge_roles_evidence"]
 
-    merge = script.get_revision("0052_runtime_evidence_billing_merge")
+    merge = script.get_revision("0052_runtime_evidence_merge")
     assert merge is not None
     assert set(merge.down_revision) == {
         "0050_runtime_evidence_ckpts",
