@@ -157,6 +157,11 @@ _INTERNAL_CRM_READ_PATTERNS = (
 _CRM_READ_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\b[^.!?]{0,48}\b(?:read|check|search|query|list|show)\b[^.!?]{0,48}\b(?:hubspot|crm)\b",
     r"\b(?:do not|don't|dont|never|without)\b[^.!?]{0,48}\b(?:hubspot|crm)\b[^.!?]{0,48}\b(?:read|check|search|query|list|show)\b",
+    # A source prohibition is also a CRM-read negation. Without this form,
+    # the broad ``find ... CRM`` matcher can pair a research verb in an
+    # earlier clause with a later ``do not use CRM`` clause.
+    r"\b(?:do not|don't|dont|never|without)\b[^.!?]{0,80}\b(?:use|using|include|rely on|source from)\b[^.!?]{0,80}\b(?:hubspot|crm)\b",
+    r"\b(?:hubspot|crm)\b[^.!?]{0,48}\b(?:is|are)\s+(?:prohibited|forbidden|not allowed)\b",
 )
 _INTERNAL_CRM_READ_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\b[^.!?]{0,80}\b(?:read|review|inspect|summarize|compare|rank)\b[^.!?]{0,80}\b(?:ajenda(?:['\u2019]s)?\s+(?:internal\s+)?crm|internal\s+(?:ajenda\s+)?crm|internal\s+records?)\b",
@@ -1042,7 +1047,7 @@ def _classify_clause(
     if clause_deliverable is not None and clause_deliverable.fully_understood:
         # Leave typed field lists unmatched here so the dedicated deliverable
         # coverage layer can account them as deliverables, not action outcomes.
-        return [], True, False
+        return [], True, True
     # Instructions that explicitly classify source text as untrusted are
     # safety metadata, not an external action request or an unmatched mission
     # clause. Keep them visible to the caller without turning quoted verbs

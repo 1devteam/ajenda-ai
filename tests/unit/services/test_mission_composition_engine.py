@@ -336,6 +336,21 @@ def test_negated_connector_read_does_not_authorize_read_or_fuzzy_email() -> None
     assert "read_email" not in intent.requested_outcomes
 
 
+def test_public_research_with_crm_prohibition_does_not_select_crm() -> None:
+    intent = interpret_instruction(
+        "Find five early-stage SaaS companies that may need custom web applications or API integrations. "
+        "Use public web research only. Return each company\u2019s name, website, evidence of fit, and source URLs. "
+        "Do not use HubSpot, CRM records, saved contacts, or any internal data. "
+        "Do not contact companies or modify external systems."
+    )
+
+    assert "research_prospects" in intent.requested_outcomes
+    assert "read_crm" not in intent.requested_outcomes
+    assert intent.deliverable_request is not None
+    assert intent.deliverable_request.fully_understood
+    assert not intent.unmatched_material_clauses
+
+
 def test_detailed_report_deliverable_materializes_synthesis_node() -> None:
     intent = interpret_instruction(
         "Research five competitors of Ajenda AI. Produce a comparison table, highlight three opportunities, "

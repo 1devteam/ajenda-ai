@@ -125,7 +125,10 @@ _SCORE_RANGE = re.compile(r"\b(?:from\s+)?(?P<minimum>\d{1,2})\s*(?:to|[-\u2013]
 _TRAILING_PURPOSE = re.compile(r"\s+for\s+(?:review|approval|the\s+user)\s*$", re.IGNORECASE)
 
 _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
-    ("company_name", (r"\bcompany\s+name\b", r"\bprospect\s+name\b")),
+    (
+        "company_name",
+        (r"\bcompany\s+name\b", r"\bcompany(?:['\u2019]s)?\s+name\b", r"\bprospect\s+name\b"),
+    ),
     ("expected_company", (r"\bexpected\s+company\b", r"\bcompany\s+being\s+verified\b")),
     ("expected_industry", (r"\bexpected\s+industry\b", r"\bdeclared\s+industry\b")),
     ("expected_location", (r"\bexpected\s+location\b", r"\bdeclared\s+location\b")),
@@ -189,6 +192,7 @@ _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
             r"\bevidence\s+used\s+to\s+qualify\b",
             r"\bqualification\s+evidence\b",
             r"\bevidence\s+for\s+qualification\b",
+            r"\bevidence\s+of\s+fit\b",
         ),
     ),
     (
