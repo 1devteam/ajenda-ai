@@ -715,3 +715,184 @@ def test_first_divergence_uses_the_earliest_applicable_causal_gap() -> None:
     )
 
     assert projection.first_divergence == f"task:{task.id}:information:input_binding"
+
+
+def test_projection_recovers_composition_causality_from_confirmed_fact(monkeypatch) -> None:
+    """Confirmed mission facts bridge proposal-scoped decisions into the read model."""
+
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    proposal_id = str(uuid4())
+    other_proposal_id = str(uuid4())
+    confirmed = SimpleNamespace(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        created_at=datetime.now(UTC),
+        category="mission_composition",
+        action="confirmed",
+        actor="operator",
+        details="confirmed",
+        payload_json={},
+    )
+
+    events = [confirmed]
+    envelopes = {
+        id(confirmed): SimpleNamespace(
+            event_type="mission_composition.confirmed",
+            subject_references={"proposal_id": proposal_id},
+            causation_id=proposal_id,
+            correlation_id=str(mission_id),
+            facts={"proposal_id": proposal_id},
+            event_id=confirmed.id,
+            occurred_at=confirmed.created_at,
+            producer="mission_composition.confirmation",
+            evidence_references=(),
+        )
+    }
+    for stage in (
+        "intent_interpretation",
+        "planner_selection",
+        "capability_selection",
+        "constraint_propagation",
+    ):
+        event = SimpleNamespace(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            mission_id=None,
+            created_at=datetime.now(UTC),
+            category="runtime_decision",
+            action=stage,
+            actor="operator",
+            details="observed",
+            payload_json={},
+        )
+        events.append(event)
+        envelopes[id(event)] = SimpleNamespace(
+            event_type=f"runtime_decision.{stage}",
+            subject_references={},
+            causation_id=proposal_id,
+            correlation_id=proposal_id,
+            facts={
+                "causal_observation": {
+                    "stage": stage,
+                    "decision": "observed",
+                    "reason_code": "test",
+                }
+            },
+            event_id=event.id,
+            occurred_at=event.created_at,
+            producer=f"composition.{stage}",
+            evidence_references=(),
+        )
+
+    unrelated = SimpleNamespace(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        mission_id=None,
+        created_at=datetime.now(UTC),
+        category="runtime_decision",
+        action="intent_interpretation",
+        actor="other",
+        details="unrelated",
+        payload_json={},
+    )
+    events.append(unrelated)
+    envelopes[id(unrelated)] = SimpleNamespace(
+        event_type="runtime_decision.intent_interpretation",
+        subject_references={},
+        causation_id=other_proposal_id,
+        correlation_id=other_proposal_id,
+        facts={
+            "causal_observation": {
+                "stage": "intent_interpretation",
+                "decision": "unrelated",
+                "reason_code": "test",
+            }
+        },
+        event_id=unrelated.id,
+        occurred_at=unrelated.created_at,
+        producer="other",
+        evidence_references=(),
+    )
+    foreign_tenant = SimpleNamespace(
+        id=uuid4(),
+        tenant_id=str(uuid4()),
+        mission_id=None,
+        created_at=datetime.now(UTC),
+        category="runtime_decision",
+        action="planner_selection",
+        actor="foreign",
+        details="foreign",
+        payload_json={},
+    )
+    events.append(foreign_tenant)
+    envelopes[id(foreign_tenant)] = envelopes[id(unrelated)]
+
+    monkeypatch.setattr(
+        "backend.services.mission_runtime_evidence_projection.RuntimeEvidenceLedger.read_envelope",
+        lambda event: envelopes[id(event)],
+    )
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        mission_metadata={},
+        tasks=[],
+        leases=[],
+        lineage=[],
+        evidence=[],
+        audit_events=events,
+    )
+
+    assert {item["stage"] for item in projection.causal_observations} == {
+        "intent_interpretation",
+        "planner_selection",
+        "capability_selection",
+        "constraint_propagation",
+    }
+    assert all(item["correlation_id"] == proposal_id for item in projection.causal_observations)
+    assert f"mission:{mission_id}:information:proposal_identity" not in projection.missing_evidence
+
+
+def test_projection_reports_missing_proposal_identity_as_evidence_gap(monkeypatch) -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    confirmed = SimpleNamespace(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        created_at=datetime.now(UTC),
+        category="mission_composition",
+        action="confirmed",
+        actor="operator",
+        details="confirmed",
+        payload_json={},
+    )
+    envelope = SimpleNamespace(
+        event_type="mission_composition.confirmed",
+        subject_references={},
+        causation_id=None,
+        correlation_id=str(mission_id),
+        facts={},
+        event_id=confirmed.id,
+        occurred_at=confirmed.created_at,
+        producer="mission_composition.confirmation",
+        evidence_references=(),
+    )
+    monkeypatch.setattr(
+        "backend.services.mission_runtime_evidence_projection.RuntimeEvidenceLedger.read_envelope",
+        lambda event: envelope if event is confirmed else None,
+    )
+
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        mission_metadata={},
+        tasks=[],
+        leases=[],
+        lineage=[],
+        evidence=[],
+        audit_events=[confirmed],
+    )
+
+    assert f"mission:{mission_id}:information:proposal_identity" in projection.missing_evidence
