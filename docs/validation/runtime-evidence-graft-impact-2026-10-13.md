@@ -1,6 +1,6 @@
 # Runtime Evidence Substrate — G.R.A.F.T.+ Impact Evidence
 
-Baseline commit: `634735e4a23f7ae7cd0755e12592ccc9830ba410`  
+Baseline commit: `634735e4a23f7ae7cd0755e12592ccc9830ba410`
 Implementation commit: `ae415ece`
 
 Commands run:
