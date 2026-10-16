@@ -11,7 +11,7 @@ from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.governance_event import GovernanceEvent
-from backend.domain.mission import MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY
+from backend.domain.mission import MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY, Mission
 from backend.queue.base import QueueAdapter, QueueMessage
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
@@ -21,6 +21,7 @@ from backend.runtime.transitions import transition_task
 from backend.services.mission_bridge.queue_admission import record_reviewed_task_admission
 from backend.services.policy_guardian import PolicyGuardian
 from backend.services.quota_enforcement import QuotaEnforcementService
+from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger, semantic_lineage_from_mission_metadata
 from backend.services.runtime_governor import RuntimeGovernor
 from backend.services.runtime_queue_dispatcher import RuntimeQueueDispatchService
 from backend.services.tools.action_registry import get_default_action_registry
@@ -120,6 +121,13 @@ class ExecutionCoordinator:
         self._session.flush()
         self._record_task_admission(task=task, held_for_review=False)
 
+        loaded_mission = self._session.get(Mission, task.mission_id) if task.mission_id is not None else None
+        mission = loaded_mission if isinstance(loaded_mission, Mission) else None
+        if mission is not None and mission.tenant_id != tenant_id:
+            raise ValueError("task mission is not owned by tenant")
+        # Preserve the legacy operational audit fact for existing consumers;
+        # the versioned ledger fact below adds integrity and lineage without
+        # replacing that compatibility contract.
         self._audit.append(
             AuditEvent(
                 tenant_id=tenant_id,
@@ -130,6 +138,30 @@ class ExecutionCoordinator:
                 details=f"Task {task.id} queued for execution.",
                 payload_json={"task_id": str(task.id), "mode": decision.mode},
             )
+        )
+        RuntimeEvidenceLedger(self._session, audit_repository=self._audit, flush=False).append_fact(
+            tenant_id=tenant_id,
+            mission_id=task.mission_id,
+            category="runtime_evidence",
+            action="queue_admission_recorded",
+            producer="execution_coordinator",
+            actor="execution_coordinator",
+            details=f"Task {task.id} queued for execution.",
+            facts={
+                "task_id": str(task.id),
+                "mode": decision.mode,
+                "state": task.status,
+                "semantic_lineage": semantic_lineage_from_mission_metadata(mission.metadata_json or {})
+                if mission
+                else {},
+            },
+            authority_context={
+                "runtime_governor_mode": decision.mode,
+                "execution_allowed": decision.execution_allowed,
+                "policy_allowed": policy_decision.allowed,
+            },
+            causation_id=str(task.id),
+            correlation_id=str(task.mission_id),
         )
         self._session.flush()
         return CoordinationResult(ok=True, task_id=task.id, state=task.status)

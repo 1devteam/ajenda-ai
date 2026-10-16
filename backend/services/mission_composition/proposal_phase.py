@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
@@ -38,6 +39,9 @@ from backend.services.mission_composition.vertical_know_how import (
     select_vertical_know_how,
     validate_know_how_runtime_references,
 )
+from backend.services.runtime_evidence_ledger import RuntimeCausalObservation, RuntimeEvidenceLedger
+
+logger = logging.getLogger("ajenda.mission_composition.proposal_phase")
 
 
 class MissionCompositionProposalPhase:
@@ -307,4 +311,117 @@ class MissionCompositionProposalPhase:
                 superseding_proposal_id=record.proposal_id,
                 db=self._db,
             )
+        self._record_decision_observations(
+            tenant_id=tenant_id,
+            actor_id=actor_id or "mission_composition",
+            record=record,
+            planner_provenance=planner_provenance,
+        )
         return record
+
+    def _record_decision_observations(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        record: MissionCompositionRecord,
+        planner_provenance: dict[str, Any] | None,
+    ) -> None:
+        """Persist bounded decisions at the composition owners' boundary."""
+
+        db = getattr(self, "_db", None)
+        if db is None or not hasattr(db, "add"):
+            return
+        ledger = RuntimeEvidenceLedger(db, flush=False)
+        correlation_id = record.proposal_id
+        observations = (
+            (
+                "intent_interpretation",
+                "intent_structured",
+                "interpreter_completed",
+                {
+                    "transformation_id": f"interpreter:{record.intent.interpreter_version}",
+                    "selected_path": "regex_and_semantic_interpretation",
+                    "safe_metadata": {
+                        "interpreter_version": record.intent.interpreter_version,
+                        "interpreted_clause_count": len(record.intent.interpreted_clauses),
+                        "requested_outcome_count": len(record.intent.requested_outcomes),
+                        "coverage_score": record.intent.coverage_score,
+                        "minimum_field_confidence": record.intent.minimum_field_confidence,
+                    },
+                },
+            ),
+            (
+                "planner_selection",
+                "jobs_selected",
+                "catalog_and_planner_resolution",
+                {
+                    "transformation_id": "mission-composition:jobs:v1",
+                    "selected_path": "|".join(job.job_key for job in record.job_assignments),
+                    "alternatives": tuple(str(item.job_key) for item in record.job_assignments),
+                    "safe_metadata": {
+                        "planner_status": str((planner_provenance or {}).get("status") or "catalog"),
+                        "job_count": len(record.job_assignments),
+                        "planned_step_count": len(record.planned_steps),
+                    },
+                },
+            ),
+            (
+                "capability_selection",
+                "abilities_selected",
+                "capability_readiness_and_policy",
+                {
+                    "transformation_id": "capability-resolver:selection:v1",
+                    "selected_path": "|".join(
+                        item.action_name for item in record.ability_selections if item.selection_status == "selected"
+                    ),
+                    "rejected_paths": tuple(
+                        item.action_name for item in record.ability_selections if item.selection_status != "selected"
+                    ),
+                    "safe_metadata": {
+                        "selection_count": len(record.ability_selections),
+                        "missing_connection_count": len(record.missing_connections),
+                    },
+                },
+            ),
+            (
+                "constraint_propagation",
+                "constraints_bound",
+                "mission_intake_and_operating_policy",
+                {
+                    "transformation_id": "mission-composition:constraints:v1",
+                    "constraints": tuple(
+                        sorted(
+                            {
+                                *[str(item) for item in record.intent.constraints],
+                                *[str(item) for item in record.intent.forbidden_actions],
+                                *[str(item) for item in record.intent.context_requirements],
+                            }
+                        )
+                    ),
+                    "field_lineage": {
+                        "intent.constraints": "mission_intake.constraints",
+                        "intent.forbidden_actions": "mission_intake.forbidden_actions",
+                        "intent.context_requirements": "tenant_profile_and_mission_intake",
+                    },
+                    "safe_metadata": {"allowed_action_count": len(record.allowed_actions)},
+                },
+            ),
+        )
+        for stage, decision, reason_code, values in observations:
+            try:
+                ledger.append_causal_observation(
+                    tenant_id=tenant_id,
+                    mission_id=None,
+                    producer=f"composition.{stage}",
+                    actor=actor_id,
+                    observation=RuntimeCausalObservation(
+                        stage=stage,
+                        decision=decision,
+                        reason_code=reason_code,
+                        **cast(dict[str, Any], values),
+                    ),
+                    correlation_id=correlation_id,
+                )
+            except Exception:  # observation must never change composition authority
+                logger.exception("causal observation write failed for %s", stage)
