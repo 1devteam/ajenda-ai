@@ -474,7 +474,6 @@ class WorkerRuntimeService:
                     },
                 )
             )
-            self._session.flush()
             self._session.commit()
         return task
 

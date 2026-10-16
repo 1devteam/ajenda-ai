@@ -629,18 +629,81 @@ def build_mission_runtime_evidence_projection(
         }
         for observation in causal_observations
     ]
+    # Preserve the legacy lifecycle observations alongside the richer causal
+    # records. They are facts emitted by the runtime, not retrospective
+    # explanations, and remain useful for older missions.
+    information_flow.extend(
+        {
+            "event_id": event["event_id"],
+            "created_at": event["created_at"],
+            "stage": event["action"],
+            "producer": event["actor"],
+            "observation": event["payload"],
+            "grants_execution_authority": False,
+        }
+        for event in execution_events
+        if event["category"] == "mission_information"
+        and isinstance(event["payload"], dict)
+        and event["action"]
+        in {
+            "composition_confirmed",
+            "execution_started",
+            "execution_completed",
+            "execution_failed",
+            "execution_completion_blocked",
+        }
+    )
     observed_stages = {str(item.get("stage")) for item in causal_observations}
     if any(item.get("source_provenance") for item in causal_observations):
         observed_stages.add("source_partition")
     information_coverage = [
         {
+            "scope": "mission",
+            "required_stage": stage,
             "stage": stage,
             "status": "observed" if stage in observed_stages else "not_observed",
+            "observation": "recorded" if stage in observed_stages else "not_recorded_or_legacy",
             "source": "runtime_decision.audit_events",
             "historical": stage not in observed_stages and not causal_observations,
         }
         for stage in ("tool_output", "input_binding", "provider_selection", "source_partition", "output_validation")
     ]
+    observed_stages_by_task: dict[str, set[str]] = {}
+    for item in information_flow:
+        observation = item.get("observation")
+        task_ref = observation.get("task_id") if isinstance(observation, dict) else None
+        if isinstance(task_ref, str):
+            observed_stages_by_task.setdefault(task_ref, set()).add(str(item.get("stage")))
+    for task in tasks:
+        if task.tenant_id != tenant_id or task.mission_id != mission_id:
+            continue
+        metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        applicable = metadata.get("runtime_evidence_contract_version") == "1"
+        stages = observed_stages_by_task.get(str(task.id), set())
+        for required_stage, relevant in (
+            ("execution_started", task.status in {"running", "completed", "failed", "blocked", "dead_lettered"}),
+            ("execution_completed", task.status == "completed"),
+            ("execution_failed", task.status == "failed"),
+            ("execution_completion_blocked", task.status == "blocked"),
+        ):
+            if not relevant:
+                continue
+            information_coverage.append(
+                {
+                    "scope": f"task:{task.id}",
+                    "required_stage": required_stage,
+                    "stage": required_stage,
+                    "observation": (
+                        "recorded"
+                        if required_stage in stages
+                        else "missing_under_active_contract"
+                        if applicable
+                        else "not_recorded_or_legacy"
+                    ),
+                    "status": "observed" if required_stage in stages else "not_observed",
+                    "source": "mission_information_audit",
+                }
+            )
     required_observation_stages = {"input_binding", "provider_selection", "source_partition", "output_validation"}
     for stage in sorted(required_observation_stages - observed_stages):
         (historical_unknown if not causal_observations else missing).append(f"information:{stage}")
