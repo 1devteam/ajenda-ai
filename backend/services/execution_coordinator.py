@@ -142,8 +142,8 @@ class ExecutionCoordinator:
         RuntimeEvidenceLedger(self._session, audit_repository=self._audit, flush=False).append_fact(
             tenant_id=tenant_id,
             mission_id=task.mission_id,
-            category="execution_task",
-            action="queued",
+            category="runtime_evidence",
+            action="queue_admission_recorded",
             producer="execution_coordinator",
             actor="execution_coordinator",
             details=f"Task {task.id} queued for execution.",
