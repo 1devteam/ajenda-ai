@@ -1047,7 +1047,7 @@ def _classify_clause(
     if clause_deliverable is not None and clause_deliverable.fully_understood:
         # Leave typed field lists unmatched here so the dedicated deliverable
         # coverage layer can account them as deliverables, not action outcomes.
-        return [], True, True
+        return [], True, False
     # Instructions that explicitly classify source text as untrusted are
     # safety metadata, not an external action request or an unmatched mission
     # clause. Keep them visible to the caller without turning quoted verbs
