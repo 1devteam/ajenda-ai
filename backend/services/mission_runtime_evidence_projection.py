@@ -243,7 +243,7 @@ def build_mission_runtime_evidence_projection(
         envelope.subject_references["task_id"]
         for event in audit_events or []
         if (envelope := RuntimeEvidenceLedger.read_envelope(event)) is not None
-        and envelope.event_type == "execution_task.queued"
+        and envelope.event_type in {"execution_task.queued", "runtime_evidence.queue_admission_recorded"}
         and "task_id" in envelope.subject_references
     }
     admitted_ids.update(audited_admitted_ids)
