@@ -17,8 +17,6 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.12"
-  # Test database — migration job service containers and integration Testcontainers use this contract
-  AJENDA_DATABASE_URL: "postgresql+psycopg://ajenda_test:ajenda_test@localhost:5432/ajenda_test"
   AJENDA_QUEUE_URL: "redis://localhost:6379/0"
   AJENDA_ENV: "test"
   AJENDA_LOG_LEVEL: "WARNING"

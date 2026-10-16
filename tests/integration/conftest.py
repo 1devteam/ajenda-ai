@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from collections.abc import Generator
 from pathlib import Path
+from secrets import token_urlsafe
 from typing import Any
 
 import pytest
@@ -100,10 +101,11 @@ def _restore_env(previous: dict[str, str | None]) -> None:
 @pytest.fixture(scope="session")
 def postgres_container() -> Generator[Any, None, None]:
     postgres_container_cls, _ = _testcontainer_classes()
+    password = f"test-{token_urlsafe(24)}"
     with postgres_container_cls(
         image="postgres:16-alpine",
         username="ajenda_test",
-        password="ajenda_test",
+        password=password,
         dbname="ajenda_test",
     ) as pg:
         yield pg

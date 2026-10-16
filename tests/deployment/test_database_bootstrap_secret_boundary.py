@@ -12,7 +12,7 @@ def test_bootstrap_credentials_come_from_psql_environment() -> None:
         env_var = f"AJENDA_{role.upper()}_DATABASE_PASSWORD"
         assert f"\\getenv {role}_password {env_var}" in sql
         assert f"-v {role}_password=" not in script
-    assert 'export PGDATABASE="$AJENDA_DATABASE_BOOTSTRAP_URL"' in script
+    assert 'urlparse(os.environ["AJENDA_DATABASE_BOOTSTRAP_URL"])' in script
     assert 'psql "$AJENDA_DATABASE_BOOTSTRAP_URL"' not in script
 
 
