@@ -166,8 +166,10 @@ class RuntimeEvidenceLedger:
         audit_repository: AuditEventRepository | None = None,
         integrity_key: bytes | None = None,
         previous_integrity_keys: Sequence[bytes] = (),
+        flush: bool = True,
     ) -> None:
         self._audit = audit_repository or AuditEventRepository(session)
+        self._flush = flush
         self._integrity_keys = (
             (integrity_key, *previous_integrity_keys) if integrity_key else _integrity_key_candidates()
         )
@@ -215,19 +217,20 @@ class RuntimeEvidenceLedger:
             "integrity_key_id": _integrity_key_id(self._integrity_keys[0]),
         }
         envelope["integrity_sha256"] = _integrity_mac(envelope, self._integrity_keys[0])
-        return self._audit.append(
-            AuditEvent(
-                id=event_id,
-                tenant_id=tenant_id,
-                mission_id=mission_id,
-                category=category,
-                action=action,
-                actor=actor,
-                details=details,
-                payload_json={**fact_payload, RUNTIME_EVIDENCE_PAYLOAD_KEY: envelope},
-                created_at=when,
-            )
+        event = AuditEvent(
+            id=event_id,
+            tenant_id=tenant_id,
+            mission_id=mission_id,
+            category=category,
+            action=action,
+            actor=actor,
+            details=details,
+            payload_json={**fact_payload, RUNTIME_EVIDENCE_PAYLOAD_KEY: envelope},
+            created_at=when,
         )
+        if self._flush:
+            return self._audit.append(event)
+        return self._audit.append_unflushed(event)
 
     def append_causal_observation(
         self,

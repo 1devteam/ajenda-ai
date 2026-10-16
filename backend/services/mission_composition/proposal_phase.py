@@ -332,7 +332,7 @@ class MissionCompositionProposalPhase:
         db = getattr(self, "_db", None)
         if db is None or not hasattr(db, "add"):
             return
-        ledger = RuntimeEvidenceLedger(db)
+        ledger = RuntimeEvidenceLedger(db, flush=False)
         correlation_id = record.proposal_id
         observations = (
             (

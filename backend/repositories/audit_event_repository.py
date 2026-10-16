@@ -20,6 +20,12 @@ class AuditEventRepository:
         self._session.refresh(event)
         return event
 
+    def append_unflushed(self, event: AuditEvent) -> AuditEvent:
+        """Stage an audit fact in the caller's transaction without flushing."""
+
+        self._session.add(event)
+        return event
+
     def list_for_mission(self, mission_id: uuid.UUID) -> list[AuditEvent]:
         stmt = select(AuditEvent).where(AuditEvent.mission_id == mission_id)
         return list(self._session.scalars(stmt))

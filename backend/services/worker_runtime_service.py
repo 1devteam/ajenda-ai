@@ -21,6 +21,7 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.transitions import transition_lease, transition_mission, transition_task
 from backend.services.mission_intake_quality import contains_composition_clarification
+from backend.services.runtime_evidence_ledger import RuntimeCausalObservation, RuntimeEvidenceLedger
 from backend.services.runtime_information_observation import describe_information
 from backend.services.runtime_queue_dispatcher import RuntimeQueueDispatchService
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
@@ -69,6 +70,87 @@ logger = logging.getLogger("ajenda.worker_runtime_service")
 _QUEUE_PAYLOAD_DB_VISIBILITY_GRACE_SECONDS = 30.0
 
 
+def _causal_observation_for_tool_output(
+    *, task: ExecutionTask, task_output: dict[str, Any]
+) -> tuple[RuntimeCausalObservation, ...]:
+    """Extract bounded tool/source decisions without copying provider values."""
+
+    action = task_output.get("action")
+    if not isinstance(action, str):
+        return ()
+    output = task_output.get("output")
+    output = output if isinstance(output, dict) else {}
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    invocation = metadata.get("tool_invocation")
+    invocation = invocation if isinstance(invocation, dict) else {}
+    input_value = invocation.get("input")
+    input_value = input_value if isinstance(input_value, dict) else {}
+    safe_names = (
+        "include_public_search",
+        "local_fixture_only",
+        "public_search_real",
+        "web_result_count",
+        "internal_count",
+        "prospect_count",
+        "verified_public_candidate_count",
+        "rejected_public_candidates",
+        "source",
+        "access_mode",
+        "business_context_source",
+        "research_gap",
+    )
+    safe_metadata = {name: output[name] for name in safe_names if name in output}
+    for name in ("include_public_search", "local_fixture_only", "binding_required", "collect_contacts"):
+        if name in input_value:
+            safe_metadata[f"input_{name}"] = input_value[name]
+    partitions = output.get("source_partitions")
+    source_provenance: dict[str, str] = {}
+    if isinstance(partitions, dict):
+        for name, value in partitions.items():
+            if isinstance(value, dict):
+                source_provenance[str(name)] = ";".join(
+                    f"{key}={value[key]}"
+                    for key in ("candidate_count", "result_count", "provider_observed")
+                    if key in value
+                )
+    source = str(output.get("source") or output.get("access_mode") or "unknown")
+    public_only = bool(input_value.get("include_public_search")) and not bool(input_value.get("local_fixture_only"))
+    common: dict[str, Any] = {
+        "reason_code": "public_only_research" if public_only else "tool_invocation",
+        "selected_path": source,
+        "source_provenance": source_provenance,
+        "field_lineage": {
+            "tool.input.include_public_search": "mission.constraints.public_source_scope",
+            "tool.input.local_fixture_only": "mission.constraints.fixture_scope",
+            "tool.output.source": "provider_or_record_source",
+        },
+        "constraints": ("public_only",) if public_only else (),
+        "safe_metadata": safe_metadata,
+    }
+    observations = [
+        RuntimeCausalObservation(
+            stage="tool_output",
+            decision="provider_output_classified",
+            transformation_id=f"tool:{action}:output:v1",
+            **common,
+        )
+    ]
+    if source_provenance:
+        observations.append(
+            RuntimeCausalObservation(
+                stage="source_partition",
+                decision="information_source_classified",
+                reason_code="source_partition_observed",
+                transformation_id=f"tool:{action}:source-partition:v1",
+                selected_path=source,
+                source_provenance=source_provenance,
+                constraints=("public_only",) if public_only else (),
+                safe_metadata=safe_metadata,
+            )
+        )
+    return tuple(observations)
+
+
 class WorkerRuntimeService:
     def __init__(self, session: Session, queue: QueueAdapter) -> None:
         self._session = session
@@ -76,7 +158,38 @@ class WorkerRuntimeService:
         self._tasks = ExecutionTaskRepository(session)
         self._leases = WorkerLeaseRepository(session)
         self._audit = AuditEventRepository(session)
+        self._evidence_ledger = RuntimeEvidenceLedger(session, audit_repository=self._audit, flush=False)
         self._dispatches = RuntimeQueueDispatchService(session, queue)
+
+    def _append_task_causal_observations(
+        self,
+        *,
+        task: ExecutionTask,
+        worker_id: str,
+        lease_id: uuid.UUID,
+        evidence_references: list[str],
+    ) -> None:
+        metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        raw_items = metadata.get("runtime_causal_observations")
+        if not isinstance(raw_items, list):
+            return
+        for raw in raw_items:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                observation = RuntimeCausalObservation.model_validate(raw)
+                self._evidence_ledger.append_causal_observation(
+                    tenant_id=task.tenant_id,
+                    mission_id=task.mission_id,
+                    producer="tool_runtime_authority",
+                    actor=worker_id,
+                    observation=observation,
+                    causation_id=str(lease_id),
+                    correlation_id=str(task.mission_id),
+                    evidence_references=evidence_references,
+                )
+            except (TypeError, ValueError):
+                logger.exception("invalid task causal observation for %s", task.id)
 
     def claim_next_task(self, *, tenant_id: str, worker_id: str) -> ExecutionTask | None:
         message = self._queue.claim_task(tenant_id=tenant_id, worker_id=worker_id)
@@ -327,6 +440,28 @@ class WorkerRuntimeService:
                     },
                 )
             )
+            metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+            invocation = metadata.get("tool_invocation")
+            action = invocation.get("action") if isinstance(invocation, dict) else None
+            self._evidence_ledger.append_fact(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="execution_task",
+                action="started",
+                producer="worker_runtime",
+                actor=worker_id,
+                details=f"Worker started task {task.id} under lease {lease.id}.",
+                facts={
+                    "task_id": str(task.id),
+                    "lease_id": str(lease.id),
+                    "state": task.status,
+                    "task_type": metadata.get("task_type"),
+                    "action": action if isinstance(action, str) else None,
+                },
+                authority_context={"lease_owner": worker_id, "lease_status": lease.status},
+                causation_id=str(lease.id),
+                correlation_id=str(task.mission_id),
+            )
             self._session.flush()
             self._session.commit()
         return task
@@ -353,6 +488,24 @@ class WorkerRuntimeService:
                 worker_id=worker_id,
             )
         _validate_declared_output_contract(task, task_output)
+        self._evidence_ledger.append_causal_observation(
+            tenant_id=tenant_id,
+            mission_id=task.mission_id,
+            producer="worker_runtime",
+            actor=worker_id,
+            observation=RuntimeCausalObservation(
+                stage="output_validation",
+                decision="output_accepted",
+                reason_code="declared_contract_validation_passed",
+                transformation_id="runtime-output-validation:v1",
+                selected_path="accepted",
+                field_lineage={"task.output": "declared_output_contract"},
+                constraints=("declared_output_contract",),
+                safe_metadata={"contract_present": bool(metadata.get("expected_output_contract"))},
+            ),
+            causation_id=str(lease.id),
+            correlation_id=str(task.mission_id),
+        )
 
         transition_task(task, ExecutionTaskState.COMPLETED)
         self._transition_lease_to_released(lease)
@@ -451,6 +604,38 @@ class WorkerRuntimeService:
                 details=f"Completed task {task.id}",
                 payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
             )
+        )
+        self._evidence_ledger.append_fact(
+            tenant_id=tenant_id,
+            mission_id=task.mission_id,
+            category="worker",
+            action="task_completed",
+            producer="worker_runtime",
+            actor=worker_id,
+            details=f"Completed task {task.id}",
+            facts={"task_id": str(task.id), "lease_id": str(lease.id), "state": task.status},
+            authority_context={"lease_owner": worker_id, "lease_status": lease.status},
+            causation_id=str(lease.id),
+            correlation_id=str(task.mission_id),
+            evidence_references=evidence_ids_for_review,
+        )
+        if task_output is not None:
+            for observation in _causal_observation_for_tool_output(task=task, task_output=task_output):
+                self._evidence_ledger.append_causal_observation(
+                    tenant_id=tenant_id,
+                    mission_id=task.mission_id,
+                    producer="worker_runtime",
+                    actor=worker_id,
+                    observation=observation,
+                    causation_id=str(lease.id),
+                    correlation_id=str(task.mission_id),
+                    evidence_references=evidence_ids_for_review,
+                )
+        self._append_task_causal_observations(
+            task=task,
+            worker_id=worker_id,
+            lease_id=lease.id,
+            evidence_references=evidence_ids_for_review,
         )
         self._refresh_deliverable_completion_read_model(task=task)
         self._maybe_rollup_mission_status(task=task, worker_id=worker_id)
@@ -741,6 +926,25 @@ class WorkerRuntimeService:
                 details=reason,
                 payload_json={"task_id": str(task.id), "lease_id": str(lease.id)},
             )
+        )
+        self._evidence_ledger.append_fact(
+            tenant_id=tenant_id,
+            mission_id=task.mission_id,
+            category="worker",
+            action="task_failed",
+            producer="worker_runtime",
+            actor=worker_id,
+            details=reason,
+            facts={"task_id": str(task.id), "lease_id": str(lease.id), "state": task.status, "reason": reason},
+            authority_context={"lease_owner": worker_id, "lease_status": lease.status},
+            causation_id=str(lease.id),
+            correlation_id=str(task.mission_id),
+        )
+        self._append_task_causal_observations(
+            task=task,
+            worker_id=worker_id,
+            lease_id=lease.id,
+            evidence_references=[],
         )
         self._refresh_deliverable_completion_read_model(task=task)
         self._maybe_rollup_mission_status(task=task, worker_id=worker_id)

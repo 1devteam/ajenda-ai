@@ -125,7 +125,21 @@ class ExecutionCoordinator:
         mission = loaded_mission if isinstance(loaded_mission, Mission) else None
         if mission is not None and mission.tenant_id != tenant_id:
             raise ValueError("task mission is not owned by tenant")
-        RuntimeEvidenceLedger(self._session, audit_repository=self._audit).append_fact(
+        # Preserve the legacy operational audit fact for existing consumers;
+        # the versioned ledger fact below adds integrity and lineage without
+        # replacing that compatibility contract.
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="execution_task",
+                action="queued",
+                actor="execution_coordinator",
+                details=f"Task {task.id} queued for execution.",
+                payload_json={"task_id": str(task.id), "mode": decision.mode},
+            )
+        )
+        RuntimeEvidenceLedger(self._session, audit_repository=self._audit, flush=False).append_fact(
             tenant_id=tenant_id,
             mission_id=task.mission_id,
             category="execution_task",

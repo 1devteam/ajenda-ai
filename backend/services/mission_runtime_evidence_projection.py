@@ -65,6 +65,7 @@ class MissionRuntimeEvidenceProjection(BaseModel):
     task_flows: list[dict[str, Any]] = Field(default_factory=list)
     record_flows: list[dict[str, Any]] = Field(default_factory=list)
     execution_events: list[dict[str, Any]] = Field(default_factory=list)
+    causal_observations: list[dict[str, Any]] = Field(default_factory=list)
     information_flow: list[dict[str, Any]] = Field(default_factory=list)
     information_coverage: list[dict[str, Any]] = Field(default_factory=list)
     contradictions: list[str] = Field(default_factory=list)
@@ -191,6 +192,19 @@ def build_mission_runtime_evidence_projection(
     historical_unknown: list[str] = []
 
     graph = _metadata(mission_metadata, "mission_task_graph")
+    # Composition observations are emitted before a mission exists and are
+    # correlated by proposal id.  Only admit those pre-mission events when the
+    # confirmed mission carries the same proposal reference; otherwise a
+    # tenant-wide audit scan could contaminate this mission's causal history.
+    causal_correlations = {str(mission_id)}
+    graph_proposal_id = graph.get("proposal_id")
+    if isinstance(graph_proposal_id, str) and graph_proposal_id:
+        causal_correlations.add(graph_proposal_id)
+    raw_intake = mission_metadata.get("mission_intake")
+    if isinstance(raw_intake, dict):
+        intake_proposal_id = raw_intake.get("proposal_id")
+        if isinstance(intake_proposal_id, str) and intake_proposal_id:
+            causal_correlations.add(intake_proposal_id)
     raw_graph_nodes = graph.get("nodes")
     available_nodes = (
         [dict(node) for node in raw_graph_nodes if isinstance(node, dict)] if isinstance(raw_graph_nodes, list) else []
@@ -205,9 +219,12 @@ def build_mission_runtime_evidence_projection(
 
     task_by_id = {str(task.id): task for task in tasks if task.tenant_id == tenant_id and task.mission_id == mission_id}
     leases_by_task: dict[str, list[WorkerLease]] = {}
+    task_by_lease_id: dict[str, str] = {}
     for lease in leases:
         if lease.tenant_id == tenant_id:
-            leases_by_task.setdefault(str(lease.task_id), []).append(lease)
+            task_id = str(lease.task_id)
+            leases_by_task.setdefault(task_id, []).append(lease)
+            task_by_lease_id[str(lease.id)] = task_id
     lineage_by_task: dict[str, list[LineageRecord]] = {}
     for lineage_record in lineage:
         if lineage_record.tenant_id == tenant_id and lineage_record.task_id is not None:
@@ -578,7 +595,54 @@ def build_mission_runtime_evidence_projection(
         if event.tenant_id == tenant_id and event.mission_id == mission_id
     ]
 
+    causal_observations: list[dict[str, Any]] = []
+    for event in sorted(audit_events or [], key=lambda item: item.created_at):
+        if event.tenant_id != tenant_id or (event.mission_id is not None and event.mission_id != mission_id):
+            continue
+        envelope = RuntimeEvidenceLedger.read_envelope(event)
+        if envelope is None:
+            continue
+        if event.mission_id is None and envelope.correlation_id not in causal_correlations:
+            continue
+        raw = envelope.facts.get("causal_observation")
+        if not isinstance(raw, dict):
+            continue
+        causal_observations.append(
+            {
+                **raw,
+                # Causal records are linked to the execution path through the
+                # lease that caused them.  Keep that identity in the
+                # projection so one task's observation cannot satisfy another
+                # task's contract.
+                "task_id": envelope.subject_references.get("task_id")
+                or task_by_lease_id.get(envelope.causation_id or ""),
+                "event_id": str(envelope.event_id),
+                "occurred_at": envelope.occurred_at.isoformat(),
+                "producer": envelope.producer,
+                "causation_id": envelope.causation_id,
+                "correlation_id": envelope.correlation_id,
+                "evidence_references": list(envelope.evidence_references),
+            }
+        )
     information_flow = [
+        {
+            "stage": observation.get("stage"),
+            "decision": observation.get("decision"),
+            "reason_code": observation.get("reason_code"),
+            "transformation_id": observation.get("transformation_id"),
+            "selected_path": observation.get("selected_path"),
+            "rejected_paths": observation.get("rejected_paths", []),
+            "field_lineage": observation.get("field_lineage", {}),
+            "source_provenance": observation.get("source_provenance", {}),
+            "event_id": observation.get("event_id"),
+            "task_id": observation.get("task_id"),
+        }
+        for observation in causal_observations
+    ]
+    # Preserve the legacy lifecycle observations alongside the richer causal
+    # records. They are facts emitted by the runtime, not retrospective
+    # explanations, and remain useful for older missions.
+    information_flow.extend(
         {
             "event_id": event["event_id"],
             "created_at": event["created_at"],
@@ -598,33 +662,48 @@ def build_mission_runtime_evidence_projection(
             "execution_failed",
             "execution_completion_blocked",
         }
-    ]
-    observed_stages_by_task: dict[str, set[str]] = {}
-    for item in information_flow:
-        observation = item["observation"]
-        task_ref = observation.get("task_id") if isinstance(observation, dict) else None
-        stage = item["stage"]
-        if isinstance(task_ref, str) and isinstance(stage, str):
-            observed_stages_by_task.setdefault(task_ref, set()).add(stage)
-    information_coverage: list[dict[str, Any]] = []
-    information_coverage.append(
-        {
-            "scope": "mission",
-            "required_stage": "composition_confirmed",
-            "observation": (
-                "recorded"
-                if any(item["stage"] == "composition_confirmed" for item in information_flow)
-                else "not_recorded_or_legacy"
-            ),
-            "source": "mission_information_audit",
-        }
     )
+    observed_stages_by_task: dict[str, set[str]] = {}
+    for item in causal_observations:
+        task_ref = item.get("task_id")
+        if isinstance(task_ref, str) and task_ref in task_by_id:
+            observed_stages_by_task.setdefault(task_ref, set()).add(str(item.get("stage")))
+    for item in information_flow:
+        observation = item.get("observation")
+        task_ref = observation.get("task_id") if isinstance(observation, dict) else None
+        if isinstance(task_ref, str) and task_ref in task_by_id:
+            observed_stages_by_task.setdefault(task_ref, set()).add(str(item.get("stage")))
+
+    information_coverage: list[dict[str, Any]] = []
+    causal_gap_markers: list[str] = []
     for task in tasks:
         if task.tenant_id != tenant_id or task.mission_id != mission_id:
             continue
         metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        task_id = str(task.id)
         applicable = metadata.get("runtime_evidence_contract_version") == "1"
-        stages = observed_stages_by_task.get(str(task.id), set())
+        stages = observed_stages_by_task.get(task_id, set())
+        task_output = handler_output_for_task(task)
+        tool_invocation = metadata.get("tool_invocation")
+        action = tool_invocation.get("action") if isinstance(tool_invocation, dict) else metadata.get("action")
+        is_tool_path = metadata.get("task_type") == "tool.invoke" or isinstance(action, str)
+        path_name = _task_node_key(metadata) or str(action or metadata.get("task_type") or "unknown")
+        terminal_or_started = task.status in {
+            "running",
+            "completed",
+            "failed",
+            "blocked",
+            "dead_lettered",
+        }
+        required_causal_stages: list[str] = []
+        if is_tool_path and terminal_or_started:
+            required_causal_stages.extend(("input_binding", "provider_selection"))
+        if task.status == "completed" and is_tool_path:
+            required_causal_stages.append("output_validation")
+            if task_output:
+                required_causal_stages.append("tool_output")
+            if isinstance(task_output.get("source_partitions"), dict):
+                required_causal_stages.append("source_partition")
         for required_stage, relevant in (
             ("execution_started", task.status in {"running", "completed", "failed", "blocked", "dead_lettered"}),
             ("execution_completed", task.status == "completed"),
@@ -635,8 +714,12 @@ def build_mission_runtime_evidence_projection(
                 continue
             information_coverage.append(
                 {
-                    "scope": f"task:{task.id}",
+                    "scope": f"task:{task_id}",
+                    "task_id": task_id,
+                    "execution_path": path_name,
+                    "applicable": True,
                     "required_stage": required_stage,
+                    "stage": required_stage,
                     "observation": (
                         "recorded"
                         if required_stage in stages
@@ -644,9 +727,42 @@ def build_mission_runtime_evidence_projection(
                         if applicable
                         else "not_recorded_or_legacy"
                     ),
+                    "status": "observed" if required_stage in stages else "not_observed",
                     "source": "mission_information_audit",
                 }
             )
+        for required_stage in required_causal_stages:
+            observed = required_stage in stages
+            marker = f"task:{task_id}:information:{required_stage}"
+            information_coverage.append(
+                {
+                    "scope": f"task:{task_id}",
+                    "task_id": task_id,
+                    "execution_path": path_name,
+                    "applicable": True,
+                    "required_stage": required_stage,
+                    "stage": required_stage,
+                    "status": "observed" if observed else "not_observed",
+                    "observation": (
+                        "recorded"
+                        if observed
+                        else "missing_under_active_contract"
+                        if applicable
+                        else "not_recorded_or_legacy"
+                    ),
+                    "source": "runtime_decision.audit_events",
+                }
+            )
+            if not observed:
+                causal_gap_markers.append(marker)
+                (missing if applicable else historical_unknown).append(marker)
+
+    # A causal gap is an execution-path finding, never a mission-wide one.
+    # It participates only when no earlier structural break (for example a
+    # missing lease) already explains why the path could not proceed.
+    if causal_gap_markers and (first_divergence is None or first_divergence == "mission:acceptance"):
+        first_divergence = causal_gap_markers[0]
+
     return MissionRuntimeEvidenceProjection(
         mission_id=mission_id,
         tenant_id=tenant_id,
@@ -659,6 +775,7 @@ def build_mission_runtime_evidence_projection(
         task_flows=task_flows,
         record_flows=record_flows,
         execution_events=execution_events,
+        causal_observations=causal_observations,
         information_flow=information_flow,
         information_coverage=information_coverage,
         contradictions=sorted(set(contradictions)),
