@@ -14,6 +14,7 @@ from backend.services.mission_composition.deliverable_runtime_read_model import 
     refresh_deliverable_completion_metadata,
 )
 from backend.services.ontology.algorithms import evaluate_runtime_artifact_completeness
+from backend.services.runtime_evidence_ledger import RuntimeCausalObservation
 from backend.services.worker_runtime_contracts import (
     _TERMINAL_TASK_STATES,
     WorkerRuntimeCollaborator,
@@ -179,6 +180,35 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
             acceptance_reasons.append("durable deliverable is incomplete")
             acceptance_met = False
         acceptance_status = "met" if acceptance_met else "partially_met"
+        evidence_ledger = getattr(service, "_evidence_ledger", None)
+        if evidence_ledger is not None:
+            evidence_ledger.append_causal_observation(
+                tenant_id=task.tenant_id,
+                mission_id=task.mission_id,
+                producer="worker_runtime_rollup",
+                actor=worker_id,
+                observation=RuntimeCausalObservation(
+                    stage="deliverable_acceptance",
+                    decision="mission_acceptance_evaluated",
+                    reason_code="acceptance_contract_and_runtime_evidence",
+                    transformation_id="mission-acceptance:runtime-rollup:v1",
+                    selected_path=acceptance_status,
+                    rejected_paths=tuple(acceptance_reasons),
+                    field_lineage={
+                        "acceptance.contract": "mission.metadata.acceptance_contract",
+                        "acceptance.reasons": "terminal_tasks_and_deliverable_runtime_state",
+                    },
+                    constraints=("terminal_task_graph", "declared_deliverable_contract"),
+                    safe_metadata={
+                        "status": acceptance_status,
+                        "task_count": len(siblings),
+                        "failed_task_count": sum(1 for item in siblings if item.status in failedish),
+                        "reason_count": len(acceptance_reasons),
+                    },
+                ),
+                causation_id=str(task.id),
+                correlation_id=str(task.mission_id),
+            )
         runtime_artifacts: list[str] = []
         for sibling in siblings:
             sibling_metadata = sibling.metadata_json if isinstance(sibling.metadata_json, dict) else {}

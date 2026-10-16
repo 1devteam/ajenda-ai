@@ -65,8 +65,12 @@ class MissionRuntimeEvidenceProjection(BaseModel):
     task_flows: list[dict[str, Any]] = Field(default_factory=list)
     record_flows: list[dict[str, Any]] = Field(default_factory=list)
     execution_events: list[dict[str, Any]] = Field(default_factory=list)
+    causal_observations: list[dict[str, Any]] = Field(default_factory=list)
+    information_flow: list[dict[str, Any]] = Field(default_factory=list)
+    information_coverage: list[dict[str, Any]] = Field(default_factory=list)
     contradictions: list[str] = Field(default_factory=list)
     missing_evidence: list[str] = Field(default_factory=list)
+    historical_unknown: list[str] = Field(default_factory=list)
     first_divergence: str | None = None
 
 
@@ -185,8 +189,22 @@ def build_mission_runtime_evidence_projection(
     record_flows: list[dict[str, Any]] = []
     contradictions: list[str] = []
     missing: list[str] = []
+    historical_unknown: list[str] = []
 
     graph = _metadata(mission_metadata, "mission_task_graph")
+    # Composition observations are emitted before a mission exists and are
+    # correlated by proposal id.  Only admit those pre-mission events when the
+    # confirmed mission carries the same proposal reference; otherwise a
+    # tenant-wide audit scan could contaminate this mission's causal history.
+    causal_correlations = {str(mission_id)}
+    graph_proposal_id = graph.get("proposal_id")
+    if isinstance(graph_proposal_id, str) and graph_proposal_id:
+        causal_correlations.add(graph_proposal_id)
+    raw_intake = mission_metadata.get("mission_intake")
+    if isinstance(raw_intake, dict):
+        intake_proposal_id = raw_intake.get("proposal_id")
+        if isinstance(intake_proposal_id, str) and intake_proposal_id:
+            causal_correlations.add(intake_proposal_id)
     raw_graph_nodes = graph.get("nodes")
     available_nodes = (
         [dict(node) for node in raw_graph_nodes if isinstance(node, dict)] if isinstance(raw_graph_nodes, list) else []
@@ -556,6 +574,59 @@ def build_mission_runtime_evidence_projection(
         if event.tenant_id == tenant_id and (event.mission_id is None or event.mission_id == mission_id)
     ]
 
+    causal_observations: list[dict[str, Any]] = []
+    for event in sorted(audit_events or [], key=lambda item: item.created_at):
+        if event.tenant_id != tenant_id or (event.mission_id is not None and event.mission_id != mission_id):
+            continue
+        envelope = RuntimeEvidenceLedger.read_envelope(event)
+        if envelope is None:
+            continue
+        if event.mission_id is None and envelope.correlation_id not in causal_correlations:
+            continue
+        raw = envelope.facts.get("causal_observation")
+        if not isinstance(raw, dict):
+            continue
+        causal_observations.append(
+            {
+                **raw,
+                "event_id": str(envelope.event_id),
+                "occurred_at": envelope.occurred_at.isoformat(),
+                "producer": envelope.producer,
+                "causation_id": envelope.causation_id,
+                "correlation_id": envelope.correlation_id,
+                "evidence_references": list(envelope.evidence_references),
+            }
+        )
+    information_flow = [
+        {
+            "stage": observation.get("stage"),
+            "decision": observation.get("decision"),
+            "reason_code": observation.get("reason_code"),
+            "transformation_id": observation.get("transformation_id"),
+            "selected_path": observation.get("selected_path"),
+            "rejected_paths": observation.get("rejected_paths", []),
+            "field_lineage": observation.get("field_lineage", {}),
+            "source_provenance": observation.get("source_provenance", {}),
+            "event_id": observation.get("event_id"),
+        }
+        for observation in causal_observations
+    ]
+    observed_stages = {str(item.get("stage")) for item in causal_observations}
+    if any(item.get("source_provenance") for item in causal_observations):
+        observed_stages.add("source_partition")
+    information_coverage = [
+        {
+            "stage": stage,
+            "status": "observed" if stage in observed_stages else "not_observed",
+            "source": "runtime_decision.audit_events",
+            "historical": stage not in observed_stages and not causal_observations,
+        }
+        for stage in ("tool_output", "input_binding", "provider_selection", "source_partition", "output_validation")
+    ]
+    required_observation_stages = {"input_binding", "provider_selection", "source_partition", "output_validation"}
+    for stage in sorted(required_observation_stages - observed_stages):
+        (historical_unknown if not causal_observations else missing).append(f"information:{stage}")
+
     return MissionRuntimeEvidenceProjection(
         mission_id=mission_id,
         tenant_id=tenant_id,
@@ -568,7 +639,11 @@ def build_mission_runtime_evidence_projection(
         task_flows=task_flows,
         record_flows=record_flows,
         execution_events=execution_events,
+        causal_observations=causal_observations,
+        information_flow=information_flow,
+        information_coverage=information_coverage,
         contradictions=sorted(set(contradictions)),
         missing_evidence=sorted(set(missing)),
+        historical_unknown=sorted(set(historical_unknown)),
         first_divergence=first_divergence,
     )

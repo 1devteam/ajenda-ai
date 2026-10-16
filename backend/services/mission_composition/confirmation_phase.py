@@ -31,7 +31,7 @@ from backend.services.mission_intake_quality import (
     validate_mission_intake_prompt,
 )
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaExceededError
-from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
+from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger, semantic_lineage_from_mission_metadata
 
 
 class MissionCompositionConfirmationPhase:
@@ -444,6 +444,7 @@ class MissionCompositionConfirmationPhase:
                 "allowed_action_count": len(record.allowed_actions),
                 "forbidden_action_count": len(record.forbidden_actions),
                 "task_graph_node_count": len(normalized_graph.get("nodes") or []),
+                "semantic_lineage": semantic_lineage_from_mission_metadata(mission.metadata_json or {}),
             },
             authority_context={
                 "runtime_queued": False,
