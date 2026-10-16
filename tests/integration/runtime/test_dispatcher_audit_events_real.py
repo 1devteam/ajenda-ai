@@ -123,11 +123,7 @@ def test_dispatcher_success_writes_completed_worker_audit_event(
     verify_session = session_factory()
     try:
         events = _audit_events_for_task(session=verify_session, tenant_id=tenant_id, task_id=task_id)
-        completed_events = [
-            event
-            for event in events
-            if event.action == "task_completed" and RuntimeEvidenceLedger.read_envelope(event) is not None
-        ]
+        completed_events = [event for event in events if event.action == "task_completed"]
 
         assert len(completed_events) == 1
         event = completed_events[0]
@@ -138,9 +134,16 @@ def test_dispatcher_success_writes_completed_worker_audit_event(
         assert event.details == f"Completed task {task_id}"
         assert event.payload_json["task_id"] == str(task_id)
         assert event.payload_json["lease_id"] == str(lease_id)
-        envelope = RuntimeEvidenceLedger.read_envelope(event)
+        ledger_events = [
+            event
+            for event in events
+            if (envelope := RuntimeEvidenceLedger.read_envelope(event)) is not None
+            and envelope.event_type == "runtime_evidence.worker_completion_recorded"
+        ]
+        assert len(ledger_events) == 1
+        envelope = RuntimeEvidenceLedger.read_envelope(ledger_events[0])
         assert envelope is not None
-        assert envelope.event_type == "worker.task_completed"
+        assert envelope.event_type == "runtime_evidence.worker_completion_recorded"
         assert envelope.producer == "worker_runtime"
         assert envelope.subject_references == {"task_id": str(task_id), "lease_id": str(lease_id)}
     finally:
@@ -183,11 +186,7 @@ def test_dispatcher_failure_writes_failed_worker_audit_event(
     verify_session = session_factory()
     try:
         events = _audit_events_for_task(session=verify_session, tenant_id=tenant_id, task_id=task_id)
-        failed_events = [
-            event
-            for event in events
-            if event.action == "task_failed" and RuntimeEvidenceLedger.read_envelope(event) is not None
-        ]
+        failed_events = [event for event in events if event.action == "task_failed"]
 
         assert len(failed_events) == 1
         event = failed_events[0]
@@ -198,8 +197,15 @@ def test_dispatcher_failure_writes_failed_worker_audit_event(
         assert event.details == failure_reason
         assert event.payload_json["task_id"] == str(task_id)
         assert event.payload_json["lease_id"] == str(lease_id)
-        envelope = RuntimeEvidenceLedger.read_envelope(event)
+        ledger_events = [
+            event
+            for event in events
+            if (envelope := RuntimeEvidenceLedger.read_envelope(event)) is not None
+            and envelope.event_type == "runtime_evidence.worker_failure_recorded"
+        ]
+        assert len(ledger_events) == 1
+        envelope = RuntimeEvidenceLedger.read_envelope(ledger_events[0])
         assert envelope is not None
-        assert envelope.event_type == "worker.task_failed"
+        assert envelope.event_type == "runtime_evidence.worker_failure_recorded"
     finally:
         verify_session.close()
