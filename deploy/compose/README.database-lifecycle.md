@@ -38,11 +38,14 @@ connection strings into shell output, CI logs or chat. Do not delete named volum
 ## Live proof
 
 `deploy/scripts/live-runtime-proof.sh` no longer executes `compose down`.
-It starts the required services without `--build` by default. Set
-`AJENDA_PROOF_REBUILD=1` for an explicit image rebuild. The proof still invokes
-Compose startup and migrations and can therefore change running containers if
-configuration has drifted; for non-disruptive evidence collection against an
-active customer environment, use isolated infrastructure instead.
+By default it observes the existing Compose services without starting, rebuilding
+or recreating containers. Set `AJENDA_PROOF_START_SERVICES=1` to permit an
+explicit `compose up` (which can recreate containers if their configuration
+has drifted). Set `AJENDA_PROOF_START_SERVICES=1 AJENDA_PROOF_REBUILD=1`
+to additionally rebuild images. The script still executes an operator mission
+and an assurance cycle when configured; these operations can change application
+data. Run them against isolated infrastructure for non-disruptive verification
+of a customer deployment.
 
 The Compose PostgreSQL healthcheck uses `pg_isready`: it measures server
 availability, not successful role authentication. Verify the application's
