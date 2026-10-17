@@ -158,7 +158,10 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     assert 'docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
     assert expected_command in script
     assert "compose down --remove-orphans" not in script
+    assert 'AJENDA_PROOF_START_SERVICES:-0' in script
     assert 'AJENDA_PROOF_REBUILD:-0' in script
+    assert 'if [[ "${AJENDA_PROOF_START_SERVICES:-0}" == "1" ]]; then' in script
+    assert 'AJENDA_PROOF_REBUILD=1 requires AJENDA_PROOF_START_SERVICES=1' in script
     assert "operator-mission-proof.py" in script
     assert "AJENDA_OPERATOR_MISSION_PROOF" in script
     assert "AJENDA_OPERATOR_MISSION_PROOF" in script
