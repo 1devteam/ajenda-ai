@@ -1,0 +1,61 @@
+# Database lifecycle and local Compose recovery
+
+Ajenda separates privileged, one-time PostgreSQL provisioning from routine schema
+migrations and runtime startup. The `role-bootstrap` Compose service is behind the
+`bootstrap` profile and is **not** a dependency of `migrate`.
+
+## First initialization (new PostgreSQL volume only)
+
+1. Supply `POSTGRES_PASSWORD` and four distinct `AJENDA_*_DATABASE_PASSWORD`
+   values using the selected Compose interpolation environment.
+   For local Compose this is the root `.env`; for the production-like Compose
+   file use `docker compose --env-file deploy/compose/.env.prod -f
+   deploy/compose/docker-compose.prod.yml ...`.
+   Also ensure the service `env_file` paths exist. Do not commit passwords.
+2. Start `db` and wait for PostgreSQL initialization to finish.
+3. Execute `docker compose --profile bootstrap run --rm role-bootstrap`
+   **only** when the database is newly initialized and its privileged
+   `ajenda` login is authorized. This command applies role passwords and
+   transfers ownership. It is not a read-only check.
+4. Start `migrate`, then the API, worker, assurance and frontend normally.
+
+For managed PostgreSQL or hardened deployments with no privileged `ajenda`
+login, use the separately authorized
+`deploy/scripts/provision-database-roles.sh` once during provisioning.
+Do not restore an unneeded superuser login simply to run Compose.
+
+## Existing database / routine startup
+
+Use the **existing** four role credentials. Start Compose normally, without the
+bootstrap profile. Routine migrations run as `ajenda_migrator`. Do not regenerate
+passwords: doing so in the environment alone will disconnect working services.
+
+Running containers can have valid database URLs even if the current host-side
+Compose interpolation environment is incomplete. Recover the matching credentials
+from the authorized secret source before invoking Compose. Do not paste or print
+connection strings into shell output, CI logs or chat. Do not delete named volumes.
+
+## Live proof
+
+`deploy/scripts/live-runtime-proof.sh` no longer executes `compose down`.
+It starts the required services without `--build` by default. Set
+`AJENDA_PROOF_REBUILD=1` for an explicit image rebuild. The proof still invokes
+Compose startup and migrations and can therefore change running containers if
+configuration has drifted; for non-disruptive evidence collection against an
+active customer environment, use isolated infrastructure instead.
+
+The Compose PostgreSQL healthcheck uses `pg_isready`: it measures server
+availability, not successful role authentication. Verify the application's
+effective database identity and migration revision separately.
+
+## Verification
+
+- `docker compose config --quiet` succeeds with complete interpolation inputs.
+- Existing-database startup does not run `role-bootstrap`.
+- First-time provisioning creates four distinct restricted LOGIN roles.
+- A migrator-authenticated migration reaches the expected Alembic revision.
+- The API, worker and assurance cannot bypass RLS.
+- HTTP frontend proxy and authenticated tenant requests work.
+- Redis queue admission, worker consumption, and durable mission evidence pass.
+
+Do not use `docker compose down -v` on a persistent deployment.
