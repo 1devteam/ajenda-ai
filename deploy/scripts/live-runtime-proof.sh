@@ -120,15 +120,20 @@ fi
 log "validating compose configuration"
 compose config --quiet
 
-# Proof runs must not tear down the operator's existing environment.
-# Rebuilds are opt-in; the default validates the configured deployment in place.
-proof_build_args=()
-if [[ "${AJENDA_PROOF_REBUILD:-0}" == "1" ]]; then
-  proof_build_args+=(--build)
+# Observe the existing stack by default. Compose up can recreate services
+# even without --build when runtime configuration has drifted.
+if [[ "${AJENDA_PROOF_START_SERVICES:-0}" == "1" ]]; then
+  proof_build_args=()
+  if [[ "${AJENDA_PROOF_REBUILD:-0}" == "1" ]]; then
+    proof_build_args+=(--build)
+  fi
+  log "explicitly starting proof services (may recreate containers)"
+  compose up -d "${proof_build_args[@]}" db redis migrate api worker assurance frontend prometheus otel-collector
+elif [[ "${AJENDA_PROOF_REBUILD:-0}" == "1" ]]; then
+  fail "AJENDA_PROOF_REBUILD=1 requires AJENDA_PROOF_START_SERVICES=1"
+else
+  log "observing existing services without Compose startup or rebuild"
 fi
-
-log "starting required services without removing existing containers or volumes"
-compose up -d "${proof_build_args[@]}" db redis migrate api worker assurance frontend prometheus otel-collector
 
 log "checking compose service state"
 compose ps
