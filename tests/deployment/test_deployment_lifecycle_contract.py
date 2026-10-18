@@ -1,6 +1,7 @@
 """Behavioral drift guards for the explicit database provisioning lifecycle."""
 
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILES = (
@@ -15,7 +16,10 @@ def _service_block(source: str, name: str) -> str:
     prefix = f"  {name}:\n"
     assert prefix in source, f"Missing service {name}"
     remainder = source.split(prefix, 1)[1]
-    return remainder.split("\n  ", 1)[0]
+    # Only a top-level service key ends a block. Nested mapping keys
+    # (depends_on, db, migrate) are indented by four or more spaces.
+    next_service = re.search(r"(?m)^  [a-z][a-z0-9-]*:\\s*$", remainder)
+    return remainder[:next_service.start()] if next_service else remainder
 
 
 def test_bootstrap_is_opt_in_for_all_compose_variants() -> None:
