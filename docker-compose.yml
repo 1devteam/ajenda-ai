@@ -26,6 +26,8 @@ services:
     environment:
       AJENDA_DATABASE_IDENTITY: api
       AJENDA_DATABASE_URL: postgresql+psycopg://ajenda_api:${AJENDA_API_DATABASE_PASSWORD:?AJENDA_API_DATABASE_PASSWORD must be set}@db:5432/ajenda
+      # The local Compose frontend is served by nginx on :8080.
+      AJENDA_CORS_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173
       # API and worker are separate processes, so the in-memory queue is invalid here.
       AJENDA_QUEUE_ADAPTER: redis
       AJENDA_QUEUE_URL: redis://redis:6379/0

@@ -386,6 +386,16 @@ _SOFTWARE_RND_LOCATION = re.compile(
     r"(?=$|[\s,;.:]|\band\b)",
     re.IGNORECASE,
 )
+# Audience-defined markets are valid research scopes even when they are not
+# geographically bounded, e.g. "early-stage SaaS companies serving technical
+# founders".  Keep the audience as structured metadata so downstream query
+# construction does not have to re-parse the instruction.
+_INDUSTRY_AUDIENCE = re.compile(
+    r"(?:^|[\s,;:])(?P<industry>[A-Za-z][A-Za-z0-9&/\-]*(?:\s+[A-Za-z][A-Za-z0-9&/\-]*){0,4})"
+    r"\s+companies?\s+(?:serving|that\s+serve)\s+(?P<audience>[^.!?]+)"
+    r"(?=$|[.!?])",
+    re.IGNORECASE,
+)
 # "competitors of Acme Roofing in Northwest Arkansas" (prefer with location)
 _COMPETITORS_OF_IN = re.compile(
     r"\bcompetitors?\s+of\s+"
@@ -669,6 +679,34 @@ def _extract_industry_location_entities(text: str) -> list[TargetEntity]:
     return entities
 
 
+def _extract_industry_audience_entities(text: str) -> list[TargetEntity]:
+    entities: list[TargetEntity] = []
+    for match in _INDUSTRY_AUDIENCE.finditer(text):
+        industry_tokens = [token for token in match.group("industry").strip().split() if token]
+        while industry_tokens and industry_tokens[0].lower() in _LEADING_VERB_WORDS:
+            industry_tokens.pop(0)
+        while industry_tokens and (
+            industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()
+        ):
+            industry_tokens.pop(0)
+        industry = " ".join(industry_tokens).strip(" ,.;:")
+        audience = re.sub(r"\s+", " ", match.group("audience").strip(" ,;:"))
+        if not industry or not audience:
+            continue
+        if any(entity.industry and entity.industry.casefold() == industry.casefold() for entity in entities):
+            continue
+        entities.append(
+            TargetEntity(
+                type="company",
+                industry=industry,
+                provenance="explicit",
+                confidence=0.95,
+                attributes={"target_audience": audience},
+            )
+        )
+    return entities
+
+
 def _extract_target_entities(text: str) -> list[TargetEntity]:
     """Retain explicit research / connector targets (competitors, market, CRM company)."""
 
@@ -689,6 +727,8 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
         )
     entities.extend(_extract_competitors_of(text))
     entities.extend(_extract_industry_location_entities(text))
+    if not entities:
+        entities.extend(_extract_industry_audience_entities(text))
     # Connector company targets (HubSpot for Acme) — only when no market target already.
     if not entities:
         entities.extend(_extract_connector_company(text))
