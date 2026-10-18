@@ -62,3 +62,18 @@ effective database identity and migration revision separately.
 - Redis queue admission, worker consumption, and durable mission evidence pass.
 
 Do not use `docker compose down -v` on a persistent deployment.
+
+## Host network exposure
+
+Both Compose definitions bind published ports to `127.0.0.1` only.
+This includes the local frontend/API, local PostgreSQL/Redis, optional HubSpot
+services, and production-like Prometheus/OTEL diagnostics. Docker-internal
+connections still use service names and container ports without host publishing.
+
+Use an intentionally configured reverse proxy or authenticated Cloudflare Tunnel
+to publish **only the frontend ingress** if remote access is required. Do not
+expose PostgreSQL, Redis, the worker, migrator, assurance, or monitoring ports.
+
+Changing port bindings requires an explicit container recreate. Do not run
+`docker compose down -v`; first verify role credentials are available to Compose
+interpolation, then schedule a controlled deployment and check the host listeners.
