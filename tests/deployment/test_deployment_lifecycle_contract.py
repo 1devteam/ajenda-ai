@@ -13,12 +13,12 @@ README = ROOT / "deploy/compose/README.database-lifecycle.md"
 
 
 def _service_block(source: str, name: str) -> str:
-    prefix = f"  {name}:\n"
-    assert prefix in source, f"Missing service {name}"
-    remainder = source.split(prefix, 1)[1]
-    # Only a top-level service key ends a block. Nested mapping keys
-    # (depends_on, db, migrate) are indented by four or more spaces.
-    next_service = re.search(r"(?m)^  [a-z][a-z0-9-]*:\s*$", remainder)
+    # Anchor at the start of the line. A substring split also matches
+    # nested keys such as depends_on.api (six-space indentation).
+    start = re.search(rf"(?m)^  {re.escape(name)}:[ \\t]*$", source)
+    assert start is not None, f"Missing service {name}"
+    remainder = source[start.end():]
+    next_service = re.search(r"(?m)^  [a-z][a-z0-9-]*:[ \\t]*$", remainder)
     return remainder[:next_service.start()] if next_service else remainder
 
 
