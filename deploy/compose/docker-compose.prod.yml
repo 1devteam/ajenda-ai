@@ -6,7 +6,7 @@ services:
       args:
         NGINX_CONF: deploy/nginx/frontend.compose.conf
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     depends_on:
       api:
         condition: service_healthy
@@ -36,7 +36,7 @@ services:
       otel-collector:
         condition: service_started
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "/app/deploy/scripts/readinesscheck.sh"]
@@ -144,7 +144,7 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus-alerts.yml:/etc/prometheus/alerts/prometheus-alerts.yml:ro
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     restart: unless-stopped
 
   otel-collector:
@@ -153,7 +153,7 @@ services:
     volumes:
       - ../k8s/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
     ports:
-      - "4317:4317"
+      - "127.0.0.1:4317:4317"
     restart: unless-stopped
 
   hubspot-crm-adapter:
