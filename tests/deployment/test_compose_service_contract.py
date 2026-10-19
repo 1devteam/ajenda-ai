@@ -257,3 +257,31 @@ def test_live_runtime_proof_validates_prometheus_rule_file_and_metrics_path_cont
     assert 'wait_for_http_ok "$PROMETHEUS_BASE_URL/-/ready"' in script
     assert 'wait_for_prometheus_target_up "$PROMETHEUS_JOB_NAME"' in script
     assert 'curl_body "$API_BASE_URL/v1/observability/metrics"' in script
+
+
+def test_prod_compose_only_publishes_loopback_ports() -> None:
+    compose = _read(COMPOSE_FILE)
+    for service, port in {
+        "frontend": "8080:80",
+        "api": "8000:8000",
+        "prometheus": "9090:9090",
+        "otel-collector": "4317:4317",
+    }.items():
+        block = _service_block(compose, service)
+        assert f'"127.0.0.1:{port}"' in block
+        assert f'      - "{port}"' not in block
+
+
+def test_local_compose_only_publishes_loopback_ports() -> None:
+    compose = _read(Path("docker-compose.yml"))
+    for service, port in {
+        "frontend": "8080:80",
+        "api": "8000:8000",
+        "db": "5432:5432",
+        "redis": "6379:6379",
+        "hubspot-crm-adapter": "8088:8080",
+        "hubspot-crm-ingress": "8443:443",
+    }.items():
+        block = _service_block(compose, service)
+        assert f'"127.0.0.1:{port}"' in block
+        assert f'      - "{port}"' not in block
