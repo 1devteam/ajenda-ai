@@ -18,7 +18,7 @@ def _mock_vector_schema_for_status_contract(monkeypatch: pytest.MonkeyPatch) -> 
 def test_system_status_routes_register() -> None:
     app = FastAPI()
     app.include_router(router)
-    routes = {route.path for route in app.routes}
+    routes = set(app.openapi()["paths"])
     assert "/system/health" in routes
     assert "/system/readiness" in routes
     assert "/system/status" in routes

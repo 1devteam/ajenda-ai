@@ -457,7 +457,7 @@ def test_router_registers_vertical_ops_paths() -> None:
 
     app = FastAPI()
     app.include_router(build_api_router())
-    paths = {getattr(route, "path", "") for route in app.routes}
+    paths = set(app.openapi()["paths"])
     assert "/v1/vertical-ops/templates" in paths
     assert "/v1/vertical-ops/missions" in paths
     assert "/v1/vertical-ops/missions/{mission_id}/apply" in paths
