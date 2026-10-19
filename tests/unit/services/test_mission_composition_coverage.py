@@ -20,6 +20,15 @@ def test_supported_fixture_scope_reports_capacity() -> None:
     assert assessment.ready is True
 
 
+def test_fixture_scope_alias_uses_the_same_capacity_as_action_binding() -> None:
+    assessment = assess_coverage(_intent("Find five software companies in Austin using local fixture data only."))
+
+    assert assessment.status == "supported_with_limits"
+    assert assessment.mode == "local_fixture"
+    assert assessment.available_quantity == 5
+    assert assessment.ready is True
+
+
 def test_lattice_industry_fixture_scopes_report_known_capacity() -> None:
     for industry in (
         "advertising",

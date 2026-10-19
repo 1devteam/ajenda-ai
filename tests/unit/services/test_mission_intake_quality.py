@@ -55,6 +55,28 @@ def test_validate_accepts_bounded_internal_crm_records_mission() -> None:
     )
 
 
+def test_validate_accepts_discover_prospect_mission_recognized_by_composition() -> None:
+    """Keep the confirmation quality gate aligned with the research interpreter.
+
+    ``discover`` is a canonical prospect-research verb.  The same bounded
+    mission must pass the quality gate that confirmation reapplies after a
+    proposal is marked ready, rather than failing after composition.
+    """
+
+    validate_mission_intake_prompt(
+        objective="Discover three e-commerce companies in Austin using local fixture data only.",
+        success_criteria=[
+            {
+                "description": "3 prospects contain company and qualification evidence for e-commerce in Austin",
+                "evidence": ["composition evidence package", "action_result_evidence"],
+            }
+        ],
+        scope_limits=["Austin e-commerce prospects only"],
+        allowed_actions=["research.verify_public_candidates", "web.research"],
+        operator_notes="Composed from proposal; abilities selected by mission_composition_engine.",
+    )
+
+
 @pytest.mark.parametrize(
     "objective",
     [

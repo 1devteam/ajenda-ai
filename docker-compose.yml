@@ -149,6 +149,9 @@ services:
       retries: 10
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # A clean Docker daemon or host restart must not leave the API, worker,
+    # and migrator retrying an unavailable persistent database.
+    restart: unless-stopped
 
   redis:
     image: redis:7

@@ -144,6 +144,7 @@ _OUTCOME_VERBS = frozenset(
         "complete",
         "consolidate",
         "detect",
+        "discover",
         "draft",
         "eliminate",
         "enrich",

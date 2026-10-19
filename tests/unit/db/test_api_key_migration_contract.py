@@ -6,12 +6,12 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 
-def test_api_key_migration_has_single_head_and_short_revision_id() -> None:
+def test_migration_graph_has_current_single_head_and_short_revision_id() -> None:
     config = Config("alembic.ini")
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0053_restrict_auth_runtime"]
+    assert heads == ["0054_merge_roles_evidence"]
     assert len(heads[0]) <= 32
 
 

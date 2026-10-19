@@ -30,6 +30,21 @@ Use the **existing** four role credentials. Start Compose normally, without the
 bootstrap profile. Routine migrations run as `ajenda_migrator`. Do not regenerate
 passwords: doing so in the environment alone will disconnect working services.
 
+The PostgreSQL service uses `restart: unless-stopped`; a Docker daemon or host
+restart therefore restores the existing container against its named
+`postgres_data` volume. This does not run privileged bootstrap SQL or recreate
+the database. After a source update that changes migrations, explicitly rebuild
+the **migrate** image before bringing up dependent services, for example:
+
+```bash
+docker compose build migrate
+docker compose up -d migrate api worker assurance frontend
+```
+
+The migration image must contain every revision already recorded by the
+database. A migration error such as “Can't locate revision” indicates an
+outdated image, not a reason to stamp, reset, or modify the persistent database.
+
 Running containers can have valid database URLs even if the current host-side
 Compose interpolation environment is incomplete. Recover the matching credentials
 from the authorized secret source before invoking Compose. Do not paste or print

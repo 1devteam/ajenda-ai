@@ -6,6 +6,8 @@ This repository contains both the application runtime and the runtime-proof laye
 
 **Canonical architecture (code-aligned, with Mermaid flowcharts):** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](docs/architecture/SYSTEM_ARCHITECTURE.md)
 
+**Current evidence assessment (2026-10-19):** [`docs/validation/runtime-capability-assessment-2026-10-19.md`](docs/validation/runtime-capability-assessment-2026-10-19.md) records the source-graph refresh, current local Compose vertical proof, known gaps, and the ordered plan forward. It is deliberately narrower than a production-readiness claim.
+
 ---
 
 ## System flow (summary)
@@ -35,7 +37,7 @@ flowchart LR
 
 | Surface | Status |
 |---------|--------|
-| Backend platform | Production-grade runtime, tenant isolation, queue/lease authority, recovery |
+| Backend platform | Implemented runtime; current local Compose proof covers a bounded fixture mission through queue, worker, deliverable, and runtime evidence. Production and live-provider readiness require separate evidence. |
 | Self-serve onboarding API | Implemented (`/v1/onboarding/*`) — signup, verify, resend, promote |
 | Account self-service API | Implemented (`/v1/account/me`, `/plan`, `/usage`, `/billing`) |
 | Provider credentials API | Implemented (`/v1/account/provider-credentials` + revoke/delete) |
@@ -452,8 +454,9 @@ pip install -e ".[dev]"
 # 3. (Optional) Start infrastructure
 docker compose up -d
 
-# 4. (Optional) Run migrations — use localhost when invoking alembic from the host:
-#    AJENDA_DATABASE_URL=postgresql+psycopg://ajenda:ajenda@localhost:5432/ajenda alembic upgrade head
+# 4. (Optional) Run migrations — use the dedicated migrator identity, never the
+#    retired runtime role. The password remains in your protected local env:
+#    AJENDA_DATABASE_URL="postgresql+psycopg://ajenda_migrator:${AJENDA_MIGRATOR_DATABASE_PASSWORD}@localhost:5432/ajenda" alembic upgrade head
 
 # 5. Start the API (requires DB/queue if exercising runtime paths)
 uvicorn backend.main:app --reload
@@ -570,7 +573,7 @@ Recent milestones:
 - **Mission plans (Phase 4):** durable `mission_plans` table is canonical; `PUT /plan` writes table only; legacy metadata read-only + `0031` backfill migration; `allow_legacy_v1` opt-in on mission create (default false)
 - **Worker tenancy (Phase 5):** `AJENDA_WORKER_TENANT_MODE=multi` round-robin across active tenants (ADR-0004); production deploy defaults updated
 - **Paid customer product:** account APIs, customer frontend (router + pages), Compose/K8s frontend deploy, GHCR frontend image CI, E2E integration test + staging curl proof
-- **Alembic head:** `0036_composition_thread`
+- **Alembic head:** `0054_merge_roles_evidence` — merges the runtime-evidence/billing and restricted-role branches.
 - **Live proof CI:** `main` push runs Live Runtime Proof after integration + docker build (see `docs/validation/live-runtime-proof-release-gate.md`)
 - **Outcome-loop intelligence:** deterministic coverage/applicability assessment, epistemic context, deliverable lifecycle reconciliation, and semantic lattice provenance are implemented before and alongside governed runtime execution
 - **Semantic lattice:** shared GTM/business concepts now compose with local-service, field-service, professional-services, healthcare, SaaS, e-commerce, and industry overlays including HVAC, roofing, plumbing, electrical, landscaping, pest control, legal, dental, recruiting, and advertising
@@ -788,8 +791,14 @@ Run integration tests, migration round-trip checks, and live runtime proof when 
 | 0034 | email_send_idempotency_receipts (SMTP send replay protection) |
 | 0035 | mission_composition_proposals (durable compose history; no execution authority) |
 | 0036 | interpretation thread/proposal-kind fields and tenant/actor/thread index |
+| 0037–0049 | Knowledge lifecycle/retrieval, password/onboarding, RLS, idempotency, pricing, profile, and continuous-assurance contracts |
+| 0050 | Runtime-evidence consumer checkpoints and durable queue-dispatch branch |
+| 0051 | Billing-meter dispatch outbox |
+| 0052 | Merge runtime-evidence/billing histories and establish distinct database roles |
+| 0053 | Restrict authentication-table access to the API role |
+| 0054 | Merge the restricted-role and runtime-evidence migration branches |
 
-**Alembic head:** `0036_composition_thread`
+**Alembic head:** `0054_merge_roles_evidence`
 
 ### Mission composition (plain language → plan)
 
@@ -834,7 +843,7 @@ Start here when working on product direction and current runtime behavior.
 
 ## Contract audit status
 
-**Last audited:** August 1, 2026 (`main`, Alembic head `0036_composition_thread`)
+**Historical audit:** August 1, 2026 (`main`, Alembic head `0036_composition_thread`). It remains useful for its stated contract replay, but it is not current migration or runtime evidence. Use the [2026-10-19 runtime capability assessment](docs/validation/runtime-capability-assessment-2026-10-19.md) and the generated graph for current review.
 
 The July 2026 contract replay closed the README follow-up audit list. Authority classes below map to `docs/contracts/authority-ledger.v1.yaml` (`declarative`, `read_model`, `governed_mutation`, `runtime_authoritative`). `python scripts/validation/contract_drift_check.py` passes on `main`.
 
@@ -849,7 +858,7 @@ The July 2026 contract replay closed the README follow-up audit list. Authority 
 | SaaS/quota admission replay | Closed | `QuotaEnforcementService` and rate-limit middleware gate API usage; queue/mission/API-key admission paths have contract and unit coverage. |
 | Mission approval/admission semantics | Classified | **Enforced gates:** `PolicyGuardian` → `pending_review` at queue admission; `requires_human_review` on tasks; ability-runtime launch authority; `side_effect_authorization` for external actions; informed-autonomy disclaimer (ADR-0005). **Advisory metadata:** `mission.approval_required` (stored and surfaced in Mission Brief, not enforced at queue admission); `capability.approval_requirements` (declaration validation); `outcome_review.human_approval_required` (review metadata). |
 | Validation matrix freshness | Closed | AT-05 refreshed: public probes are `/health`, `/readiness`, `/v1/system/health`, `/v1/system/readiness` only; `POST /v1/operations/recovery` requires tenant auth + `RUNTIME_OPERATE` (FR-06, `test_recovery_public_contract.py`). |
-| Project state report freshness | Current | `docs/PROJECT_STATE_REPORT.md` dated August 1, 2026; refresh on each release cycle per `docs/policies/DOCS_FRESHNESS_POLICY.md`. |
+| Project state report freshness | Historical | `docs/PROJECT_STATE_REPORT.md` is an October 3 snapshot. It is retained for history; current source/runtime assessment is linked above. |
 
 Remaining platform gaps (outside this audit closure):
 

@@ -1,11 +1,12 @@
 # Ajenda AI — Project State Report
 
 **Date:** October 3, 2026
-**Branch:** `main`  
-**Alembic head:** `0038_knowledge_retrieval`
+**Status:** Historical snapshot — do not treat as current runtime or migration proof.
+**Branch at the time:** `main`
+**Alembic head at the time:** `0038_knowledge_retrieval`
 **Architecture map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md)
 
-This report reflects implementation-backed truth on `main`. For visual flows, see the Mermaid diagrams in `SYSTEM_ARCHITECTURE.md`.
+For current source-backed topology, runtime evidence boundaries, known gaps, and plan forward, use [`docs/validation/runtime-capability-assessment-2026-10-19.md`](validation/runtime-capability-assessment-2026-10-19.md). For visual flows, see the Mermaid diagrams in `SYSTEM_ARCHITECTURE.md`.
 
 ---
 
