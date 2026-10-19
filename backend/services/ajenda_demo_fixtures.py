@@ -272,18 +272,42 @@ def supplemental_demo_records() -> dict[str, dict[str, dict[str, Any]]]:
     }
 
 
+def _normalize_local_fixture_scope(industry: str, location: str) -> tuple[str, str]:
+    """Normalize a requested fixture scope to its stored fixture scope."""
+
+    normalized_industry = " ".join(industry.casefold().split())
+    normalized_location = " ".join(location.casefold().split())
+    # This established interpreter alias refers to the same bounded fixture
+    # collection; it must be applied before both capacity assessment and input
+    # binding so those two non-authoritative composition steps cannot disagree.
+    if normalized_industry == "software":
+        normalized_industry = "software development"
+    return normalized_industry, normalized_location
+
+
+def local_fixture_scope_capacity(industry: str, location: str) -> int:
+    """Return available local-fixture records for a normalized requested scope."""
+
+    requested_scope = _normalize_local_fixture_scope(industry, location)
+    return sum(
+        1
+        for record in supplemental_demo_records().get("account", {}).values()
+        if record.get("source") == "local_fixture"
+        and record.get("industry")
+        and record.get("location")
+        and _normalize_local_fixture_scope(str(record["industry"]), str(record["location"])) == requested_scope
+    )
+
+
 def local_fixture_scope_keys() -> frozenset[tuple[str, str]]:
-    """Return normalized industry/location scopes backed by fixture accounts."""
+    """Return accepted normalized industry/location scopes backed by fixtures."""
 
     scopes = {
-        (
-            " ".join(str(record.get("industry", "")).casefold().split()),
-            " ".join(str(record.get("location", "")).casefold().split()),
-        )
+        _normalize_local_fixture_scope(str(record["industry"]), str(record["location"]))
         for record in supplemental_demo_records().get("account", {}).values()
         if record.get("source") == "local_fixture" and record.get("industry") and record.get("location")
     }
-    # Preserve the established interpreter alias without duplicating records.
+    # Expose the user-facing alias without duplicating the underlying records.
     if ("software development", "austin") in scopes:
         scopes.add(("software", "austin"))
     return frozenset(scopes)

@@ -1,7 +1,8 @@
 # Ajenda AI — System Architecture (Code-Aligned)
 
 **Status:** Active  
-**Last verified against the 2026-08-18 V1 Path 3 working tree based on `d8a786c383d79f985663ebc1c0428d819f2d6b4a`:** 2026-08-18
+**Current structural verification:** 2026-10-19, working tree at `4c7caabeb7805d3b0a62535c1893df6b42296a4e`; generated graph: 2,121 nodes, 5,852 edges, no static cycles.
+**Runtime verification scope:** one local Compose fixture mission completed through onboarding, compose, confirm, launch, Redis/worker execution, deliverable, tenant-isolated runtime-evidence read, and reconciliation. This is not proof of live provider behavior or production deployment health; see [`docs/validation/runtime-capability-assessment-2026-10-19.md`](../validation/runtime-capability-assessment-2026-10-19.md).
 **Source of truth:** implementation files, migrations, tests — not aspirational product docs.
 
 This document is the canonical visual and narrative map of what exists in the repository today. When docs conflict with code, code wins.
@@ -371,6 +372,7 @@ Onboarding routes use IP-keyed rate limits and body-hash idempotency when `AJEND
 | `/v1/review-queue/*` | tenant | Draft/artifact review approve/reject queue |
 | `/v1/api-keys/*` | tenant | Key lifecycle |
 | `/v1/missions/*`, `/v1/tasks/*` | tenant | Mission/task queue authority plus read-only assembled RevOps deliverable |
+| `/v1/missions/{id}/runtime-evidence`, `/runtime-reconciliation-export` | tenant | Read-only, tenant-scoped execution evidence and sealed reconciliation export; neither endpoint grants execution authority |
 | `/v1/workforce/*`, `/v1/branches/*` | tenant | Fleet and branch management |
 | `/v1/runtime/*`, `/v1/operations/*` | tenant | Governor and ops controls |
 | `/v1/capabilities/*`, `/v1/capability-adapters/*` | tenant | Declaration contracts |
@@ -388,7 +390,7 @@ Root (unversioned): `/health`, `/readiness`
 
 ## 9. Database migrations (Alembic head)
 
-**Head revision:** `0038_knowledge_retrieval`
+**Head revision:** `0054_merge_roles_evidence`
 
 | Rev | Description |
 |-----|-------------|
@@ -410,6 +412,12 @@ Root (unversioned): `/health`, `/readiness`
 | 0036 | interpretation thread/proposal-kind fields and tenant/actor/thread index |
 | 0037 | tenant-scoped durable Knowledge qualification and artifact ledger tables |
 | 0038 | JSONB GIN index for Knowledge Retrieval candidate discovery |
+| 0039–0049 | Password auth, durable onboarding/credentials, RLS restoration, idempotency, pricing, profile/knowledge lifecycle, and continuous assurance |
+| 0050 | Runtime-evidence consumer checkpoints and runtime queue dispatch outbox branch |
+| 0051 | Billing-meter dispatch outbox |
+| 0052 | Runtime-evidence/billing merge and database role separation |
+| 0053 | Restrict pre-tenant authentication records to the API identity |
+| 0054 | Merge restricted runtime-role and observability histories |
 
 ---
 
@@ -439,6 +447,7 @@ Root (unversioned): `/health`, `/readiness`
 | RevOps deliverable assembly | tenant-scoped API, typed assembly, completion independence, approval/effect/receipt failure paths |
 | Paid customer E2E | `test_paid_customer_loop_real.py`, `paid-customer-loop-staging-proof.sh` |
 | Live runtime proof (CI) | `.github/workflows/ci.yml` on `main` push → `deploy/scripts/live-runtime-proof.sh` |
+| Runtime evidence/reconciliation | tenant-scoped `runtime-evidence` and `runtime-reconciliation-export` routes; unit coverage for ledger, projection, export, and task-scoped coverage |
 | Brain / internal CRM | migration `0033`, `tenant_internal_records`, brain capstone proof script |
 
 ---
@@ -461,6 +470,17 @@ Root (unversioned): `/health`, `/readiness`
 4. Plan/feature alignment (starter checkout vs `ability_runtime` on pro)
 5. Terraform/AWS frontend hosting (if production edge is ECS/ALB-only today)
 6. Run staging runbook + E2E proof against production-like hostnames before launch
+
+## 13.1 Current evidence gaps and next engineering work
+
+The current local fixture proof establishes the governed mission spine, not the entire product surface. The source-backed gaps and ordered acceptance criteria are maintained in [`runtime-capability-assessment-2026-10-19.md`](../validation/runtime-capability-assessment-2026-10-19.md):
+
+1. Use one canonical fixture scope resolver for composition coverage and action binding; prove the `software` alias end to end.
+2. Preserve a sanitized stage/status failure envelope in the API proof harness so incomplete mission attempts can be diagnosed without logging credentials.
+3. Add a bounded multi-tenant worker-dispatch latency proof for tenants that appear after worker startup.
+4. Run a separately configured public-web/provider proof and connector-specific read/write proofs before claiming external research or commercial automation readiness.
+
+These are evidence and reliability priorities. They do not grant new execution authority to G.R.A.F.T., the runtime projection, or continuous assurance.
 
 ---
 

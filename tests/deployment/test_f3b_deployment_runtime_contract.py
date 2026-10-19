@@ -302,7 +302,14 @@ def test_compose_and_live_proof_use_same_env_file_for_config_up_exec_down() -> N
     assert 'COMPOSE_ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"' in script
     assert 'docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
     assert "compose config --quiet" in script
-    assert "compose up -d --build db redis migrate api worker assurance frontend prometheus otel-collector" in script
+    assert "AJENDA_PROOF_START_SERVICES:-0" in script
+    assert "AJENDA_PROOF_REBUILD:-0" in script
+    assert "proof_build_args+=(--build)" in script
+    assert (
+        'compose up -d "${proof_build_args[@]}" db redis migrate api worker assurance frontend prometheus otel-collector'
+        in script
+    )
+    assert "compose down --remove-orphans" not in script
     assert (
         'docker compose -p "$AJENDA_PROOF_COMPOSE_PROJECT_NAME" --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml down --remove-orphans'
         in workflow

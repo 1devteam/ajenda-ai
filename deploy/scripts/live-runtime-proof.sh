@@ -120,14 +120,20 @@ fi
 log "validating compose configuration"
 compose config --quiet
 
-log "stopping prior compose services while preserving persistent database volumes"
-# A runtime proof must not destroy operator sign-ins, tenants, missions, or
-# artifacts.  Environment rotation is handled by migrations and service
-# restart; volume deletion belongs to an explicit disposable test command.
-compose down --remove-orphans >/dev/null 2>&1 || true
-
-log "starting compose services"
-compose up -d --build db redis migrate api worker assurance frontend prometheus otel-collector
+# Observe the existing stack by default. Compose up can recreate services
+# even without --build when runtime configuration has drifted.
+if [[ "${AJENDA_PROOF_START_SERVICES:-0}" == "1" ]]; then
+  proof_build_args=()
+  if [[ "${AJENDA_PROOF_REBUILD:-0}" == "1" ]]; then
+    proof_build_args+=(--build)
+  fi
+  log "explicitly starting proof services (may recreate containers)"
+  compose up -d "${proof_build_args[@]}" db redis migrate api worker assurance frontend prometheus otel-collector
+elif [[ "${AJENDA_PROOF_REBUILD:-0}" == "1" ]]; then
+  fail "AJENDA_PROOF_REBUILD=1 requires AJENDA_PROOF_START_SERVICES=1"
+else
+  log "observing existing services without Compose startup or rebuild"
+fi
 
 log "checking compose service state"
 compose ps

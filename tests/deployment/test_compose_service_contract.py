@@ -94,13 +94,13 @@ def test_runtime_services_receive_only_their_own_database_identity() -> None:
         assert all(fragment in block for fragment in fragments)
 
 
-def test_migrations_wait_for_database_role_bootstrap() -> None:
+def test_role_bootstrap_is_explicit_and_not_a_migration_dependency() -> None:
     compose = _read(COMPOSE_FILE)
     migration = _service_block(compose, "migrate")
     bootstrap = _service_block(compose, "role-bootstrap")
 
-    assert "role-bootstrap:" in migration
-    assert "condition: service_completed_successfully" in migration
+    assert "role-bootstrap:" not in migration
+    assert 'profiles: ["bootstrap"]' in bootstrap
     assert "database_role_bootstrap.sql" in bootstrap
     assert "AJENDA_MIGRATOR_DATABASE_PASSWORD" in bootstrap
 
@@ -150,13 +150,18 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     script = _read(LIVE_RUNTIME_PROOF)
     operator_script = _read(OPERATOR_MISSION_PROOF)
 
-    expected_command = "compose up -d --build " + " ".join(LIVE_PROOF_STARTED_SERVICES)
+    expected_command = 'compose up -d "${proof_build_args[@]}" ' + " ".join(LIVE_PROOF_STARTED_SERVICES)
 
     assert 'COMPOSE_ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"' in script
     assert 'if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then' in script
     assert 'fail "compose env file not found: $COMPOSE_ENV_FILE"' in script
     assert 'docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
     assert expected_command in script
+    assert "compose down --remove-orphans" not in script
+    assert "AJENDA_PROOF_START_SERVICES:-0" in script
+    assert "AJENDA_PROOF_REBUILD:-0" in script
+    assert 'if [[ "${AJENDA_PROOF_START_SERVICES:-0}" == "1" ]]; then' in script
+    assert "AJENDA_PROOF_REBUILD=1 requires AJENDA_PROOF_START_SERVICES=1" in script
     assert "operator-mission-proof.py" in script
     assert "AJENDA_OPERATOR_MISSION_PROOF" in script
     assert "AJENDA_OPERATOR_MISSION_PROOF" in script
@@ -210,12 +215,12 @@ def test_staging_autonomy_plugin_proof_delegates_to_plugin_lane() -> None:
     assert "AJENDA_PROOF_AUTONOMY_LANE" in script
 
 
-def test_compose_exposes_expected_runtime_ports() -> None:
+def test_compose_exposes_expected_loopback_runtime_ports() -> None:
     compose = _read(COMPOSE_FILE)
 
-    assert '"8000:8000"' in _service_block(compose, "api")
-    assert '"9090:9090"' in _service_block(compose, "prometheus")
-    assert '"4317:4317"' in _service_block(compose, "otel-collector")
+    assert '"127.0.0.1:8000:8000"' in _service_block(compose, "api")
+    assert '"127.0.0.1:9090:9090"' in _service_block(compose, "prometheus")
+    assert '"127.0.0.1:4317:4317"' in _service_block(compose, "otel-collector")
 
 
 def test_compose_mounts_prometheus_and_otel_config() -> None:
@@ -252,3 +257,31 @@ def test_live_runtime_proof_validates_prometheus_rule_file_and_metrics_path_cont
     assert 'wait_for_http_ok "$PROMETHEUS_BASE_URL/-/ready"' in script
     assert 'wait_for_prometheus_target_up "$PROMETHEUS_JOB_NAME"' in script
     assert 'curl_body "$API_BASE_URL/v1/observability/metrics"' in script
+
+
+def test_prod_compose_only_publishes_loopback_ports() -> None:
+    compose = _read(COMPOSE_FILE)
+    for service, port in {
+        "frontend": "8080:80",
+        "api": "8000:8000",
+        "prometheus": "9090:9090",
+        "otel-collector": "4317:4317",
+    }.items():
+        block = _service_block(compose, service)
+        assert f'"127.0.0.1:{port}"' in block
+        assert f'      - "{port}"' not in block
+
+
+def test_local_compose_only_publishes_loopback_ports() -> None:
+    compose = _read(Path("docker-compose.yml"))
+    for service, port in {
+        "frontend": "8080:80",
+        "api": "8000:8000",
+        "db": "5432:5432",
+        "redis": "6379:6379",
+        "hubspot-crm-adapter": "8088:8080",
+        "hubspot-crm-ingress": "8443:443",
+    }.items():
+        block = _service_block(compose, service)
+        assert f'"127.0.0.1:{port}"' in block
+        assert f'      - "{port}"' not in block

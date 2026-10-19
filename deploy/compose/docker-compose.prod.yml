@@ -6,7 +6,7 @@ services:
       args:
         NGINX_CONF: deploy/nginx/frontend.compose.conf
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     depends_on:
       api:
         condition: service_healthy
@@ -36,7 +36,7 @@ services:
       otel-collector:
         condition: service_started
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "/app/deploy/scripts/readinesscheck.sh"]
@@ -90,13 +90,14 @@ services:
       AJENDA_DATABASE_IDENTITY: migrator
       AJENDA_DATABASE_URL: postgresql+psycopg://ajenda_migrator:${AJENDA_MIGRATOR_DATABASE_PASSWORD:?AJENDA_MIGRATOR_DATABASE_PASSWORD must be set}@db:5432/ajenda
     depends_on:
-      role-bootstrap:
-        condition: service_completed_successfully
       db:
         condition: service_healthy
     restart: "no"
 
+  # Explicit first-time provisioning only; never a routine migration dependency.
+  # Invoke with --profile bootstrap run --rm role-bootstrap when authorized.
   role-bootstrap:
+    profiles: ["bootstrap"]
     image: postgres:16
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.prod}
@@ -126,7 +127,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ajenda -d ajenda"]
+      test: ["CMD-SHELL", "pg_isready -U ajenda_migrator -d ajenda"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -143,7 +144,7 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus-alerts.yml:/etc/prometheus/alerts/prometheus-alerts.yml:ro
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     restart: unless-stopped
 
   otel-collector:
@@ -152,7 +153,7 @@ services:
     volumes:
       - ../k8s/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
     ports:
-      - "4317:4317"
+      - "127.0.0.1:4317:4317"
     restart: unless-stopped
 
   hubspot-crm-adapter:

@@ -741,6 +741,24 @@ def test_find_companies_names_research_and_holds_target_scope_without_fake_query
         assert step.compile_gap or step.action_name != "web.research"
 
 
+def test_audience_defined_market_is_a_usable_research_scope_without_location() -> None:
+    instruction = (
+        "Find three early-stage SaaS companies serving technical founders or product teams "
+        "that may need custom web applications or API integrations. Use public web research only."
+    )
+    intent = interpret_instruction(instruction)
+
+    assert not any(item.field == "target_scope" for item in intent.ambiguity)
+    assert len(intent.target_entities) == 1
+    entity = intent.target_entities[0]
+    assert entity.industry == "early-stage SaaS"
+    assert entity.location is None
+    assert (
+        entity.attributes["target_audience"]
+        == "technical founders or product teams that may need custom web applications or API integrations"
+    )
+
+
 def test_github_read_without_owner_repo_reports_algorithm_gap_not_placeholder() -> None:
     record = MissionCompositionService(db=None).compose(
         tenant_id="11111111-1111-1111-1111-111111111111",

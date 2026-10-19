@@ -6,7 +6,7 @@ services:
       args:
         NGINX_CONF: deploy/nginx/frontend.compose.conf
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     depends_on:
       api:
         condition: service_healthy
@@ -26,6 +26,8 @@ services:
     environment:
       AJENDA_DATABASE_IDENTITY: api
       AJENDA_DATABASE_URL: postgresql+psycopg://ajenda_api:${AJENDA_API_DATABASE_PASSWORD:?AJENDA_API_DATABASE_PASSWORD must be set}@db:5432/ajenda
+      # The local Compose frontend is served by nginx on :8080.
+      AJENDA_CORS_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173
       # API and worker are separate processes, so the in-memory queue is invalid here.
       AJENDA_QUEUE_ADAPTER: redis
       AJENDA_QUEUE_URL: redis://redis:6379/0
@@ -33,7 +35,7 @@ services:
       AJENDA_NETWORK_EGRESS_TLS_VERIFY: "false"
       AJENDA_VECTOR_DB_ENABLED: "true"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -104,13 +106,14 @@ services:
       # Colocated vector plane: ephemeral_memory_chunks on the primary Postgres instance.
       AJENDA_VECTOR_DB_ENABLED: "true"
     depends_on:
-      role-bootstrap:
-        condition: service_completed_successfully
       db:
         condition: service_healthy
     restart: "no"
 
+  # Explicit first-time provisioning only; never a routine migration dependency.
+  # Invoke with --profile bootstrap run --rm role-bootstrap when authorized.
   role-bootstrap:
+    profiles: ["bootstrap"]
     image: postgres:16
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
@@ -138,20 +141,23 @@ services:
       POSTGRES_USER: ajenda
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ajenda -d ajenda"]
+      test: ["CMD-SHELL", "pg_isready -U ajenda_migrator -d ajenda"]
       interval: 5s
       timeout: 5s
       retries: 10
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # A clean Docker daemon or host restart must not leave the API, worker,
+    # and migrator retrying an unavailable persistent database.
+    restart: unless-stopped
 
   redis:
     image: redis:7
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     restart: unless-stopped
 
   hubspot-crm-adapter:
@@ -160,7 +166,7 @@ services:
       context: .
       dockerfile: services/hubspot_crm_adapter/Dockerfile
     ports:
-      - "8088:8080"
+      - "127.0.0.1:8088:8080"
     environment:
       HUBSPOT_API_BASE: https://api.hubapi.com
       HUBSPOT_ADAPTER_TIMEOUT_SECONDS: "15"
@@ -172,7 +178,7 @@ services:
       context: .
       dockerfile: deploy/compose/hubspot-crm-ingress/Dockerfile
     ports:
-      - "8443:443"
+      - "127.0.0.1:8443:443"
     depends_on:
       hubspot-crm-adapter:
         condition: service_started

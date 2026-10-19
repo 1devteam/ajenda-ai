@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from backend.services.ajenda_demo_fixtures import local_fixture_scope_keys
+from backend.services.ajenda_demo_fixtures import local_fixture_scope_capacity
 from backend.services.mission_composition.action_input_common import (
     _SCRAPE_SITE_RE,
     _ajenda_internal_crm_only,
@@ -35,6 +35,10 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
         # Prefer structured industry/location phrasing when both present.
         if entity and entity.industry and entity.location and not entity.name:
             research_query = f"{entity.industry} companies in {entity.location}"
+        elif entity and entity.industry and isinstance(entity.attributes, dict):
+            audience = str(entity.attributes.get("target_audience") or "").strip()
+            if audience and not entity.name:
+                research_query = f"{entity.industry} companies serving {audience}"
         extracted_company = (
             (entity.name.strip() if entity and entity.name else None)
             or industry
@@ -62,10 +66,7 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
             re.search(r"\blocal\s+(?:test\s+)?fixtures?\b|\bfixture\s+data\s+only\b", source, re.IGNORECASE)
         )
         if local_fixture_only and entity and entity.industry and entity.location:
-            fixture_scope_supported = (
-                " ".join(entity.industry.casefold().split()),
-                " ".join(entity.location.casefold().split()),
-            ) in local_fixture_scope_keys()
+            fixture_scope_supported = local_fixture_scope_capacity(entity.industry, entity.location) > 0
             if not fixture_scope_supported:
                 raise ValueError(
                     "local prospect fixtures require a configured industry/location scope; "

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from backend.services.ajenda_demo_fixtures import supplemental_demo_records
+from backend.services.ajenda_demo_fixtures import local_fixture_scope_capacity
 from backend.services.mission_composition.contracts import (
     CoverageAssessment,
     CoverageMode,
@@ -50,13 +50,7 @@ def _scope(intent: MissionIntent) -> tuple[str | None, str | None, str | None]:
 
 
 def _fixture_capacity(industry: str, location: str) -> int:
-    accounts = supplemental_demo_records().get("account", {})
-    return sum(
-        1
-        for record in accounts.values()
-        if str(record.get("industry", "")).casefold() == industry
-        and str(record.get("location", "")).casefold() == location
-    )
+    return local_fixture_scope_capacity(industry, location)
 
 
 def assess_coverage(intent: MissionIntent, *, internal_capacity: int | None = None) -> CoverageAssessment:

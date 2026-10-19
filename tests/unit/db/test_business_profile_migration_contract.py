@@ -11,7 +11,7 @@ def test_business_profile_migration_is_current_head_and_short_revision_id() -> N
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0053_restrict_auth_runtime"]
+    assert heads == ["0054_merge_roles_evidence"]
     assert len(heads[0]) <= 32
 
 
