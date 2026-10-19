@@ -18,8 +18,8 @@ dependencies = [
   "sqlalchemy>=2.0,<3.0",
   "alembic>=1.13,<2.0",
   "psycopg[binary]>=3.2,<4.0",
-  "pydantic==2.14.0",
-  "pydantic-settings==2.15.0",
+  "pydantic==2.14.1",
+  "pydantic-settings==2.16.0",
   "python-json-logger>=2.0,<5.0",
   # Auth — cryptographic hashing and JWT verification
   "argon2-cffi>=25.1.0,<26.0",
@@ -34,7 +34,7 @@ dependencies = [
   # Public search discovery (web.research / ddgs chain)
   "ddgs>=9.0,<10.0",
   # Governed browser execution; the worker image installs the pinned Chromium binary.
-  "playwright==1.63.0",
+  "playwright==1.64.0",
   # Security floor: GHSA-6v7p-g79w-8964 is fixed in msgpack 1.2.1.
   "msgpack>=1.2.1,<2.0",
 
