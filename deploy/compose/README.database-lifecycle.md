@@ -62,9 +62,18 @@ and an assurance cycle when configured; these operations can change application
 data. Run them against isolated infrastructure for non-disruptive verification
 of a customer deployment.
 
-The Compose PostgreSQL healthcheck uses `pg_isready`: it measures server
-availability, not successful role authentication. Verify the application's
-effective database identity and migration revision separately.
+For a newly created, isolated proof database, additionally set
+`AJENDA_PROOF_BOOTSTRAP_ROLES=1`. This explicitly runs the bootstrap profile
+before the migrator so the four restricted identities exist. Never set this
+flag for an existing customer database: routine proof and service startup use
+the already-provisioned credentials and do not alter role ownership or grants.
+
+The Compose PostgreSQL healthcheck uses `pg_isready -d ajenda` without a
+runtime-role username. It measures server availability, not successful role
+authentication, so a fresh volume can become healthy before explicit bootstrap
+and an existing hardened database does not retry the retired `ajenda` login.
+Verify the application's effective database identity and migration revision
+separately.
 
 ## Verification
 

@@ -127,7 +127,9 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ajenda_migrator -d ajenda"]
+      # Server readiness must not depend on a role created by the explicit
+      # bootstrap profile; application identities are verified separately.
+      test: ["CMD-SHELL", "pg_isready -d ajenda"]
       interval: 5s
       timeout: 5s
       retries: 10

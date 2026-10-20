@@ -52,13 +52,24 @@ def test_database_restarts_without_reprovisioning_persistent_storage() -> None:
         assert "postgres_data:/var/lib/postgresql/data" in database, str(path)
 
 
+def test_database_healthcheck_does_not_require_a_bootstrapped_role() -> None:
+    """Fresh volumes must become healthy before the opt-in role bootstrap."""
+    for path in COMPOSE_FILES:
+        database = _service_block(path.read_text(encoding="utf-8"), "db")
+
+        assert "pg_isready -d ajenda" in database, str(path)
+        assert "pg_isready -U" not in database, str(path)
+
+
 def test_runtime_proof_defaults_to_observation_without_teardown() -> None:
     script = PROOF.read_text(encoding="utf-8")
     assert "compose down" not in script
     assert "AJENDA_PROOF_START_SERVICES:-0" in script
+    assert "AJENDA_PROOF_BOOTSTRAP_ROLES:-0" in script
     assert "AJENDA_PROOF_REBUILD:-0" in script
     assert "requires AJENDA_PROOF_START_SERVICES=1" in script
     assert 'compose up -d "${proof_build_args[@]}"' in script
+    assert "compose --profile bootstrap run --rm role-bootstrap" in script
 
 
 def test_operator_documentation_distinguishes_bootstrap_and_normal_start() -> None:

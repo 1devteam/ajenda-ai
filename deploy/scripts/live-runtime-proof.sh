@@ -123,6 +123,14 @@ compose config --quiet
 # Observe the existing stack by default. Compose up can recreate services
 # even without --build when runtime configuration has drifted.
 if [[ "${AJENDA_PROOF_START_SERVICES:-0}" == "1" ]]; then
+  if [[ "${AJENDA_PROOF_BOOTSTRAP_ROLES:-0}" == "1" ]]; then
+    # Explicitly provision a newly-created, isolated proof database before
+    # the migrator starts. This profile transfers ownership and creates the
+    # four restricted runtime identities; it is never routine startup work.
+    log "bootstrapping restricted database roles for the isolated proof stack"
+    compose up -d db
+    compose --profile bootstrap run --rm role-bootstrap
+  fi
   proof_build_args=()
   if [[ "${AJENDA_PROOF_REBUILD:-0}" == "1" ]]; then
     proof_build_args+=(--build)
@@ -131,6 +139,8 @@ if [[ "${AJENDA_PROOF_START_SERVICES:-0}" == "1" ]]; then
   compose up -d "${proof_build_args[@]}" db redis migrate api worker assurance frontend prometheus otel-collector
 elif [[ "${AJENDA_PROOF_REBUILD:-0}" == "1" ]]; then
   fail "AJENDA_PROOF_REBUILD=1 requires AJENDA_PROOF_START_SERVICES=1"
+elif [[ "${AJENDA_PROOF_BOOTSTRAP_ROLES:-0}" == "1" ]]; then
+  fail "AJENDA_PROOF_BOOTSTRAP_ROLES=1 requires AJENDA_PROOF_START_SERVICES=1"
 else
   log "observing existing services without Compose startup or rebuild"
 fi
@@ -145,7 +155,7 @@ wait_for_http_ok "$API_BASE_URL/v1/system/health"
 wait_for_http_ok "$API_BASE_URL/v1/system/readiness"
 
 log "checking postgres readiness"
-compose exec -T db pg_isready -U ajenda -d ajenda >/dev/null
+compose exec -T db pg_isready -d ajenda >/dev/null
 
 log "checking redis ping"
 compose exec -T redis redis-cli PING | grep -q '^PONG$'

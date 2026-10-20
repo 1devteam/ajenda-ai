@@ -128,6 +128,7 @@ NON_SETTINGS_DEPLOYMENT_ENV = frozenset(
         "AJENDA_OPERATOR_PROOF_EXPECTED_PROSPECT_COUNT",
         "AJENDA_OPERATOR_PROOF_INSTRUCTION",
         "AJENDA_PROOF_API_BASE_URL",
+        "AJENDA_PROOF_BOOTSTRAP_ROLES",
         "AJENDA_PROOF_COMPOSE_ENV_FILE",
         "AJENDA_PROOF_COMPOSE_FILE",
         "AJENDA_PROOF_COMPOSE_PROJECT_NAME",
@@ -136,6 +137,7 @@ NON_SETTINGS_DEPLOYMENT_ENV = frozenset(
         "AJENDA_PROOF_POLL_SECONDS",
         "AJENDA_PROOF_PROMETHEUS_BASE_URL",
         "AJENDA_PROOF_PROMETHEUS_JOB_NAME",
+        "AJENDA_PROOF_START_SERVICES",
         "AJENDA_PROOF_TIMEOUT_SECONDS",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "POSTGRES_PASSWORD",
@@ -283,13 +285,18 @@ def test_live_runtime_proof_workflow_writes_canonical_compose_env_file() -> None
     assert LIVE_PROOF_REQUIRED_APP_ENV <= names
     assert "AJENDA_ENV=staging" in workflow
     assert '"AJENDA_WORKER_TENANT_MODE=multi"' in workflow
+    assert 'AJENDA_PROOF_START_SERVICES: "1"' in workflow
+    assert 'AJENDA_PROOF_BOOTSTRAP_ROLES: "1"' in workflow
     assert "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY" not in workflow
     assert not (names - _settings_env_aliases() - NON_SETTINGS_DEPLOYMENT_ENV)
     for workflow_path in (
         Path(".github/workflows/ci.yml"),
         Path(".github/workflows/premerge-live-runtime-proof.yml"),
     ):
-        assert '"AJENDA_WORKER_TENANT_MODE=multi"' in _read(workflow_path)
+        workflow_text = _read(workflow_path)
+        assert '"AJENDA_WORKER_TENANT_MODE=multi"' in workflow_text
+        assert 'AJENDA_PROOF_START_SERVICES: "1"' in workflow_text
+        assert 'AJENDA_PROOF_BOOTSTRAP_ROLES: "1"' in workflow_text
 
 
 def test_compose_and_live_proof_use_same_env_file_for_config_up_exec_down() -> None:
@@ -303,7 +310,10 @@ def test_compose_and_live_proof_use_same_env_file_for_config_up_exec_down() -> N
     assert 'docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
     assert "compose config --quiet" in script
     assert "AJENDA_PROOF_START_SERVICES:-0" in script
+    assert "AJENDA_PROOF_BOOTSTRAP_ROLES:-0" in script
     assert "AJENDA_PROOF_REBUILD:-0" in script
+    assert "compose --profile bootstrap run --rm role-bootstrap" in script
+    assert "AJENDA_PROOF_BOOTSTRAP_ROLES=1 requires AJENDA_PROOF_START_SERVICES=1" in script
     assert "proof_build_args+=(--build)" in script
     assert (
         'compose up -d "${proof_build_args[@]}" db redis migrate api worker assurance frontend prometheus otel-collector'

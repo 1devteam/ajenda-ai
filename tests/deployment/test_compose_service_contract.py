@@ -159,9 +159,12 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     assert expected_command in script
     assert "compose down --remove-orphans" not in script
     assert "AJENDA_PROOF_START_SERVICES:-0" in script
+    assert "AJENDA_PROOF_BOOTSTRAP_ROLES:-0" in script
     assert "AJENDA_PROOF_REBUILD:-0" in script
     assert 'if [[ "${AJENDA_PROOF_START_SERVICES:-0}" == "1" ]]; then' in script
     assert "AJENDA_PROOF_REBUILD=1 requires AJENDA_PROOF_START_SERVICES=1" in script
+    assert "AJENDA_PROOF_BOOTSTRAP_ROLES=1 requires AJENDA_PROOF_START_SERVICES=1" in script
+    assert "compose --profile bootstrap run --rm role-bootstrap" in script
     assert "operator-mission-proof.py" in script
     assert "AJENDA_OPERATOR_MISSION_PROOF" in script
     assert "AJENDA_OPERATOR_MISSION_PROOF" in script
@@ -240,6 +243,13 @@ def test_compose_api_healthcheck_uses_readiness_endpoint() -> None:
     api_block = _service_block(_read(COMPOSE_FILE), "api")
     assert "/app/deploy/scripts/readinesscheck.sh" in api_block
     assert "/app/deploy/scripts/healthcheck.sh" not in api_block
+
+
+def test_database_healthcheck_is_independent_of_runtime_role_provisioning() -> None:
+    for path in (COMPOSE_FILE, Path("docker-compose.yml")):
+        database_block = _service_block(_read(path), "db")
+        assert "pg_isready -d ajenda" in database_block
+        assert "pg_isready -U" not in database_block
 
 
 def test_live_runtime_proof_initializes_readiness_before_metrics_scrape() -> None:
