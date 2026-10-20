@@ -334,6 +334,29 @@ class MissionCompositionProposalPhase:
             return
         ledger = RuntimeEvidenceLedger(db, flush=False)
         correlation_id = record.proposal_id
+        semantic_selection = record.composition_provenance.semantic_selection
+        capability_alternatives = tuple(
+            alternative.action for selection in record.ability_selections for alternative in selection.alternatives
+        )
+        source_eligibility: list[str] = []
+        source_rejections: list[str] = []
+        source_lineage: dict[str, str] = {}
+        for step in record.planned_steps:
+            if step.action_name != "web.research":
+                continue
+            input_value = step.tool_input if isinstance(step.tool_input, dict) else {}
+            if bool(input_value.get("exclude_internal_records")):
+                source_eligibility.append("public_search_only")
+                source_rejections.extend(("tenant_record_store", "crm_adapter"))
+                source_lineage[f"{step.step_key}.exclude_internal_records"] = (
+                    "intent.context_requirements.public_web_only"
+                )
+            elif bool(input_value.get("local_fixture_only")):
+                source_eligibility.append("local_fixture_only")
+                source_lineage[f"{step.step_key}.local_fixture_only"] = "intent.instruction.fixture_scope"
+            elif bool(input_value.get("include_public_search")):
+                source_eligibility.append("public_and_internal_eligible")
+                source_lineage[f"{step.step_key}.include_public_search"] = "intent.research_scope"
         observations = (
             (
                 "intent_interpretation",
@@ -352,13 +375,47 @@ class MissionCompositionProposalPhase:
                 },
             ),
             (
+                "semantic_resolution",
+                "semantic_selection_resolved",
+                "semantic_lattice_resolution",
+                {
+                    "transformation_id": "semantic-lattice:selection:v1",
+                    "selected_path": "|".join(semantic_selection.active_components)
+                    if semantic_selection is not None
+                    else None,
+                    "rejected_paths": tuple(semantic_selection.conflicts) if semantic_selection is not None else (),
+                    "source_provenance": (
+                        {
+                            concept.concept_id: concept.source_reference
+                            for concept in semantic_selection.concept_provenance
+                        }
+                        if semantic_selection is not None
+                        else {}
+                    ),
+                    "field_lineage": {
+                        "intent.requested_outcomes": "semantic_selection.bindings",
+                        "intent.instruction": "semantic_selection.matched_terms",
+                    },
+                    "safe_metadata": {
+                        "semantic_schema_version": semantic_selection.schema_version
+                        if semantic_selection is not None
+                        else None,
+                        "lattice_version": semantic_selection.lattice_version
+                        if semantic_selection is not None
+                        else None,
+                        "concept_count": len(semantic_selection.concepts) if semantic_selection is not None else 0,
+                        "binding_count": len(semantic_selection.bindings) if semantic_selection is not None else 0,
+                        "conflict_count": len(semantic_selection.conflicts) if semantic_selection is not None else 0,
+                    },
+                },
+            ),
+            (
                 "planner_selection",
                 "jobs_selected",
                 "catalog_and_planner_resolution",
                 {
                     "transformation_id": "mission-composition:jobs:v1",
                     "selected_path": "|".join(job.job_key for job in record.job_assignments),
-                    "alternatives": tuple(str(item.job_key) for item in record.job_assignments),
                     "safe_metadata": {
                         "planner_status": str((planner_provenance or {}).get("status") or "catalog"),
                         "job_count": len(record.job_assignments),
@@ -375,12 +432,41 @@ class MissionCompositionProposalPhase:
                     "selected_path": "|".join(
                         item.action_name for item in record.ability_selections if item.selection_status == "selected"
                     ),
+                    "alternatives": capability_alternatives,
                     "rejected_paths": tuple(
                         item.action_name for item in record.ability_selections if item.selection_status != "selected"
-                    ),
+                    )
+                    + capability_alternatives,
+                    "field_lineage": {
+                        "intent.requested_outcomes": "job_catalog.job_key",
+                        "job_catalog.candidate_actions": "capability_resolver.ability_selection",
+                    },
                     "safe_metadata": {
                         "selection_count": len(record.ability_selections),
                         "missing_connection_count": len(record.missing_connections),
+                    },
+                },
+            ),
+            (
+                "source_eligibility",
+                "research_sources_bound",
+                "research_input_source_policy",
+                {
+                    "transformation_id": "mission-composition:research-source-policy:v1",
+                    "selected_path": "|".join(source_eligibility) if source_eligibility else None,
+                    "rejected_paths": tuple(dict.fromkeys(source_rejections)),
+                    "constraints": (
+                        ("public_only",)
+                        if "public_web_only" in {str(item) for item in record.intent.context_requirements}
+                        else ()
+                    ),
+                    "field_lineage": source_lineage,
+                    "safe_metadata": {
+                        "research_step_count": sum(
+                            1 for step in record.planned_steps if step.action_name == "web.research"
+                        ),
+                        "public_web_only": "public_web_only"
+                        in {str(item) for item in record.intent.context_requirements},
                     },
                 },
             ),

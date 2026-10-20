@@ -117,6 +117,38 @@ def test_web_research_matches_market_tokens_on_tenant_accounts(monkeypatch) -> N
     assert result.output["source_partitions"]["public_search"]["result_count"] == 0
 
 
+def test_public_only_web_research_never_queries_tenant_or_crm_sources(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    def forbidden(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("public-only research attempted an internal source read")
+
+    monkeypatch.setattr(standalone_actions, "resolve_record_store", forbidden)
+    monkeypatch.setattr(standalone_actions, "default_crm_client", forbidden)
+    monkeypatch.setattr(
+        standalone_actions,
+        "_fetch_duckduckgo_instant_answer",
+        lambda **_kwargs: {"results": [], "real": True, "error": None},
+    )
+
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="web.research",
+            input={
+                "query": "early stage SaaS companies in Austin",
+                "include_public_search": True,
+                "exclude_internal_records": True,
+            },
+        ),
+        _context(),
+    )
+
+    assert result.output["exclude_internal_records"] is True
+    assert result.output["internal_count"] == 0
+    assert result.output["crm_brain_matches"] == []
+    assert result.output["source_partitions"]["tenant_internal"]["candidate_count"] == 0
+
+
 def test_local_fixture_research_preserves_source_ids_for_all_contacts(monkeypatch) -> None:
     from backend.services.tools import standalone_actions
 

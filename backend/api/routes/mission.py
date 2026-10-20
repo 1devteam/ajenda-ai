@@ -91,6 +91,7 @@ from backend.services.mission_runtime_projection import (
     supersede_runtime_task_materialization,
 )
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaEnforcementService, QuotaExceededError
+from backend.services.runtime_evidence_ledger import RuntimeCausalObservation, RuntimeEvidenceLedger
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
 RuntimeReadinessStatus = _mission_runtime.RuntimeReadinessStatus
@@ -1316,6 +1317,43 @@ def admit_mission_graph_to_runtime(
         },
     )
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
+    # Record the admission decision at its authority boundary. This fact is
+    # diagnostic only: it neither grants queue authority nor changes the
+    # admission result when evidence persistence is unavailable.
+    try:
+        all_node_keys = tuple(str(node.get("key")) for node in graph_nodes if isinstance(node.get("key"), str))
+        selected_node_keys = tuple(str(item["node_key"]) for item in selected_nodes)
+        RuntimeEvidenceLedger(db, flush=False).append_causal_observation(
+            tenant_id=tenant_id_str,
+            mission_id=mission_id,
+            producer="mission.runtime_admission",
+            actor=admitted_by,
+            observation=RuntimeCausalObservation(
+                stage="graph_admission",
+                decision="runtime_nodes_admitted",
+                reason_code="validated_graph_and_materialization",
+                transformation_id="mission-runtime-admission:v1",
+                alternatives=all_node_keys,
+                selected_path="|".join(selected_node_keys),
+                rejected_paths=tuple(key for key in all_node_keys if key not in selected_node_keys),
+                field_lineage={
+                    "mission_task_graph.nodes": "runtime_admission.selected_nodes",
+                    "graph_materialization.graph_reference": "runtime_admission.materialization_reference",
+                },
+                constraints=("graph_fingerprint", "materialization_reference", "capability_visibility"),
+                safe_metadata={
+                    "admission_version": previous_version + 1,
+                    "selected_node_count": len(selected_node_keys),
+                    "graph_node_count": len(all_node_keys),
+                    "validation_check_count": len(validation_checks),
+                    "auto_provisioned_authority": not bool(body.selected_nodes),
+                },
+            ),
+            causation_id=str(mission_id),
+            correlation_id=str(mission_id),
+        )
+    except Exception:
+        logger.exception("causal observation write failed for runtime admission", extra={"mission_id": str(mission_id)})
     return _runtime_admission_to_read(mission)
 
 

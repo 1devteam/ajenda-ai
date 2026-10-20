@@ -562,6 +562,9 @@ class WebResearchInput(BaseModel):
     # When true, governed public search (DDG) runs — elevates side-effect to EXTERNAL_READ.
     include_public_search: bool = False
     local_fixture_only: bool = False
+    # Restrictive source policy. When set, the handler must not query
+    # tenant-owned record stores or CRM adapters for candidate material.
+    exclude_internal_records: bool = False
     limit: int = Field(default=5, ge=1, le=20)
     timeout_seconds: float = Field(default=5.0, ge=0.5, le=10.0)
 

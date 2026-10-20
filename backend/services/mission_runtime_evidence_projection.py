@@ -88,6 +88,32 @@ def _ids(metadata: dict[str, Any], *keys: str) -> set[str]:
     return values
 
 
+def _proposal_reference(envelope: Any) -> str | None:
+    """Read the durable proposal identity without guessing from event order."""
+
+    facts = envelope.facts if isinstance(getattr(envelope, "facts", None), dict) else {}
+    subjects = envelope.subject_references if isinstance(getattr(envelope, "subject_references", None), dict) else {}
+    for value in (facts.get("proposal_id"), subjects.get("proposal_id")):
+        if isinstance(value, str) and value:
+            return value
+    if getattr(envelope, "event_type", None) == "mission_composition.confirmed":
+        causation_id = getattr(envelope, "causation_id", None)
+        if isinstance(causation_id, str) and causation_id:
+            return causation_id
+    return None
+
+
+def _execution_path_for_task(task: ExecutionTask | None) -> str | None:
+    if task is None or not isinstance(task.metadata_json, dict):
+        return None
+    metadata = task.metadata_json
+    invocation = metadata.get("tool_invocation")
+    if isinstance(invocation, dict) and isinstance(invocation.get("action"), str):
+        return str(invocation["action"])
+    value = _task_node_key(metadata) or metadata.get("task_type")
+    return str(value) if isinstance(value, str) and value else None
+
+
 def _task_artifact_ids(task: ExecutionTask) -> list[str]:
     metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
     raw = metadata.get("materialized_artifacts") or metadata.get("artifacts")
@@ -217,8 +243,8 @@ def build_mission_runtime_evidence_projection(
         envelope = RuntimeEvidenceLedger.read_envelope(event)
         if envelope is None or envelope.event_type != "mission_composition.confirmed":
             continue
-        proposal_id = envelope.facts.get("proposal_id")
-        if isinstance(proposal_id, str) and proposal_id:
+        proposal_id = _proposal_reference(envelope)
+        if proposal_id is not None:
             confirmed_proposal_ids.add(proposal_id)
         else:
             confirmed_without_proposal_id = True
@@ -601,19 +627,42 @@ def build_mission_runtime_evidence_projection(
             first_divergence = candidate
             break
 
-    execution_events = [
-        {
-            "event_id": str(event.id),
-            "created_at": event.created_at.isoformat() if event.created_at else None,
-            "category": event.category,
-            "action": event.action,
-            "actor": event.actor,
-            "details": event.details,
-            "payload": event.payload_json,
-        }
-        for event in sorted(audit_events or [], key=lambda item: item.created_at)
-        if event.tenant_id == tenant_id and event.mission_id == mission_id
-    ]
+    execution_events: list[dict[str, Any]] = []
+    for event in sorted(audit_events or [], key=lambda item: item.created_at):
+        if event.tenant_id != tenant_id or event.mission_id != mission_id:
+            continue
+        envelope = RuntimeEvidenceLedger.read_envelope(event)
+        subjects = envelope.subject_references if envelope is not None else {}
+        event_task_id: str | None = (
+            subjects.get("task_id") or task_by_lease_id.get(envelope.causation_id or "") if envelope else None
+        )
+        event_task = task_by_id.get(event_task_id) if isinstance(event_task_id, str) else None
+        execution_events.append(
+            {
+                "event_id": str(event.id),
+                "created_at": event.created_at.isoformat() if event.created_at else None,
+                "category": event.category,
+                "action": event.action,
+                "actor": event.actor,
+                "details": event.details,
+                "payload": event.payload_json,
+                # The event payload remains the producer-owned historical
+                # record. These normalized references make joins explicit for
+                # read-only consumers without treating absent legacy fields as
+                # evidence that the underlying work never happened.
+                "tenant_id": tenant_id,
+                "mission_id": str(getattr(envelope, "mission_id", None) or mission_id)
+                if envelope is not None
+                else str(mission_id),
+                "proposal_id": _proposal_reference(envelope) if envelope is not None else None,
+                "task_id": event_task_id,
+                "lease_id": subjects.get("lease_id"),
+                "execution_path": _execution_path_for_task(event_task),
+                "causation_id": envelope.causation_id if envelope is not None else None,
+                "correlation_id": envelope.correlation_id if envelope is not None else None,
+                "runtime_evidence_integrity_verified": envelope is not None,
+            }
+        )
 
     causal_observations: list[dict[str, Any]] = []
     for event in sorted(audit_events or [], key=lambda item: item.created_at):
@@ -627,6 +676,21 @@ def build_mission_runtime_evidence_projection(
         raw = envelope.facts.get("causal_observation")
         if not isinstance(raw, dict):
             continue
+        observation_task_id: str | None = envelope.subject_references.get("task_id") or task_by_lease_id.get(
+            envelope.causation_id or ""
+        )
+        observation_task = task_by_id.get(observation_task_id) if isinstance(observation_task_id, str) else None
+        proposal_id = _proposal_reference(envelope)
+        # Pre-mission composition observations are linked by the confirmed
+        # proposal fact above.  Do not claim a proposal identity when that
+        # bridge is absent.
+        if (
+            proposal_id is None
+            and event.mission_id is None
+            and envelope.correlation_id in causal_correlations
+            and envelope.correlation_id != str(mission_id)
+        ):
+            proposal_id = envelope.correlation_id
         causal_observations.append(
             {
                 **raw,
@@ -634,8 +698,18 @@ def build_mission_runtime_evidence_projection(
                 # lease that caused them.  Keep that identity in the
                 # projection so one task's observation cannot satisfy another
                 # task's contract.
-                "task_id": envelope.subject_references.get("task_id")
-                or task_by_lease_id.get(envelope.causation_id or ""),
+                "tenant_id": tenant_id,
+                "mission_id": str(getattr(envelope, "mission_id", None) or mission_id),
+                "proposal_id": proposal_id,
+                "plan_id": envelope.subject_references.get("plan_id"),
+                "task_id": observation_task_id,
+                "lease_id": envelope.subject_references.get("lease_id"),
+                "execution_path": _execution_path_for_task(observation_task),
+                "contract_version": (
+                    observation_task.metadata_json.get("runtime_evidence_contract_version")
+                    if observation_task is not None and isinstance(observation_task.metadata_json, dict)
+                    else None
+                ),
                 "event_id": str(envelope.event_id),
                 "occurred_at": envelope.occurred_at.isoformat(),
                 "producer": envelope.producer,
@@ -655,7 +729,13 @@ def build_mission_runtime_evidence_projection(
             "field_lineage": observation.get("field_lineage", {}),
             "source_provenance": observation.get("source_provenance", {}),
             "event_id": observation.get("event_id"),
+            "tenant_id": observation.get("tenant_id"),
+            "mission_id": observation.get("mission_id"),
+            "proposal_id": observation.get("proposal_id"),
             "task_id": observation.get("task_id"),
+            "lease_id": observation.get("lease_id"),
+            "execution_path": observation.get("execution_path"),
+            "contract_version": observation.get("contract_version"),
         }
         for observation in causal_observations
     ]
@@ -701,7 +781,8 @@ def build_mission_runtime_evidence_projection(
             continue
         metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
         task_id = str(task.id)
-        applicable = metadata.get("runtime_evidence_contract_version") == "1"
+        contract_version = metadata.get("runtime_evidence_contract_version")
+        applicable = contract_version == "1"
         stages = observed_stages_by_task.get(task_id, set())
         task_output = handler_output_for_task(task)
         tool_invocation = metadata.get("tool_invocation")
@@ -739,7 +820,9 @@ def build_mission_runtime_evidence_projection(
                     "scope": f"task:{task_id}",
                     "task_id": task_id,
                     "execution_path": path_name,
+                    "contract_version": contract_version,
                     "applicable": True,
+                    "applicability_reason": "lifecycle_stage_reached",
                     "required_stage": required_stage,
                     "stage": required_stage,
                     "observation": (
@@ -761,7 +844,11 @@ def build_mission_runtime_evidence_projection(
                     "scope": f"task:{task_id}",
                     "task_id": task_id,
                     "execution_path": path_name,
+                    "contract_version": contract_version,
                     "applicable": True,
+                    "applicability_reason": "tool_execution_path_under_active_contract"
+                    if applicable
+                    else "tool_execution_path_without_active_contract",
                     "required_stage": required_stage,
                     "stage": required_stage,
                     "status": "observed" if observed else "not_observed",

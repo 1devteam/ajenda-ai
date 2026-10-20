@@ -74,6 +74,7 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
                 )
         internal_crm_only = _ajenda_internal_crm_only(intent)
         internal_only = local_fixture_only or internal_crm_only
+        public_web_only = "public_web_only" in {str(item) for item in intent.context_requirements}
         return {
             "query": research_query[:400],
             "company": extracted_company,
@@ -81,6 +82,9 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
             "fetch_public_page": fetch_public_page,
             "include_public_search": not internal_only,
             "local_fixture_only": internal_only,
+            # Ordinary hybrid research may consult both partitions. An
+            # explicit public-only mission must not read tenant/CRM records.
+            "exclude_internal_records": public_web_only,
             "limit": limit,
         }
     if action_name == "web.search":

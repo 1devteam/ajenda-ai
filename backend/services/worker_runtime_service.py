@@ -88,6 +88,7 @@ def _causal_observation_for_tool_output(
     safe_names = (
         "include_public_search",
         "local_fixture_only",
+        "exclude_internal_records",
         "public_search_real",
         "web_result_count",
         "internal_count",
@@ -100,7 +101,13 @@ def _causal_observation_for_tool_output(
         "research_gap",
     )
     safe_metadata = {name: output[name] for name in safe_names if name in output}
-    for name in ("include_public_search", "local_fixture_only", "binding_required", "collect_contacts"):
+    for name in (
+        "include_public_search",
+        "local_fixture_only",
+        "exclude_internal_records",
+        "binding_required",
+        "collect_contacts",
+    ):
         if name in input_value:
             safe_metadata[f"input_{name}"] = input_value[name]
     partitions = output.get("source_partitions")
@@ -114,7 +121,7 @@ def _causal_observation_for_tool_output(
                     if key in value
                 )
     source = str(output.get("source") or output.get("access_mode") or "unknown")
-    public_only = bool(input_value.get("include_public_search")) and not bool(input_value.get("local_fixture_only"))
+    public_only = bool(input_value.get("exclude_internal_records"))
     common: dict[str, Any] = {
         "reason_code": "public_only_research" if public_only else "tool_invocation",
         "selected_path": source,

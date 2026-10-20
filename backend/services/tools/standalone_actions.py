@@ -8,7 +8,7 @@ from backend.services.business_profile.context_resolver import default_company_a
 from backend.services.internet import fetch_public_page, search_bundle_as_legacy_dict
 from backend.services.internet.search import DuckDuckGoInstantAnswerProvider
 from backend.services.network_egress import NetworkEgressError, get_default_network_egress_authority
-from backend.services.plugins.crm_client import default_crm_client
+from backend.services.plugins.crm_client import CrmSearchResult, default_crm_client
 from backend.services.retry_policy import RetryPolicy
 from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.record_store import record_store_limitations, resolve_record_store
@@ -307,7 +307,10 @@ def _public_candidate_is_verified(prospect: dict[str, Any]) -> bool:
 
 def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebResearchInput.model_validate(invocation.input)
-    store = resolve_record_store(context)
+    # Public-only is enforced before any tenant-owned record lookup or CRM
+    # adapter invocation. This makes source eligibility a runtime boundary,
+    # not a post-processing filter.
+    store = None if payload.exclude_internal_records else resolve_record_store(context)
     # Research targets are only what the caller supplied. Never fill a missing
     # company/domain half from the tenant profile (e.g. company=Acme must not
     # get domain=ajenda.ai). Profile is lineage-only (profile_company/profile_domain).
@@ -325,7 +328,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     search_domain = explicit_domain
 
     internal_matches: list[dict[str, Any]] = []
-    if search_company:
+    if store is not None and search_company:
         internal_matches.extend(
             store.search_records(
                 tenant_id=context.tenant_id,
@@ -336,7 +339,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         )
     # Narrow once so mypy sees query: str (not str | None) at the call site.
     contact_query = search_domain or search_company
-    if contact_query:
+    if store is not None and contact_query:
         internal_matches.extend(
             store.search_records(
                 tenant_id=context.tenant_id,
@@ -346,7 +349,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             )
         )
     market_terms = _market_search_terms(payload.query)
-    if market_terms and len(internal_matches) < payload.limit:
+    if store is not None and market_terms and len(internal_matches) < payload.limit:
         scoped = store.search_records(
             tenant_id=context.tenant_id,
             record_type="account",
@@ -384,13 +387,17 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             domain = page_domain
 
     # CRM client contract requires str company; empty string means no company filter.
-    crm_search = default_crm_client().search(
-        context=context,
-        company=search_company or "",
-        domain=search_domain or "",
-        credential=None,
-        invocation=invocation,
-        action_name="web.research",
+    crm_search = (
+        CrmSearchResult(results=[], count=0, source="not_eligible", real=False)
+        if payload.exclude_internal_records
+        else default_crm_client().search(
+            context=context,
+            company=search_company or "",
+            domain=search_domain or "",
+            credential=None,
+            invocation=invocation,
+            action_name="web.research",
+        )
     )
 
     web_results: list[dict[str, Any]] = []
@@ -474,7 +481,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         prospect = _prospect_from_record(record, source="internal_record", query=payload.query)
         prospect["source_scope"] = "tenant_internal"
         prospect["evidence_class"] = "tenant_owned_record"
-        if payload.local_fixture_only:
+        if payload.local_fixture_only and store is not None:
             fixture_id = str(record.get("id") or prospect.get("id") or "unknown")
             prospect.update(
                 {
@@ -595,6 +602,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "web_snippet": web_snippet,
         "include_public_search": payload.include_public_search,
         "local_fixture_only": payload.local_fixture_only,
+        "exclude_internal_records": payload.exclude_internal_records,
         "public_search_real": public_search_real,
         "search_error": search_error,
         "access_mode": "public_search" if payload.include_public_search else "internal_research",

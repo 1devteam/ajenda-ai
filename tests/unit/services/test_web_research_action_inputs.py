@@ -63,6 +63,19 @@ def test_local_fixture_constraint_disables_public_search() -> None:
     assert payload["include_public_search"] is False
 
 
+def test_public_web_only_constraint_excludes_internal_records_at_input_boundary() -> None:
+    intent = interpret_instruction(
+        "Find three early-stage SaaS companies in Austin using public web research only. "
+        "Do not use CRM records, saved contacts, or internal data."
+    )
+
+    payload = build_action_input(action_name="web.research", intent=intent)
+
+    assert "public_web_only" in intent.context_requirements
+    assert payload["include_public_search"] is True
+    assert payload["exclude_internal_records"] is True
+
+
 def test_unsupported_local_fixture_scope_is_a_compile_gap() -> None:
     record = MissionCompositionService(db=None).compose(
         tenant_id="tenant",

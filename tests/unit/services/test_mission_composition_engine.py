@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from backend.services.mission_composition.action_inputs import build_action_input
@@ -59,6 +61,44 @@ def test_interpreter_roofing_forbids_send_and_targets_austin() -> None:
     assert intent.target_entities[0].industry.lower() == "roofing"
     assert "research" not in intent.target_entities[0].industry.lower()
     assert "identify" not in intent.target_entities[0].location.lower()
+
+
+def test_composition_records_semantic_and_source_eligibility_at_decision_time(monkeypatch) -> None:
+    service = MissionCompositionService(db=None)
+    record = service.compose(
+        tenant_id="tenant",
+        instruction=(
+            "Find three SaaS companies in Austin using public web research only. "
+            "Do not use CRM records, saved contacts, or internal data."
+        ),
+    )
+    captured: list[dict[str, object]] = []
+
+    def capture(_self, **kwargs):  # type: ignore[no-untyped-def]
+        captured.append(kwargs)
+        return None
+
+    monkeypatch.setattr(
+        "backend.services.mission_composition.proposal_phase.RuntimeEvidenceLedger.append_causal_observation",
+        capture,
+    )
+    service._db = SimpleNamespace(add=lambda _value: None)
+    service._record_decision_observations(
+        tenant_id="tenant",
+        actor_id="test",
+        record=record,
+        planner_provenance=record.planner_provenance,
+    )
+
+    by_stage = {item["observation"].stage: item["observation"] for item in captured}
+    assert {"semantic_resolution", "planner_selection", "capability_selection", "constraint_propagation"}.issubset(
+        by_stage
+    )
+    source = by_stage["source_eligibility"]
+    assert source.selected_path == "public_search_only"
+    assert set(source.rejected_paths) == {"tenant_record_store", "crm_adapter"}
+    assert source.constraints == ("public_only",)
+    assert by_stage["semantic_resolution"].source_provenance
 
 
 def test_business_income_review_compiles_profile_dependency_and_report() -> None:

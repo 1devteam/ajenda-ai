@@ -177,6 +177,9 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     assert "ExecutionCoordinator" not in script
     assert "tool_invoke_handler" not in script
     assert "AJENDA_OPERATOR_PROOF_RUNTIME_EVIDENCE_OUTPUT" in script
+    assert "AJENDA_OPERATOR_PROOF_RUNTIME_RECONCILIATION_OUTPUT" in operator_script
+    assert "AJENDA_OPERATOR_PROOF_CLIENT_IP" in operator_script
+    assert 'request_headers["X-Forwarded-For"] = CLIENT_IP' in operator_script
     assert "mission reached terminal failure before deliverable" in operator_script
     assert "brain-capstone-runtime-proof.py" not in script
     assert "gtm.lead_enrich" not in script
@@ -191,6 +194,7 @@ def test_operator_mission_proof_uses_public_api_and_never_direct_runtime_handler
         "/v1/missions/proposals/",
         "/v1/missions/{mission_id}/launch",
         "/v1/missions/{mission_id}/deliverable",
+        "/v1/missions/{mission_id}/runtime-reconciliation-export",
     ):
         assert path in script
     assert '"verification_code"' in script
