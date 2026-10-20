@@ -17,12 +17,13 @@ from backend.api.router import build_api_router
 
 
 def _collect_routes(app: FastAPI) -> set[str]:
-    """Collect all registered route paths from a FastAPI app."""
-    paths = set()
-    for route in app.routes:
-        if hasattr(route, "path"):
-            paths.add(route.path)
-    return paths
+    """Collect published route paths through FastAPI's public OpenAPI contract.
+
+    FastAPI 0.136+ keeps included routers as internal placeholders in
+    ``app.routes``.  OpenAPI remains the supported, flattened route inventory
+    and reflects the paths an API client can discover.
+    """
+    return set(app.openapi()["paths"])
 
 
 class TestApiVersioning:
