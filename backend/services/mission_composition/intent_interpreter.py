@@ -268,6 +268,32 @@ def interpret_instruction(
     wants_enrich = _contains_any(lower, _ENRICH_PATTERNS)
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
     no_crm = _contains_any(lower, _CRM_NEGATION_PATTERNS)
+    # A source restriction is a material decision, not merely prose for a
+    # downstream tool. Preserve it in the structured intent so the action
+    # input owner can prevent tenant/CRM reads rather than trying to filter
+    # internal results after they have already been observed.
+    public_web_only = bool(
+        re.search(
+            r"\b(?:public\s+(?:web\s+)?(?:research|search|sources?)|web\s+research)\s+only\b",
+            lower,
+        )
+        or (
+            re.search(r"\bdo\s+not\s+use\b[^.!?]{0,160}\b(?:crm|internal\s+data|saved\s+contacts?)\b", lower)
+            is not None
+        )
+    )
+    if public_web_only and "public_web_only" not in context_requirements:
+        context_requirements.append("public_web_only")
+        evidence.append(
+            _evidence(
+                field_path="context_requirements.public_web_only",
+                source="explicit",
+                source_text=text[:240],
+                normalized_value="public_web_only",
+                confidence=0.98,
+                rule_id="source_policy.public_web_only",
+            )
+        )
     wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not no_crm
     wants_internal_crm = wants_crm and internal_crm_requested
     no_publish = _contains_any(lower, _PUBLISH_NEGATION_PATTERNS)

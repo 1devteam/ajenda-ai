@@ -27,6 +27,8 @@ INSTRUCTION = os.environ.get(
 )
 EXPECTED_PROSPECT_COUNT = int(os.environ.get("AJENDA_OPERATOR_PROOF_EXPECTED_PROSPECT_COUNT", "5"))
 RUNTIME_EVIDENCE_OUTPUT = os.environ.get("AJENDA_OPERATOR_PROOF_RUNTIME_EVIDENCE_OUTPUT")
+RUNTIME_RECONCILIATION_OUTPUT = os.environ.get("AJENDA_OPERATOR_PROOF_RUNTIME_RECONCILIATION_OUTPUT")
+CLIENT_IP = os.environ.get("AJENDA_OPERATOR_PROOF_CLIENT_IP", "").strip()
 
 
 class ProofFailure(RuntimeError):
@@ -46,6 +48,8 @@ def request(
     request_headers = {"Accept": "application/json"}
     if body is not None:
         request_headers["Content-Type"] = "application/json"
+    if CLIENT_IP:
+        request_headers["X-Forwarded-For"] = CLIENT_IP
     if headers:
         request_headers.update(headers)
     request_obj = urllib.request.Request(f"{base}{path}", data=payload, headers=request_headers, method=method)
@@ -304,13 +308,19 @@ def main() -> int:
     if not isinstance(reconciliation, dict):
         raise ProofFailure("completed mission omitted runtime reconciliation")
     if reconciliation.get("status") != "aligned":
-        raise ProofFailure(f"shadow/runtime reconciliation was not aligned: {json.dumps(reconciliation, sort_keys=True)}")
+        raise ProofFailure(
+            f"shadow/runtime reconciliation was not aligned: {json.dumps(reconciliation, sort_keys=True)}"
+        )
     if reconciliation.get("grants_execution_authority") is not False:
         raise ProofFailure("runtime reconciliation granted execution authority")
     if reconciliation.get("semantic_mismatch_codes"):
-        raise ProofFailure(f"semantic reconciliation reported contradictions: {reconciliation['semantic_mismatch_codes']}")
+        raise ProofFailure(
+            f"semantic reconciliation reported contradictions: {reconciliation['semantic_mismatch_codes']}"
+        )
     if reconciliation.get("semantic_drift_codes"):
-        raise ProofFailure(f"semantic reconciliation reported unexplained drift: {reconciliation['semantic_drift_codes']}")
+        raise ProofFailure(
+            f"semantic reconciliation reported unexplained drift: {reconciliation['semantic_drift_codes']}"
+        )
 
     contradictions = (runtime_evidence or {}).get("contradictions", [])
     if contradictions:
@@ -341,6 +351,17 @@ def main() -> int:
     if any(not isinstance(row, dict) or not row.get("company_name") or not row.get("website") for row in prospects):
         raise ProofFailure("one or more prospects lacks a company name or website")
 
+    reconciliation_export = request(
+        "GET",
+        API_BASE,
+        f"/v1/missions/{mission_id}/runtime-reconciliation-export",
+        headers=headers,
+    )
+    if RUNTIME_RECONCILIATION_OUTPUT:
+        output = Path(RUNTIME_RECONCILIATION_OUTPUT)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(reconciliation_export, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
     print(
         json.dumps(
             {
@@ -360,6 +381,7 @@ def main() -> int:
                 "blocked_coverage_cases": ["unsupported_scope", "insufficient_capacity"],
                 "cross_tenant_runtime_evidence_denied": True,
                 "runtime_evidence_output": RUNTIME_EVIDENCE_OUTPUT,
+                "runtime_reconciliation_output": RUNTIME_RECONCILIATION_OUTPUT,
             },
             sort_keys=True,
         )

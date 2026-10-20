@@ -851,6 +851,9 @@ def test_projection_recovers_composition_causality_from_confirmed_fact(monkeypat
         "constraint_propagation",
     }
     assert all(item["correlation_id"] == proposal_id for item in projection.causal_observations)
+    assert all(item["mission_id"] == str(mission_id) for item in projection.causal_observations)
+    assert all(item["proposal_id"] == proposal_id for item in projection.causal_observations)
+    assert all(item["mission_id"] == str(mission_id) for item in projection.information_flow[:4])
     assert f"mission:{mission_id}:information:proposal_identity" not in projection.missing_evidence
 
 
