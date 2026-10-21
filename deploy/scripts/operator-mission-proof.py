@@ -119,6 +119,58 @@ def create_tenant_session(*, org_name: str) -> tuple[str, str]:
     return tenant_id, api_key
 
 
+def persist_proof_operating_charter(*, headers: dict[str, str]) -> None:
+    """Persist and verify the explicit authority used by this proof tenant.
+
+    Onboarding deliberately does not grant a tenant execution authority.  The
+    live proof must therefore exercise the same public, revisioned Business
+    Profile boundary that an operator uses before composing a mission.  This
+    helper never writes the database directly and only accepts the newly
+    created tenant's missing charter at revision zero.
+    """
+
+    profile = request("GET", API_BASE, "/v1/business-profile", headers=headers)
+    charter_state = profile.get("operating_charter")
+    if not isinstance(charter_state, dict):
+        raise ProofFailure("business profile omitted operating_charter state")
+    if charter_state.get("status") != "missing" or charter_state.get("revision") != 0:
+        raise ProofFailure(
+            "new proof tenant did not start with a missing revision-zero operating charter: "
+            f"{json.dumps(charter_state, sort_keys=True)}"
+        )
+
+    # Keep the proof authority coupled to the application's supported action
+    # contract, while persisting it only through the public profile API.
+    from backend.services.operating_charter import default_operating_charter
+
+    requested = default_operating_charter().to_fact_payload()
+    saved_profile = request(
+        "PUT",
+        API_BASE,
+        "/v1/business-profile/facts/operating_charter",
+        body={
+            "approved_fact": {"value": requested},
+            "expected_charter_revision": 0,
+            "provenance_metadata": {"source": "operator_mission_proof"},
+        },
+        headers=headers,
+    )
+    saved_state = saved_profile.get("operating_charter")
+    if not isinstance(saved_state, dict):
+        raise ProofFailure("saved business profile omitted operating_charter state")
+    if saved_state.get("status") != "active" or saved_state.get("revision") != 1:
+        raise ProofFailure(
+            "proof operating charter was not persisted as active revision one: "
+            f"{json.dumps(saved_state, sort_keys=True)}"
+        )
+    persisted = saved_state.get("charter")
+    if not isinstance(persisted, dict):
+        raise ProofFailure("saved active operating charter omitted charter payload")
+    for field in ("may_prepare", "may_perform", "never_do", "approval_mode"):
+        if persisted.get(field) != requested.get(field):
+            raise ProofFailure(f"saved operating charter changed {field} during persistence")
+
+
 def assert_blocked_composition(
     *,
     headers: dict[str, str],
@@ -185,6 +237,7 @@ def main() -> int:
 
     tenant_id, api_key = create_tenant_session(org_name="Ajenda Operator Proof")
     headers = auth(tenant_id, api_key)
+    persist_proof_operating_charter(headers=headers)
 
     assert_blocked_composition(
         headers=headers,

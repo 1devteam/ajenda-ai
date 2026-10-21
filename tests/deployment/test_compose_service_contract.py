@@ -190,6 +190,8 @@ def test_operator_mission_proof_uses_public_api_and_never_direct_runtime_handler
 
     for path in (
         "/v1/onboarding/signup",
+        "/v1/business-profile",
+        "/v1/business-profile/facts/operating_charter",
         "/v1/missions/compose",
         "/v1/missions/proposals/",
         "/v1/missions/{mission_id}/launch",
@@ -199,6 +201,8 @@ def test_operator_mission_proof_uses_public_api_and_never_direct_runtime_handler
         assert path in script
     assert '"verification_code"' in script
     assert "mission did not complete acceptance" in script
+    assert "persist_proof_operating_charter" in script
+    assert "proof operating charter was not persisted as active revision one" in script
     assert '"tenant_id", "signup"' not in script
     assert "tool_invoke_handler" not in script
     assert "ExecutionCoordinator" not in script
