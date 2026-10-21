@@ -4,6 +4,7 @@ import uuid
 
 import pytest
 
+from backend.domain.business_profile import BusinessProfile
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
 from backend.services.credentials.runtime_authority import (
@@ -30,6 +31,32 @@ class _Session:
 
     def close(self) -> None:
         pass
+
+
+class _CharterSession(_Session):
+    def __init__(self, profile: BusinessProfile) -> None:
+        self.profile = profile
+        self.audit_events: list[object] = []
+        self.commit_count = 0
+
+    def scalar(self, statement: object) -> BusinessProfile | None:
+        # Runtime charter lookup uses the active profile; denial-audit
+        # correlation separately verifies the mission foreign-key target.
+        if "missions" in str(statement):
+            return None
+        return self.profile
+
+    def add(self, event: object) -> None:
+        self.audit_events.append(event)
+
+    def flush(self) -> None:
+        pass
+
+    def refresh(self, _event: object) -> None:
+        pass
+
+    def commit(self) -> None:
+        self.commit_count += 1
 
 
 def _session_factory() -> _Session:
@@ -308,3 +335,166 @@ def test_runtime_rejects_raw_secret_metadata_and_invocation_input(monkeypatch: p
             ),
             context=_context(),
         )
+
+
+def test_queued_external_write_rechecks_current_charter_before_provider_invocation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A revocation overrides prior capability approval before a provider call."""
+    from backend.services.tools import runtime_authority
+
+    provider_calls: list[str] = []
+
+    def fake_provider(invocation: ToolInvocation, _context: ActionRuntimeContext) -> ActionResult:
+        provider_calls.append(invocation.action)
+        return ActionResult(
+            action=invocation.action,
+            provider="fake_provider",
+            side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+            output={},
+            evidence=[],
+            summary="fake provider called",
+        )
+
+    registry = ActionRegistry()
+    registry.register(
+        ActionDefinition(
+            name="web.open_write",
+            handler=fake_provider,
+            provider="fake_provider",
+            side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+        )
+    )
+    registry.freeze()
+    profile = BusinessProfile(
+        tenant_id="tenant",
+        approved_facts={
+            "operating_charter": {
+                "value": {
+                    "schema_version": 1,
+                    "revision": 2,
+                    "may_prepare": [],
+                    "may_perform": [],  # permission was revoked after queue admission
+                    "never_do": ["gtm.email_send", "gtm.social_publish", "webhook.dispatch"],
+                    "approval_mode": "none",
+                }
+            }
+        },
+        provenance={},
+    )
+    session = _CharterSession(profile)
+    task = _task(action="web.open_write")
+    authority = ToolRuntimeAuthority(registry=registry)
+    monkeypatch.setattr(runtime_authority, "activate_tenant_session", lambda *_args: None)
+    monkeypatch.setattr(runtime_authority, "validate_capability_action_authority", lambda **_kwargs: None)
+    monkeypatch.setattr(authority, "_validate_ability_manifest", lambda _action: None)
+    monkeypatch.setattr(
+        runtime_authority,
+        "bind_tool_invocation_for_task",
+        lambda **_kwargs: (task.metadata_json["tool_invocation"], {"skipped": True}),
+    )
+
+    with pytest.raises(ToolRuntimeAuthorityError, match="CHARTER_PERFORM_NOT_ALLOWED"):
+        authority.execute(
+            task=task,
+            context={
+                "tenant_id": "tenant",
+                "worker_id": "worker-1",
+                "lease_id": "lease-1",
+                "session_factory": lambda: session,
+            },
+        )
+
+    assert provider_calls == []
+    assert session.commit_count == 1
+    denial = session.audit_events[0]
+    assert denial.payload_json["reason_code"] == "CHARTER_PERFORM_NOT_ALLOWED"
+    assert denial.payload_json["enforcement_boundary"] == "pre_provider_invocation"
+    assert denial.mission_id is None
+    assert denial.payload_json["mission_reference_status"] == "unverified"
+    assert denial.payload_json["original_mission_id"] == str(task.mission_id)
+
+
+def test_side_effect_revalidation_allows_unchanged_permission_after_charter_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A revision change alone does not reject work allowed by the current charter."""
+    from backend.services.tools import runtime_authority
+
+    provider_calls: list[str] = []
+
+    def fake_provider(invocation: ToolInvocation, _context: ActionRuntimeContext) -> ActionResult:
+        provider_calls.append(invocation.action)
+        return ActionResult(
+            action=invocation.action,
+            provider="fake_provider",
+            side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+            output={"status": "accepted"},
+            evidence=[
+                EvidenceItem(
+                    evidence_type="provider_receipt",
+                    evidence_source="fake_provider",
+                    action_name=invocation.action,
+                    tool_provider="fake_provider",
+                    tenant_id="tenant",
+                    task_id=str(_context.task_id),
+                    mission_id=str(_context.mission_id) if _context.mission_id is not None else None,
+                    summary="fake provider receipt",
+                    side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+                )
+            ],
+            summary="fake provider called",
+        )
+
+    registry = ActionRegistry()
+    registry.register(
+        ActionDefinition(
+            name="web.open_write",
+            handler=fake_provider,
+            provider="fake_provider",
+            side_effect_class=SideEffectClass.EXTERNAL_WRITE,
+        )
+    )
+    registry.freeze()
+    profile = BusinessProfile(
+        tenant_id="tenant",
+        approved_facts={
+            "operating_charter": {
+                "value": {
+                    "schema_version": 1,
+                    "revision": 7,
+                    "may_prepare": [],
+                    "may_perform": ["web.open_write"],
+                    "never_do": ["gtm.email_send", "gtm.social_publish", "webhook.dispatch"],
+                    "approval_mode": "none",
+                }
+            }
+        },
+        provenance={},
+    )
+    session = _CharterSession(profile)
+    task = _task(action="web.open_write")
+    authority = ToolRuntimeAuthority(registry=registry)
+    monkeypatch.setattr(runtime_authority, "activate_tenant_session", lambda *_args: None)
+    monkeypatch.setattr(runtime_authority, "validate_capability_action_authority", lambda **_kwargs: None)
+    monkeypatch.setattr(authority, "_validate_ability_manifest", lambda _action: None)
+    monkeypatch.setattr(
+        runtime_authority,
+        "bind_tool_invocation_for_task",
+        lambda **_kwargs: (task.metadata_json["tool_invocation"], {"skipped": True}),
+    )
+
+    result = authority.execute(
+        task=task,
+        context={
+            "tenant_id": "tenant",
+            "worker_id": "worker-1",
+            "lease_id": "lease-1",
+            "session_factory": lambda: session,
+        },
+    )
+
+    assert result["status"] == "completed"
+    assert result["output"] == {"status": "accepted"}
+    assert provider_calls == ["web.open_write"]
+    assert session.audit_events == []

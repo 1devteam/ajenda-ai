@@ -15,6 +15,7 @@ from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
 from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 from backend.workers.handlers.tool_invoke import tool_invoke_handler
+from tests.integration.operating_charter_support import persist_test_operating_charter
 
 from ._invoke_authority_helpers import seed_capability_adapter_authority, side_effect_authorization
 
@@ -342,6 +343,7 @@ def test_crm_upsert_credentialed_invoke_without_capability_monkeypatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id = str(uuid.uuid4())
+    persist_test_operating_charter(pg_session, tenant_id=tenant_id)
     credential_id = _store_hubspot_credential(pg_session, tenant_id=tenant_id)
     authority_refs = seed_capability_adapter_authority(
         pg_session,

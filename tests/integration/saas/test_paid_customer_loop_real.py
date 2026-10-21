@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.config import get_settings
 from backend.main import create_app
+from tests.integration.operating_charter_support import persist_test_operating_charter
 
 pytestmark = pytest.mark.integration
 
@@ -109,6 +110,12 @@ class TestPaidCustomerLoopReal:
             )
             assert promote.status_code == 200, promote.text
             operational_key = promote.json()["api_key"]
+
+            from sqlalchemy.orm import sessionmaker
+
+            with sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)() as session:
+                persist_test_operating_charter(session, tenant_id=tenant_id)
+                session.commit()
 
             me = client.get("/v1/account/me", headers=_auth(tenant_id, operational_key))
             assert me.status_code == 200

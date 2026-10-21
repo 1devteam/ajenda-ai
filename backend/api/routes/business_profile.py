@@ -23,13 +23,21 @@ from backend.domain.business_profile import (
     BusinessProfileSuggestion,
 )
 from backend.repositories.audit_event_repository import AuditEventRepository
-from backend.repositories.business_profile_repository import BusinessProfileRepository
+from backend.repositories.business_profile_repository import (
+    BusinessProfileCharterRevisionConflict,
+    BusinessProfileRepository,
+)
 from backend.repositories.mission_repository import MissionRepository
 from backend.services.business_profile.categories import (
     BUSINESS_PROFILE_CATEGORY_FIELDS,
     missing_profile_categories,
 )
 from backend.services.business_profile.record_sync import sync_profile_to_internal_records
+from backend.services.operating_charter import (
+    CHARTER_CATEGORY,
+    inspect_operating_charter,
+    parse_operating_charter_fact,
+)
 from backend.services.vertical_ops.plan_templates import get_vertical_mission_template
 
 router = APIRouter(prefix="/business-profile", tags=["business-profile"])
@@ -146,6 +154,17 @@ class BusinessProfileRead(BaseModel):
     schema_version: int
     created_at: str | None
     updated_at: str | None
+    operating_charter: OperatingCharterRead
+
+
+class OperatingCharterRead(BaseModel):
+    """Persisted charter state; defaults are never represented as effective authority."""
+
+    status: Literal["active", "missing", "invalid"]
+    revision: int = Field(ge=0)
+    charter: dict[str, Any] | None = None
+    error_code: str | None = None
+    error_message: str | None = None
 
 
 class BusinessProfileCategoryRead(BaseModel):
@@ -175,6 +194,7 @@ class BusinessProfileFactUpsert(BaseModel):
 
     approved_fact: dict[str, Any] = Field(min_length=1)
     provenance_metadata: dict[str, Any] = Field(default_factory=dict)
+    expected_charter_revision: int | None = Field(default=None, ge=0)
 
     @field_validator("approved_fact", "provenance_metadata")
     @classmethod
@@ -293,6 +313,15 @@ class BusinessProfileHistoryRead(BaseModel):
 
 
 def _profile_to_read(profile: BusinessProfile | None, *, tenant_id: str) -> BusinessProfileRead:
+    approved_facts = profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}
+    charter_state = inspect_operating_charter(approved_facts=approved_facts)
+    charter_read = OperatingCharterRead(
+        status=charter_state.status,
+        revision=charter_state.revision,
+        charter=charter_state.charter.to_fact_payload() if charter_state.charter is not None else None,
+        error_code=charter_state.error_code,
+        error_message=charter_state.error_message,
+    )
     if profile is None:
         return BusinessProfileRead(
             profile_id=None,
@@ -303,16 +332,18 @@ def _profile_to_read(profile: BusinessProfile | None, *, tenant_id: str) -> Busi
             schema_version=BUSINESS_PROFILE_SCHEMA_VERSION,
             created_at=None,
             updated_at=None,
+            operating_charter=charter_read,
         )
     return BusinessProfileRead(
         profile_id=profile.id,
         tenant_id=profile.tenant_id,
         status=profile.status,
-        approved_facts=profile.approved_facts,
+        approved_facts=approved_facts,
         provenance=profile.provenance,
         schema_version=profile.schema_version,
         created_at=profile.created_at.isoformat(),
         updated_at=profile.updated_at.isoformat(),
+        operating_charter=charter_read,
     )
 
 
@@ -488,18 +519,49 @@ def upsert_business_profile_fact(
     tenant_scope = str(tenant_id)
     repo = BusinessProfileRepository(db)
     profile = _get_or_create_active_profile(repo, tenant_id=tenant_scope)
+    normalized_category = _normalize_category(category)
     try:
-        updated = repo.upsert_approved_fact(
-            profile=profile,
-            category=_normalize_category(category),
-            approved_fact=body.approved_fact,
-            actor_id=_actor_id(request),
-            updated_at=_utcnow(),
-            provenance_metadata=body.provenance_metadata,
-        )
+        if normalized_category == CHARTER_CATEGORY:
+            if body.expected_charter_revision is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "CHARTER_REVISION_REQUIRED",
+                        "message": "Reload the active business profile before saving its operating charter.",
+                    },
+                )
+            charter = parse_operating_charter_fact(body.approved_fact)
+            if charter is None:
+                raise ValueError("operating_charter must be an object")
+            updated = repo.upsert_operating_charter(
+                profile=profile,
+                charter=charter,
+                expected_revision=body.expected_charter_revision,
+                actor_id=_actor_id(request),
+                updated_at=_utcnow(),
+                provenance_metadata=body.provenance_metadata,
+            )
+        else:
+            updated = repo.upsert_approved_fact(
+                profile=profile,
+                category=normalized_category,
+                approved_fact=body.approved_fact,
+                actor_id=_actor_id(request),
+                updated_at=_utcnow(),
+                provenance_metadata=body.provenance_metadata,
+            )
+    except BusinessProfileCharterRevisionConflict as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "CHARTER_REVISION_CONFLICT",
+                "message": str(exc),
+                "expected_revision": exc.expected_revision,
+                "current_revision": exc.current_revision,
+            },
+        ) from exc
     except ValueError as exc:
         raise _resolve_value_error(exc) from exc
-    normalized_category = _normalize_category(category)
     _sync_profile_internal_records(db=db, tenant_id=tenant_scope, profile=updated)
     _append_business_profile_audit_event(
         db=db,

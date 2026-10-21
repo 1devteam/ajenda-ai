@@ -11,6 +11,7 @@ from backend.repositories.provider_runtime_credential_repository import Provider
 from backend.services.brain_mission_catalog import BRAIN_MISSIONS, BrainMissionSpec
 from backend.services.operating_charter import (
     OperatingCharter,
+    OperatingCharterConfigurationError,
     OperatingCharterViolation,
     assert_action_allowed,
     load_operating_charter,
@@ -224,8 +225,31 @@ def _assess_mission(
 def build_brain_capability_report(*, session: Session, tenant_id: str) -> BrainCapabilityReport:
     profile = BusinessProfileRepository(session).get_active_profile_for_tenant(tenant_id=tenant_id)
     facts = profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}
-    charter = load_operating_charter(approved_facts=facts)
     profile_ready = _profile_has_memory_context(facts)
+
+    try:
+        charter = load_operating_charter(approved_facts=facts)
+    except OperatingCharterConfigurationError as exc:
+        # This is a diagnostic read model, not an authorization decision. It
+        # must surface an unusable persisted charter without inventing default
+        # permissions or throwing away the rest of the capability inventory.
+        return BrainCapabilityReport(
+            schema_version=1,
+            charter_source="missing" if exc.code == "CHARTER_MISSING" else "invalid",
+            profile_ready=profile_ready,
+            missions=tuple(
+                BrainMissionReadiness(
+                    mission_id=spec["mission_id"],
+                    mission=spec["mission"],
+                    outcome=spec["outcome"],
+                    action=spec["action"],
+                    tier=spec["tier"],
+                    status="BLOCKED",
+                    note=exc.message,
+                )
+                for spec in BRAIN_MISSIONS
+            ),
+        )
 
     missions: list[BrainMissionReadiness] = []
     for spec in BRAIN_MISSIONS:

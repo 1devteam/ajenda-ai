@@ -69,3 +69,32 @@ def test_launch_task_rejects_charter_blocked_prepare_action() -> None:
     assert isinstance(detail, dict)
     assert detail["code"] == "CHARTER_PREPARE_NOT_ALLOWED"
     quota_svc.check_and_record_mission_creation.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("approved_facts", "expected_code"),
+    [
+        ({}, "CHARTER_MISSING"),
+        ({"operating_charter": {"value": {"schema_version": 1}}}, "CHARTER_INVALID"),
+    ],
+)
+def test_launch_task_fails_closed_when_persisted_charter_is_missing_or_invalid(
+    approved_facts: dict[str, object], expected_code: str
+) -> None:
+    tenant_id = uuid.uuid4()
+    db = MagicMock()
+    queue = MagicMock()
+    request = _authorized_request()
+    body = AbilityTaskCreate(action="retrieval.hybrid_search", input={"query": "Ajenda", "limit": 3})
+    profile = MagicMock()
+    profile.approved_facts = approved_facts
+
+    with patch("backend.api.routes.ability_runtime.BusinessProfileRepository") as profile_repo_cls:
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = profile
+        with pytest.raises(HTTPException) as exc_info:
+            launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
+
+    assert exc_info.value.status_code == 409
+    assert isinstance(exc_info.value.detail, dict)
+    assert exc_info.value.detail["code"] == expected_code
+    queue.enqueue.assert_not_called()

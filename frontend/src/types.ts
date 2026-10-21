@@ -292,7 +292,7 @@ export interface BrainMissionListResponse {
 
 export interface BrainCapabilityCheckResponse {
   schema_version: number;
-  charter_source: "default" | "profile";
+  charter_source: "default" | "profile" | "missing" | "invalid";
   profile_ready: boolean;
   summary: {
     ready: number;
@@ -754,11 +754,19 @@ export interface BusinessProfileReadResponse {
   schema_version: number;
   created_at: string | null;
   updated_at: string | null;
+  operating_charter: {
+    status: "active" | "missing" | "invalid";
+    revision: number;
+    charter: Record<string, unknown> | null;
+    error_code: string | null;
+    error_message: string | null;
+  };
 }
 
 export interface BusinessProfileFactUpsertRequest {
   approved_fact: Record<string, unknown>;
   provenance_metadata?: Record<string, unknown>;
+  expected_charter_revision?: number;
 }
 
 export interface CrmRecordItem {

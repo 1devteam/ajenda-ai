@@ -28,6 +28,17 @@ from backend.services.tools.runtime_authority import ToolRuntimeAuthority
 from backend.services.tools.schemas import CredentialReference, SideEffectClass
 
 
+@pytest.fixture(autouse=True)
+def _persisted_charter_for_route_unit_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep these tests focused on quota/authority after persisted-charter admission."""
+    profile = SimpleNamespace(
+        approved_facts={"operating_charter": {"value": default_operating_charter().to_fact_payload()}}
+    )
+    repository = MagicMock()
+    repository.get_active_profile_for_tenant.return_value = profile
+    monkeypatch.setattr("backend.api.routes.ability_runtime.BusinessProfileRepository", lambda _db: repository)
+
+
 class _AnyTenantId:
     def __eq__(self, _other: object) -> bool:
         return True

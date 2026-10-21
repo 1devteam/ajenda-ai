@@ -26,6 +26,7 @@ from tests.integration.credentials._invoke_authority_helpers import (
     seed_capability_adapter_authority,
     side_effect_authorization,
 )
+from tests.integration.operating_charter_support import persist_test_operating_charter
 
 EXECUTION_ACTION = "record.write"
 MATERIALIZATION_ACTION = "analysis.materialize_decision_learning_signal"
@@ -177,6 +178,7 @@ def materialize_canonical_decision_episode(
     with factory() as setup:
         setup.add(Mission(id=mission_id, tenant_id=tenant_id, objective=f"Canonical episode {index}"))
         setup.flush()
+        persist_test_operating_charter(setup, tenant_id=tenant_id)
         TenantInternalRecordRepository(setup).write_record(
             tenant_id=tenant_id,
             record_type="opportunity",

@@ -17,7 +17,7 @@ import {
   PREPARE_ACTION_OPTIONS,
   applyMayPerformToggle,
   applyNeverDoToggle,
-  charterFromProfile,
+  charterFromPersistedProfile,
   charterToFact,
   toggleActionList,
   type OperatingCharter,
@@ -51,6 +51,19 @@ function valuesFromProfile(profile: BusinessProfileReadResponse | null): FormVal
   return values;
 }
 
+function charterFromResponse(profile: BusinessProfileReadResponse | null): OperatingCharter {
+  const persisted = profile?.operating_charter;
+  if (persisted?.status === "active" && persisted.charter) {
+    const parsed = charterFromPersistedProfile({ operating_charter: persisted.charter });
+    if (parsed) {
+      return parsed;
+    }
+  }
+  // This is an editor draft only. The status callout below makes clear that it
+  // is not effective runtime authority until the API accepts and versions it.
+  return { ...DEFAULT_OPERATING_CHARTER, revision: persisted?.revision ?? 0 };
+}
+
 export default function BusinessProfilePage() {
   const { session } = useAuth();
   const [profile, setProfile] = useState<BusinessProfileReadResponse | null>(null);
@@ -80,7 +93,7 @@ export default function BusinessProfilePage() {
         if (!cancelled) {
           setProfile(response);
           setValues(valuesFromProfile(response));
-          setCharter(charterFromProfile(response.approved_facts ?? {}));
+          setCharter(charterFromResponse(response));
         }
       } catch (err) {
         if (!cancelled) {
@@ -135,12 +148,13 @@ export default function BusinessProfilePage() {
         latest = await upsertBusinessProfileFact(session, "operating_charter", {
           approved_fact: charterToFact(charter),
           provenance_metadata: { source: "business_profile_preferences" },
+          expected_charter_revision: profile?.operating_charter.revision,
         });
       }
       setProfile(latest);
       if (latest) {
         setValues(valuesFromProfile(latest));
-        setCharter(charterFromProfile(latest.approved_facts ?? {}));
+        setCharter(charterFromResponse(latest));
       }
       setSuccess(
         activeTab === "preferences"
@@ -256,7 +270,18 @@ export default function BusinessProfilePage() {
 
             {activeTab === "preferences" ? (
               <>
-                <fieldset className="standalone-fieldset">
+                {profile?.operating_charter.status !== "active" ? (
+                  <p className="error-banner" role="status">
+                    {profile?.operating_charter.status === "invalid"
+                      ? `Saved operating charter is invalid: ${profile.operating_charter.error_message ?? "reload and correct it before launch."}`
+                      : "No operating charter has been saved for this tenant. These selections are a draft until saved."}
+                  </p>
+                ) : (
+                  <p className="muted" role="status">
+                    Active charter revision {profile.operating_charter.revision}. Future mission policy uses this saved revision.
+                  </p>
+                )}
+                <fieldset className="standalone-fieldset" disabled={loading || saving}>
                   <legend>May prepare (read / draft)</legend>
                   <div className="checkbox-grid">
                     {PREPARE_ACTION_OPTIONS.map((option) => (
@@ -280,7 +305,7 @@ export default function BusinessProfilePage() {
                     ))}
                   </div>
                 </fieldset>
-                <fieldset className="standalone-fieldset">
+                <fieldset className="standalone-fieldset" disabled={loading || saving}>
                   <legend>May perform (internal / external writes)</legend>
                   <div className="checkbox-grid">
                     {PERFORM_ACTION_OPTIONS.map((option) => (
@@ -299,7 +324,7 @@ export default function BusinessProfilePage() {
                     ))}
                   </div>
                 </fieldset>
-                <fieldset className="standalone-fieldset">
+                <fieldset className="standalone-fieldset" disabled={loading || saving}>
                   <legend>Never do</legend>
                   <div className="checkbox-grid">
                     {NEVER_DO_OPTIONS.map((option) => (

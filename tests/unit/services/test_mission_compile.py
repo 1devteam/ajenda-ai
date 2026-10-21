@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,6 +24,7 @@ from backend.services.mission_composition.service import (
     MissionCompositionError,
     MissionCompositionService,
 )
+from backend.services.operating_charter import default_operating_charter
 
 
 def _mission(
@@ -52,6 +54,15 @@ def _mission(
     )
 
 
+def _active_profile() -> SimpleNamespace:
+    charter = default_operating_charter().to_fact_payload()
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        approved_facts={"operating_charter": {"value": charter}},
+        provenance={},
+    )
+
+
 def test_compile_for_mission_uses_server_composition_not_kitchen_sink() -> None:
     mission = _mission()
     tenant_id = mission.tenant_id
@@ -63,7 +74,7 @@ def test_compile_for_mission_uses_server_composition_not_kitchen_sink() -> None:
         patch("backend.services.mission_composition.service.MissionRepository") as mission_repo_cls,
         patch("backend.services.mission_composition.service.MissionPlanRepository") as plan_repo_cls,
     ):
-        profile_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
         cred_cls.return_value.list_for_tenant.return_value = []
         mission_repo_cls.return_value.get_for_tenant.return_value = mission
         plan_repo_cls.return_value.create_or_get_active_for_mission.return_value = MissionPlan(
@@ -123,7 +134,7 @@ def test_compile_persists_graph_and_refreshes_allowed_actions() -> None:
         patch("backend.services.mission_composition.service.MissionRepository") as mission_repo_cls,
         patch("backend.services.mission_composition.service.MissionPlanRepository") as plan_repo_cls,
     ):
-        profile_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
         cred_cls.return_value.list_for_tenant.return_value = []
         mission_repo_cls.return_value.get_for_tenant.return_value = mission
         plan_repo_cls.return_value.create_or_get_active_for_mission.return_value = MissionPlan(
@@ -193,7 +204,7 @@ def test_compile_preserves_downstream_acceptance_and_provenance_contract() -> No
         patch("backend.services.mission_composition.service.MissionRepository") as mission_repo_cls,
         patch("backend.services.mission_composition.service.MissionPlanRepository") as plan_repo_cls,
     ):
-        profile_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
         cred_cls.return_value.list_for_tenant.return_value = []
         mission_repo_cls.return_value.get_for_tenant.return_value = mission
         plan_repo_cls.return_value.create_or_get_active_for_mission.return_value = MissionPlan(
@@ -255,7 +266,7 @@ def test_compile_supersedes_runtime_task_materialization_and_cancels_planned_tas
         patch("backend.services.mission_composition.service.MissionPlanRepository") as plan_repo_cls,
         patch("backend.services.mission_composition.service.ExecutionTaskRepository") as task_repo_cls,
     ):
-        profile_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
         cred_cls.return_value.list_for_tenant.return_value = []
         mission_repo_cls.return_value.get_for_tenant.return_value = mission
         plan_repo_cls.return_value.create_or_get_active_for_mission.return_value = MissionPlan(
@@ -331,7 +342,7 @@ def test_compile_uses_stored_composition_when_client_omits_instruction() -> None
         patch("backend.services.mission_composition.service.MissionRepository") as mission_repo_cls,
         patch("backend.services.mission_composition.service.MissionPlanRepository") as plan_repo_cls,
     ):
-        profile_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
         cred_cls.return_value.list_for_tenant.return_value = []
         mission_repo_cls.return_value.get_for_tenant.return_value = mission
         plan_repo_cls.return_value.create_or_get_active_for_mission.return_value = MissionPlan(
@@ -379,7 +390,7 @@ def test_compile_honors_explicit_client_instruction_over_stored() -> None:
         patch("backend.services.mission_composition.service.MissionRepository") as mission_repo_cls,
         patch("backend.services.mission_composition.service.MissionPlanRepository") as plan_repo_cls,
     ):
-        profile_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
         cred_cls.return_value.list_for_tenant.return_value = []
         mission_repo_cls.return_value.get_for_tenant.return_value = mission
         plan_repo_cls.return_value.create_or_get_active_for_mission.return_value = MissionPlan(
@@ -413,7 +424,7 @@ def test_compile_binding_manifest_present_when_steps_have_deps() -> None:
         patch("backend.services.mission_composition.service.MissionRepository") as mission_repo_cls,
         patch("backend.services.mission_composition.service.MissionPlanRepository") as plan_repo_cls,
     ):
-        profile_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
         cred_cls.return_value.list_for_tenant.return_value = []
         mission_repo_cls.return_value.get_for_tenant.return_value = mission
         plan_repo_cls.return_value.create_or_get_active_for_mission.return_value = MissionPlan(

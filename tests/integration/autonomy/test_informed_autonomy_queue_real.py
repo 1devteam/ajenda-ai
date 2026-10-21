@@ -16,6 +16,7 @@ from backend.main import create_app
 from backend.services.autonomy.disclaimer_catalog import disclaimer_for_action
 from tests.integration.credentials._invoke_authority_helpers import seed_capability_adapter_authority
 from tests.integration.credentials.credential_e2e_support import auth_headers, provision_operational_tenant
+from tests.integration.operating_charter_support import persist_test_operating_charter
 
 pytestmark = pytest.mark.integration
 
@@ -75,6 +76,7 @@ def test_tier3_autonomy_ack_queues_task_and_writes_audit_event(
         )
         authority_session = authority_session_factory()
         try:
+            persist_test_operating_charter(authority_session, tenant_id=tenant_id)
             authority = seed_capability_adapter_authority(
                 authority_session,
                 tenant_id=tenant_id,

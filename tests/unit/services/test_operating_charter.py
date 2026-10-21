@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from backend.services.operating_charter import (
+    OperatingCharterConfigurationError,
     OperatingCharterViolation,
     assert_action_allowed,
     charter_requires_human_review_for_launch,
@@ -67,9 +68,16 @@ def test_parse_charter_fact_from_profile_value_wrapper() -> None:
     assert charter.may_prepare == ("retrieval.hybrid_search",)
 
 
-def test_load_operating_charter_falls_back_to_default() -> None:
-    charter = load_operating_charter(approved_facts={})
-    assert charter.source == "default"
+def test_missing_persisted_charter_fails_closed_without_default_permissions() -> None:
+    with pytest.raises(OperatingCharterConfigurationError) as exc:
+        load_operating_charter(approved_facts={})
+    assert exc.value.code == "CHARTER_MISSING"
+
+
+def test_invalid_persisted_charter_fails_closed_with_distinct_diagnostic() -> None:
+    with pytest.raises(OperatingCharterConfigurationError) as exc:
+        load_operating_charter(approved_facts={"operating_charter": {"value": {"schema_version": 1}}})
+    assert exc.value.code == "CHARTER_INVALID"
 
 
 def test_empty_may_perform_blocks_crm_upsert() -> None:

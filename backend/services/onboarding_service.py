@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from backend.domain.tenant_member import TenantMember
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.tenant_onboarding_repository import TenantOnboardingRepository
+from backend.services.operating_charter import inspect_operating_charter
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,10 +35,11 @@ class OnboardingService:
 
     def read(self, *, tenant_id: uuid.UUID, principal: Any) -> OnboardingSnapshot:
         facts = self._profile_facts(tenant_id)
+        charter_state = inspect_operating_charter(approved_facts=facts)
         legacy_completed = bool(
             self._fact_text(facts.get("business_name"))
             and self._fact_text(facts.get("contact_email"))
-            and "operating_charter" in facts
+            and charter_state.status == "active"
         )
         state = self._repo.get_or_create_state(tenant_id=tenant_id, legacy_completed=legacy_completed)
         member = self._member(tenant_id=tenant_id, principal=principal)
@@ -54,7 +56,7 @@ class OnboardingService:
             company_profile_ready=bool(
                 self._fact_text(facts.get("business_name")) and self._fact_text(facts.get("contact_email"))
             ),
-            operating_preferences_ready="operating_charter" in facts,
+            operating_preferences_ready=charter_state.status == "active",
             can_manage_connections=bool(
                 getattr(principal, "permissions", ())
                 and "credentials:manage" in {str(p) for p in principal.permissions}
@@ -74,8 +76,11 @@ class OnboardingService:
         facts = self._profile_facts(tenant_id)
         if not self._fact_text(facts.get("business_name")) or not self._fact_text(facts.get("contact_email")):
             raise ValueError("business name and contact email are required before setup can be completed")
-        if "operating_charter" not in facts:
-            raise ValueError("operating preferences must be saved before setup can be completed")
+        charter_state = inspect_operating_charter(approved_facts=facts)
+        if charter_state.status != "active":
+            if charter_state.status == "missing":
+                raise ValueError("operating preferences must be saved before setup can be completed")
+            raise ValueError("operating preferences are invalid and must be corrected before setup can be completed")
         state = self._repo.get_or_create_state(tenant_id=tenant_id)
         now = datetime.now(UTC)
         state.completed_at = state.completed_at or now

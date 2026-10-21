@@ -33,7 +33,11 @@ from backend.services.mission_composition.service_contracts import (
     MissionCompositionError as MissionCompositionError,
 )
 from backend.services.mission_composition.structured_planner import StructuredPlannerProvider
-from backend.services.operating_charter import default_operating_charter, load_operating_charter
+from backend.services.operating_charter import (
+    OperatingCharterConfigurationError,
+    default_operating_charter,
+    load_operating_charter,
+)
 from backend.services.quota_enforcement import QuotaEnforcementService
 
 
@@ -288,7 +292,10 @@ def _load_charter(db: Session | None, tenant_id: str) -> Any:
     facts = getattr(profile, "approved_facts", None) if profile is not None else None
     if not isinstance(facts, dict):
         facts = {}
-    return load_operating_charter(approved_facts=facts)
+    try:
+        return load_operating_charter(approved_facts=facts)
+    except OperatingCharterConfigurationError as exc:
+        raise MissionCompositionError(code=exc.code, message=exc.message) from exc
 
 
 class MissionCompositionService(

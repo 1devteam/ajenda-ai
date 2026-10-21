@@ -286,6 +286,8 @@ class MissionCompositionProposalPhase:
                 know_how_version=know_how.know_how_version if know_how is not None else None,
                 components_active=list(intent.components_executed or intent.components_active),
                 semantic_selection=semantic_selection,
+                charter_profile_id=str(profile.id) if profile is not None else None,
+                charter_revision=charter.revision,
             ),
         )
         # Only interpretation failures escalate via thread history.

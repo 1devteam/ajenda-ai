@@ -12,7 +12,7 @@ import {
 } from "../config/standaloneWizard";
 import { BUSINESS_PROFILE_FIELDS, type BusinessProfileField } from "../config/businessProfileFields";
 import {
-  charterFromProfile,
+  charterFromPersistedProfile,
   charterToFact,
   DEFAULT_OPERATING_CHARTER,
   NEVER_DO_OPTIONS,
@@ -42,6 +42,17 @@ function valuesFromProfile(profile: BusinessProfileReadResponse | null): FormVal
     }
   }
   return values;
+}
+
+function charterFromResponse(profile: BusinessProfileReadResponse | null): OperatingCharter {
+  const persisted = profile?.operating_charter;
+  if (persisted?.status === "active" && persisted.charter) {
+    const parsed = charterFromPersistedProfile({ operating_charter: persisted.charter });
+    if (parsed) {
+      return parsed;
+    }
+  }
+  return { ...DEFAULT_OPERATING_CHARTER, revision: persisted?.revision ?? 0 };
 }
 
 function stepIndex(stepId: WizardStepId): number {
@@ -115,7 +126,7 @@ export default function StandaloneWizardPage() {
         if (!cancelled) {
           setProfile(response);
           setValues(valuesFromProfile(response));
-          setCharter(charterFromProfile(response.approved_facts ?? {}));
+          setCharter(charterFromResponse(response));
         }
       } catch (err) {
         if (!cancelled) {
@@ -188,8 +199,10 @@ export default function StandaloneWizardPage() {
       const latest = await upsertBusinessProfileFact(session, "operating_charter", {
         approved_fact: charterToFact(charter),
         provenance_metadata: { source: "standalone_wizard" },
+        expected_charter_revision: profile?.operating_charter.revision,
       });
       setProfile(latest);
+      setCharter(charterFromResponse(latest));
       setCharterSaved(true);
     } catch (err) {
       setError(err);
@@ -330,7 +343,18 @@ export default function StandaloneWizardPage() {
 
           {stepId === "charter" ? (
             <div className="standalone-field-grid wizard-field-grid charter-grid">
-              <fieldset className="span-2">
+              {profile?.operating_charter.status !== "active" ? (
+                <p className="error-banner span-2" role="status">
+                  {profile?.operating_charter.status === "invalid"
+                    ? `Saved operating charter is invalid: ${profile.operating_charter.error_message ?? "correct it before launch."}`
+                    : "No operating charter has been saved for this tenant. These selections are a draft until saved."}
+                </p>
+              ) : (
+                <p className="muted span-2" role="status">
+                  Active charter revision {profile.operating_charter.revision}. Ajenda enforces this saved revision.
+                </p>
+              )}
+              <fieldset className="span-2" disabled={loading || saving}>
                 <legend>May prepare (read / draft)</legend>
                 <div className="checkbox-grid">
                   {PREPARE_ACTION_OPTIONS.map((option) => (
@@ -354,7 +378,7 @@ export default function StandaloneWizardPage() {
                   ))}
                 </div>
               </fieldset>
-              <fieldset className="span-2">
+              <fieldset className="span-2" disabled={loading || saving}>
                 <legend>May perform (internal / external writes)</legend>
                 <div className="checkbox-grid">
                   {PERFORM_ACTION_OPTIONS.map((option) => (
@@ -373,7 +397,7 @@ export default function StandaloneWizardPage() {
                   ))}
                 </div>
               </fieldset>
-              <fieldset className="span-2">
+              <fieldset className="span-2" disabled={loading || saving}>
                 <legend>Never do</legend>
                 <div className="checkbox-grid">
                   {NEVER_DO_OPTIONS.map((option) => (
@@ -396,6 +420,7 @@ export default function StandaloneWizardPage() {
                 <span>Approval mode</span>
                 <select
                   value={charter.approval_mode}
+                  disabled={loading || saving}
                   onChange={(event) =>
                     setCharter((current) => ({
                       ...current,
@@ -412,6 +437,7 @@ export default function StandaloneWizardPage() {
                 <span>Escalation email</span>
                 <input
                   type="email"
+                  disabled={loading || saving}
                   value={charter.escalation_email ?? ""}
                   placeholder="ops@yourcompany.com"
                   onChange={(event) =>
@@ -423,6 +449,7 @@ export default function StandaloneWizardPage() {
                 <span>Escalation phone</span>
                 <input
                   type="text"
+                  disabled={loading || saving}
                   value={charter.escalation_phone ?? ""}
                   placeholder="+1 512 555 0100"
                   onChange={(event) =>

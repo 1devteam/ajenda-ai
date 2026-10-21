@@ -32,6 +32,7 @@ from backend.services.mission_composition.proposal_store import clear_proposals_
 from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
+from tests.integration.operating_charter_support import persist_test_operating_charter
 
 pytestmark = pytest.mark.integration
 
@@ -84,6 +85,7 @@ def test_hvac_dallas_research_persists_prospect_candidates_after_start(pg_engine
         activate_tenant_session(setup, str(tenant_id))
         setup.add(Tenant(id=tenant_id, name="HVAC Dallas Tenant", slug=f"hvac-{tenant_id.hex[:8]}", plan="free"))
         setup.flush()
+        persist_test_operating_charter(setup, tenant_id=str(tenant_id))
         QuotaEnforcementService(setup).check_and_record_mission_creation(tenant_id)
         repo = TenantInternalRecordRepository(setup)
         for index, (name, host) in enumerate(_HVAC_DALLAS_ACCOUNTS, start=1):

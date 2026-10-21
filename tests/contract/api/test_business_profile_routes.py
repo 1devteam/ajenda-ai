@@ -15,6 +15,7 @@ from backend.domain.audit_event import AuditEvent
 from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
 from backend.domain.mission import Mission
 from backend.repositories.business_profile_repository import BusinessProfileRepository
+from backend.services.operating_charter import inspect_operating_charter
 
 
 class _FakeBusinessProfileRepository:
@@ -48,6 +49,33 @@ class _FakeBusinessProfileRepository:
 
     def upsert_approved_fact(self, **kwargs: object) -> BusinessProfile:
         return self.delegate.upsert_approved_fact(**kwargs)  # type: ignore[arg-type]
+
+    def upsert_operating_charter(self, **kwargs: object) -> BusinessProfile:
+        profile = kwargs["profile"]
+        charter = kwargs["charter"]
+        expected_revision = kwargs["expected_revision"]
+        assert isinstance(profile, BusinessProfile)
+        actual = inspect_operating_charter(approved_facts=profile.approved_facts)
+        if expected_revision != actual.revision:
+            from backend.repositories.business_profile_repository import BusinessProfileCharterRevisionConflict
+
+            raise BusinessProfileCharterRevisionConflict(
+                expected_revision=int(expected_revision), current_revision=actual.revision
+            )
+        profile.approved_facts = {
+            **dict(profile.approved_facts or {}),
+            "operating_charter": {
+                "value": {
+                    **charter.to_fact_payload(),
+                    "revision": actual.revision + 1,
+                }
+            },
+        }
+        profile.provenance = {
+            **dict(profile.provenance or {}),
+            "operating_charter": {"decision": "direct_update", "metadata": kwargs["provenance_metadata"]},
+        }
+        return self.update_profile(profile)
 
     def add_suggestion(self, suggestion: BusinessProfileSuggestion) -> BusinessProfileSuggestion:
         suggestion.id = suggestion.id or uuid.uuid4()
@@ -312,6 +340,110 @@ def test_another_tenant_cannot_read_or_mutate_profile_or_suggestion() -> None:
     assert read_response.json()["approved_facts"] == {}
     assert approve_response.status_code == 404
     assert repo.profiles[str(tenant_a)].approved_facts == {"business_name": {"value": "Tenant A"}}
+
+
+def _charter_fact(*, may_prepare: list[str]) -> dict[str, object]:
+    return {
+        "value": {
+            "schema_version": 1,
+            "may_prepare": may_prepare,
+            "may_perform": [],
+            "never_do": ["gtm.email_send", "gtm.social_publish", "webhook.dispatch"],
+            "approval_mode": "none",
+        }
+    }
+
+
+def test_operating_charter_save_reload_revoke_restore_and_tenant_isolation() -> None:
+    tenant_a = uuid.uuid4()
+    tenant_b = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+    client_a = _client(tenant_a, repo)
+    client_b = _client(tenant_b, repo)
+
+    saved = client_a.put(
+        "/v1/business-profile/facts/operating_charter",
+        json={"approved_fact": _charter_fact(may_prepare=["web.research"]), "expected_charter_revision": 0},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["operating_charter"] == {
+        "status": "active",
+        "revision": 1,
+        "charter": {
+            "schema_version": 1,
+            "revision": 1,
+            "may_prepare": ["web.research"],
+            "may_perform": [],
+            "never_do": ["gtm.email_send", "gtm.social_publish", "webhook.dispatch"],
+            "approval_mode": "none",
+        },
+        "error_code": None,
+        "error_message": None,
+    }
+    reloaded = client_a.get("/v1/business-profile")
+    assert reloaded.status_code == 200
+    assert reloaded.json()["operating_charter"]["charter"]["may_prepare"] == ["web.research"]
+
+    revoked = client_a.put(
+        "/v1/business-profile/facts/operating_charter",
+        json={"approved_fact": _charter_fact(may_prepare=[]), "expected_charter_revision": 1},
+    )
+    assert revoked.status_code == 200
+    assert revoked.json()["operating_charter"]["revision"] == 2
+    restored = client_a.put(
+        "/v1/business-profile/facts/operating_charter",
+        json={"approved_fact": _charter_fact(may_prepare=["web.research"]), "expected_charter_revision": 2},
+    )
+    assert restored.status_code == 200
+    assert restored.json()["operating_charter"]["revision"] == 3
+
+    tenant_b_read = client_b.get("/v1/business-profile")
+    assert tenant_b_read.status_code == 200
+    assert tenant_b_read.json()["operating_charter"]["status"] == "missing"
+    assert repo.profiles[str(tenant_a)].approved_facts["operating_charter"]["value"]["revision"] == 3
+
+
+def test_operating_charter_stale_concurrent_session_update_is_rejected_without_lost_update() -> None:
+    tenant_id = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+    first_session = _client(tenant_id, repo)
+    second_session = _client(tenant_id, repo)
+    initial = first_session.put(
+        "/v1/business-profile/facts/operating_charter",
+        json={"approved_fact": _charter_fact(may_prepare=["web.research"]), "expected_charter_revision": 0},
+    )
+    assert initial.status_code == 200
+    assert first_session.get("/v1/business-profile").json()["operating_charter"]["revision"] == 1
+    assert second_session.get("/v1/business-profile").json()["operating_charter"]["revision"] == 1
+
+    winner = first_session.put(
+        "/v1/business-profile/facts/operating_charter",
+        json={"approved_fact": _charter_fact(may_prepare=[]), "expected_charter_revision": 1},
+    )
+    stale = second_session.put(
+        "/v1/business-profile/facts/operating_charter",
+        json={"approved_fact": _charter_fact(may_prepare=["web.search"]), "expected_charter_revision": 1},
+    )
+    assert winner.status_code == 200
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "CHARTER_REVISION_CONFLICT"
+    current = first_session.get("/v1/business-profile").json()["operating_charter"]
+    assert current["revision"] == 2
+    assert current["charter"]["may_prepare"] == []
+
+
+def test_business_profile_read_marks_invalid_charter_without_replacing_it_with_defaults() -> None:
+    tenant_id = uuid.uuid4()
+    repo = _FakeBusinessProfileRepository()
+    repo.add_profile(_profile(tenant_id=str(tenant_id), facts={"operating_charter": {"value": {"schema_version": 1}}}))
+
+    response = _client(tenant_id, repo).get("/v1/business-profile")
+
+    assert response.status_code == 200
+    charter = response.json()["operating_charter"]
+    assert charter["status"] == "invalid"
+    assert charter["charter"] is None
+    assert charter["error_code"] == "CHARTER_INVALID"
 
 
 def test_pending_suggestion_does_not_alter_approved_facts_and_can_be_listed_by_status() -> None:
