@@ -297,6 +297,53 @@ def seed_internal_crm_fixture(*, api_base: str, headers: dict[str, str]) -> None
         )
 
 
+# Synthetic records deliberately belong to the isolated proof tenant; no
+# application-wide demo seeding or production record mutation is implied.
+SOFTWARE_FIXTURE_COMPANIES = (
+    ("Austin Forge Labs", "austinforge.example"),
+    ("Capitol Codeworks", "capitolcodeworks.example"),
+    ("Lone Star Systems", "lonestarsystems.example"),
+    ("South Congress Software", "soco-software.example"),
+    ("Barton Product Engineering", "barton-product.example"),
+)
+
+
+def seed_software_proof_fixtures(*, api_base: str, headers: dict[str, str]) -> None:
+    """Provision and verify five tenant-owned source-tagged fixtures via public CRM."""
+
+    for index, (company, domain) in enumerate(SOFTWARE_FIXTURE_COMPANIES, start=1):
+        record_id = f"operator-proof-software-{index}"
+        data = {
+            "name": company,
+            "industry": "software development",
+            "location": "Austin",
+            "domain": domain,
+            "website": f"https://{domain}",
+            "product_description": "Synthetic software development company for isolated runtime proof.",
+            "research_summary": "Proof-owned local fixture, not a real public-web observation.",
+            "source": "local_fixture",
+        }
+        saved = request(
+            "PUT",
+            api_base,
+            f"/v1/crm/records/account/{record_id}",
+            body={"data": data},
+            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        )
+        returned = request(
+            "GET",
+            api_base,
+            f"/v1/crm/records/account/{record_id}",
+            headers=headers,
+        )
+        for label, item in (("write", saved), ("read-back", returned)):
+            if item.get("id") != record_id or item.get("record_type") != "account":
+                raise ProofFailure(f"software fixture {index} {label} returned mismatched record identity")
+            observed = item.get("data")
+            if not isinstance(observed, dict) or any(observed.get(k) != v for k, v in data.items()):
+                raise ProofFailure(f"software fixture {index} {label} lost required fixture fields")
+
+
 def main() -> int:
     log_phase("frontend_probe")
     frontend = urllib.request.urlopen(f"{FRONTEND_BASE}/", timeout=30).read().decode("utf-8")
@@ -323,6 +370,9 @@ def main() -> int:
 
     if "internal crm" in INSTRUCTION.lower():
         seed_internal_crm_fixture(api_base=API_BASE, headers=headers)
+    elif "local fixture" in INSTRUCTION.lower() and "software" in INSTRUCTION.lower():
+        log_phase("software_fixture_provisioning")
+        seed_software_proof_fixtures(api_base=API_BASE, headers=headers)
 
     log_phase("mission_composition")
     proposal = request(
