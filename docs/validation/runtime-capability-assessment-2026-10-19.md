@@ -174,3 +174,49 @@ python /tmp/run_twenty_api_proofs.py
 ```
 
 No current graph, projection, continuous-assurance report, or documentation entry is a substitute for provider-specific and production runtime evidence. The release proof establishes only the documented local, fixture-only paths.
+
+---
+
+## Update — 2026-10-21: persisted-charter authority and release proof
+
+**Status of this update:** source and GitHub Actions evidence review at `main` commit `e352c511fd71330ebbcf8fd7b318e249531419c9`. The earlier 2026-10-19 assessment above remains historical evidence for commit `a39e667a`, not an assertion that every old finding persists today.
+
+### Implemented changes
+
+- **PR #609, merged as `9e0b75a6`:** active tenant Business Profile is the authority for persisted operating-charter permissions. Missing and malformed persisted charters are differentiated as `CHARTER_MISSING` and `CHARTER_INVALID`; the UI's default charter is an editor draft, not runtime authority. Charter writes use revision checks with database locking. Composition and downstream admission/execution consumers are expected to reevaluate current authority rather than retain authorization from a stale composition snapshot. Human approval remains separate from charter permission.
+- **PR #610, merged as `e352c511`:** the operator mission proof now expects a new tenant to have no charter, explicitly persists the charter via the Business Profile API, and verifies its active revision before composing work. This is a fixture correction necessitated by fail-closed onboarding, not a relaxation of charter enforcement.
+- The supplied engineering handoff reports an integration test in which a queued external write was denied following charter revocation, a denial was persisted, and a fake provider was invoked zero times. This is **reported test evidence**, not an independently repeated test in this documentation update.
+
+### Deployment topology and scope of proof
+
+The engineering handoff identifies `ajenda-ai.com` as a frontend served by a Cloudflare Worker, with browser API requests directed to `api.ajenda-ai.com` through a Cloudflare Tunnel to the separately hosted FastAPI backend. Cloudflare frontend build success therefore does not establish backend availability or live provider results.
+
+The local fixture-backed twenty-mission suite demonstrates the governed research execution spine under its stated conditions. Its results must not be promoted to proof of external web search, CRM/email effects, or production routing. The artifact audit reported only 15 of 20 current per-mission evidence projections correctly linked to their corresponding aggregate missions, plus a mismatch between embedded and final-file SHA-256. Treat aggregate functional completion separately from artifact provenance certification pending a run-scoped evidence recapture.
+
+### Exact current main CI status
+
+At `e352c511`, GitHub's **CI — Pull Request Gate failed**, although its lint/type, unit, integration, migration, frontend, and Docker jobs succeeded. The failing **Live Runtime Proof** job reached the operator proof script, then exited at:
+
+```text
+deploy/scripts/operator-mission-proof.py
+  persist_proof_operating_charter(...)
+  from backend.services.operating_charter import default_operating_charter
+ModuleNotFoundError: No module named 'backend'
+```
+
+Evidence: [main CI run 39541455425](https://github.com/1devteam/ajenda-ai/actions/runs/39541455425), job `119030969260`.
+
+This is a **proof-runner Python import-path/packaging defect** in the observed execution environment. It occurs before mission composition and does not demonstrate that `CHARTER_MISSING` is incorrectly enforced or that the queued-worker revocation rule failed. PR #610's pre-merge checks cannot substitute for the failed post-merge main proof.
+
+The separate pre-merge-live-runtime-proof workflow also reported failure on this main revision. Do not call the whole main release green until the appropriate workflow failures are resolved or conclusively classified with their own evidence.
+
+### Outstanding verification, in operational order
+
+1. Correct the operator proof's dependency on importing `backend` from a standalone script execution context; prefer a stable package execution contract or an API-level fixture construction path. Preserve the explicit persisted-charter requirement.
+2. Rerun the **actual post-merge main** Live Runtime Proof and require a completed mission, deliverable, reconciled evidence, and a green workflow conclusion.
+3. Rebuild local images from the tested commit before attributing container behavior to current source.
+4. Reconcile the twenty-mission aggregate to run-scoped, mission-ID-matched evidence records and a separately computed immutable digest.
+5. Test one provider-backed, public-only research mission with bounded request/transport/provenance evidence. Keep external connector writes and sends approval-bound.
+6. Evaluate remaining upstream decision-instrumentation coverage and the reported missing canonical graph node for `deploy/scripts/operator-mission-proof.py` against the current graph before treating these as new implementation defects.
+
+**Release decision as of this update:** charter-policy changes are merged, but **main is not green**. Production/public-web capability remains unproven by the fixture missions. This document does not authorize ungating external abilities.
