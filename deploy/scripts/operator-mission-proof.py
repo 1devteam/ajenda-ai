@@ -30,6 +30,68 @@ RUNTIME_EVIDENCE_OUTPUT = os.environ.get("AJENDA_OPERATOR_PROOF_RUNTIME_EVIDENCE
 RUNTIME_RECONCILIATION_OUTPUT = os.environ.get("AJENDA_OPERATOR_PROOF_RUNTIME_RECONCILIATION_OUTPUT")
 CLIENT_IP = os.environ.get("AJENDA_OPERATOR_PROOF_CLIENT_IP", "").strip()
 
+# This script is intentionally executed by the CI host, which has Python but
+# not the Ajenda package installed.  Keep its proof-only charter self-contained
+# and verify it against default_operating_charter() in deployment tests.
+PROOF_OPERATING_CHARTER: dict[str, Any] = {
+    "schema_version": 1,
+    "may_prepare": [
+        "retrieval.hybrid_search",
+        "record.search",
+        "record.read",
+        "web.research",
+        "web.search",
+        "web.page_read",
+        "research.observe_contacts",
+        "research.verify_public_candidates",
+        "research.verify_public_identity",
+        "research.synthesize_report",
+        "knowledge.retrieve_current",
+        "decision.recommend_next_action",
+        "web.browser_session",
+        "http.request",
+        "sales.qualify",
+        "sales.score_lead",
+        "sales.recommend_next_action",
+        "gtm.lead_enrich",
+        "gtm.email_draft",
+        "sales.draft_followup",
+        "document.generate",
+        "document.search",
+        "document.read",
+        "sales.research",
+        "crm.research",
+        "crm.read",
+        "crm.observe",
+        "crm.reconcile",
+        "crm.verify_effect",
+        "salesforce.soql_read",
+        "provider.external_read",
+        "linkedin.profile_read",
+        "github.repo_read",
+        "gtm.email_check",
+        "google_calendar.events_read",
+        "calendar.read",
+        "vertical.finance.sync_revenue",
+        "vertical.finance.prepare_reconciliation",
+        "vertical.finance.prepare_invoice_drafts",
+        "runtime.verify_controls",
+        "analysis.evaluate_goal_progress",
+    ],
+    "may_perform": [
+        "gtm.crm_upsert",
+        "record.write",
+        "sales.log_activity",
+        "sales.create_followup_task",
+        "calendar.create_event",
+        "web.open_write",
+        "crm.mutate",
+    ],
+    "never_do": ["gtm.email_send", "gtm.social_publish", "webhook.dispatch"],
+    "approval_mode": "notify_before_external",
+    "revision": 0,
+}
+
 
 class ProofFailure(RuntimeError):
     """Raised when an operator proof invariant is not satisfied."""
@@ -139,11 +201,10 @@ def persist_proof_operating_charter(*, headers: dict[str, str]) -> None:
             f"{json.dumps(charter_state, sort_keys=True)}"
         )
 
-    # Keep the proof authority coupled to the application's supported action
-    # contract, while persisting it only through the public profile API.
-    from backend.services.operating_charter import default_operating_charter
-
-    requested = default_operating_charter().to_fact_payload()
+    # The literal is validated against the application's source-of-truth
+    # charter contract by a deployment test.  Runtime persistence remains
+    # exclusively through the public profile API.
+    requested = dict(PROOF_OPERATING_CHARTER)
     saved_profile = request(
         "PUT",
         API_BASE,
