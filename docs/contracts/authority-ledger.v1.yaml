@@ -1481,6 +1481,31 @@ authority_entries:
       - tests/unit/services/test_mission_runtime_evidence_projection.py
       - tests/contract/api/test_task_graph_runtime_boundary_contract.py
 
+  - id: graft_ui_runtime_interaction_evidence_projection_contract
+    area: read-only G.R.A.F.T. UI-to-runtime interaction evidence projection
+    owner: evidence-observability-governance
+    source_of_truth:
+      - backend/services/ui_runtime_causal_trace.py
+      - backend/services/ui_runtime_interaction_projection.py
+      - backend/api/routes/provider_credentials.py
+    route_scope:
+      - POST /v1/account/provider-credentials/runtime-interactions/events
+      - GET /v1/account/provider-credentials/linkedin/oauth/runtime-evidence/{interaction_id}
+    authority_class: read_model
+    side_effect_class: tenant_scoped_runtime_evidence_append_and_read
+    allowed_side_effects:
+      - append bounded untrusted browser observations to the existing audit evidence ledger after authentication and authorization
+      - append bounded API-side observations without changing OAuth or credential authority
+      - read a tenant-scoped, digest-sealed interaction projection with coverage, gaps, and first-divergence findings
+    forbidden_side_effects:
+      - authorize OAuth, issue credentials, exchange tokens, or grant provider access based on telemetry
+      - persist authorization codes, OAuth state, full URLs, bearer tokens, client secrets, or request headers in evidence
+      - mutate missions, tasks, queues, leases, provider state, or another tenant's evidence
+    required_proofs:
+      - tests/unit/services/test_ui_runtime_causal_trace.py
+      - tests/unit/services/test_ui_runtime_interaction_projection.py
+      - tests/integration/credentials/test_oauth_connect_http_real.py
+
   - id: graft_plus_workflow_control
     area: GRAFT+ build and proof workflow
     owner: architecture-runtime-governance

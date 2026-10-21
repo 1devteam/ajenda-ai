@@ -48,6 +48,7 @@ def issue_linkedin_oauth_authorization(
     tenant_id: str,
     credential_id: str,
     actor_id: str,
+    interaction_id: str | None = None,
     settings: Settings | None = None,
 ) -> LinkedInOAuthAuthorizeResult:
     runtime_settings = settings or get_settings()
@@ -65,6 +66,11 @@ def issue_linkedin_oauth_authorization(
             "nonce": secrets.token_urlsafe(16),
             "issued_at": int(time.time()),
             "provider": LINKEDIN_OAUTH_PROVIDER,
+            # The opaque server-issued interaction id is carried in signed
+            # OAuth state solely to bind the callback to its server trace. It
+            # is not copied into runtime-evidence payloads or credential
+            # material.
+            "interaction_id": interaction_id,
         },
         settings=runtime_settings,
     )

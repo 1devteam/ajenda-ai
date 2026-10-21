@@ -18,13 +18,18 @@ import {
   getLinkedInOAuthAuthorizeUrl,
   getSalesforceOAuthAuthorizeUrl,
   listProviderCredentials,
+  persistUiRuntimeInteraction,
   revokeProviderCredential,
 } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
 import ConnectorGrid from "../components/connections/ConnectorGrid";
 import PageHeader from "../components/ui/PageHeader";
-import type { ProviderCredentialCreateRequest, ProviderCredentialResponse } from "../types";
+import type {
+  ProviderCredentialCreateRequest,
+  ProviderCredentialResponse,
+  UiRuntimeInteractionEvent,
+} from "../types";
 
 
 type IntegrationKind =
@@ -448,6 +453,62 @@ export default function CredentialsPage() {
     setCredentials(response.credentials);
   }
 
+  async function beginLinkedInInteraction() {
+    if (!session) {
+      return null;
+    }
+    const localInteractionId = crypto.randomUUID();
+    let serverInteractionId: string | undefined;
+    let predecessorEventId: string | undefined;
+    let sequence = 0;
+    let telemetryUnavailable = false;
+    const emit = async (phase: UiRuntimeInteractionEvent["phase"]) => {
+      sequence += 1;
+      const eventId = sequence === 1 ? localInteractionId : crypto.randomUUID();
+      const event: UiRuntimeInteractionEvent = {
+        event_id: eventId,
+        local_interaction_id: localInteractionId,
+        server_interaction_id: serverInteractionId,
+        action_id: "credential.linkedin.oauth.connect",
+        phase,
+        predecessor_event_id: predecessorEventId,
+        producer_sequence: sequence,
+        occurred_at: new Date().toISOString(),
+      };
+      try {
+        const receipt = await persistUiRuntimeInteraction(session, event);
+        serverInteractionId = receipt.server_interaction_id;
+        predecessorEventId = eventId;
+        return true;
+      } catch {
+        telemetryUnavailable = true;
+        return false;
+      }
+    };
+    // The first event uses the local interaction UUID as its event UUID. This
+    // lets the API recover an already-persisted click if its acknowledgement
+    // was lost before the authorize request begins.
+    if (!(await emit("ui.action_clicked"))) {
+      return {
+        localInteractionId,
+        serverInteractionId: undefined,
+        telemetryUnavailable: true,
+        emit: async (_phase: UiRuntimeInteractionEvent["phase"]) => false,
+      };
+    }
+    await emit("ui.handler_entered");
+    return {
+      localInteractionId,
+      get serverInteractionId() {
+        return serverInteractionId;
+      },
+      get telemetryUnavailable() {
+        return telemetryUnavailable;
+      },
+      emit,
+    };
+  }
+
   async function handleConnect(event: React.FormEvent) {
     event.preventDefault();
     if (!session) {
@@ -509,10 +570,16 @@ export default function CredentialsPage() {
     setError(null);
     try {
       let response;
+      const linkedinInteraction = target === "linkedin" ? await beginLinkedInInteraction() : null;
       if (target === "gmail") {
         response = await getGmailOAuthAuthorizeUrl(session, credentialId);
       } else if (target === "linkedin") {
-        response = await getLinkedInOAuthAuthorizeUrl(session, credentialId);
+        await linkedinInteraction?.emit("ui.request_attempted");
+        response = await getLinkedInOAuthAuthorizeUrl(session, credentialId, {
+          localInteractionId: linkedinInteraction?.localInteractionId ?? crypto.randomUUID(),
+          serverInteractionId: linkedinInteraction?.serverInteractionId,
+          telemetryUnavailable: linkedinInteraction?.telemetryUnavailable,
+        });
       } else if (target === "salesforce") {
         response = await getSalesforceOAuthAuthorizeUrl(session, credentialId);
       } else if (target === "google_calendar") {
@@ -528,6 +595,9 @@ export default function CredentialsPage() {
       }
       if (!response?.authorization_url) {
         throw new Error(`${label} OAuth did not return an authorization URL from the API.`);
+      }
+      if (target === "linkedin") {
+        await linkedinInteraction?.emit("ui.redirect_assigned");
       }
       // Full-page redirect; if navigation is blocked, re-enable buttons.
       window.location.assign(response.authorization_url);

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
+from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.tenant_repository import (
     TenantDeletedError,
     TenantNotFoundError,
@@ -61,6 +62,17 @@ from backend.services.credentials.salesforce_oauth_connect import (
     exchange_salesforce_oauth_code,
     issue_salesforce_oauth_authorization,
     verify_salesforce_oauth_state,
+)
+from backend.services.ui_runtime_causal_trace import (
+    LINKEDIN_OAUTH_ACTION_ID,
+    BrowserInteractionEvent,
+    UIInteractionReceipt,
+    UIInteractionTraceError,
+    UIInteractionTraceService,
+)
+from backend.services.ui_runtime_interaction_projection import (
+    UIInteractionRuntimeEvidenceProjection,
+    build_ui_runtime_interaction_projection,
 )
 
 router = APIRouter(tags=["account-credentials"])
@@ -145,6 +157,103 @@ class OAuthConnectRequest(BaseModel):
     code: str = Field(min_length=1, max_length=4000)
     state: str = Field(min_length=1, max_length=4000)
     credential_id: str = Field(min_length=1, max_length=160)
+
+
+def _optional_interaction_id(request: Request, header: str) -> UUID | None:
+    raw = request.headers.get(header, "").strip()
+    if not raw:
+        return None
+    try:
+        return UUID(raw)
+    except ValueError:
+        return None
+
+
+def _linkedin_interaction_ids(request: Request) -> tuple[UUID | None, UUID | None]:
+    return (
+        _optional_interaction_id(request, "X-Ajenda-UI-Local-Interaction-Id"),
+        _optional_interaction_id(request, "X-Ajenda-UI-Interaction-Id"),
+    )
+
+
+def _linkedin_trace_context(
+    *,
+    request: Request,
+    db: Session,
+    tenant_id: UUID,
+    actor_id: str,
+) -> tuple[UIInteractionTraceService, UUID, UUID | None]:
+    local_interaction_id, supplied_server_interaction_id = _linkedin_interaction_ids(request)
+    trace = UIInteractionTraceService(db)
+    try:
+        interaction_id = trace.resolve_server_interaction(
+            tenant_id=str(tenant_id),
+            local_interaction_id=local_interaction_id,
+            server_interaction_id=supplied_server_interaction_id,
+        )
+    except UIInteractionTraceError:
+        # Telemetry correlation is never authority. Preserve OAuth behavior
+        # while recording the server path under an independently issued ID.
+        interaction_id = uuid4()
+    trace.append_server_event(
+        tenant_id=str(tenant_id),
+        actor_id=actor_id,
+        interaction_id=interaction_id,
+        local_interaction_id=local_interaction_id,
+        action_id=LINKEDIN_OAUTH_ACTION_ID,
+        phase="api.request_received",
+        outcome_code="ROUTE_MATCHED",
+    )
+    trace.append_server_event(
+        tenant_id=str(tenant_id),
+        actor_id=actor_id,
+        interaction_id=interaction_id,
+        local_interaction_id=local_interaction_id,
+        action_id=LINKEDIN_OAUTH_ACTION_ID,
+        phase="api.authentication_checked",
+        outcome_code="AUTHENTICATED",
+    )
+    return trace, interaction_id, local_interaction_id
+
+
+def _require_linkedin_oauth_permission(
+    *,
+    request: Request,
+    db: Session,
+    tenant_id: UUID,
+    trace: UIInteractionTraceService,
+    interaction_id: UUID,
+    local_interaction_id: UUID | None,
+    actor_id: str,
+) -> None:
+    try:
+        require_route_permission(
+            request=request,
+            db=db,
+            permission=Permission.CREDENTIALS_MANAGE,
+            tenant_id=tenant_id,
+        )
+    except HTTPException:
+        trace.append_server_event(
+            tenant_id=str(tenant_id),
+            actor_id=actor_id,
+            interaction_id=interaction_id,
+            local_interaction_id=local_interaction_id,
+            action_id=LINKEDIN_OAUTH_ACTION_ID,
+            phase="api.authorization_denied",
+            outcome_code="CREDENTIALS_MANAGE_DENIED",
+        )
+        db.commit()
+        raise
+    trace.append_server_event(
+        tenant_id=str(tenant_id),
+        actor_id=actor_id,
+        interaction_id=interaction_id,
+        local_interaction_id=local_interaction_id,
+        action_id=LINKEDIN_OAUTH_ACTION_ID,
+        phase="api.authorization_checked",
+        outcome_code="CREDENTIALS_MANAGE_ALLOWED",
+    )
 
 
 def _structured_oauth_error(
@@ -353,6 +462,71 @@ def _oauth_connect_response(
     )
 
 
+@router.post(
+    "/provider-credentials/runtime-interactions/events",
+    response_model=UIInteractionReceipt,
+    status_code=status.HTTP_201_CREATED,
+)
+def persist_ui_runtime_interaction_event(
+    body: BrowserInteractionEvent,
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> UIInteractionReceipt:
+    """Persist one bounded browser observation after authentication/authorization.
+
+    The receipt means the audit-ledger transaction committed.  It is not an
+    execution grant and it contains no provider/OAuth material.
+    """
+
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.CREDENTIALS_MANAGE,
+        tenant_id=tenant_id,
+    )
+    try:
+        return UIInteractionTraceService(db).accept_browser_event(
+            tenant_id=str(tenant_id),
+            actor_id=_actor_id(request),
+            event=body,
+        )
+    except UIInteractionTraceError as exc:
+        raise _structured_oauth_error(
+            code="UI_INTERACTION_REJECTED", message=str(exc), status_code=status.HTTP_409_CONFLICT
+        ) from exc
+
+
+@router.get(
+    "/provider-credentials/linkedin/oauth/runtime-evidence/{interaction_id}",
+    response_model=UIInteractionRuntimeEvidenceProjection,
+)
+def get_linkedin_oauth_runtime_evidence(
+    interaction_id: UUID,
+    request: Request,
+    tenant_id: UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> UIInteractionRuntimeEvidenceProjection:
+    """Read-only, tenant-scoped projection of one LinkedIn OAuth interaction."""
+
+    require_route_permission(
+        request=request,
+        db=db,
+        permission=Permission.CREDENTIALS_MANAGE,
+        tenant_id=tenant_id,
+    )
+    events = AuditEventRepository(db).list_for_runtime_interaction_for_tenant(
+        tenant_id=str(tenant_id), interaction_id=str(interaction_id)
+    )
+    if not events:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Runtime interaction evidence not found")
+    return build_ui_runtime_interaction_projection(
+        interaction_id=interaction_id,
+        tenant_id=str(tenant_id),
+        audit_events=events,
+    )
+
+
 @router.get(
     "/provider-credentials/linkedin/oauth/authorize-url",
     response_model=GmailOAuthAuthorizeUrlResponse,
@@ -363,21 +537,52 @@ def linkedin_oauth_authorize_url(
     db: Session = Depends(get_tenant_db_session),
     credential_id: str = "linkedin-read",
 ) -> GmailOAuthAuthorizeUrlResponse:
-    require_route_permission(
+    actor_id = _actor_id(request)
+    trace, interaction_id, local_interaction_id = _linkedin_trace_context(
         request=request,
         db=db,
-        permission=Permission.CREDENTIALS_MANAGE,
         tenant_id=tenant_id,
+        actor_id=actor_id,
     )
-    actor_id = _actor_id(request)
+    _require_linkedin_oauth_permission(
+        request=request,
+        db=db,
+        tenant_id=tenant_id,
+        trace=trace,
+        interaction_id=interaction_id,
+        local_interaction_id=local_interaction_id,
+        actor_id=actor_id,
+    )
     try:
         result = issue_linkedin_oauth_authorization(
             tenant_id=str(tenant_id),
             credential_id=credential_id,
             actor_id=actor_id,
+            interaction_id=str(interaction_id),
         )
     except LinkedInOAuthConnectError as exc:
+        trace.append_server_event(
+            tenant_id=str(tenant_id),
+            actor_id=actor_id,
+            interaction_id=interaction_id,
+            local_interaction_id=local_interaction_id,
+            action_id=LINKEDIN_OAUTH_ACTION_ID,
+            phase="oauth.authorization_failed",
+            outcome_code="OAUTH_AUTHORIZE_CONFIGURATION_FAILED",
+        )
+        db.commit()
         raise _oauth_connect_http_error(exc) from exc
+    trace.append_server_event(
+        tenant_id=str(tenant_id),
+        actor_id=actor_id,
+        interaction_id=interaction_id,
+        local_interaction_id=local_interaction_id,
+        action_id=LINKEDIN_OAUTH_ACTION_ID,
+        phase="oauth.authorization_url_issued",
+        outcome_code="OAUTH_AUTHORIZE_URL_ISSUED",
+    )
+    # A returned authorization URL is paired with durable API-side evidence.
+    db.commit()
     return GmailOAuthAuthorizeUrlResponse(
         authorization_url=result.authorization_url,
         state=result.state,
@@ -417,8 +622,35 @@ def linkedin_oauth_connect(
         raise _oauth_state_claim_mismatch("OAUTH_STATE_ACTOR_MISMATCH", "oauth state actor mismatch") from None
 
     try:
+        interaction_id = UUID(claims.interaction_id) if claims.interaction_id else None
+    except ValueError:
+        interaction_id = None
+    # Callback requests do not carry browser headers.  The signed state only
+    # carries an opaque interaction identifier, never OAuth material.
+    trace = UIInteractionTraceService(db)
+    if interaction_id is not None:
+        trace.append_server_event(
+            tenant_id=str(tenant_id),
+            actor_id=actor_id,
+            interaction_id=interaction_id,
+            local_interaction_id=None,
+            action_id=LINKEDIN_OAUTH_ACTION_ID,
+            phase="api.callback_received",
+            outcome_code="OAUTH_CALLBACK_VALIDATED",
+        )
+        trace.append_server_event(
+            tenant_id=str(tenant_id),
+            actor_id=actor_id,
+            interaction_id=interaction_id,
+            local_interaction_id=None,
+            action_id=LINKEDIN_OAUTH_ACTION_ID,
+            phase="api.authorization_checked",
+            outcome_code="CREDENTIALS_MANAGE_ALLOWED",
+        )
+
+    try:
         secret_value = exchange_linkedin_oauth_code(code=body.code, state=body.state)
-        return _oauth_connect_response(
+        response = _oauth_connect_response(
             service=ProviderCredentialManagementService(db),
             tenant_id=str(tenant_id),
             actor_id=actor_id,
@@ -427,9 +659,43 @@ def linkedin_oauth_connect(
             integration="linkedin",
             secret_value=secret_value,
         )
+        if interaction_id is not None:
+            trace.append_server_event(
+                tenant_id=str(tenant_id),
+                actor_id=actor_id,
+                interaction_id=interaction_id,
+                local_interaction_id=None,
+                action_id=LINKEDIN_OAUTH_ACTION_ID,
+                phase="oauth.credential_persisted",
+                outcome_code="CREDENTIAL_REGISTERED",
+            )
+        db.commit()
+        return response
     except LinkedInOAuthConnectError as exc:
+        if interaction_id is not None:
+            trace.append_server_event(
+                tenant_id=str(tenant_id),
+                actor_id=actor_id,
+                interaction_id=interaction_id,
+                local_interaction_id=None,
+                action_id=LINKEDIN_OAUTH_ACTION_ID,
+                phase="oauth.exchange_failed",
+                outcome_code="OAUTH_CODE_EXCHANGE_FAILED",
+            )
+            db.commit()
         raise _oauth_connect_http_error(exc) from exc
     except ProviderCredentialManagementError as exc:
+        if interaction_id is not None:
+            trace.append_server_event(
+                tenant_id=str(tenant_id),
+                actor_id=actor_id,
+                interaction_id=interaction_id,
+                local_interaction_id=None,
+                action_id=LINKEDIN_OAUTH_ACTION_ID,
+                phase="oauth.exchange_failed",
+                outcome_code="CREDENTIAL_REGISTER_FAILED",
+            )
+            db.commit()
         raise _structured_oauth_error(code="CREDENTIAL_REGISTER_FAILED", message=str(exc)) from exc
 
 

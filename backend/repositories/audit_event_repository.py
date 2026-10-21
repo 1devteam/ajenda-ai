@@ -27,6 +27,27 @@ class AuditEventRepository:
         self._session.add(event)
         return event
 
+    def get_for_tenant(self, *, event_id: uuid.UUID, tenant_id: str) -> AuditEvent | None:
+        """Read one immutable event without exposing another tenant's row."""
+
+        stmt = select(AuditEvent).where(AuditEvent.id == event_id, AuditEvent.tenant_id == tenant_id)
+        return self._session.scalar(stmt)
+
+    def list_for_runtime_interaction_for_tenant(
+        self,
+        *,
+        tenant_id: str,
+        interaction_id: str,
+    ) -> list[AuditEvent]:
+        """Return only the tenant's evidence correlated to one interaction."""
+
+        stmt = select(AuditEvent).where(
+            AuditEvent.tenant_id == tenant_id,
+            AuditEvent.category == "ui_interaction",
+            AuditEvent.payload_json["runtime_evidence"]["correlation_id"].astext == interaction_id,
+        )
+        return list(self._session.scalars(stmt))
+
     def list_for_mission(self, mission_id: uuid.UUID) -> list[AuditEvent]:
         stmt = select(AuditEvent).where(AuditEvent.mission_id == mission_id)
         return list(self._session.scalars(stmt))

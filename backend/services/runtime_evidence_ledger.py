@@ -177,6 +177,7 @@ class RuntimeEvidenceLedger:
     def append_fact(
         self,
         *,
+        event_id: uuid.UUID | None = None,
         tenant_id: str,
         mission_id: uuid.UUID | None,
         category: str,
@@ -191,7 +192,7 @@ class RuntimeEvidenceLedger:
         evidence_references: Sequence[str] = (),
         occurred_at: datetime | None = None,
     ) -> AuditEvent:
-        event_id = uuid.uuid4()
+        event_id = event_id or uuid.uuid4()
         when = occurred_at or datetime.now(UTC)
         if when.tzinfo is None:
             raise ValueError("runtime evidence occurred_at must be timezone-aware")

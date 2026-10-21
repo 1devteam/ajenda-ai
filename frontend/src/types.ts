@@ -213,6 +213,34 @@ export interface GmailOAuthAuthorizeUrlResponse {
   redirect_uri: string;
 }
 
+export type UiRuntimeInteractionPhase =
+  | "ui.action_clicked"
+  | "ui.handler_entered"
+  | "ui.request_attempted"
+  | "ui.redirect_assigned"
+  | "ui.action_abandoned";
+
+export interface UiRuntimeInteractionEvent {
+  event_id: string;
+  local_interaction_id: string;
+  server_interaction_id?: string;
+  action_id: string;
+  phase: UiRuntimeInteractionPhase;
+  predecessor_event_id?: string;
+  producer_sequence: number;
+  occurred_at: string;
+  outcome_code?: string;
+}
+
+export interface UiRuntimeInteractionReceipt {
+  schema_version: number;
+  event_id: string;
+  server_interaction_id: string;
+  acknowledgement: "persisted";
+  persisted_at: string;
+  duplicate: boolean;
+}
+
 export interface GmailOAuthConnectRequest {
   code: string;
   state: string;

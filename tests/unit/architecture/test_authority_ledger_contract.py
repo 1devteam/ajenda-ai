@@ -122,6 +122,7 @@ def test_graft_surfaces_have_explicit_owners_and_non_authority_boundaries() -> N
     expected = {
         "graft_runtime_integrity_contract": "runtime-admission-governance",
         "graft_runtime_evidence_projection_contract": "evidence-observability-governance",
+        "graft_ui_runtime_interaction_evidence_projection_contract": "evidence-observability-governance",
         "graft_plus_workflow_control": "architecture-runtime-governance",
         "graft1st_revops_contract_package": "revops-composition-governance",
         "graft_artifact_lifecycle_contract": "architecture-runtime-governance",
@@ -138,7 +139,11 @@ def test_graft_surfaces_have_explicit_owners_and_non_authority_boundaries() -> N
 def test_graft_runtime_read_models_are_not_runtime_authoritative() -> None:
     blocks = {block.splitlines()[0].removeprefix("id: "): block for block in _ledger_blocks()}
 
-    for entry_id in ("graft_runtime_integrity_contract", "graft_runtime_evidence_projection_contract"):
+    for entry_id in (
+        "graft_runtime_integrity_contract",
+        "graft_runtime_evidence_projection_contract",
+        "graft_ui_runtime_interaction_evidence_projection_contract",
+    ):
         assert "authority_class: read_model" in blocks[entry_id]
         assert "authority_class: runtime_authoritative" not in blocks[entry_id]
 

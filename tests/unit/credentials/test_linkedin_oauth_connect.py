@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock
+from uuid import uuid4
 
 import pytest
 
@@ -32,6 +33,23 @@ def test_issue_linkedin_oauth_authorization_returns_signed_state(monkeypatch: py
     assert claims.credential_id == "linkedin-read"
     assert claims.actor_id == "human:test@example.com"
     assert claims.provider == "linkedin"
+
+
+def test_linkedin_oauth_state_carries_only_opaque_interaction_correlation(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AJENDA_LINKEDIN_CLIENT_ID", "linkedin-client-id")
+    monkeypatch.setenv("AJENDA_LINKEDIN_CLIENT_SECRET", "linkedin-client-secret")
+    interaction_id = uuid4()
+
+    issued = issue_linkedin_oauth_authorization(
+        tenant_id="tenant-1",
+        credential_id="linkedin-read",
+        actor_id="human:test@example.com",
+        interaction_id=str(interaction_id),
+    )
+
+    assert verify_linkedin_oauth_state(issued.state).interaction_id == str(interaction_id)
+    assert "linkedin-client-secret" not in issued.state
+    assert "linkedin-client-secret" not in issued.authorization_url
 
 
 def test_exchange_linkedin_oauth_code_serializes_provider_kind_secret(
