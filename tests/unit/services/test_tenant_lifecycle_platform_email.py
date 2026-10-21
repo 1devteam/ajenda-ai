@@ -35,7 +35,7 @@ def _settings(*, email_platform: bool, auto_provision: bool = True) -> Settings:
         email_platform_master_key_enabled=email_platform,
         email_platform_smtp_secret=smtp_secret,
         email_platform_master_auto_provision=auto_provision,
-        runtime_secret_encryption_key=RuntimeCredentialSecretProtector().generate_key(),
+        runtime_secret_encryption_key=RuntimeCredentialSecretProtector.generate_key(),
     )
 
 

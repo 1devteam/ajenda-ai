@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -9,6 +10,7 @@ from backend.services.tools.gmail_provider import GMAIL_READONLY_SCOPE, GMAIL_SE
 from backend.services.tools.google_oauth_cli import (
     GoogleOAuthClientConfig,
     GoogleOAuthCliError,
+    _post_token,
     build_google_authorization_url,
     exchange_authorization_code,
     refresh_access_token,
@@ -149,3 +151,21 @@ def test_resolve_google_oauth_client_config_requires_values(monkeypatch: pytest.
 
     with pytest.raises(GoogleOAuthCliError, match="AJENDA_GOOGLE_CLI_CLIENT_ID"):
         resolve_google_oauth_client_config()
+
+
+def test_google_token_error_does_not_echo_provider_response_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeResponse:
+        status_code = 400
+        text = "synthetic-sensitive-provider-detail"
+
+    fake_client = MagicMock()
+    fake_client.__enter__.return_value = fake_client
+    fake_client.__exit__.return_value = None
+    fake_client.post.return_value = _FakeResponse()
+    monkeypatch.setattr("backend.services.tools.google_oauth_cli.httpx.Client", lambda **_kwargs: fake_client)
+
+    with pytest.raises(GoogleOAuthCliError) as exc_info:
+        _post_token({"grant_type": "refresh_token"}, timeout_seconds=1.0)
+
+    assert "HTTP 400" in str(exc_info.value)
+    assert "synthetic-sensitive-provider-detail" not in str(exc_info.value)

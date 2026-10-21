@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 from alembic.config import Config as AlembicConfig
+from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -38,10 +39,16 @@ _COLLECTION_ENV_DEFAULTS = {
     "AJENDA_RATE_LIMIT_REQUESTS": "10000",
     "AJENDA_RATE_LIMIT_WINDOW_SECONDS": "60",
     "AJENDA_REDACT_KEYS": "password,secret,token,api_key,authorization,cookie,set-cookie",
+    # Never inherit a developer or deployment credential-encryption key into
+    # integration tests.  This key lives only for this test process.
+    "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY": Fernet.generate_key().decode(),
 }
 
 for _key, _value in _COLLECTION_ENV_DEFAULTS.items():
-    os.environ.setdefault(_key, _value)
+    if _key == "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY":
+        os.environ[_key] = _value
+    else:
+        os.environ.setdefault(_key, _value)
 get_settings.cache_clear()
 
 

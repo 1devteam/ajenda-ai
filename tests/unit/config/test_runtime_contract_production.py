@@ -14,6 +14,8 @@ Also verifies that valid configurations pass without raising.
 
 from __future__ import annotations
 
+import base64
+
 import pytest
 from cryptography.fernet import Fernet
 
@@ -337,8 +339,30 @@ class TestRuntimeSecretEncryptionGuards:
         with pytest.raises(ValueError, match="AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY must be a valid Fernet key"):
             settings.validate_runtime_contract()
 
-    def test_deterministic_test_runtime_secret_encryption_key_in_production_raises(self) -> None:
-        settings = _settings(runtime_secret_encryption_key="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+    def test_runtime_secret_encryption_validation_does_not_echo_the_supplied_key(self) -> None:
+        supplied_value = "invalid-runtime-key-must-not-appear-in-errors"
+        settings = _settings(runtime_secret_encryption_key=supplied_value)
+
+        with pytest.raises(ValueError) as exc_info:
+            settings.validate_runtime_contract()
+
+        assert supplied_value not in str(exc_info.value)
+
+    @pytest.mark.parametrize("key_byte", [0x00, 0x01])
+    @pytest.mark.parametrize("previous", [False, True])
+    def test_deterministic_runtime_secret_encryption_keys_in_production_raise(
+        self,
+        key_byte: int,
+        previous: bool,
+    ) -> None:
+        rejected_key = base64.urlsafe_b64encode(bytes([key_byte]) * 32).decode()
+        settings = _settings(
+            **(
+                {"runtime_secret_encryption_key_prev": rejected_key}
+                if previous
+                else {"runtime_secret_encryption_key": rejected_key}
+            )
+        )
         with pytest.raises(ValueError, match="must not use the deterministic development/test key"):
             settings.validate_runtime_contract()
 

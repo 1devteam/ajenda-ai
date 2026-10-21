@@ -118,7 +118,7 @@ def _post_token(payload: dict[str, str], *, timeout_seconds: float) -> dict[str,
             },
         )
     if response.status_code >= 400:
-        raise GitHubOAuthClientError(f"GitHub token endpoint returned HTTP {response.status_code}: {response.text}")
+        raise GitHubOAuthClientError(f"GitHub token endpoint returned HTTP {response.status_code}")
     try:
         body = response.json()
     except ValueError as exc:

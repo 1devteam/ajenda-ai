@@ -138,7 +138,7 @@ def _post_token(
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
     if response.status_code >= 400:
-        raise SalesforceOAuthError(f"Salesforce token endpoint returned HTTP {response.status_code}: {response.text}")
+        raise SalesforceOAuthError(f"Salesforce token endpoint returned HTTP {response.status_code}")
     body = response.json()
     if not isinstance(body, dict):
         raise SalesforceOAuthError("Salesforce token endpoint returned non-object JSON")

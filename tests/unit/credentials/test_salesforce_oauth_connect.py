@@ -5,6 +5,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from backend.services.credentials.salesforce_oauth_client import (
+    SalesforceOAuthClientConfig,
+    SalesforceOAuthError,
+    _post_token,
     salesforce_token_url,
 )
 from backend.services.credentials.salesforce_oauth_connect import (
@@ -89,3 +92,32 @@ def test_verify_salesforce_oauth_state_rejects_tampered_signature(monkeypatch: p
     tampered = f"{issued.state}x"
     with pytest.raises(SalesforceOAuthConnectError, match=r"malformed|signature mismatch"):
         verify_salesforce_oauth_state(tampered)
+
+
+def test_salesforce_token_error_does_not_echo_provider_response_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeResponse:
+        status_code = 400
+        text = "synthetic-sensitive-provider-detail"
+
+    fake_client = MagicMock()
+    fake_client.__enter__.return_value = fake_client
+    fake_client.__exit__.return_value = None
+    fake_client.post.return_value = _FakeResponse()
+    monkeypatch.setattr(
+        "backend.services.credentials.salesforce_oauth_client.httpx.Client", lambda **_kwargs: fake_client
+    )
+
+    with pytest.raises(SalesforceOAuthError) as exc_info:
+        _post_token(
+            client=SalesforceOAuthClientConfig(
+                client_id="client",
+                client_secret="secret",
+                redirect_uri="http://test.invalid/callback",
+                login_url="https://test.invalid",
+            ),
+            payload={"grant_type": "refresh_token"},
+            timeout_seconds=1.0,
+        )
+
+    assert "HTTP 400" in str(exc_info.value)
+    assert "synthetic-sensitive-provider-detail" not in str(exc_info.value)

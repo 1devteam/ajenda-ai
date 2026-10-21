@@ -21,6 +21,7 @@ from backend.domain.lineage_record import LineageRecord
 from backend.domain.worker_lease import WorkerLease
 from backend.services.mission_composition.deliverable_runtime_artifacts import declared_artifact_key
 from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
+from backend.services.runtime_evidence_legacy import LegacyRuntimeEvidenceVerifier
 from backend.services.tools.mission_input_binding import handler_output_for_task
 
 
@@ -185,6 +186,7 @@ def build_mission_runtime_evidence_projection(
     evidence: list[EvidenceRecord],
     audit_events: list[AuditEvent] | None = None,
     mission_status: str | None = None,
+    legacy_verifier: LegacyRuntimeEvidenceVerifier | None = None,
 ) -> MissionRuntimeEvidenceProjection:
     """Join persisted mission/runtime facts into a diagnostic GRAFT artifact."""
 
@@ -669,6 +671,12 @@ def build_mission_runtime_evidence_projection(
         if event.tenant_id != tenant_id or (event.mission_id is not None and event.mission_id != mission_id):
             continue
         envelope = RuntimeEvidenceLedger.read_envelope(event)
+        trust_class = "trusted" if envelope is not None else None
+        if envelope is None and legacy_verifier is not None:
+            historical = legacy_verifier.verify(event)
+            if historical is not None:
+                envelope = historical.envelope
+                trust_class = historical.trust_class
         if envelope is None:
             continue
         if event.mission_id is None and envelope.correlation_id not in causal_correlations:
@@ -694,6 +702,7 @@ def build_mission_runtime_evidence_projection(
         causal_observations.append(
             {
                 **raw,
+                "integrity_trust_class": trust_class,
                 # Causal records are linked to the execution path through the
                 # lease that caused them.  Keep that identity in the
                 # projection so one task's observation cannot satisfy another
@@ -720,6 +729,7 @@ def build_mission_runtime_evidence_projection(
         )
     information_flow = [
         {
+            "integrity_trust_class": observation.get("integrity_trust_class"),
             "stage": observation.get("stage"),
             "decision": observation.get("decision"),
             "reason_code": observation.get("reason_code"),
