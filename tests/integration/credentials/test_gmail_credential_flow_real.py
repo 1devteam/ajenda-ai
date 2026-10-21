@@ -14,6 +14,7 @@ from backend.services.credentials.secret_protector import RuntimeCredentialSecre
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 from backend.workers.handlers.tool_invoke import tool_invoke_handler
 from tests.integration.credentials.credential_e2e_support import auth_headers, provision_operational_tenant
+from tests.integration.operating_charter_support import persist_test_operating_charter
 
 pytestmark = pytest.mark.integration
 
@@ -101,6 +102,7 @@ def test_gmail_email_check_and_send_happy_path_via_egress_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id = str(uuid.uuid4())
+    persist_test_operating_charter(pg_session, tenant_id=tenant_id, allow_perform=("gtm.email_send",))
     _store_gmail_credential(pg_session, tenant_id=tenant_id)
     pg_session.commit()
 
@@ -219,6 +221,7 @@ def test_gmail_email_send_without_credential_fails_closed(
     from backend.services.tools.runtime_authority import ToolRuntimeAuthorityError
 
     tenant_id = str(uuid.uuid4())
+    persist_test_operating_charter(pg_session, tenant_id=tenant_id, allow_perform=("gtm.email_send",))
     monkeypatch.setattr(
         "backend.services.tools.runtime_authority.validate_capability_action_authority",
         lambda **kwargs: None,

@@ -4,10 +4,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from pydantic import ValidationError
+from sqlalchemy import select
 
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
+from backend.domain.mission import Mission
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
 from backend.services.abilities.rollout_validation import validate_action_manifest_alignment
@@ -246,9 +248,24 @@ class ToolRuntimeAuthority:
         retry or recovery re-enters ``authorize`` and checks current authority
         again rather than reusing a historical approval decision.
         """
+        # A normal worker task always belongs to a durable mission.  Some
+        # controlled callers (including compatibility proofs) exercise this
+        # boundary with a detached task object, however.  AuditEvent has a
+        # foreign key to missions, so never turn a policy denial into a
+        # database-integrity failure by claiming an unverified mission ID.
+        # Preserve the original reference in the fact and use it for
+        # correlation only when it is a persisted mission of this tenant.
+        persisted_mission_id = None
+        if task.mission_id is not None:
+            persisted_mission_id = session.scalar(
+                select(Mission.id).where(
+                    Mission.id == task.mission_id,
+                    Mission.tenant_id == task.tenant_id,
+                )
+            )
         RuntimeEvidenceLedger(session, flush=True).append_fact(
             tenant_id=task.tenant_id,
-            mission_id=task.mission_id,
+            mission_id=persisted_mission_id,
             category="operating_charter",
             action="side_effect_denied_at_execution",
             producer="tool_runtime_authority",
@@ -260,9 +277,11 @@ class ToolRuntimeAuthority:
                 "side_effect_class": side_effect_class.value,
                 "reason_code": code,
                 "enforcement_boundary": "pre_provider_invocation",
+                "mission_reference_status": "persisted" if persisted_mission_id is not None else "unverified",
+                "original_mission_id": str(task.mission_id) if task.mission_id is not None else None,
             },
             causation_id=str(task.id),
-            correlation_id=str(task.mission_id) if task.mission_id is not None else None,
+            correlation_id=str(persisted_mission_id) if persisted_mission_id is not None else None,
         )
         # ``authorize`` owns this fresh session; worker task/lease transitions
         # occur in WorkerRuntimeService's distinct transaction. Therefore this

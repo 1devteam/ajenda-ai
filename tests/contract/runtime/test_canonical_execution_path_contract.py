@@ -6,6 +6,7 @@ import ast
 import inspect
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from fastapi import FastAPI, Request
@@ -17,6 +18,7 @@ from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.principal import Principal, PrincipalType
 from backend.domain.enums import ExecutionTaskState
 from backend.services.execution_coordinator import CoordinationResult
+from backend.services.operating_charter import default_operating_charter
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -64,7 +66,11 @@ def _build_ability_app(tenant_id: uuid.UUID) -> FastAPI:
         return tenant_id
 
     def _override_db():
-        return MagicMock()
+        session = MagicMock()
+        session.scalar.return_value = SimpleNamespace(
+            approved_facts={"operating_charter": {"value": default_operating_charter().to_fact_payload()}}
+        )
+        return session
 
     def _override_queue():
         return MagicMock()

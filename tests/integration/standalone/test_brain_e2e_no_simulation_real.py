@@ -27,6 +27,7 @@ from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.handlers.tool_invoke import tool_invoke_handler
 from backend.workers.task_dispatcher import TaskDispatcher
+from tests.integration.operating_charter_support import persist_test_operating_charter
 from tests.integration.standalone.gmail_e2e_support import resolve_gmail_access_token_for_e2e
 from tests.integration.standalone.hubspot_e2e_support import resolve_hubspot_access_token
 
@@ -157,6 +158,8 @@ def test_standalone_brain_http_credential_register_write_research_upsert_no_simu
     worker_session = session_factory()
     activate_tenant_session(worker_session, tenant_id)
     try:
+        persist_test_operating_charter(worker_session, tenant_id=tenant_id)
+        worker_session.commit()
 
         def _worker_session_factory() -> Session:
             return worker_session

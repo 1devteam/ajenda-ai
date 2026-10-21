@@ -39,7 +39,11 @@ class _CharterSession(_Session):
         self.audit_events: list[object] = []
         self.commit_count = 0
 
-    def scalar(self, _statement: object) -> BusinessProfile:
+    def scalar(self, statement: object) -> BusinessProfile | None:
+        # Runtime charter lookup uses the active profile; denial-audit
+        # correlation separately verifies the mission foreign-key target.
+        if "missions" in str(statement):
+            return None
         return self.profile
 
     def add(self, event: object) -> None:
@@ -406,6 +410,9 @@ def test_queued_external_write_rechecks_current_charter_before_provider_invocati
     denial = session.audit_events[0]
     assert denial.payload_json["reason_code"] == "CHARTER_PERFORM_NOT_ALLOWED"
     assert denial.payload_json["enforcement_boundary"] == "pre_provider_invocation"
+    assert denial.mission_id is None
+    assert denial.payload_json["mission_reference_status"] == "unverified"
+    assert denial.payload_json["original_mission_id"] == str(task.mission_id)
 
 
 def test_side_effect_revalidation_allows_unchanged_permission_after_charter_revision(

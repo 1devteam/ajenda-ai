@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from backend.domain.execution_task import ExecutionTask
 from backend.services.tools.runtime_authority import ToolRuntimeAuthorityError
 from backend.workers.handlers.tool_invoke import tool_invoke_handler
+from tests.integration.operating_charter_support import persist_test_operating_charter
 
 pytestmark = pytest.mark.integration
 
@@ -33,6 +34,7 @@ def test_internal_crm_upsert_without_credential_stays_on_brain(
         lambda **kwargs: None,
     )
     tenant_id = str(uuid.uuid4())
+    persist_test_operating_charter(pg_session, tenant_id=tenant_id)
     task = ExecutionTask(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
@@ -80,6 +82,7 @@ def test_gmail_send_without_credential_reference_fails_closed(
         lambda **kwargs: None,
     )
     tenant_id = str(uuid.uuid4())
+    persist_test_operating_charter(pg_session, tenant_id=tenant_id, allow_perform=("gtm.email_send",))
     task = ExecutionTask(
         id=uuid.uuid4(),
         tenant_id=tenant_id,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -45,6 +46,19 @@ def _context(tenant_id: str) -> dict[str, Any]:
         "lease_id": str(uuid.uuid4()),
         "session_factory": _session_factory,
     }
+
+
+def _allow_charter_for_capability_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate legacy capability tests from the separate charter boundary."""
+    from backend.services.tools import runtime_authority
+
+    monkeypatch.setattr(
+        runtime_authority.BusinessProfileRepository,
+        "get_active_profile_for_tenant",
+        lambda _self, *, tenant_id: SimpleNamespace(approved_facts={}),
+    )
+    monkeypatch.setattr(runtime_authority, "load_operating_charter", lambda **_kwargs: object())
+    monkeypatch.setattr(runtime_authority, "assert_action_allowed", lambda **_kwargs: None)
 
 
 def test_tool_invoke_handler_success_returns_dispatcher_valid_evidence_output() -> None:
@@ -92,7 +106,8 @@ def test_tool_invoke_handler_rejects_invalid_invocations(metadata: dict[str, Any
         tool_invoke_handler(task, _context(tenant_id))
 
 
-def test_tool_invoke_handler_fails_side_effecting_action_without_authority() -> None:
+def test_tool_invoke_handler_fails_side_effecting_action_without_authority(monkeypatch: pytest.MonkeyPatch) -> None:
+    _allow_charter_for_capability_test(monkeypatch)
     tenant_id = str(uuid.uuid4())
     task = _task(
         tenant_id=tenant_id,
@@ -108,7 +123,10 @@ def test_tool_invoke_handler_fails_side_effecting_action_without_authority() -> 
         tool_invoke_handler(task, _context(tenant_id))
 
 
-def test_tool_invoke_handler_rejects_side_effect_authorization_without_capability_or_adapter() -> None:
+def test_tool_invoke_handler_rejects_side_effect_authorization_without_capability_or_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _allow_charter_for_capability_test(monkeypatch)
     tenant_id = str(uuid.uuid4())
     task = _task(
         tenant_id=tenant_id,
@@ -132,7 +150,8 @@ def test_tool_invoke_handler_rejects_side_effect_authorization_without_capabilit
         tool_invoke_handler(task, _context(tenant_id))
 
 
-def test_tool_invoke_handler_gates_http_write_methods_before_network_call() -> None:
+def test_tool_invoke_handler_gates_http_write_methods_before_network_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    _allow_charter_for_capability_test(monkeypatch)
     tenant_id = str(uuid.uuid4())
     task = _task(
         tenant_id=tenant_id,
