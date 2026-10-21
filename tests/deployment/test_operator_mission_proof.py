@@ -66,3 +66,56 @@ def test_operator_proof_charter_matches_the_authoritative_default_contract() -> 
 
     assert module.PROOF_OPERATING_CHARTER == default_operating_charter().to_fact_payload()
     assert "from backend." not in Path("deploy/scripts/operator-mission-proof.py").read_text(encoding="utf-8")
+
+
+def test_operator_proof_provisions_and_verifies_software_fixtures(monkeypatch) -> None:
+    module = _load_operator_proof()
+    records: dict[str, dict[str, Any]] = {}
+    calls: list[tuple[str, str]] = []
+
+    def fake_request(
+        method: str,
+        _base: str,
+        path: str,
+        *,
+        body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        expected: int | tuple[int, ...] = 200,
+    ) -> dict[str, Any]:
+        calls.append((method, path))
+        record_id = path.rsplit("/", 1)[-1]
+        if method == "PUT":
+            assert body is not None
+            assert headers is not None and "Idempotency-Key" in headers
+            records[record_id] = dict(body["data"])
+        return {"id": record_id, "record_type": "account", "data": dict(records[record_id])}
+
+    monkeypatch.setattr(module, "request", fake_request)
+    module.seed_software_proof_fixtures(api_base="http://test", headers={"X-Tenant-Id": "proof"})
+    assert len(records) == 5
+    assert len(calls) == 10
+    assert all(row["source"] == "local_fixture" for row in records.values())
+    assert all(row["industry"] == "software development" and row["location"] == "Austin" for row in records.values())
+
+
+def test_operator_proof_rejects_fixture_readback_mismatch(monkeypatch) -> None:
+    module = _load_operator_proof()
+
+    def fake_request(
+        method: str,
+        _base: str,
+        path: str,
+        *,
+        body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        expected: int | tuple[int, ...] = 200,
+    ) -> dict[str, Any]:
+        record_id = path.rsplit("/", 1)[-1]
+        data = dict(body["data"]) if body is not None else {"source": "tenant_owned_record"}
+        return {"id": record_id, "record_type": "account", "data": data}
+
+    monkeypatch.setattr(module, "request", fake_request)
+    import pytest
+
+    with pytest.raises(module.ProofFailure, match="lost required fixture fields"):
+        module.seed_software_proof_fixtures(api_base="http://test", headers={})
