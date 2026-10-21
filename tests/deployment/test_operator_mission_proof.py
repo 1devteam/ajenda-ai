@@ -7,6 +7,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from backend.services.operating_charter import default_operating_charter
+
 
 def _load_operator_proof() -> ModuleType:
     path = Path("deploy/scripts/operator-mission-proof.py")
@@ -57,3 +59,10 @@ def test_operator_proof_persists_and_verifies_charter_via_public_profile_api(mon
     assert saved["expected_charter_revision"] == 0
     assert saved["provenance_metadata"] == {"source": "operator_mission_proof"}
     assert saved["approved_fact"]["value"]["revision"] == 0
+
+
+def test_operator_proof_charter_matches_the_authoritative_default_contract() -> None:
+    module = _load_operator_proof()
+
+    assert module.PROOF_OPERATING_CHARTER == default_operating_charter().to_fact_payload()
+    assert "from backend." not in Path("deploy/scripts/operator-mission-proof.py").read_text(encoding="utf-8")
