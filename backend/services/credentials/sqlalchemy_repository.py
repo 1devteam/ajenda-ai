@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.config import get_settings
+from backend.app.config import Settings, get_settings
 from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
 from backend.services.credentials.github_runtime_token import (
     GitHubRuntimeTokenError,
@@ -69,9 +69,11 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
         *,
         session_factory: Callable[[], Session],
         secret_protector: RuntimeCredentialSecretProtector | None = None,
+        settings: Settings | None = None,
     ) -> None:
         self._session_factory = session_factory
-        self._secret_protector = secret_protector or RuntimeCredentialSecretProtector()
+        self._settings = settings or get_settings()
+        self._secret_protector = secret_protector or RuntimeCredentialSecretProtector(settings=self._settings)
 
     def get_visible_for_tenant(self, *, tenant_id: str, credential_id: str) -> CredentialRecord | None:
         session = self._session_factory()
@@ -127,12 +129,11 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
             raise ValueError(str(exc)) from exc
 
     def _resolve_gmail_secret(self, *, row: ProviderRuntimeCredential, decrypted: str, session: Session) -> str:
-        settings = get_settings()
         try:
             resolution = resolve_gmail_credential_secret(
                 decrypted,
                 auto_refresh=True,
-                redirect_uri=settings.gmail_oauth_redirect_uri,
+                redirect_uri=self._settings.gmail_oauth_redirect_uri,
             )
         except GmailRuntimeTokenError as exc:
             raise ValueError(str(exc)) from exc
@@ -143,7 +144,6 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
         return resolution.access_token
 
     def _resolve_external_read_secret(self, *, row: ProviderRuntimeCredential, decrypted: str, session: Session) -> str:
-        settings = get_settings()
         trusted_hosts = _string_items(row.trusted_destination_hosts)
         resolution: (
             SalesforceRuntimeTokenResolution
@@ -157,7 +157,7 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
                 resolution = resolve_salesforce_credential_secret(
                     decrypted,
                     auto_refresh=True,
-                    redirect_uri=settings.salesforce_oauth_redirect_uri,
+                    redirect_uri=self._settings.salesforce_oauth_redirect_uri,
                 )
             except SalesforceRuntimeTokenError as exc:
                 raise ValueError(str(exc)) from exc
@@ -166,7 +166,7 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
                 resolution = resolve_google_contacts_credential_secret(
                     decrypted,
                     auto_refresh=True,
-                    redirect_uri=settings.google_contacts_oauth_redirect_uri,
+                    redirect_uri=self._settings.google_contacts_oauth_redirect_uri,
                 )
             except GoogleContactsRuntimeTokenError as exc:
                 raise ValueError(str(exc)) from exc
@@ -175,7 +175,7 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
                 resolution = resolve_google_calendar_credential_secret(
                     decrypted,
                     auto_refresh=True,
-                    redirect_uri=settings.google_calendar_oauth_redirect_uri,
+                    redirect_uri=self._settings.google_calendar_oauth_redirect_uri,
                 )
             except GoogleCalendarRuntimeTokenError as exc:
                 raise ValueError(str(exc)) from exc
@@ -184,7 +184,7 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
                 resolution = resolve_github_credential_secret(
                     decrypted,
                     auto_refresh=True,
-                    redirect_uri=settings.github_oauth_redirect_uri,
+                    redirect_uri=self._settings.github_oauth_redirect_uri,
                 )
             except GitHubRuntimeTokenError as exc:
                 raise ValueError(str(exc)) from exc
@@ -193,7 +193,7 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
                 resolution = resolve_linkedin_credential_secret(
                     decrypted,
                     auto_refresh=True,
-                    redirect_uri=settings.linkedin_oauth_redirect_uri,
+                    redirect_uri=self._settings.linkedin_oauth_redirect_uri,
                 )
             except LinkedInRuntimeTokenError as exc:
                 raise ValueError(str(exc)) from exc

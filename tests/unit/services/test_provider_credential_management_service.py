@@ -27,14 +27,15 @@ def session_factory():
 
 
 def _settings(*, platform_master: bool = False, **overrides: object) -> Settings:
-    return Settings.model_construct(
-        env="test",
-        hubspot_crm_adapter_public_host="hubspot-crm-ingress",
-        hubspot_platform_master_key_enabled=platform_master,
-        hubspot_platform_master_key="platform-test-key" if platform_master else None,
-        runtime_secret_encryption_key=RuntimeCredentialSecretProtector().generate_key(),
-        **overrides,
-    )
+    values: dict[str, object] = {
+        "env": "test",
+        "hubspot_crm_adapter_public_host": "hubspot-crm-ingress",
+        "hubspot_platform_master_key_enabled": platform_master,
+        "hubspot_platform_master_key": "platform-test-key" if platform_master else None,
+        "runtime_secret_encryption_key": RuntimeCredentialSecretProtector.generate_key(),
+    }
+    values.update(overrides)
+    return Settings.model_construct(**values)
 
 
 def _service(session, **settings_kwargs: object) -> ProviderCredentialManagementService:
@@ -62,6 +63,29 @@ def test_register_hubspot_external_crm_credential(session_factory) -> None:
     assert "hubspot-crm-ingress" in result.summary.trusted_destination_hosts
     assert "crm.research" in result.summary.allowed_actions
     assert result.warning is None
+
+
+def test_register_uses_the_supplied_settings_key_not_ambient_environment(session_factory, monkeypatch) -> None:
+    configured_key = RuntimeCredentialSecretProtector.generate_key()
+    monkeypatch.setenv("AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY", RuntimeCredentialSecretProtector.generate_key())
+    settings = _settings(runtime_secret_encryption_key=configured_key)
+    tenant_id = str(uuid.uuid4())
+    with session_factory() as session:
+        service = ProviderCredentialManagementService(session, settings=settings)
+        service._audit = MagicMock()
+        service.register(
+            tenant_id=tenant_id,
+            credential_id="hubspot-crm",
+            provider="external_crm",
+            integration="hubspot",
+            secret_value="tenant-hubspot-pak",
+            actor_id="user-1",
+        )
+        row = session.query(ProviderRuntimeCredential).one()
+
+    assert RuntimeCredentialSecretProtector(encryption_key=configured_key).decrypt_secret(row.secret_ciphertext) == (
+        "tenant-hubspot-pak"
+    )
 
 
 def test_register_platform_master_requires_operator_key(session_factory) -> None:

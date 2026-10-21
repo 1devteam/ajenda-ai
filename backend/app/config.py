@@ -449,24 +449,25 @@ class Settings(BaseSettings):
 
             assert value is not None
             if value != value.strip() or any(char.isspace() for char in value):
-                raise ValueError(
-                    f"{env_name} must not contain surrounding or embedded whitespace. Current value: {value!r}"
-                )
+                raise ValueError(f"{env_name} must not contain surrounding or embedded whitespace")
 
             try:
                 decoded = base64.urlsafe_b64decode(value.encode("ascii"))
                 recoded = base64.urlsafe_b64encode(decoded).decode("ascii")
             except Exception as exc:
-                raise ValueError(f"{env_name} must be a valid Fernet key. Current value: {value!r}") from exc
+                raise ValueError(f"{env_name} must be a valid Fernet key") from exc
 
             if recoded != value:
-                raise ValueError(f"{env_name} must be canonical URL-safe base64. Current value: {value!r}")
+                raise ValueError(f"{env_name} must be canonical URL-safe base64")
 
             if len(decoded) != 32:
-                raise ValueError(f"{env_name} must be a valid Fernet key. Current value: {value!r}")
+                raise ValueError(f"{env_name} must be a valid Fernet key")
 
-            deterministic_test_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-            if value == deterministic_test_key:
+            deterministic_test_key = base64.urlsafe_b64encode(b"\x00" * 32).decode("ascii")
+            retired_idempotency_key = base64.urlsafe_b64encode(b"\x01" * 32).decode("ascii")
+            if value == deterministic_test_key or (
+                env_name.startswith("AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY") and value == retired_idempotency_key
+            ):
                 raise ValueError(f"{env_name} must not use the deterministic development/test key")
 
         if self.queue_adapter == "redis" and _blank(self.queue_url):

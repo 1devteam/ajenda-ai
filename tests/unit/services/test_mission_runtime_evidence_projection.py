@@ -899,3 +899,87 @@ def test_projection_reports_missing_proposal_identity_as_evidence_gap(monkeypatc
     )
 
     assert f"mission:{mission_id}:information:proposal_identity" in projection.missing_evidence
+
+
+def test_legacy_causal_observation_is_read_only_and_not_admission(monkeypatch) -> None:
+    from backend.services.runtime_evidence_legacy import LegacyEvidenceResult
+
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status="planned",
+    )
+
+    event = SimpleNamespace(
+        id=uuid4(),
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        created_at=datetime.now(UTC),
+        category="execution_task",
+        action="queued",
+        actor="legacy_worker",
+        details="historical observation",
+        payload_json={},
+    )
+
+    envelope = SimpleNamespace(
+        event_id=event.id,
+        event_type="execution_task.queued",
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        subject_references={"task_id": str(task.id)},
+        causation_id=str(task.id),
+        correlation_id=str(mission_id),
+        facts={
+            "causal_observation": {
+                "stage": "queue_observation",
+                "decision": "observed",
+                "reason_code": "historical_record",
+            }
+        },
+        occurred_at=event.created_at,
+        producer="legacy_worker",
+        evidence_references=(),
+    )
+
+    class LegacyVerifier:
+        def verify(self, candidate):
+            if candidate.id == event.id:
+                return LegacyEvidenceResult(envelope=envelope)
+            return None
+
+    monkeypatch.setattr(
+        "backend.services.mission_runtime_evidence_projection.RuntimeEvidenceLedger.read_envelope",
+        lambda event: None,
+    )
+
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        mission_metadata={},
+        tasks=[task],
+        leases=[],
+        lineage=[],
+        evidence=[],
+        audit_events=[event],
+        legacy_verifier=LegacyVerifier(),
+    )
+
+    assert projection.read_only is True
+    assert projection.grants_execution_authority is False
+
+    observations = [item for item in projection.causal_observations if item.get("event_id") == str(event.id)]
+    assert len(observations) == 1
+    assert observations[0]["integrity_trust_class"] == "legacy_verified"
+
+    flows = [
+        item
+        for item in projection.information_flow
+        if item.get("event_id") == str(event.id) and item.get("stage") == "queue_observation"
+    ]
+    assert len(flows) == 1
+    assert flows[0]["integrity_trust_class"] == "legacy_verified"
+
+    assert "mission:queue_admission" in projection.missing_evidence

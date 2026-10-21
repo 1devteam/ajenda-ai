@@ -89,7 +89,7 @@ class ProviderCredentialManagementService:
         self._settings = settings or get_settings()
         self._repo = ProviderRuntimeCredentialRepository(session)
         self._audit = AuditEventRepository(session)
-        self._protector = RuntimeCredentialSecretProtector()
+        self._protector = RuntimeCredentialSecretProtector(settings=self._settings)
 
     def register(
         self,

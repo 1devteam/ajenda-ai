@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import threading
 import time
 import uuid
@@ -119,3 +120,113 @@ def test_postgres_abandoned_claim_can_be_recovered_after_lease_expiry(pg_engine)
     recovered = second_authority.claim(operation_key=operation_key, request_fingerprint=request_fingerprint)
     assert recovered.status == "owner"
     assert recovered.owner_token != first.owner_token
+
+
+def test_idempotency_key_hardening_and_receipt_rotation(pg_engine) -> None:
+    old_key = Fernet.generate_key()
+    new_key = Fernet.generate_key()
+    wrong_key = Fernet.generate_key()
+    factory = sessionmaker(bind=pg_engine, class_=Session, expire_on_commit=False, autoflush=False)
+
+    class ForbiddenFactory:
+        def __call__(self):
+            raise AssertionError("Database accessed despite missing key")
+
+    with pytest.raises(ValueError, match="AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY"):
+        HttpIdempotencyAuthority(
+            session_factory=ForbiddenFactory(),
+            encryption_key=None,
+        )
+
+    malformed_key = b"invalid-fernet-key"
+    with pytest.raises(ValueError, match="must be a valid Fernet key") as exc_info:
+        HttpIdempotencyAuthority(
+            session_factory=ForbiddenFactory(),
+            encryption_key=malformed_key,
+        )
+    assert malformed_key.decode() not in str(exc_info.value)
+
+    for key_byte in (0x00, 0x01):
+        rejected_key = base64.urlsafe_b64encode(bytes([key_byte]) * 32)
+        with pytest.raises(ValueError, match="must not use a known deterministic development key") as exc_info:
+            HttpIdempotencyAuthority(
+                session_factory=ForbiddenFactory(),
+                encryption_key=rejected_key,
+            )
+        assert rejected_key.decode() not in str(exc_info.value)
+
+        with pytest.raises(ValueError, match="must not use a known deterministic development key"):
+            HttpIdempotencyAuthority(
+                session_factory=ForbiddenFactory(),
+                encryption_key=Fernet.generate_key(),
+                previous_encryption_key=rejected_key,
+            )
+
+    operation_key = uuid.uuid4().hex + uuid.uuid4().hex
+    fingerprint = uuid.uuid4().hex + uuid.uuid4().hex
+
+    original = HttpIdempotencyAuthority(session_factory=factory, encryption_key=old_key)
+    acquired = original.claim(
+        operation_key=operation_key,
+        request_fingerprint=fingerprint,
+    )
+    assert acquired.status == "owner"
+    assert acquired.owner_token is not None
+
+    response = ReplayResponse(
+        status_code=201,
+        headers=[(b"content-type", b"application/json")],
+        body=b'{"result":"created"}',
+    )
+    assert original.complete(
+        operation_key=operation_key,
+        owner_token=acquired.owner_token,
+        response=response,
+    )
+
+    wrong = HttpIdempotencyAuthority(session_factory=factory, encryption_key=wrong_key)
+
+    with pytest.raises(ValueError, match="invalid durable HTTP idempotency"):
+        wrong.claim(operation_key=operation_key, request_fingerprint=fingerprint)
+
+    rotated = HttpIdempotencyAuthority(
+        session_factory=factory,
+        encryption_key=new_key,
+        previous_encryption_key=old_key,
+    )
+    replay = rotated.claim(
+        operation_key=operation_key,
+        request_fingerprint=fingerprint,
+    )
+    assert replay.status == "replay"
+    assert replay.response == response
+
+    new_operation = uuid.uuid4().hex + uuid.uuid4().hex
+    new_claim = rotated.claim(
+        operation_key=new_operation,
+        request_fingerprint=fingerprint,
+    )
+    assert new_claim.status == "owner"
+    assert new_claim.owner_token is not None
+
+    assert rotated.complete(
+        operation_key=new_operation,
+        owner_token=new_claim.owner_token,
+        response=response,
+    )
+
+    current_only = HttpIdempotencyAuthority(session_factory=factory, encryption_key=new_key)
+    assert (
+        current_only.claim(
+            operation_key=new_operation,
+            request_fingerprint=fingerprint,
+        ).status
+        == "replay"
+    )
+
+    old_only = HttpIdempotencyAuthority(session_factory=factory, encryption_key=old_key)
+    with pytest.raises(ValueError, match="invalid durable HTTP idempotency"):
+        old_only.claim(
+            operation_key=new_operation,
+            request_fingerprint=fingerprint,
+        )

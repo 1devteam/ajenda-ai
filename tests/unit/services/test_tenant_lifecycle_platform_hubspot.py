@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from backend.app.config import Settings
 from backend.domain.provision_source import ProvisionSource
-from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
 from backend.services.tenant_lifecycle import TenantLifecycleService
 
 
@@ -27,7 +26,6 @@ def _settings(*, platform_master: bool, auto_provision: bool = True) -> Settings
         hubspot_platform_master_key_enabled=platform_master,
         hubspot_platform_master_key="platform-test-key" if platform_master else None,
         hubspot_platform_master_auto_provision=auto_provision,
-        runtime_secret_encryption_key=RuntimeCredentialSecretProtector().generate_key(),
     )
 
 

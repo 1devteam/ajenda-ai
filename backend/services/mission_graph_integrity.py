@@ -67,7 +67,7 @@ def evaluate_admission_integrity(
         )
 
     repo = ProviderRuntimeCredentialRepository(session)
-    protector = secret_protector or RuntimeCredentialSecretProtector()
+    protector = secret_protector
     for node in nodes:
         raw_contract = node.get("input_contract")
         contract: dict[str, Any] = raw_contract if isinstance(raw_contract, dict) else {}
@@ -97,12 +97,16 @@ def evaluate_admission_integrity(
             )
             continue
         try:
+            if protector is None:
+                # Key resolution is a credential-operation boundary. Missions
+                # without credentials do not need an encryption key at admission.
+                protector = RuntimeCredentialSecretProtector()
             protector.decrypt_secret(record.secret_ciphertext)
         except (TypeError, ValueError):
             findings.append(
                 _finding(
                     "mission_credential.not_decryptable",
-                    "Credential cannot be decrypted by the active runtime key.",
+                    "Credential cannot be decrypted by the active runtime key or key configuration.",
                     node_key=node_key,
                 )
             )

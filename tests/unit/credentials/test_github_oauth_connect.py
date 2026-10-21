@@ -4,7 +4,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from backend.services.credentials.github_oauth_client import GITHUB_OAUTH_TOKEN_URL
+from backend.services.credentials.github_oauth_client import (
+    GITHUB_OAUTH_TOKEN_URL,
+    GitHubOAuthClientError,
+    _post_token,
+)
 from backend.services.credentials.github_oauth_connect import (
     GitHubOAuthConnectError,
     exchange_github_oauth_code,
@@ -86,3 +90,21 @@ def test_verify_github_oauth_state_rejects_wrong_provider() -> None:
     )
     with pytest.raises(GitHubOAuthConnectError, match="provider mismatch"):
         verify_github_oauth_state(state)
+
+
+def test_github_token_error_does_not_echo_provider_response_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeResponse:
+        status_code = 400
+        text = "synthetic-sensitive-provider-detail"
+
+    fake_client = MagicMock()
+    fake_client.__enter__.return_value = fake_client
+    fake_client.__exit__.return_value = None
+    fake_client.post.return_value = _FakeResponse()
+    monkeypatch.setattr("backend.services.credentials.github_oauth_client.httpx.Client", lambda **_kwargs: fake_client)
+
+    with pytest.raises(GitHubOAuthClientError) as exc_info:
+        _post_token({"grant_type": "refresh_token"}, timeout_seconds=1.0)
+
+    assert "HTTP 400" in str(exc_info.value)
+    assert "synthetic-sensitive-provider-detail" not in str(exc_info.value)

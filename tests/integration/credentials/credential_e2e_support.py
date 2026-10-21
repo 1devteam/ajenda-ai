@@ -39,6 +39,7 @@ from backend.services.credentials.salesforce_runtime_token import (
     resolve_salesforce_credential_secret,
 )
 from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
+from backend.services.tools.google_oauth_cli import GoogleOAuthCliError, resolve_google_oauth_client_config
 from backend.workers.handlers.tool_invoke import tool_invoke_handler
 from tests.integration.standalone.github_e2e_support import resolve_github_credential_secret_for_e2e
 from tests.integration.standalone.gmail_e2e_support import (
@@ -51,6 +52,22 @@ from tests.integration.standalone.google_calendar_e2e_support import (
 from tests.integration.standalone.hubspot_e2e_support import resolve_hubspot_access_token
 from tests.integration.standalone.linkedin_e2e_support import resolve_linkedin_credential_secret_for_e2e
 from tests.integration.standalone.salesforce_e2e_support import resolve_salesforce_credential_secret_for_e2e
+
+
+class _RedactedLiveSecret(str):
+    """String-compatible test secret that pytest cannot render verbatim."""
+
+    def __repr__(self) -> str:
+        return "<redacted-live-credential>"
+
+
+def _require_google_oauth_refresh_client() -> None:
+    """Skip a live refresh test when its real OAuth client is unavailable."""
+
+    try:
+        resolve_google_oauth_client_config()
+    except GoogleOAuthCliError:
+        pytest.skip("Google OAuth client is not configured for this live credential refresh test")
 
 
 def auth_headers(*, tenant_id: str, api_key: str) -> dict[str, str]:
@@ -123,7 +140,7 @@ def hubspot_live_adapter_settings(monkeypatch: pytest.MonkeyPatch) -> str:
     from backend.app.config import get_settings
 
     get_settings.cache_clear()
-    return token
+    return _RedactedLiveSecret(token)
 
 
 @pytest.fixture
@@ -136,7 +153,7 @@ def gmail_live_token(monkeypatch: pytest.MonkeyPatch) -> str:
     from backend.app.config import get_settings
 
     get_settings.cache_clear()
-    return token
+    return _RedactedLiveSecret(token)
 
 
 @pytest.fixture
@@ -147,12 +164,13 @@ def gmail_live_secret(monkeypatch: pytest.MonkeyPatch) -> str:
             "No Gmail credential: run scripts/google/gmail_cli_auth.py auth or set "
             "AJENDA_E2E_GMAIL_SECRET / AJENDA_E2E_GMAIL_TOKEN"
         )
+    _require_google_oauth_refresh_client()
     monkeypatch.setenv("AJENDA_GOOGLE_CLI_CLIENT_ID", os.environ.get("AJENDA_GOOGLE_CLI_CLIENT_ID", ""))
     monkeypatch.setenv("AJENDA_GOOGLE_CLI_CLIENT_SECRET", os.environ.get("AJENDA_GOOGLE_CLI_CLIENT_SECRET", ""))
     from backend.app.config import get_settings
 
     get_settings.cache_clear()
-    return secret
+    return _RedactedLiveSecret(secret)
 
 
 def _force_expired_oauth_secret(secret_value: str) -> str | None:
@@ -295,7 +313,7 @@ def linkedin_live_secret(monkeypatch: pytest.MonkeyPatch) -> str:
     from backend.app.config import get_settings
 
     get_settings.cache_clear()
-    return secret
+    return _RedactedLiveSecret(secret)
 
 
 @pytest.fixture
@@ -306,12 +324,13 @@ def google_calendar_live_secret(monkeypatch: pytest.MonkeyPatch) -> str:
             "No Google Calendar credential: set AJENDA_E2E_GOOGLE_CALENDAR_SECRET or "
             "~/.ajenda/google-calendar-oauth.json or ~/.ajenda/google-oauth.yml with calendar.readonly"
         )
+    _require_google_oauth_refresh_client()
     monkeypatch.setenv("AJENDA_GOOGLE_CLI_CLIENT_ID", os.environ.get("AJENDA_GOOGLE_CLI_CLIENT_ID", ""))
     monkeypatch.setenv("AJENDA_GOOGLE_CLI_CLIENT_SECRET", os.environ.get("AJENDA_GOOGLE_CLI_CLIENT_SECRET", ""))
     from backend.app.config import get_settings
 
     get_settings.cache_clear()
-    return secret
+    return _RedactedLiveSecret(secret)
 
 
 @pytest.fixture
@@ -327,7 +346,7 @@ def github_live_secret(monkeypatch: pytest.MonkeyPatch) -> str:
     from backend.app.config import get_settings
 
     get_settings.cache_clear()
-    return secret
+    return _RedactedLiveSecret(secret)
 
 
 @pytest.fixture
@@ -344,4 +363,4 @@ def salesforce_live_secret(monkeypatch: pytest.MonkeyPatch) -> str:
     from backend.app.config import get_settings
 
     get_settings.cache_clear()
-    return secret
+    return _RedactedLiveSecret(secret)

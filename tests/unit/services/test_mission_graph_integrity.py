@@ -101,6 +101,50 @@ def test_compare_qualification_facts_does_not_require_report_artifact() -> None:
     assert not any(item["code"] == "mission_deliverable.report_not_materialized" for item in report["findings"])
 
 
+def test_admission_without_credential_reference_does_not_resolve_encryption_key(monkeypatch) -> None:
+    def fail_if_resolved() -> None:
+        raise AssertionError("credential protector should not be constructed")
+
+    monkeypatch.setattr("backend.services.mission_graph_integrity.RuntimeCredentialSecretProtector", fail_if_resolved)
+
+    report = evaluate_admission_integrity(
+        session=MagicMock(),
+        tenant_id="tenant-1",
+        instruction="Research competitors and prepare a report.",
+        task_graph=_graph(),
+    )
+
+    assert report["status"] == "clear"
+
+
+def test_admission_blocks_credential_reference_when_key_is_unavailable(monkeypatch) -> None:
+    session = MagicMock()
+    session.scalars.return_value.first.return_value = SimpleNamespace(
+        provider="external_read_provider",
+        credential_type="api_key",
+        enabled=True,
+        revoked=False,
+        deleted=False,
+        secret_ciphertext="ciphertext-is-not-inspected-without-a-key",
+    )
+
+    def missing_key() -> None:
+        raise ValueError("AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY is required for runtime credential encryption")
+
+    monkeypatch.setattr("backend.services.mission_graph_integrity.RuntimeCredentialSecretProtector", missing_key)
+    report = evaluate_admission_integrity(
+        session=session,
+        tenant_id="tenant-1",
+        instruction="Research competitors and prepare a report.",
+        task_graph=_graph(
+            {"credential_id": "cred-1", "provider": "external_read_provider", "credential_type": "api_key"}
+        ),
+    )
+
+    assert report["status"] == "blocked"
+    assert [item["code"] for item in report["findings"]] == ["mission_credential.not_decryptable"]
+
+
 def test_goal_progress_report_is_materialized_by_goal_evaluation_job() -> None:
     report = evaluate_admission_integrity(
         session=MagicMock(),

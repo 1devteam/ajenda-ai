@@ -17,7 +17,7 @@ from backend.repositories.http_idempotency_repository import HttpIdempotencyRepo
 
 _DEFAULT_RECEIPT_TTL_SECONDS = 86_400
 _DEFAULT_CLAIM_TTL_SECONDS = 120
-_TEST_KEY = base64.urlsafe_b64encode(b"\x01" * 32)
+_REJECTED_RUNTIME_FERNET_KEYS = frozenset(base64.urlsafe_b64encode(bytes([value]) * 32) for value in (0x00, 0x01))
 
 DecisionStatus = Literal["owner", "replay", "in_flight", "payload_mismatch"]
 
@@ -52,17 +52,32 @@ class HttpIdempotencyAuthority:
             raise ValueError("claim_ttl_seconds must be positive")
         if receipt_ttl_seconds <= 0:
             raise ValueError("receipt_ttl_seconds must be positive")
-        key = encryption_key.encode() if isinstance(encryption_key, str) else encryption_key
-        previous_key = (
-            previous_encryption_key.encode() if isinstance(previous_encryption_key, str) else previous_encryption_key
-        )
-        fernets = [Fernet(key or _TEST_KEY)]
+        key = self._validated_key(encryption_key, current=True)
+        previous_key = self._validated_key(previous_encryption_key, current=False)
+        assert key is not None
+        fernets = [Fernet(key)]
         if previous_key is not None:
             fernets.append(Fernet(previous_key))
         self._fernet = MultiFernet(fernets)
         self._session_factory = session_factory
         self._claim_ttl_seconds = claim_ttl_seconds
         self._receipt_ttl_seconds = receipt_ttl_seconds
+
+    @staticmethod
+    def _validated_key(value: str | bytes | None, *, current: bool) -> bytes | None:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            if current:
+                raise ValueError("AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY is required for durable HTTP idempotency")
+            return None
+        key = value.encode("utf-8") if isinstance(value, str) else value
+        name = "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY" if current else "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV"
+        if key in _REJECTED_RUNTIME_FERNET_KEYS:
+            raise ValueError(f"{name} must not use a known deterministic development key")
+        try:
+            Fernet(key)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} must be a valid Fernet key") from exc
+        return key
 
     @property
     def heartbeat_interval_seconds(self) -> float:

@@ -202,7 +202,14 @@ def test_tool_invoke_handler_uses_live_sqlalchemy_credential_repository(
 
     monkeypatch.setattr(runtime_authority, "validate_capability_action_authority", lambda **kwargs: None)
     plaintext_secret = "sk-live-sqlalchemy-secret"
-    ciphertext_secret = RuntimeCredentialSecretProtector().encrypt_secret(plaintext_secret)
+    protector = RuntimeCredentialSecretProtector(
+        encryption_key=RuntimeCredentialSecretProtector.generate_key().encode()
+    )
+    ciphertext_secret = protector.encrypt_secret(plaintext_secret)
+    monkeypatch.setattr(
+        "backend.services.credentials.sqlalchemy_repository.RuntimeCredentialSecretProtector",
+        lambda **_kwargs: protector,
+    )
     spy = _ProviderEgressSpy(expected_secret=plaintext_secret)
     monkeypatch.setattr(provider_read_actions, "get_default_network_egress_authority", lambda: spy)
 

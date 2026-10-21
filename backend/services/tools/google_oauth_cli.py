@@ -260,8 +260,9 @@ def _post_token(payload: dict[str, str], *, timeout_seconds: float) -> dict[str,
     except httpx.HTTPError as exc:
         raise GoogleOAuthCliError("Google token endpoint request failed") from exc
     if response.status_code >= 400:
-        detail = response.text[:500] if response.text else f"HTTP {response.status_code}"
-        raise GoogleOAuthCliError(f"Google token exchange failed: {detail}")
+        # Provider response bodies can include OAuth error details and must not
+        # cross the credential boundary in an exception, log, or audit record.
+        raise GoogleOAuthCliError(f"Google token exchange failed with HTTP {response.status_code}")
     try:
         body = response.json()
     except json.JSONDecodeError as exc:

@@ -281,3 +281,34 @@ def test_in_memory_authority_allows_only_one_concurrent_owner() -> None:
 
     assert statuses.count("owner") == 1
     assert statuses.count("in_flight") == 7
+
+
+def test_unreadable_completed_receipt_never_reexecutes_application() -> None:
+    """Receipt decryption failure must not turn into a second execution."""
+
+    class UnreadableReceiptAuthority(InMemoryHttpIdempotencyAuthority):
+        def claim(self, *, operation_key: str, request_fingerprint: str):
+            raise ValueError("invalid durable HTTP idempotency response ciphertext")
+
+    authority = UnreadableReceiptAuthority()
+    client = TestClient(make_app(authority=authority), raise_server_exceptions=False)
+
+    global _call_count
+    before = _call_count
+
+    response = client.post(
+        "/resources",
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "IDEMPOTENCY_UNAVAILABLE"
+    assert _call_count == before
+    assert response.headers.get("idempotency-replayed") != "false"
+
+    repeated = client.post(
+        "/resources",
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+    )
+    assert repeated.status_code == 503
+    assert _call_count == before
