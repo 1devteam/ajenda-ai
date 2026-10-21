@@ -120,6 +120,17 @@ GRAFT_ARTIFACT_LIFECYCLE_CONTRACTS: tuple[GraftArtifactLifecycleContract, ...] =
         consumers=("runtime_evidence_route", "graph_runtime_impact"),
     ),
     GraftArtifactLifecycleContract(
+        artifact_type="graft_ui_runtime_interaction_evidence",
+        artifact_schema_version="1.0.0",
+        owner="evidence-observability-governance",
+        producer="backend/services/ui_runtime_interaction_projection.py",
+        authority_class="read_only_observation",
+        tenant_scope="tenant_scoped",
+        retention_class="audit_ledger_runtime_evidence",
+        freshness_window_seconds=0,
+        consumers=("provider_credentials_runtime_evidence_route", "graph_runtime_impact"),
+    ),
+    GraftArtifactLifecycleContract(
         artifact_type="graft1st_revops_contract_package",
         artifact_schema_version="2.0.0",
         owner="revops-composition-governance",

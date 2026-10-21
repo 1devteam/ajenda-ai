@@ -63,6 +63,8 @@ import type {
   ProviderCredentialCreateResponse,
   ProviderCredentialListResponse,
   ProviderCredentialResponse,
+  UiRuntimeInteractionEvent,
+  UiRuntimeInteractionReceipt,
   ApiFailure,
   CheckoutResponse,
   CustomerSession,
@@ -573,11 +575,31 @@ export async function connectGmailOAuth(
 export async function getLinkedInOAuthAuthorizeUrl(
   session: CustomerSession,
   credentialId = "linkedin-read",
+  interaction?: { localInteractionId: string; serverInteractionId?: string; telemetryUnavailable?: boolean },
 ): Promise<GmailOAuthAuthorizeUrlResponse> {
   return withFreshSession(session, (fresh) =>
     request<GmailOAuthAuthorizeUrlResponse>(
       `/v1/account/provider-credentials/linkedin/oauth/authorize-url?credential_id=${encodeURIComponent(credentialId)}`,
-      {},
+      {
+        headers: {
+          "X-Ajenda-UI-Local-Interaction-Id": interaction?.localInteractionId ?? "",
+          "X-Ajenda-UI-Interaction-Id": interaction?.serverInteractionId ?? "",
+          "X-Ajenda-UI-Telemetry": interaction?.telemetryUnavailable ? "unavailable" : "available",
+        },
+      },
+      runtimeOptions(sessionToRuntimeConfig(fresh)),
+    ),
+  );
+}
+
+export async function persistUiRuntimeInteraction(
+  session: CustomerSession,
+  event: UiRuntimeInteractionEvent,
+): Promise<UiRuntimeInteractionReceipt> {
+  return withFreshSession(session, (fresh) =>
+    request<UiRuntimeInteractionReceipt>(
+      "/v1/account/provider-credentials/runtime-interactions/events",
+      { method: "POST", body: JSON.stringify(event) },
       runtimeOptions(sessionToRuntimeConfig(fresh)),
     ),
   );

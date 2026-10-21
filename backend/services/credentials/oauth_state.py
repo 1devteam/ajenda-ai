@@ -25,6 +25,7 @@ class OAuthStateClaims:
     nonce: str
     issued_at: int
     provider: str
+    interaction_id: str | None = None
 
 
 def sign_oauth_state(payload: dict[str, Any], *, settings: Settings | None = None) -> str:
@@ -48,6 +49,9 @@ def verify_oauth_state(state: str, *, provider: str, settings: Settings | None =
         raise OAuthStateError("oauth state provider mismatch")
     if int(time.time()) - issued_at > 600:
         raise OAuthStateError("oauth state expired")
+    interaction_id = payload.get("interaction_id")
+    if interaction_id is not None and (not isinstance(interaction_id, str) or not interaction_id.strip()):
+        raise OAuthStateError("oauth state interaction_id is invalid")
     return OAuthStateClaims(
         tenant_id=payload["tenant_id"].strip(),
         credential_id=payload["credential_id"].strip(),
@@ -55,6 +59,7 @@ def verify_oauth_state(state: str, *, provider: str, settings: Settings | None =
         nonce=payload["nonce"].strip(),
         issued_at=issued_at,
         provider=provider,
+        interaction_id=interaction_id.strip() if isinstance(interaction_id, str) else None,
     )
 
 

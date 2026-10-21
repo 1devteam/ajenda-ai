@@ -18,6 +18,7 @@ def test_graft_artifact_lifecycle_registry_is_unique_and_non_authoritative() -> 
         "graft_impact_report",
         "graft_runtime_admission_report",
         "graft_runtime_evidence",
+        "graft_ui_runtime_interaction_evidence",
         "graft1st_revops_contract_package",
     }
     assert all(not contract.grants_execution_authority for contract in GRAFT_ARTIFACT_LIFECYCLE_BY_TYPE.values())
