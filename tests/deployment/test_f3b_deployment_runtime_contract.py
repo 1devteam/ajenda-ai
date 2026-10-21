@@ -309,6 +309,8 @@ def test_compose_and_live_proof_use_same_env_file_for_config_up_exec_down() -> N
     assert 'COMPOSE_ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"' in script
     assert 'docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
     assert "compose config --quiet" in script
+    assert 'FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:8080}"' in script
+    assert 'wait_for_http_ok "$FRONTEND_BASE_URL/"' in script
     assert "AJENDA_PROOF_START_SERVICES:-0" in script
     assert "AJENDA_PROOF_BOOTSTRAP_ROLES:-0" in script
     assert "AJENDA_PROOF_REBUILD:-0" in script
@@ -324,6 +326,10 @@ def test_compose_and_live_proof_use_same_env_file_for_config_up_exec_down() -> N
         'docker compose -p "$AJENDA_PROOF_COMPOSE_PROJECT_NAME" --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml down --remove-orphans'
         in workflow
     )
+    main_workflow = _read(Path(".github/workflows/ci.yml"))
+    assert "Capture compose diagnostics" in main_workflow
+    assert "main-live-runtime-proof-diagnostics" in main_workflow
+    assert "logs --no-color --tail=300 > artifacts/live-runtime-proof/compose-logs.txt" in main_workflow
 
 
 def test_worker_entrypoint_is_consistent_across_deployment_targets() -> None:

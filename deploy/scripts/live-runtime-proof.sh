@@ -5,6 +5,7 @@ COMPOSE_FILE="${AJENDA_PROOF_COMPOSE_FILE:-deploy/compose/docker-compose.prod.ym
 COMPOSE_ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"
 COMPOSE_PROJECT_NAME="${AJENDA_PROOF_COMPOSE_PROJECT_NAME:-ajenda-ai}"
 API_BASE_URL="${AJENDA_PROOF_API_BASE_URL:-http://localhost:8000}"
+FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:8080}"
 PROMETHEUS_BASE_URL="${AJENDA_PROOF_PROMETHEUS_BASE_URL:-http://localhost:9090}"
 PROMETHEUS_JOB_NAME="${AJENDA_PROOF_PROMETHEUS_JOB_NAME:-ajenda-api}"
 TIMEOUT_SECONDS="${AJENDA_PROOF_TIMEOUT_SECONDS:-90}"
@@ -154,6 +155,12 @@ wait_for_http_ok "$API_BASE_URL/readiness"
 wait_for_http_ok "$API_BASE_URL/v1/system/health"
 wait_for_http_ok "$API_BASE_URL/v1/system/readiness"
 
+# The public proof begins at the frontend boundary.  `compose up -d` reports a
+# container as started before nginx has served the SPA, so do not race its
+# initial request against frontend readiness.
+log "checking frontend readiness"
+wait_for_http_ok "$FRONTEND_BASE_URL/"
+
 log "checking postgres readiness"
 compose exec -T db pg_isready -d ajenda >/dev/null
 
@@ -174,7 +181,7 @@ fi
 log "running operator mission proof through frontend and public APIs"
 proof_status=0
 AJENDA_OPERATOR_PROOF_API_BASE_URL="$API_BASE_URL" \
-  AJENDA_OPERATOR_PROOF_FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:8080}" \
+  AJENDA_OPERATOR_PROOF_FRONTEND_BASE_URL="$FRONTEND_BASE_URL" \
   AJENDA_OPERATOR_PROOF_RUNTIME_EVIDENCE_OUTPUT="$GRAFT_RUNTIME_EVIDENCE" \
   python deploy/scripts/operator-mission-proof.py || proof_status=$?
 

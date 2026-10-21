@@ -97,6 +97,12 @@ class ProofFailure(RuntimeError):
     """Raised when an operator proof invariant is not satisfied."""
 
 
+def log_phase(name: str) -> None:
+    """Emit bounded, credential-free progress for CI failure diagnosis."""
+
+    print(f"[operator-mission-proof] phase={name}", flush=True)
+
+
 def request(
     method: str,
     base: str,
@@ -292,14 +298,18 @@ def seed_internal_crm_fixture(*, api_base: str, headers: dict[str, str]) -> None
 
 
 def main() -> int:
+    log_phase("frontend_probe")
     frontend = urllib.request.urlopen(f"{FRONTEND_BASE}/", timeout=30).read().decode("utf-8")
     if 'id="root"' not in frontend:
         raise ProofFailure("frontend root page did not contain the SPA mount point")
 
+    log_phase("tenant_onboarding")
     tenant_id, api_key = create_tenant_session(org_name="Ajenda Operator Proof")
     headers = auth(tenant_id, api_key)
+    log_phase("charter_persistence")
     persist_proof_operating_charter(headers=headers)
 
+    log_phase("blocked_composition_checks")
     assert_blocked_composition(
         headers=headers,
         instruction="Find three dental companies in Seattle using local fixture data only.",
@@ -314,6 +324,7 @@ def main() -> int:
     if "internal crm" in INSTRUCTION.lower():
         seed_internal_crm_fixture(api_base=API_BASE, headers=headers)
 
+    log_phase("mission_composition")
     proposal = request(
         "POST",
         API_BASE,
@@ -327,6 +338,7 @@ def main() -> int:
     if proposal.get("missing_connections"):
         raise ProofFailure(f"HVAC request has missing connections: {proposal['missing_connections']}")
 
+    log_phase("mission_confirmation")
     confirmed = request(
         "POST",
         API_BASE,
@@ -338,6 +350,7 @@ def main() -> int:
     if confirmed.get("runtime_queued") is not False:
         raise ProofFailure("confirmation granted runtime queue authority")
 
+    log_phase("mission_launch")
     launched = request(
         "POST",
         API_BASE,
@@ -350,6 +363,7 @@ def main() -> int:
     if launched.get("blockers"):
         raise ProofFailure(f"launch returned blockers: {launched['blockers']}")
 
+    log_phase("mission_terminal_poll")
     deadline = time.monotonic() + TIMEOUT_SECONDS
     deliverable: dict[str, Any] | None = None
     lifecycle: dict[str, Any] | None = None
@@ -414,6 +428,7 @@ def main() -> int:
     if mission_status != "completed":
         raise ProofFailure(f"mission did not complete acceptance: status={mission_status!r} acceptance={acceptance}")
 
+    log_phase("runtime_reconciliation")
     mission_read = request("GET", API_BASE, f"/v1/missions/{mission_id}", headers=headers)
     runtime_state = mission_read.get("deliverable_runtime_state")
     if not isinstance(runtime_state, dict):
@@ -444,6 +459,7 @@ def main() -> int:
             f"runtime evidence reported first divergence: {(runtime_evidence or {}).get('first_divergence')}"
         )
 
+    log_phase("cross_tenant_denial")
     other_tenant_id, other_api_key = create_tenant_session(org_name="Ajenda Operator Proof Isolation")
     _ = request(
         "GET",
@@ -465,6 +481,7 @@ def main() -> int:
     if any(not isinstance(row, dict) or not row.get("company_name") or not row.get("website") for row in prospects):
         raise ProofFailure("one or more prospects lacks a company name or website")
 
+    log_phase("reconciliation_export")
     reconciliation_export = request(
         "GET",
         API_BASE,

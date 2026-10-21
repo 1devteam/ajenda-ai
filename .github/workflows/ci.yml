@@ -370,6 +370,21 @@ jobs:
       - name: Run live runtime proof
         run: bash deploy/scripts/live-runtime-proof.sh
 
+      - name: Capture compose diagnostics
+        if: always()
+        run: |
+          mkdir -p artifacts/live-runtime-proof
+          docker compose -p "$AJENDA_PROOF_COMPOSE_PROJECT_NAME" --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml ps > artifacts/live-runtime-proof/compose-ps.txt || true
+          docker compose -p "$AJENDA_PROOF_COMPOSE_PROJECT_NAME" --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml logs --no-color --tail=300 > artifacts/live-runtime-proof/compose-logs.txt || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: main-live-runtime-proof-diagnostics
+          path: artifacts/live-runtime-proof
+          retention-days: 7
+
       - name: Stop compose stack
         if: always()
         run: docker compose -p "$AJENDA_PROOF_COMPOSE_PROJECT_NAME" --env-file "$AJENDA_PROOF_COMPOSE_ENV_FILE" -f deploy/compose/docker-compose.prod.yml down --remove-orphans

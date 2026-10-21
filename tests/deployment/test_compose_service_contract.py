@@ -153,6 +153,7 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     expected_command = 'compose up -d "${proof_build_args[@]}" ' + " ".join(LIVE_PROOF_STARTED_SERVICES)
 
     assert 'COMPOSE_ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"' in script
+    assert 'FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:8080}"' in script
     assert 'if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then' in script
     assert 'fail "compose env file not found: $COMPOSE_ENV_FILE"' in script
     assert 'docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
@@ -178,11 +179,25 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     assert "tool_invoke_handler" not in script
     assert "AJENDA_OPERATOR_PROOF_RUNTIME_EVIDENCE_OUTPUT" in script
     assert "AJENDA_OPERATOR_PROOF_RUNTIME_RECONCILIATION_OUTPUT" in operator_script
+    assert 'wait_for_http_ok "$FRONTEND_BASE_URL/"' in script
+    assert 'AJENDA_OPERATOR_PROOF_FRONTEND_BASE_URL="$FRONTEND_BASE_URL"' in script
     assert "AJENDA_OPERATOR_PROOF_CLIENT_IP" in operator_script
     assert 'request_headers["X-Forwarded-For"] = CLIENT_IP' in operator_script
     assert "mission reached terminal failure before deliverable" in operator_script
     assert "brain-capstone-runtime-proof.py" not in script
     assert "gtm.lead_enrich" not in script
+    for phase in (
+        "frontend_probe",
+        "tenant_onboarding",
+        "charter_persistence",
+        "mission_composition",
+        "mission_confirmation",
+        "mission_launch",
+        "mission_terminal_poll",
+        "runtime_reconciliation",
+        "cross_tenant_denial",
+    ):
+        assert f'log_phase("{phase}")' in operator_script
 
 
 def test_operator_mission_proof_uses_public_api_and_never_direct_runtime_handlers() -> None:
