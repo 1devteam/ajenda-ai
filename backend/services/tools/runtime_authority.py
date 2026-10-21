@@ -8,10 +8,12 @@ from pydantic import ValidationError
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
+from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
 from backend.services.abilities.rollout_validation import validate_action_manifest_alignment
 from backend.services.credentials.runtime_authority import CredentialRuntimeAuthority, CredentialRuntimeAuthorityError
-from backend.services.runtime_evidence_ledger import RuntimeCausalObservation
+from backend.services.operating_charter import OperatingCharterViolation, assert_action_allowed, load_operating_charter
+from backend.services.runtime_evidence_ledger import RuntimeCausalObservation, RuntimeEvidenceLedger
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry, get_default_action_registry
 from backend.services.tools.capability_validation import (
     CapabilityActionValidationError,
@@ -189,6 +191,30 @@ class ToolRuntimeAuthority:
             # visibility is tenant-scoped under forced RLS, so activate the
             # transaction-local tenant context before resolving authority.
             activate_tenant_session(session, task.tenant_id)
+            # Composition authority is intentionally rechecked at the final
+            # side-effect boundary.  A queued write/send must not remain
+            # executable merely because an older charter allowed its plan.
+            if effective_side_effect_class.has_side_effect:
+                profile = BusinessProfileRepository(session).get_active_profile_for_tenant(tenant_id=task.tenant_id)
+                facts = (
+                    profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}
+                )
+                try:
+                    charter = load_operating_charter(approved_facts=facts)
+                    assert_action_allowed(
+                        action_name=action.name,
+                        side_effect_class=effective_side_effect_class,
+                        charter=charter,
+                    )
+                except OperatingCharterViolation as exc:
+                    self._record_charter_denial(
+                        session=session,
+                        task=task,
+                        action_name=action.name,
+                        side_effect_class=effective_side_effect_class,
+                        code=exc.code,
+                    )
+                    raise ToolRuntimeAuthorityError(f"tool.invoke charter denied [{exc.code}]: {exc.message}") from exc
             try:
                 validate_capability_action_authority(
                     session=session,
@@ -203,6 +229,46 @@ class ToolRuntimeAuthority:
         finally:
             session.close()
         return invocation, action, effective_side_effect_class
+
+    @staticmethod
+    def _record_charter_denial(
+        *,
+        session: Any,
+        task: ExecutionTask,
+        action_name: str,
+        side_effect_class: SideEffectClass,
+        code: str,
+    ) -> None:
+        """Record a current-charter denial before any provider call.
+
+        This is the final pre-provider authorization boundary. A request that
+        has already crossed a provider boundary may not be recallable, but a
+        retry or recovery re-enters ``authorize`` and checks current authority
+        again rather than reusing a historical approval decision.
+        """
+        RuntimeEvidenceLedger(session, flush=True).append_fact(
+            tenant_id=task.tenant_id,
+            mission_id=task.mission_id,
+            category="operating_charter",
+            action="side_effect_denied_at_execution",
+            producer="tool_runtime_authority",
+            actor="tool_runtime_authority",
+            details="Current tenant charter denied a queued side-effect before provider invocation.",
+            facts={
+                "task_id": str(task.id),
+                "action": action_name,
+                "side_effect_class": side_effect_class.value,
+                "reason_code": code,
+                "enforcement_boundary": "pre_provider_invocation",
+            },
+            causation_id=str(task.id),
+            correlation_id=str(task.mission_id) if task.mission_id is not None else None,
+        )
+        # ``authorize`` owns this fresh session; worker task/lease transitions
+        # occur in WorkerRuntimeService's distinct transaction. Therefore this
+        # commit persists only the denial fact and cannot commit caller-owned
+        # task state. If it fails, authorization remains fail-closed.
+        session.commit()
 
     @staticmethod
     def _enrich_invocation_from_metadata(

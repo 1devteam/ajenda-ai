@@ -180,7 +180,13 @@ def _map_error(exc: MissionCompositionError) -> HTTPException:
         status = 404
     elif exc.code in {"QUOTA_EXCEEDED"}:
         status = 402
-    elif exc.code in {"INTAKE_QUALITY", "NO_RUNTIME_ACTIONS", "PROPOSAL_NOT_READY"}:
+    elif exc.code in {
+        "INTAKE_QUALITY",
+        "NO_RUNTIME_ACTIONS",
+        "PROPOSAL_NOT_READY",
+        "CHARTER_MISSING",
+        "CHARTER_INVALID",
+    }:
         status = 422
     return HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message})
 

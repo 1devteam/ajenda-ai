@@ -2,6 +2,7 @@ export type ApprovalMode = "notify_before_external" | "always_notify" | "none";
 
 export type OperatingCharter = {
   schema_version: 1;
+  revision: number;
   may_prepare: string[];
   may_perform: string[];
   never_do: string[];
@@ -14,6 +15,7 @@ export const CHARTER_CATEGORY = "operating_charter";
 
 export const DEFAULT_OPERATING_CHARTER: OperatingCharter = {
   schema_version: 1,
+  revision: 0,
   may_prepare: [
     "retrieval.hybrid_search",
     "record.search",
@@ -139,9 +141,9 @@ function charterPayloadFromFact(raw: unknown): OperatingCharter | null {
   const record = raw as Record<string, unknown>;
   const nested = record.value;
   const payload = nested && typeof nested === "object" ? (nested as Record<string, unknown>) : record;
-  const mayPrepare = "may_prepare" in payload ? payload.may_prepare : DEFAULT_OPERATING_CHARTER.may_prepare;
-  const mayPerform = "may_perform" in payload ? payload.may_perform : DEFAULT_OPERATING_CHARTER.may_perform;
-  const neverDo = "never_do" in payload ? payload.never_do : DEFAULT_OPERATING_CHARTER.never_do;
+  const mayPrepare = payload.may_prepare;
+  const mayPerform = payload.may_perform;
+  const neverDo = payload.never_do;
   if (!Array.isArray(mayPrepare) || !Array.isArray(mayPerform) || !Array.isArray(neverDo)) {
     return null;
   }
@@ -153,8 +155,12 @@ function charterPayloadFromFact(raw: unknown): OperatingCharter | null {
   ) {
     return null;
   }
+  if (payload.schema_version !== 1 || !Number.isInteger(payload.revision) || Number(payload.revision) < 0) {
+    return null;
+  }
   return {
     schema_version: 1,
+    revision: Number(payload.revision),
     may_prepare: mayPrepare.map((item) => String(item)),
     may_perform: mayPerform.map((item) => String(item)),
     never_do: neverDo.map((item) => String(item)),
@@ -166,8 +172,13 @@ function charterPayloadFromFact(raw: unknown): OperatingCharter | null {
   };
 }
 
-export function charterFromProfile(facts: Record<string, unknown>): OperatingCharter {
-  return charterPayloadFromFact(facts[CHARTER_CATEGORY]) ?? DEFAULT_OPERATING_CHARTER;
+/**
+ * Parse only the saved effective charter returned by the API.  Callers may
+ * choose DEFAULT_OPERATING_CHARTER as an editor draft, but never as proof of
+ * runtime authority for an existing tenant.
+ */
+export function charterFromPersistedProfile(facts: Record<string, unknown>): OperatingCharter | null {
+  return charterPayloadFromFact(facts[CHARTER_CATEGORY]);
 }
 
 export function charterToFact(charter: OperatingCharter): Record<string, unknown> {

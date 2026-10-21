@@ -312,7 +312,6 @@ def _enforce_operating_charter(*, db: Session, tenant_id: uuid.UUID | str, actio
         return
     profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=str(tenant_id))
     approved_facts = profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}
-    charter = load_operating_charter(approved_facts=approved_facts)
     registry = get_default_action_registry()
     for action_name in actions:
         try:
@@ -321,6 +320,7 @@ def _enforce_operating_charter(*, db: Session, tenant_id: uuid.UUID | str, actio
             # Catalog-only / deferred actions have no runtime handler; charter is N/A.
             continue
         try:
+            charter = load_operating_charter(approved_facts=approved_facts)
             assert_action_allowed(
                 action_name=definition.name,
                 side_effect_class=definition.side_effect_class,
@@ -328,7 +328,11 @@ def _enforce_operating_charter(*, db: Session, tenant_id: uuid.UUID | str, actio
             )
         except OperatingCharterViolation as exc:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
+                status_code=(
+                    status.HTTP_409_CONFLICT
+                    if exc.code in {"CHARTER_MISSING", "CHARTER_INVALID"}
+                    else status.HTTP_403_FORBIDDEN
+                ),
                 detail={"code": exc.code, "message": exc.message, "action": exc.action},
             ) from exc
 

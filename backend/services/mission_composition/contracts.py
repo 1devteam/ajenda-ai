@@ -820,6 +820,8 @@ class CompositionProvenance(BaseModel):
     components_active: list[str] = Field(default_factory=lambda: ["regex_core"], max_length=20)
     semantic_selection: SemanticSelection | None = None
     graph_lineage: GraphLineage = Field(default_factory=GraphLineage)
+    charter_profile_id: str | None = Field(default=None, max_length=80)
+    charter_revision: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def _know_how_reference_is_complete(self) -> CompositionProvenance:

@@ -13,6 +13,20 @@ from backend.services.business_profile.binding import (
     ensure_proposal_binding,
     value_digest,
 )
+from backend.services.operating_charter import (
+    CHARTER_CATEGORY,
+    OperatingCharter,
+    inspect_operating_charter,
+)
+
+
+class BusinessProfileCharterRevisionConflict(ValueError):
+    """The caller attempted to overwrite a newer charter revision."""
+
+    def __init__(self, *, expected_revision: int, current_revision: int) -> None:
+        self.expected_revision = expected_revision
+        self.current_revision = current_revision
+        super().__init__("operating charter revision is stale; reload the active profile before saving")
 
 
 class BusinessProfileRepository:
@@ -68,6 +82,89 @@ class BusinessProfileRepository:
             raise ValueError("only active business profiles can be updated")
         if not category.strip():
             raise ValueError("business profile fact category must be non-empty")
+        if category == CHARTER_CATEGORY:
+            raise ValueError("operating_charter must use the charter-specific persistence path")
+        return self._upsert_fact(
+            profile=profile,
+            category=category,
+            approved_fact=approved_fact,
+            actor_id=actor_id,
+            updated_at=updated_at,
+            provenance_metadata=provenance_metadata,
+        )
+
+    def upsert_operating_charter(
+        self,
+        *,
+        profile: BusinessProfile,
+        charter: OperatingCharter,
+        expected_revision: int,
+        actor_id: str,
+        updated_at: datetime,
+        provenance_metadata: dict[str, object] | None = None,
+    ) -> BusinessProfile:
+        """Atomically replace this tenant's charter after locking the profile row."""
+        if profile.status != "active":
+            raise ValueError("only active business profiles can be updated")
+        if expected_revision < 0:
+            raise ValueError("expected charter revision must be non-negative")
+        locked_profile = self._session.scalar(
+            select(BusinessProfile)
+            .where(
+                BusinessProfile.id == profile.id,
+                BusinessProfile.tenant_id == profile.tenant_id,
+                BusinessProfile.status == "active",
+            )
+            .with_for_update()
+            # The caller may have read revision N earlier in this SQLAlchemy
+            # session.  Force a fresh row image *after* PostgreSQL grants the
+            # lock so its identity map cannot mask a committed N+1 update from
+            # another API session.
+            .execution_options(populate_existing=True)
+        )
+        if locked_profile is None:
+            raise ValueError("active business profile was not found for charter update")
+        current = inspect_operating_charter(approved_facts=locked_profile.approved_facts)
+        if expected_revision != current.revision:
+            raise BusinessProfileCharterRevisionConflict(
+                expected_revision=expected_revision,
+                current_revision=current.revision,
+            )
+        next_charter = OperatingCharter(
+            schema_version=charter.schema_version,
+            may_prepare=charter.may_prepare,
+            may_perform=charter.may_perform,
+            never_do=charter.never_do,
+            approval_mode=charter.approval_mode,
+            escalation_email=charter.escalation_email,
+            escalation_phone=charter.escalation_phone,
+            source="profile",
+            revision=current.revision + 1,
+        )
+        return self._upsert_fact(
+            profile=locked_profile,
+            category=CHARTER_CATEGORY,
+            approved_fact={"value": next_charter.to_fact_payload()},
+            actor_id=actor_id,
+            updated_at=updated_at,
+            provenance_metadata={
+                **(provenance_metadata or {}),
+                "charter_revision": next_charter.revision,
+                "charter_source": "tenant_active_profile",
+            },
+        )
+
+    def _upsert_fact(
+        self,
+        *,
+        profile: BusinessProfile,
+        category: str,
+        approved_fact: dict[str, object],
+        actor_id: str,
+        updated_at: datetime,
+        provenance_metadata: dict[str, object] | None = None,
+    ) -> BusinessProfile:
+        """Shared fact persistence; charter callers acquire a row lock first."""
 
         approved_facts = dict(profile.approved_facts or {})
         provenance = dict(profile.provenance or {})
@@ -288,6 +385,10 @@ class BusinessProfileRepository:
             raise ValueError("business profile suggestion tenant does not match profile tenant")
         if suggestion.profile_id is not None and suggestion.profile_id != profile.id:
             raise ValueError("business profile suggestion does not belong to profile")
+        if suggestion.suggested_category == CHARTER_CATEGORY:
+            raise ValueError(
+                "operating_charter suggestions must be applied through the charter-specific persistence path"
+            )
 
         approved_facts = dict(profile.approved_facts or {})
         provenance = dict(profile.provenance or {})

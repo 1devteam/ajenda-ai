@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.services.onboarding_service import OnboardingService
+from backend.services.operating_charter import default_operating_charter
 
 
 def _service(facts: dict[str, object], *, permissions: tuple[str, ...] = ("credentials:manage",)):
@@ -56,3 +57,40 @@ def test_complete_requires_operating_preferences() -> None:
         profile_repo.return_value.get_active_profile_for_tenant.return_value = profile
         with pytest.raises(ValueError, match="operating preferences"):
             service.complete(tenant_id=uuid.uuid4(), principal=principal)
+
+
+def test_invalid_charter_does_not_mark_onboarding_preferences_ready() -> None:
+    service, _session, repo, principal, profile, _state = _service(
+        {
+            "business_name": {"value": "Ajenda"},
+            "contact_email": {"value": "owner@example.com"},
+            "operating_charter": {"value": {"schema_version": 999}},
+        }
+    )
+    with (
+        patch("backend.services.onboarding_service.BusinessProfileRepository") as profile_repo,
+        patch.object(
+            service,
+            "_connections",
+            return_value={"gmail": False, "google_calendar": False, "google_contacts": False, "google_docs": False},
+        ),
+    ):
+        profile_repo.return_value.get_active_profile_for_tenant.return_value = profile
+        snapshot = service.read(tenant_id=uuid.uuid4(), principal=principal)
+
+    assert snapshot.operating_preferences_ready is False
+    assert repo.get_or_create_state.call_args.kwargs["legacy_completed"] is False
+
+
+def test_valid_persisted_charter_marks_onboarding_preferences_ready() -> None:
+    charter = default_operating_charter().to_fact_payload()
+    service, _session, _repo, principal, profile, _state = _service(
+        {
+            "business_name": {"value": "Ajenda"},
+            "contact_email": {"value": "owner@example.com"},
+            "operating_charter": {"value": charter},
+        }
+    )
+    with patch("backend.services.onboarding_service.BusinessProfileRepository") as profile_repo:
+        profile_repo.return_value.get_active_profile_for_tenant.return_value = profile
+        service.complete(tenant_id=uuid.uuid4(), principal=principal)

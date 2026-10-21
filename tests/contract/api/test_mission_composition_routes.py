@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from fastapi import FastAPI, Request
@@ -14,6 +15,7 @@ from backend.auth.principal import Principal, PrincipalType
 from backend.domain.enums import MissionPlanStatus
 from backend.domain.mission import MISSION_INTAKE_METADATA_KEY, MISSION_TASK_GRAPH_METADATA_KEY, Mission, MissionPlan
 from backend.services.mission_composition.proposal_store import clear_proposals_for_tests
+from backend.services.operating_charter import default_operating_charter
 
 ROOFING_INSTRUCTION = (
     "Research roofing companies in Austin, identify three strong prospects, "
@@ -51,6 +53,16 @@ def _build_app(tenant_id: uuid.UUID) -> FastAPI:
     return app
 
 
+def _active_profile() -> SimpleNamespace:
+    """Runtime composition requires persisted charter authority, not defaults."""
+    charter = default_operating_charter().to_fact_payload()
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        approved_facts={"operating_charter": {"value": charter}},
+        provenance={},
+    )
+
+
 def test_compose_returns_proposal_without_runtime_authority() -> None:
     tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
     app = _build_app(tenant_id)
@@ -59,7 +71,7 @@ def test_compose_returns_proposal_without_runtime_authority() -> None:
         patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
         patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
     ):
-        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
         cred_repo_cls.return_value.list_for_tenant.return_value = []
         client = TestClient(app)
         response = client.post("/v1/missions/compose", json={"instruction": ROOFING_INSTRUCTION})
@@ -73,10 +85,68 @@ def test_compose_returns_proposal_without_runtime_authority() -> None:
     assert body["allowed_actions"]
     assert body["task_graph_preview"]["nodes"]
     assert body["composition"]["allowed_actions_provenance"]["selected_by"] == "mission_composition_engine"
+    assert body["composition"]["composition_provenance"]["charter_revision"] == 0
     assert body["coverage_assessment"]["status"] == "unknown"
     assert body["coverage_assessment"]["grants_execution_authority"] is False
     assert body["epistemic_context"]["grants_execution_authority"] is False
     assert body["ready_to_start"] is True
+
+
+def test_compose_fails_closed_when_active_profile_has_no_persisted_charter() -> None:
+    tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    app = _build_app(tenant_id)
+    with (
+        patch.object(composition_module, "require_route_permission", return_value=None),
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
+    ):
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        cred_repo_cls.return_value.list_for_tenant.return_value = []
+        response = TestClient(app).post("/v1/missions/compose", json={"instruction": ROOFING_INSTRUCTION})
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "CHARTER_MISSING"
+
+
+def test_confirmation_revalidates_current_charter_after_composition() -> None:
+    tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    app = _build_app(tenant_id)
+    revoked = _active_profile()
+    revoked.approved_facts = {
+        "operating_charter": {
+            "value": {
+                **default_operating_charter().to_fact_payload(),
+                "revision": 1,
+                "may_prepare": [],
+            }
+        }
+    }
+    with (
+        patch.object(composition_module, "require_route_permission", return_value=None),
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
+    ):
+        # The first profile permits composition; confirmation must compose
+        # again and evaluate the subsequently revoked charter.
+        permitted = _active_profile()
+        # Each compose reads the profile for contextual facts and again for
+        # charter authority. Confirmation repeats both reads.
+        profile_repo_cls.return_value.get_active_profile_for_tenant.side_effect = [
+            permitted,
+            permitted,
+            revoked,
+            revoked,
+        ]
+        cred_repo_cls.return_value.list_for_tenant.return_value = []
+        client = TestClient(app)
+        compose = client.post("/v1/missions/compose", json={"instruction": ROOFING_INSTRUCTION})
+        assert compose.status_code == 200, compose.text
+        proposal_id = compose.json()["proposal_id"]
+
+        confirm = client.post(f"/v1/missions/proposals/{proposal_id}/confirm")
+
+    assert confirm.status_code == 422
+    assert confirm.json()["detail"]["code"] in {"NO_RUNTIME_ACTIONS", "PROPOSAL_NOT_READY"}
 
 
 def test_shadow_preview_validates_plan_without_runtime_work() -> None:
@@ -87,7 +157,7 @@ def test_shadow_preview_validates_plan_without_runtime_work() -> None:
         patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
         patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
     ):
-        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
         cred_repo_cls.return_value.list_for_tenant.return_value = []
         client = TestClient(app)
         compose = client.post("/v1/missions/compose", json={"instruction": ROOFING_INSTRUCTION})
@@ -115,7 +185,7 @@ def test_shadow_preview_is_tenant_scoped() -> None:
         patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
         patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
     ):
-        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
         cred_repo_cls.return_value.list_for_tenant.return_value = []
         client = TestClient(app)
         compose = client.post("/v1/missions/compose", json={"instruction": ROOFING_INSTRUCTION})
@@ -137,7 +207,7 @@ def test_shadow_preview_retrieval_is_stable_for_owner_and_isolated_for_other_ten
         patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
         patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
     ):
-        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
         cred_repo_cls.return_value.list_for_tenant.return_value = []
         client = TestClient(app)
         compose = client.post("/v1/missions/compose", json={"instruction": ROOFING_INSTRUCTION})
@@ -168,7 +238,7 @@ def test_counterfactual_plans_are_read_only_comparisons() -> None:
         patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
         patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
     ):
-        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
         cred_repo_cls.return_value.list_for_tenant.return_value = []
         client = TestClient(app)
         compose = client.post("/v1/missions/compose", json={"instruction": ROOFING_INSTRUCTION})
@@ -215,7 +285,7 @@ def test_confirm_creates_mission_plan_graph_not_queue() -> None:
         patch("backend.services.mission_composition.service.MissionPlanRepository") as plan_repo_cls,
         patch("backend.services.mission_composition.service.QuotaEnforcementService") as quota_cls,
     ):
-        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = None
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
         cred_repo_cls.return_value.list_for_tenant.return_value = []
         quota_cls.return_value.enforce_mission_budget_gate.return_value = None
         quota_cls.return_value.check_and_record_mission_creation.return_value = None

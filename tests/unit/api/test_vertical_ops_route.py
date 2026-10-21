@@ -15,6 +15,7 @@ from backend.auth.principal import Principal, PrincipalType
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.mission import Mission
 from backend.services.execution_coordinator import CoordinationResult
+from backend.services.operating_charter import default_operating_charter
 from backend.services.vertical_ops.template_service import (
     VerticalTemplateApplyResult,
     VerticalTemplateQueueResult,
@@ -49,6 +50,13 @@ def _build_app(tenant_id: uuid.UUID, *, roles: tuple[str, ...] = ("tenant_admin"
     app.dependency_overrides[get_tenant_db_session] = _override_db
     app.dependency_overrides[get_queue_adapter] = _override_queue
     return app
+
+
+def _profile_facts(*, facts: dict[str, object]) -> dict[str, object]:
+    return {
+        **facts,
+        "operating_charter": {"value": default_operating_charter().to_fact_payload()},
+    }
 
 
 def test_list_templates_returns_phase_b_and_c_catalog() -> None:
@@ -155,7 +163,7 @@ def test_charter_blocks_default_never_do_social_publish() -> None:
         patch.object(vertical_ops_module, "BusinessProfileRepository") as profile_repo_cls,
     ):
         profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = MagicMock(
-            approved_facts={"business_name": {"value": "Acme"}, "growth_goals": {"value": "Grow"}}
+            approved_facts=_profile_facts(facts={"business_name": {"value": "Acme"}, "growth_goals": {"value": "Grow"}})
         )
         response = client.post(
             "/v1/vertical-ops/missions",
@@ -219,7 +227,9 @@ def test_create_mission_from_template_apply_only() -> None:
         patch.object(vertical_ops_module, "Mission", wraps=Mission),
     ):
         profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = MagicMock(
-            approved_facts={"business_name": {"value": "Acme"}, "target_customers": {"value": "Operators"}}
+            approved_facts=_profile_facts(
+                facts={"business_name": {"value": "Acme"}, "target_customers": {"value": "Operators"}}
+            )
         )
         build_bundle.return_value = MagicMock(
             role_key="vertical.research",
@@ -280,7 +290,9 @@ def test_create_mission_with_queue_uses_apply_and_queue() -> None:
         ) as apply_and_queue,
     ):
         profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = MagicMock(
-            approved_facts={"business_name": {"value": "Acme"}, "target_customers": {"value": "Operators"}}
+            approved_facts=_profile_facts(
+                facts={"business_name": {"value": "Acme"}, "target_customers": {"value": "Operators"}}
+            )
         )
         build_bundle.return_value = MagicMock(
             role_key="vertical.research",
@@ -404,12 +416,16 @@ def test_queue_accepts_subset_of_applied_template_task_ids() -> None:
     with (
         patch.object(vertical_ops_module, "require_route_permission"),
         patch.object(vertical_ops_module, "MissionRepository", return_value=repo),
+        patch.object(vertical_ops_module, "BusinessProfileRepository") as profile_repo_cls,
         patch.object(
             vertical_ops_module.VerticalOpsTemplateService,
             "queue_planned_tasks",
             return_value=queued,
         ) as queue_planned,
     ):
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = MagicMock(
+            approved_facts=_profile_facts(facts={})
+        )
         response = client.post(
             f"/v1/vertical-ops/missions/{mission_id}/queue",
             json={"task_ids": [str(task_a)]},

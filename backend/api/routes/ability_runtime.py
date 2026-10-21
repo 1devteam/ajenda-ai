@@ -163,7 +163,13 @@ def brain_capability_check(
         permission=Permission.EXECUTION_VIEW,
         tenant_id=tenant_id,
     )
-    return build_brain_capability_report(session=db, tenant_id=str(tenant_id)).to_api()
+    try:
+        return build_brain_capability_report(session=db, tenant_id=str(tenant_id)).to_api()
+    except OperatingCharterViolation as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": exc.message, "action": exc.action},
+        ) from exc
 
 
 @router.get("/disclaimers")
@@ -207,12 +213,16 @@ def launch_task(
 
     profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=str(tenant_id))
     approved_facts = profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}
-    charter = load_operating_charter(approved_facts=approved_facts)
     try:
+        charter = load_operating_charter(approved_facts=approved_facts)
         assert_action_allowed(action_name=action_name, side_effect_class=side_effect_class, charter=charter)
     except OperatingCharterViolation as exc:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=(
+                status.HTTP_409_CONFLICT
+                if exc.code in {"CHARTER_MISSING", "CHARTER_INVALID"}
+                else status.HTTP_403_FORBIDDEN
+            ),
             detail={"code": exc.code, "message": exc.message, "action": exc.action},
         ) from exc
 
