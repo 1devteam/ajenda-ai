@@ -26,12 +26,13 @@ def test_confirmation_reactivates_tenant_after_recompilation_before_quota_write(
     quota_lines = [line for line, func, _ in calls if func == "quota.check_and_record_mission_creation"]
     proposal_write_lines = [line for line, func, _ in calls if func == "put_proposal" and line < min(quota_lines)]
     assert len(compose_lines) == 1
-    assert len(activation_lines) == 1
+    assert len(activation_lines) == 2
     assert len(quota_lines) == 1
     assert proposal_write_lines
-    # Composition and revision storage both commit: RLS must be reset after
-    # the latest proposal commit, not merely after the first composition.
-    assert compose_lines[0] < max(proposal_write_lines) < activation_lines[0] < quota_lines[0]
+    # Composition commits before the durable revalidation write, and that
+    # write commits again.  RLS must be restored at both boundaries.
+    assert compose_lines[0] < activation_lines[0] < min(proposal_write_lines)
+    assert max(proposal_write_lines) < activation_lines[1] < quota_lines[0]
 
 
 def test_confirmation_creates_a_revalidated_record_instead_of_reusing_reviewed_proposal_id() -> None:
@@ -61,9 +62,12 @@ def test_compile_reactivates_tenant_after_recomposition_before_plan_write() -> N
         if func == "self._mission_plan_repository(self._db).create_or_get_active_for_mission"
     ]
     assert len(compose_lines) == 1
-    assert len(activation_lines) == 1
+    assert len(activation_lines) == 2
     assert len(plan_write_lines) == 1
-    assert compose_lines[0] < activation_lines[0] < plan_write_lines[0]
+    proposal_write_lines = [line for line, func, _ in calls if func == "put_proposal"]
+    assert proposal_write_lines
+    assert compose_lines[0] < activation_lines[0] < min(proposal_write_lines)
+    assert max(proposal_write_lines) < activation_lines[1] < plan_write_lines[0]
 
 
 def test_compile_retains_prior_composition_as_revalidation_lineage() -> None:

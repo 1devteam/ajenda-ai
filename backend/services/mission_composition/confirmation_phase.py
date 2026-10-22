@@ -129,6 +129,10 @@ class MissionCompositionConfirmationPhase:
             )
 
         record = self.compose(tenant_id=tenant_id, instruction=instruction)
+        # compose() durably records its proposal and commits.  PostgreSQL
+        # SET LOCAL tenant context therefore expires before the required
+        # revalidation lineage write below.
+        activate_tenant_session(self._db, str(tenant_id))
         if client_proposal_id:
             # Revalidation must not overwrite the reviewed proposal. Preserve
             # its immutable decision payload and attach the fresh server-side

@@ -97,6 +97,10 @@ class MissionCompositionCompilePhase:
 
         prior_proposal_id = composition.get("proposal_id") if isinstance(composition.get("proposal_id"), str) else None
         record = self.compose(tenant_id=tenant_id, instruction=instruction_text)
+        # compose() commits its initial proposal.  Restore PostgreSQL's
+        # transaction-local tenant context before the required revalidation
+        # lineage write, then restore it again after that write below.
+        activate_tenant_session(self._db, tenant_id)
         if prior_proposal_id:
             record = record.model_copy(
                 update={
