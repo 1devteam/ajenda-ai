@@ -84,6 +84,7 @@ class MissionCompositionConfirmationPhase:
         # instruction, then re-run server-side composition (charter + credentials).
         instruction: str | None = None
         client_proposal_id = proposal_id
+        reviewed_record: MissionCompositionRecord | None = None
         if composition is not None:
             if isinstance(composition, MissionCompositionRecord):
                 instruction = composition.instruction
@@ -107,6 +108,7 @@ class MissionCompositionConfirmationPhase:
                 )
             instruction = cached.instruction
             client_proposal_id = cached.proposal_id
+            reviewed_record = cached
 
         if not instruction:
             if proposal_id:
@@ -119,6 +121,13 @@ class MissionCompositionConfirmationPhase:
                 message="proposal_id or composition.instruction is required",
             )
 
+        if client_proposal_id and reviewed_record is None:
+            reviewed_record = get_proposal(
+                tenant_id=tenant_id,
+                proposal_id=client_proposal_id,
+                db=self._db,
+            )
+
         record = self.compose(tenant_id=tenant_id, instruction=instruction)
         # Composition persists its durable proposal using this session and can
         # commit the request's previous transaction. PostgreSQL SET LOCAL tenant
@@ -126,8 +135,17 @@ class MissionCompositionConfirmationPhase:
         # mission, billing, graph, and evidence writes in this confirmation.
         activate_tenant_session(self._db, str(tenant_id))
         if client_proposal_id:
-            record = record.model_copy(update={"proposal_id": client_proposal_id})
-            put_proposal(tenant_id=tenant_id, record=record)
+            # Revalidation must not overwrite the reviewed proposal. Preserve
+            # its immutable decision payload and attach the fresh server-side
+            # composition as a separately persisted revision.
+            record = record.model_copy(
+                update={
+                    "reviewed_proposal_id": client_proposal_id,
+                    "revalidated_from_proposal_id": client_proposal_id,
+                    "revision_reason": "confirmation_revalidation",
+                }
+            )
+            put_proposal(tenant_id=tenant_id, record=record, db=self._db, actor_id=actor_id)
 
         if not record.allowed_actions:
             raise MissionCompositionError(
@@ -244,6 +262,9 @@ class MissionCompositionConfirmationPhase:
             context={
                 "composition": {
                     "proposal_id": record.proposal_id,
+                    "reviewed_proposal_id": record.reviewed_proposal_id,
+                    "revalidated_from_proposal_id": record.revalidated_from_proposal_id,
+                    "revision_reason": record.revision_reason,
                     "schema_version": record.schema_version,
                     "instruction": record.instruction,
                     "job_assignments": [item.model_dump(mode="json") for item in record.job_assignments],
@@ -300,7 +321,7 @@ class MissionCompositionConfirmationPhase:
                             )
                         ),
                         "research_report_required": "synthesize_research_report" in record.intent.requested_outcomes,
-                        "market_opportunities_min": 3
+                        "market_opportunities_min": record.intent.recommendation_quantity or 3
                         if "synthesize_research_report" in record.intent.requested_outcomes
                         else 0,
                         "business_review_required": "review_business_income" in record.intent.requested_outcomes,
@@ -478,6 +499,26 @@ class MissionCompositionConfirmationPhase:
                         "durably stored; retry with the same idempotency_key after the store recovers"
                     ),
                 )
+            # Keep idempotency attached to the reviewed proposal without
+            # replacing its decisions with the revalidated revision.
+            if reviewed_record is not None:
+                reviewed_receipt = reviewed_record.model_copy(
+                    update={
+                        "confirm_receipt": receipt,
+                        "proposal_status": "confirmed",
+                    }
+                )
+                if not put_proposal(
+                    tenant_id=tenant_id,
+                    record=reviewed_receipt,
+                    db=self._db,
+                    actor_id=actor_id,
+                    require_durable=True,
+                ):
+                    raise MissionCompositionError(
+                        code="CONFIRM_RECEIPT_PERSIST_FAILED",
+                        message="confirmation receipt could not be durably attached to the reviewed proposal",
+                    )
         RuntimeEvidenceLedger(self._db, flush=False).append_fact(
             tenant_id=str(tenant_id),
             mission_id=mission.id,
@@ -488,6 +529,7 @@ class MissionCompositionConfirmationPhase:
             details=f"Composition proposal {record.proposal_id} was confirmed into mission {mission.id}.",
             facts={
                 "proposal_id": record.proposal_id,
+                "reviewed_proposal_id": record.reviewed_proposal_id,
                 "plan_id": str(plan.id),
                 "instruction_sha256": "sha256:" + hashlib.sha256(record.instruction.encode("utf-8")).hexdigest(),
                 "objective": record.intent.objective,

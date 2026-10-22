@@ -21,6 +21,7 @@ from backend.services.mission_composition.contracts import (
     MissionIntent,
 )
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY, list_business_jobs
+from backend.services.mission_composition.semantic_vocabulary import SemanticSelection
 from backend.services.operating_charter import (
     OperatingCharter,
     OperatingCharterViolation,
@@ -220,7 +221,11 @@ def _dependency_should_expand(dep: JobDependency, *, available: set[str]) -> boo
     return any(item not in available for item in dep.required_when_missing)
 
 
-def route_jobs_for_intent(intent: MissionIntent) -> list[BusinessJob]:
+def route_jobs_for_intent(
+    intent: MissionIntent,
+    *,
+    semantic_selection: SemanticSelection | None = None,
+) -> list[BusinessJob]:
     """Map canonical requested outcomes to business jobs (deterministic)."""
 
     outcomes = {item.strip() for item in intent.requested_outcomes if item and item.strip()}
@@ -255,6 +260,28 @@ def route_jobs_for_intent(intent: MissionIntent) -> list[BusinessJob]:
             if job.job_key not in selected_keys:
                 selected.append(job)
                 selected_keys.add(job.job_key)
+
+    # Semantics are resolved before this router. Their bindings are advisory
+    # only, but make the outcome-to-job contract explicit and prevent a
+    # catalog-route omission from silently discarding a semantically named
+    # outcome. The catalog remains the sole source of executable jobs.
+    if semantic_selection is not None:
+        for binding in semantic_selection.bindings:
+            for job_key in binding.expected_job_keys:
+                semantic_job = BUSINESS_JOBS_BY_KEY.get(job_key)
+                if semantic_job is not None and semantic_job.job_key not in selected_keys:
+                    selected.append(semantic_job)
+                    selected_keys.add(semantic_job.job_key)
+
+    # Existing learning capabilities become reachable only after the user
+    # explicitly asks for decision support. They remain read-only composition
+    # work; this branch neither resolves a provider nor grants runtime power.
+    if "decision_support_requested" in set(intent.context_requirements):
+        for job_key in ("intelligence.retrieve_knowledge", "intelligence.advise_next"):
+            learning_job = BUSINESS_JOBS_BY_KEY.get(job_key)
+            if learning_job is not None and learning_job.job_key not in selected_keys:
+                selected.append(learning_job)
+                selected_keys.add(learning_job.job_key)
 
     # Public discovery is only a source stage.  It must be followed by company
     # identity verification, but that verification must not silently become

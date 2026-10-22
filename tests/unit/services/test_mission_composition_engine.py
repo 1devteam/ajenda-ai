@@ -17,7 +17,8 @@ from backend.services.mission_composition.plan_compiler import (
     compile_planned_steps,
     compile_task_graph_preview,
 )
-from backend.services.mission_composition.proposal_store import clear_proposals_for_tests
+from backend.services.mission_composition.proposal_store import clear_proposals_for_tests, get_proposal, put_proposal
+from backend.services.mission_composition.semantic_lattice.resolver import build_semantic_selection
 from backend.services.mission_composition.service import (
     MissionCompositionService,
     _acceptance_score_threshold,
@@ -267,6 +268,90 @@ def test_interpreter_accounts_sourced_comparison_as_research_deliverable() -> No
     assert intent.interpretation_ready
     assert "synthesize_research_report" in intent.requested_outcomes
     assert intent.unmatched_material_clauses == []
+
+
+def test_named_business_intelligence_report_preserves_subject_and_recommendation_quantity() -> None:
+    instruction = (
+        "Prepare a business intelligence report on Acme Labs and provide three recommendations with source URLs. "
+        "Use public web research only. Do not use CRM or internal data."
+    )
+
+    intent = interpret_instruction(instruction)
+
+    assert intent.requested_outcomes == ["research_prospects", "synthesize_research_report"]
+    assert intent.requested_quantity is None
+    assert intent.recommendation_quantity == 3
+    assert [(entity.type, entity.name) for entity in intent.target_entities] == [("company", "Acme Labs")]
+    assert "public_web_only" in intent.context_requirements
+
+    frame = build_semantic_selection(
+        instruction=instruction,
+        requested_outcomes=intent.requested_outcomes,
+        selected_job_keys=(),
+        validate_job_bindings=False,
+    )
+    assert not frame.conflicts
+    assert {binding.status for binding in frame.bindings} == {"informational"}
+    assert [job.job_key for job in route_jobs_for_intent(intent, semantic_selection=frame)] == [
+        "research.discover_prospects",
+        "research.verify_public_candidates",
+        "research.synthesize_report",
+    ]
+
+
+def test_normal_catalog_plan_is_validated_through_structured_contract() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-v2",
+        instruction=(
+            "Research three SaaS companies in Austin using public web research only. Do not use CRM or internal data."
+        ),
+    )
+
+    assert record.ready_to_start
+    assert record.planner_provenance is not None
+    assert record.planner_provenance["status"] == "deterministic_validated"
+    assert record.planner_provenance["grants_execution_authority"] is False
+    assert record.planner_provenance["semantic_routing"]["grants_execution_authority"] is False
+    assert record.planner_proposal is not None
+    assert {job["job_key"] for job in record.planner_proposal["jobs"]} == {
+        "research.discover_prospects",
+        "research.verify_public_candidates",
+    }
+
+
+def test_existing_learning_jobs_require_an_explicit_next_action_request() -> None:
+    base = interpret_instruction("Research three SaaS companies in Austin using public web research only.")
+    assert "decision_support_requested" not in base.context_requirements
+    assert "intelligence.retrieve_knowledge" not in {job.job_key for job in route_jobs_for_intent(base)}
+
+    requested = interpret_instruction(
+        "Research three SaaS companies in Austin using public web research only and recommend the next action."
+    )
+    assert "decision_support_requested" in requested.context_requirements
+    jobs = route_jobs_for_intent(requested)
+    assert {"intelligence.retrieve_knowledge", "intelligence.advise_next"}.issubset({job.job_key for job in jobs})
+
+
+def test_revalidation_lineage_keeps_the_reviewed_composition_payload_intact() -> None:
+    service = MissionCompositionService(db=None)
+    instruction = "Research three SaaS companies in Austin using public web research only."
+    reviewed = service.compose(tenant_id="tenant-v2", instruction=instruction)
+    revalidated = service.compose(tenant_id="tenant-v2", instruction=instruction).model_copy(
+        update={
+            "reviewed_proposal_id": reviewed.proposal_id,
+            "revalidated_from_proposal_id": reviewed.proposal_id,
+            "revision_reason": "confirmation_revalidation",
+        }
+    )
+    assert put_proposal(tenant_id="tenant-v2", record=revalidated)
+
+    preserved = get_proposal(tenant_id="tenant-v2", proposal_id=reviewed.proposal_id)
+    successor = get_proposal(tenant_id="tenant-v2", proposal_id=revalidated.proposal_id)
+    assert preserved is not None and successor is not None
+    assert preserved.proposal_id == reviewed.proposal_id
+    assert preserved.revalidated_from_proposal_id is None
+    assert successor.revalidated_from_proposal_id == reviewed.proposal_id
+    assert successor.proposal_id != preserved.proposal_id
 
 
 def test_interpreter_routes_governed_ajenda_profile_brief_to_internal_memory_only() -> None:

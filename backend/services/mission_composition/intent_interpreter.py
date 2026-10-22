@@ -80,6 +80,44 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _segment_clauses as _segment_clauses_impl,
 )
 
+_NAMED_REPORT_COMPANY = re.compile(
+    r"\b(?:business\s+)?intelligence\s+report\s+on\s+"
+    r"(?P<name>[A-Z][A-Za-z0-9.&'\-]*(?:\s+[A-Z][A-Za-z0-9.&'\-]*){0,5})(?=$|[,.!;:]|\s+(?:and|with|using|for|from)\b)",
+)
+_RECOMMENDATION_COUNT = re.compile(
+    r"\b(?P<count>\d+|one|two|three|four|five|ten)\s+recommendations?\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_named_report_company(text: str) -> list[TargetEntity]:
+    """Extract a named-company report subject without treating it as a CRM request."""
+
+    match = _NAMED_REPORT_COMPANY.search(text)
+    if match is None:
+        return []
+    name = match.group("name").strip(" ,.;:")
+    if not name:
+        return []
+    return [
+        TargetEntity(
+            type="company",
+            name=name,
+            attributes={"research_mode": "named_company_report"},
+            provenance="explicit",
+            confidence=0.95,
+        )
+    ]
+
+
+def _extract_recommendation_count(text: str) -> int | None:
+    match = _RECOMMENDATION_COUNT.search(text)
+    if match is None:
+        return None
+    raw = match.group("count").lower()
+    value = int(raw) if raw.isdigit() else {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "ten": 10}.get(raw)
+    return value if value is not None and 1 <= value <= 50 else None
+
 
 def _segment_clauses(text: str, *, protected_spans: list[str] | None = None) -> list[str]:
     """Compatibility boundary for the canonical graph-visible clause segmenter."""
@@ -258,6 +296,10 @@ def interpret_instruction(
         # discovery unless the operator explicitly asks to research/find them.
         wants_research = False
     wants_research_report = _REPORT_SYNTHESIS_REQUEST.search(text) is not None and not business_income_review_requested
+    # A report request implies bounded research plus synthesis even when it
+    # does not use the legacy "research report" wording.
+    if wants_research_report:
+        wants_research = True
     # "Research companies in X from HubSpot" is market discovery using CRM as a source,
     # not a pure HubSpot record-read mission.
     if wants_research and hubspot_as_research_source and explicit_prospect_research:
@@ -292,6 +334,25 @@ def interpret_instruction(
                 normalized_value="public_web_only",
                 confidence=0.98,
                 rule_id="source_policy.public_web_only",
+            )
+        )
+    decision_support_requested = bool(
+        re.search(
+            r"\b(?:recommend\s+(?:a\s+)?next\s+action|recommend\s+the\s+next\s+action|"
+            r"next\s+best\s+action|recommendation\s+for\s+(?:the\s+)?next\s+action)\b",
+            lower,
+        )
+    )
+    if decision_support_requested and "decision_support_requested" not in context_requirements:
+        context_requirements.append("decision_support_requested")
+        evidence.append(
+            _evidence(
+                field_path="context_requirements.decision_support_requested",
+                source="explicit",
+                source_text=text[:240],
+                normalized_value="decision_support_requested",
+                confidence=0.95,
+                rule_id="decision_support.explicit_request",
             )
         )
     wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not no_crm
@@ -724,8 +785,26 @@ def interpret_instruction(
 
     count = _extract_count(text)
     qualification_count = _extract_qualification_count(text)
-    if count is not None:
-        quantity: int | None = count
+    recommendation_count = _extract_recommendation_count(text) if wants_research_report else None
+    prospect_count_explicit = bool(
+        re.search(r"\b(?:\d+|one|two|three|four|five|ten)\s+(?:prospects?|companies|leads)\b", lower)
+    )
+    quantity: int | None
+    if recommendation_count is not None and not prospect_count_explicit:
+        quantity = None
+        quantity_provenance = None
+        evidence.append(
+            _evidence(
+                field_path="recommendation_quantity",
+                source="explicit",
+                source_text=str(recommendation_count),
+                normalized_value=str(recommendation_count),
+                confidence=0.95,
+                rule_id="deliverable.recommendation_quantity",
+            )
+        )
+    elif count is not None:
+        quantity = count
         quantity_provenance = "explicit"
         evidence.append(
             _evidence(
@@ -755,6 +834,8 @@ def interpret_instruction(
         quantity_provenance = None
 
     entities = _extract_target_entities(text)
+    if not entities and wants_research_report:
+        entities = _extract_named_report_company(text)
     if not entities and wants_crm_read:
         entities = _extract_connector_company(text)
     # Multiple explicit market scopes are valid only when the instruction
@@ -1164,6 +1245,7 @@ def interpret_instruction(
         requested_quantity=quantity,
         quantity_provenance=quantity_provenance,  # type: ignore[arg-type]
         qualification_quantity=qualification_count,
+        recommendation_quantity=recommendation_count,
         send_policy=send_policy,
         target_entities=entities,
         constraints=constraints,

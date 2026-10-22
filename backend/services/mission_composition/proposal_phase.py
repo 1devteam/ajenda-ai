@@ -34,7 +34,11 @@ from backend.services.mission_composition.proposal_store import (
 )
 from backend.services.mission_composition.semantic_lattice.resolver import build_semantic_selection
 from backend.services.mission_composition.service_contracts import MissionCompositionError
-from backend.services.mission_composition.structured_planner import PlannerRequest, validate_planner_proposal
+from backend.services.mission_composition.structured_planner import (
+    PlannerRequest,
+    build_deterministic_planner_proposal,
+    validate_planner_proposal,
+)
 from backend.services.mission_composition.vertical_know_how import (
     select_vertical_know_how,
     validate_know_how_runtime_references,
@@ -108,23 +112,55 @@ class MissionCompositionProposalPhase:
         epistemic_context = build_epistemic_context(intent, coverage_assessment)
         tenant_semantic_overrides, tenant_override_conflicts = self._tenant_semantic_overrides(profile)
 
-        jobs = route_jobs_for_intent(intent)
+        # Resolve semantic facts before job routing. This frame is advisory and
+        # cannot select an ability, credential, or runtime path.
+        semantic_routing = build_semantic_selection(
+            instruction=raw_instruction,
+            requested_outcomes=intent.requested_outcomes,
+            selected_job_keys=(),
+            tenant_overrides=tenant_semantic_overrides,
+            tenant_override_conflicts=tenant_override_conflicts,
+            validate_job_bindings=False,
+        )
+        jobs = route_jobs_for_intent(intent, semantic_selection=semantic_routing)
         know_how = select_vertical_know_how(intent.requested_outcomes)
         if know_how is not None:
             validate_know_how_runtime_references(know_how)
         planner_proposal: dict[str, Any] | None = None
         planner_provenance: dict[str, Any] | None = None
-        if know_how is not None and self._planner_provider is not None:
-            material_clauses = tuple(
-                {
-                    "clause_id": clause.clause_id,
-                    "text": clause.text,
-                    "mapped_outcomes": list(clause.mapped_outcomes),
-                    "status": clause.status,
-                }
-                for clause in intent.interpreted_clauses
-                if clause.material
+        material_clauses = tuple(
+            {
+                "clause_id": clause.clause_id,
+                "text": clause.text,
+                "mapped_outcomes": list(clause.mapped_outcomes),
+                "status": clause.status,
+            }
+            for clause in intent.interpreted_clauses
+            if clause.material
+        )
+        if know_how is not None and jobs:
+            deterministic_proposal = build_deterministic_planner_proposal(
+                intent=intent,
+                jobs=jobs,
+                know_how=know_how,
             )
+            validate_planner_proposal(
+                deterministic_proposal,
+                know_how=know_how,
+                expected_material_clause_ids={str(item["clause_id"]) for item in material_clauses} or {"instruction"},
+                required_job_keys={job.job_key for job in jobs},
+                connected_integrations=connected_integrations,
+                validate_connection_readiness=False,
+            )
+            planner_proposal = deterministic_proposal.model_dump(mode="json")
+            planner_provenance = {
+                "status": "deterministic_validated",
+                "planner": "catalog_contract",
+                "instruction_sha256": hashlib.sha256(raw_instruction.encode("utf-8")).hexdigest(),
+                "semantic_routing": semantic_routing.model_dump(mode="json"),
+                "grants_execution_authority": False,
+            }
+        if know_how is not None and self._planner_provider is not None:
             request = PlannerRequest(
                 instruction=raw_instruction,
                 raw_instruction_sha256=hashlib.sha256(raw_instruction.encode("utf-8")).hexdigest(),

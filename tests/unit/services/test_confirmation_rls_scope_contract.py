@@ -30,6 +30,13 @@ def test_confirmation_reactivates_tenant_after_recompilation_before_quota_write(
     assert compose_lines[0] < activation_lines[0] < quota_lines[0]
 
 
+def test_confirmation_creates_a_revalidated_record_instead_of_reusing_reviewed_proposal_id() -> None:
+    source = inspect.getsource(MissionCompositionConfirmationPhase.confirm)
+    assert '"revalidated_from_proposal_id": client_proposal_id' in source
+    assert '"revision_reason": "confirmation_revalidation"' in source
+    assert 'model_copy(update={"proposal_id": client_proposal_id})' not in source
+
+
 def test_compile_reactivates_tenant_after_recomposition_before_plan_write() -> None:
     source = inspect.getsource(MissionCompositionCompilePhase.compile_for_mission)
     tree = ast.parse(textwrap.dedent(source))
@@ -52,3 +59,9 @@ def test_compile_reactivates_tenant_after_recomposition_before_plan_write() -> N
     assert len(activation_lines) == 1
     assert len(plan_write_lines) == 1
     assert compose_lines[0] < activation_lines[0] < plan_write_lines[0]
+
+
+def test_compile_retains_prior_composition_as_revalidation_lineage() -> None:
+    source = inspect.getsource(MissionCompositionCompilePhase.compile_for_mission)
+    assert '"revalidated_from_proposal_id": prior_proposal_id' in source
+    assert '"revision_reason": "compile_revalidation"' in source

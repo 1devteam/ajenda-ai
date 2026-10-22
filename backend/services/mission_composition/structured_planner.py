@@ -12,6 +12,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.services.mission_composition.contracts import BusinessJob, MissionIntent
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
 from backend.services.mission_composition.vertical_know_how import VerticalKnowHowContract
 
@@ -94,6 +95,63 @@ class PlannerResult:
     provider_request_id: str | None = None
 
 
+def build_deterministic_planner_proposal(
+    *,
+    intent: MissionIntent,
+    jobs: list[BusinessJob],
+    know_how: VerticalKnowHowContract,
+) -> StructuredPlannerProposal:
+    """Express the catalog plan in the same typed planner contract.
+
+    This is deliberately not a model fallback: the deterministic catalog has
+    already named the jobs. The common contract gives normal composition the
+    same dependency and budget validation as an optional provider proposal.
+    """
+
+    job_keys = {job.job_key for job in jobs}
+    clauses = tuple(clause.clause_id for clause in intent.interpreted_clauses if clause.material)
+    if not clauses:
+        # Interpretation readiness prevents this path in ordinary composition,
+        # but retain a bounded source-derived identifier for legacy records.
+        clauses = ("instruction",)
+    proposal_jobs = tuple(
+        PlannerJobProposal(
+            job_key=job.job_key,
+            depends_on=tuple(
+                dep.job_key for dep in job.dependencies if dep.job_key in job_keys and dep.kind != "optional"
+            )
+            or tuple(dep for dep in job.depends_on_jobs if dep in job_keys),
+            reason="deterministic catalog route from interpreted outcome and semantic routing frame",
+        )
+        for job in jobs
+    )
+    budget = know_how.budget or PlannerBudgetProposal(
+        max_steps=max(1, len(proposal_jobs)),
+        max_replans=0,
+        max_provider_calls=0,
+        max_model_tokens=0,
+        max_wall_seconds=900,
+        max_cost_usd=0,
+    )
+    return StructuredPlannerProposal(
+        objective=intent.objective,
+        know_how_id=know_how.know_how_id,
+        know_how_version=know_how.know_how_version,
+        material_clause_ids=clauses,
+        jobs=proposal_jobs,
+        success_criteria=tuple(item.description for item in intent.success_criteria) or ("evidence-backed outcome",),
+        review_points=tuple(job.job_key for job in jobs if job.approval_policy == "always_review"),
+        budget=PlannerBudgetProposal(
+            max_steps=max(1, len(proposal_jobs)),
+            max_replans=0,
+            max_provider_calls=budget.max_provider_calls,
+            max_model_tokens=budget.max_model_tokens,
+            max_wall_seconds=budget.max_wall_seconds,
+            max_cost_usd=budget.max_cost_usd,
+        ),
+    )
+
+
 @runtime_checkable
 class StructuredPlannerProvider(Protocol):
     def propose(self, request: PlannerRequest) -> PlannerResult: ...
@@ -165,6 +223,7 @@ def validate_planner_proposal(
     expected_material_clause_ids: set[str],
     required_job_keys: set[str] | None = None,
     connected_integrations: set[str] | None = None,
+    validate_connection_readiness: bool = True,
 ) -> None:
     """Fail closed over provider output; never select actions or mutate state."""
 
@@ -208,7 +267,7 @@ def validate_planner_proposal(
     connected = connected_integrations or set()
     for job_key in proposed_jobs:
         business_job = BUSINESS_JOBS_BY_KEY[job_key]
-        if business_job.credential_policy == "required":
+        if validate_connection_readiness and business_job.credential_policy == "required":
             required_connector = _required_connector(job_key)
             if required_connector and required_connector not in connected:
                 raise ValueError(f"planner job requires unavailable connection: {job_key}:{required_connector}")

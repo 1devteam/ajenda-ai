@@ -18,7 +18,7 @@ from backend.services.mission_composition.deliverable_contract import (
 from backend.services.mission_composition.semantic_vocabulary import SemanticSelection
 from backend.services.ontology.algorithms import AlgorithmResult, validate_composition_algorithm_results
 
-COMPOSITION_SCHEMA_VERSION = 8
+COMPOSITION_SCHEMA_VERSION = 9
 JOB_CATALOG_VERSION = "12"
 INTERPRETER_VERSION = "14"
 CAPABILITY_RESOLVER_VERSION = "11"
@@ -512,6 +512,11 @@ class MissionIntent(BaseModel):
     requested_quantity: int | None = Field(default=None, ge=1, le=100)
     quantity_provenance: ProvenanceSource | None = None
     qualification_quantity: int | None = Field(default=None, ge=1, le=100)
+    # A report can request a number of recommendations without requesting the
+    # same number of prospect records. Keep that ownership separate so a
+    # downstream research action never mistakes a report requirement for a
+    # discovery quantity.
+    recommendation_quantity: int | None = Field(default=None, ge=1, le=100)
     send_policy: SendPolicy = Field(default_factory=SendPolicy)
     contact_policy: StructuredPolicy = Field(default_factory=StructuredPolicy)
     publish_policy: StructuredPolicy = Field(default_factory=StructuredPolicy)
@@ -837,6 +842,12 @@ class MissionCompositionRecord(BaseModel):
 
     schema_version: int = Field(default=COMPOSITION_SCHEMA_VERSION, ge=1)
     proposal_id: str = Field(min_length=1, max_length=80)
+    # Revalidation creates a new immutable composition record. These fields
+    # make that lineage durable in the stored record JSON without granting the
+    # record any runtime authority.
+    reviewed_proposal_id: str | None = Field(default=None, min_length=1, max_length=80)
+    revalidated_from_proposal_id: str | None = Field(default=None, min_length=1, max_length=80)
+    revision_reason: str | None = Field(default=None, max_length=120)
     # Default preserves schema-v2 rows that predate thread scoping (migration 0036).
     interpretation_thread_id: str = Field(default="legacy-unscoped", min_length=1, max_length=80)
     proposal_status: ProposalStatus = "interpretation_ready"

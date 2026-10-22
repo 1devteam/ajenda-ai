@@ -95,7 +95,19 @@ class MissionCompositionCompilePhase:
                 message="mission has no objective/instruction to compile",
             )
 
+        prior_proposal_id = composition.get("proposal_id") if isinstance(composition.get("proposal_id"), str) else None
         record = self.compose(tenant_id=tenant_id, instruction=instruction_text)
+        if prior_proposal_id:
+            record = record.model_copy(
+                update={
+                    "reviewed_proposal_id": prior_proposal_id,
+                    "revalidated_from_proposal_id": prior_proposal_id,
+                    "revision_reason": "compile_revalidation",
+                }
+            )
+            from backend.services.mission_composition.proposal_store import put_proposal
+
+            put_proposal(tenant_id=tenant_id, record=record, db=self._db, actor_id=actor_id)
         # Composition persists its durable proposal and commits the current
         # transaction. Tenant context is applied with PostgreSQL SET LOCAL, so
         # it expires at that commit. Re-establish it before the tenant-owned
@@ -240,6 +252,9 @@ class MissionCompositionCompilePhase:
             )
             context["composition"] = {
                 "proposal_id": record.proposal_id,
+                "reviewed_proposal_id": record.reviewed_proposal_id,
+                "revalidated_from_proposal_id": record.revalidated_from_proposal_id,
+                "revision_reason": record.revision_reason,
                 "schema_version": record.schema_version,
                 "instruction": record.instruction,
                 "compiled_by": COMPILER_NAME,
@@ -293,7 +308,7 @@ class MissionCompositionCompilePhase:
                         )
                     ),
                     "research_report_required": "synthesize_research_report" in record.intent.requested_outcomes,
-                    "market_opportunities_min": 3
+                    "market_opportunities_min": record.intent.recommendation_quantity or 3
                     if "synthesize_research_report" in record.intent.requested_outcomes
                     else 0,
                     "business_review_required": "review_business_income" in record.intent.requested_outcomes,
