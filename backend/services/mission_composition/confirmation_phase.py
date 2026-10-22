@@ -129,11 +129,6 @@ class MissionCompositionConfirmationPhase:
             )
 
         record = self.compose(tenant_id=tenant_id, instruction=instruction)
-        # Composition persists its durable proposal using this session and can
-        # commit the request's previous transaction. PostgreSQL SET LOCAL tenant
-        # context is transaction-scoped, so re-establish it before the quota,
-        # mission, billing, graph, and evidence writes in this confirmation.
-        activate_tenant_session(self._db, str(tenant_id))
         if client_proposal_id:
             # Revalidation must not overwrite the reviewed proposal. Preserve
             # its immutable decision payload and attach the fresh server-side
@@ -146,6 +141,11 @@ class MissionCompositionConfirmationPhase:
                 }
             )
             put_proposal(tenant_id=tenant_id, record=record, db=self._db, actor_id=actor_id)
+
+        # Both composition and revision persistence may commit this session.
+        # PostgreSQL SET LOCAL tenant context expires on commit, so restore it
+        # after the final proposal write and before quota and mission writes.
+        activate_tenant_session(self._db, str(tenant_id))
 
         if not record.allowed_actions:
             raise MissionCompositionError(
