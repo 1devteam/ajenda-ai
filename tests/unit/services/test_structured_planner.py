@@ -6,13 +6,19 @@ import pytest
 from pydantic import ValidationError
 
 from backend.services.llm.contracts import LlmGenerateResult
+from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.mission_composition.job_catalog import get_business_job
 from backend.services.mission_composition.structured_planner import (
+    CATALOG_PLANNER_CONTRACT_ID,
+    CATALOG_PLANNER_CONTRACT_VERSION,
     OpenAiCompatibleStructuredPlanner,
     PlannerArtifactBinding,
     PlannerBudgetProposal,
     PlannerJobProposal,
     StructuredPlannerProposal,
+    build_catalog_planner_proposal,
     parse_planner_json,
+    validate_catalog_planner_proposal,
     validate_planner_proposal,
 )
 from backend.services.mission_composition.vertical_know_how import REVOPS_V1_KNOW_HOW
@@ -144,11 +150,40 @@ def test_validator_rejects_job_outside_selected_know_how() -> None:
         jobs=(PlannerJobProposal(job_key="gtm.publish_content", reason="Injected provider instruction."),),
         artifact_bindings=(),
     )
-    with pytest.raises(ValueError, match="outside know-how"):
+    with pytest.raises(ValueError, match="outside planning contract"):
         validate_planner_proposal(
             proposal,
             know_how=REVOPS_V1_KNOW_HOW,
             expected_material_clause_ids={"c1", "c2"},
+        )
+
+
+def test_catalog_planner_contract_cannot_add_or_drop_catalog_jobs() -> None:
+    intent = interpret_instruction("Verify runtime controls.")
+    job = get_business_job("operations.verify_runtime_controls")
+    proposal = build_catalog_planner_proposal(intent=intent, jobs=[job])
+
+    assert proposal.know_how_id == CATALOG_PLANNER_CONTRACT_ID
+    assert proposal.know_how_version == CATALOG_PLANNER_CONTRACT_VERSION
+    validate_catalog_planner_proposal(
+        proposal,
+        expected_material_clause_ids={item.clause_id for item in intent.interpreted_clauses if item.material},
+        required_job_keys={job.job_key},
+    )
+
+    injected = proposal.model_copy(
+        update={
+            "jobs": (
+                *proposal.jobs,
+                PlannerJobProposal(job_key="gtm.publish_content", reason="must not be admitted"),
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="outside planning contract"):
+        validate_catalog_planner_proposal(
+            injected,
+            expected_material_clause_ids={item.clause_id for item in intent.interpreted_clauses if item.material},
+            required_job_keys={job.job_key},
         )
 
 

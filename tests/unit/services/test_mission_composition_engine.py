@@ -100,6 +100,14 @@ def test_composition_records_semantic_and_source_eligibility_at_decision_time(mo
     assert set(source.rejected_paths) == {"tenant_record_store", "crm_adapter"}
     assert source.constraints == ("public_only",)
     assert by_stage["semantic_resolution"].source_provenance
+    assert by_stage["semantic_resolution"].safe_metadata["semantic_routing_id"]
+    assert (
+        by_stage["semantic_resolution"].safe_metadata["semantic_routing_id"]
+        == by_stage["planner_selection"].safe_metadata["semantic_routing_id"]
+    )
+    assert (
+        by_stage["planner_selection"].field_lineage["semantic_routing.bindings"] == "planner_selection.job_assignments"
+    )
 
 
 def test_business_income_review_compiles_profile_dependency_and_report() -> None:
@@ -299,6 +307,63 @@ def test_named_business_intelligence_report_preserves_subject_and_recommendation
     ]
 
 
+@pytest.mark.parametrize(
+    ("instruction", "company", "recommendation_quantity"),
+    [
+        (
+            "Prepare a business intelligence report on Acme, Inc. with three recommendations and source URLs. "
+            "Use public web research only.",
+            "Acme, Inc.",
+            3,
+        ),
+        (
+            "Prepare a business intelligence report on acme labs with six strategic recommendations and source URLs. "
+            "Use public web research only.",
+            "acme labs",
+            6,
+        ),
+    ],
+)
+def test_report_subject_and_recommendation_quantity_handle_legal_names_and_modifiers(
+    instruction: str,
+    company: str,
+    recommendation_quantity: int,
+) -> None:
+    intent = interpret_instruction(instruction)
+
+    assert intent.requested_quantity is None
+    assert intent.recommendation_quantity == recommendation_quantity
+    assert [(entity.type, entity.name) for entity in intent.target_entities] == [("company", company)]
+
+
+def test_unscoped_decision_support_is_blocked_before_runtime_binding() -> None:
+    intent = interpret_instruction("Use public web research only and recommend the next action.")
+
+    assert "decision_support_requested" in intent.context_requirements
+    assert not intent.interpretation_ready
+    assert any(item.field == "decision_scope" for item in intent.ambiguity)
+
+
+def test_unscoped_research_report_is_blocked_before_synthesis() -> None:
+    intent = interpret_instruction(
+        "Prepare a business intelligence report with three recommendations from public research."
+    )
+
+    assert "synthesize_research_report" in intent.requested_outcomes
+    assert not intent.interpretation_ready
+    assert any(item.field == "report_subject" for item in intent.ambiguity)
+
+
+def test_explicit_profile_decision_support_does_not_raise_scope_gap() -> None:
+    intent = interpret_instruction(
+        "Use the approved business profile and recommend the next action.",
+        profile_context={"profile_id": "profile-1", "business_name": "Ajenda AI"},
+    )
+
+    assert "decision_support_requested" in intent.context_requirements
+    assert not any(item.field == "decision_scope" for item in intent.ambiguity)
+
+
 def test_normal_catalog_plan_is_validated_through_structured_contract() -> None:
     record = MissionCompositionService(db=None).compose(
         tenant_id="tenant-v2",
@@ -317,6 +382,21 @@ def test_normal_catalog_plan_is_validated_through_structured_contract() -> None:
         "research.discover_prospects",
         "research.verify_public_candidates",
     }
+
+
+def test_non_vertical_catalog_plan_is_validated_through_catalog_contract() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-v2",
+        instruction="Verify runtime controls.",
+    )
+
+    assert record.ready_to_start
+    assert record.planner_provenance is not None
+    assert record.planner_provenance["status"] == "deterministic_catalog_validated"
+    assert record.planner_provenance["planner"] == "catalog_baseline_contract"
+    assert record.planner_proposal is not None
+    assert record.planner_proposal["know_how_id"] == "mission-composition.catalog"
+    assert [job["job_key"] for job in record.planner_proposal["jobs"]] == ["operations.verify_runtime_controls"]
 
 
 def test_existing_learning_jobs_require_an_explicit_next_action_request() -> None:
@@ -352,6 +432,32 @@ def test_revalidation_lineage_keeps_the_reviewed_composition_payload_intact() ->
     assert preserved.revalidated_from_proposal_id is None
     assert successor.revalidated_from_proposal_id == reviewed.proposal_id
     assert successor.proposal_id != preserved.proposal_id
+
+
+def test_failed_durable_proposal_write_does_not_leave_a_cache_only_revision(monkeypatch) -> None:
+    from backend.repositories.mission_composition_proposal_repository import MissionCompositionProposalRepository
+
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-v2",
+        instruction="Research three SaaS companies in Austin using public web research only.",
+    )
+    clear_proposals_for_tests()
+
+    class FailingSession:
+        rolled_back = False
+
+        def rollback(self) -> None:
+            self.rolled_back = True
+
+    def fail_upsert(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("persistence unavailable")
+
+    monkeypatch.setattr(MissionCompositionProposalRepository, "upsert", fail_upsert)
+    db = FailingSession()
+
+    assert not put_proposal(tenant_id="tenant-v2", record=record, db=db, require_durable=True)
+    assert db.rolled_back
+    assert get_proposal(tenant_id="tenant-v2", proposal_id=record.proposal_id, db=None) is None
 
 
 def test_interpreter_routes_governed_ajenda_profile_brief_to_internal_memory_only() -> None:

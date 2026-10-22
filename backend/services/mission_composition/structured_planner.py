@@ -17,6 +17,8 @@ from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KE
 from backend.services.mission_composition.vertical_know_how import VerticalKnowHowContract
 
 PLANNER_PROPOSAL_SCHEMA_VERSION = 1
+CATALOG_PLANNER_CONTRACT_ID = "mission-composition.catalog"
+CATALOG_PLANNER_CONTRACT_VERSION = "1.0.0"
 
 
 class PlannerBudgetProposal(BaseModel):
@@ -152,6 +154,51 @@ def build_deterministic_planner_proposal(
     )
 
 
+def build_catalog_planner_proposal(
+    *,
+    intent: MissionIntent,
+    jobs: list[BusinessJob],
+) -> StructuredPlannerProposal:
+    """Express a non-vertical catalog plan through the typed planner contract.
+
+    This is a deterministic validation boundary, not a fallback planner and
+    not a new execution authority.  It prevents ordinary catalog paths from
+    bypassing the same dependency, material-clause, and review-point checks
+    used by a vertical know-how plan.
+    """
+
+    job_keys = {job.job_key for job in jobs}
+    clauses = tuple(clause.clause_id for clause in intent.interpreted_clauses if clause.material) or ("instruction",)
+    proposal_jobs = tuple(
+        PlannerJobProposal(
+            job_key=job.job_key,
+            depends_on=tuple(
+                dep.job_key for dep in job.dependencies if dep.job_key in job_keys and dep.kind != "optional"
+            )
+            or tuple(dep for dep in job.depends_on_jobs if dep in job_keys),
+            reason="deterministic catalog route from interpreted outcome and semantic routing frame",
+        )
+        for job in jobs
+    )
+    return StructuredPlannerProposal(
+        objective=intent.objective,
+        know_how_id=CATALOG_PLANNER_CONTRACT_ID,
+        know_how_version=CATALOG_PLANNER_CONTRACT_VERSION,
+        material_clause_ids=clauses,
+        jobs=proposal_jobs,
+        success_criteria=tuple(item.description for item in intent.success_criteria) or ("evidence-backed outcome",),
+        review_points=tuple(job.job_key for job in jobs if job.approval_policy == "always_review"),
+        budget=PlannerBudgetProposal(
+            max_steps=max(1, len(proposal_jobs)),
+            max_replans=0,
+            max_provider_calls=0,
+            max_model_tokens=0,
+            max_wall_seconds=900,
+            max_cost_usd=0,
+        ),
+    )
+
+
 @runtime_checkable
 class StructuredPlannerProvider(Protocol):
     def propose(self, request: PlannerRequest) -> PlannerResult: ...
@@ -232,17 +279,73 @@ def validate_planner_proposal(
         know_how.know_how_version,
     ):
         raise ValueError("planner proposal know-how version mismatch")
+    _validate_planner_shape(
+        proposal,
+        allowed_job_keys={job_key for stage in know_how.stages for job_key in stage.job_keys},
+        expected_material_clause_ids=expected_material_clause_ids,
+        required_job_keys=required_job_keys,
+        connected_integrations=connected_integrations,
+        validate_connection_readiness=validate_connection_readiness,
+    )
+
+    if know_how.budget is not None:
+        budget = proposal.budget
+        if budget.max_provider_calls > know_how.budget.max_provider_calls:
+            raise ValueError("planner provider-call budget exceeds know-how budget")
+        if budget.max_model_tokens > know_how.budget.max_model_tokens:
+            raise ValueError("planner token budget exceeds know-how budget")
+        if budget.max_wall_seconds > know_how.budget.max_wall_seconds:
+            raise ValueError("planner wall-time budget exceeds know-how budget")
+        if budget.max_cost_usd > know_how.budget.max_cost_usd:
+            raise ValueError("planner cost budget exceeds know-how budget")
+
+
+def validate_catalog_planner_proposal(
+    proposal: StructuredPlannerProposal,
+    *,
+    expected_material_clause_ids: set[str],
+    required_job_keys: set[str],
+    connected_integrations: set[str] | None = None,
+    validate_connection_readiness: bool = True,
+) -> None:
+    """Validate the deterministic catalog contract without borrowing a vertical."""
+
+    if (proposal.know_how_id, proposal.know_how_version) != (
+        CATALOG_PLANNER_CONTRACT_ID,
+        CATALOG_PLANNER_CONTRACT_VERSION,
+    ):
+        raise ValueError("catalog planner contract version mismatch")
+    _validate_planner_shape(
+        proposal,
+        allowed_job_keys=required_job_keys,
+        expected_material_clause_ids=expected_material_clause_ids,
+        required_job_keys=required_job_keys,
+        connected_integrations=connected_integrations,
+        validate_connection_readiness=validate_connection_readiness,
+    )
+
+
+def _validate_planner_shape(
+    proposal: StructuredPlannerProposal,
+    *,
+    allowed_job_keys: set[str],
+    expected_material_clause_ids: set[str],
+    required_job_keys: set[str] | None,
+    connected_integrations: set[str] | None,
+    validate_connection_readiness: bool,
+) -> None:
+    """Validate the typed, non-authoritative plan shape shared by all planners."""
+
     proposed_clause_ids = set(proposal.material_clause_ids)
     if proposed_clause_ids != expected_material_clause_ids:
         missing = expected_material_clause_ids - proposed_clause_ids
         extra = proposed_clause_ids - expected_material_clause_ids
         raise ValueError(f"planner material-clause coverage mismatch: missing={sorted(missing)} extra={sorted(extra)}")
 
-    allowed_jobs = {job_key for stage in know_how.stages for job_key in stage.job_keys}
     proposed_jobs = {job.job_key for job in proposal.jobs}
-    unknown = proposed_jobs - allowed_jobs
+    unknown = proposed_jobs - allowed_job_keys
     if unknown:
-        raise ValueError(f"planner proposal references jobs outside know-how: {sorted(unknown)}")
+        raise ValueError(f"planner proposal references jobs outside planning contract: {sorted(unknown)}")
     missing_required_jobs = (required_job_keys or set()) - proposed_jobs
     if missing_required_jobs:
         raise ValueError(f"planner proposal dropped deterministically required jobs: {sorted(missing_required_jobs)}")
@@ -273,17 +376,6 @@ def validate_planner_proposal(
                 raise ValueError(f"planner job requires unavailable connection: {job_key}:{required_connector}")
         if business_job.approval_policy == "always_review" and job_key not in proposal.review_points:
             raise ValueError(f"planner external-effect job lacks review point: {job_key}")
-
-    if know_how.budget is not None:
-        budget = proposal.budget
-        if budget.max_provider_calls > know_how.budget.max_provider_calls:
-            raise ValueError("planner provider-call budget exceeds know-how budget")
-        if budget.max_model_tokens > know_how.budget.max_model_tokens:
-            raise ValueError("planner token budget exceeds know-how budget")
-        if budget.max_wall_seconds > know_how.budget.max_wall_seconds:
-            raise ValueError("planner wall-time budget exceeds know-how budget")
-        if budget.max_cost_usd > know_how.budget.max_cost_usd:
-            raise ValueError("planner cost budget exceeds know-how budget")
 
 
 def _assert_job_graph_acyclic(jobs: tuple[PlannerJobProposal, ...]) -> None:

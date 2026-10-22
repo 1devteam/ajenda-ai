@@ -288,7 +288,12 @@ REVOPS_V2_KNOW_HOW = VerticalKnowHowContract(
         KnowHowStage(
             stage_key="business_review",
             job_keys=("business.review_income",),
-            depends_on=("crm_context",),
+            depends_on=("business_profile_context",),
+            optional=True,
+        ),
+        KnowHowStage(
+            stage_key="business_profile_context",
+            job_keys=("intelligence.retrieve_business_profile",),
             optional=True,
         ),
         KnowHowStage(

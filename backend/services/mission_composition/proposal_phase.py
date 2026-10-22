@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import uuid
 from typing import Any, cast
@@ -36,7 +37,9 @@ from backend.services.mission_composition.semantic_lattice.resolver import build
 from backend.services.mission_composition.service_contracts import MissionCompositionError
 from backend.services.mission_composition.structured_planner import (
     PlannerRequest,
+    build_catalog_planner_proposal,
     build_deterministic_planner_proposal,
+    validate_catalog_planner_proposal,
     validate_planner_proposal,
 )
 from backend.services.mission_composition.vertical_know_how import (
@@ -138,24 +141,40 @@ class MissionCompositionProposalPhase:
             for clause in intent.interpreted_clauses
             if clause.material
         )
-        if know_how is not None and jobs:
-            deterministic_proposal = build_deterministic_planner_proposal(
-                intent=intent,
-                jobs=jobs,
-                know_how=know_how,
-            )
-            validate_planner_proposal(
-                deterministic_proposal,
-                know_how=know_how,
-                expected_material_clause_ids={str(item["clause_id"]) for item in material_clauses} or {"instruction"},
-                required_job_keys={job.job_key for job in jobs},
-                connected_integrations=connected_integrations,
-                validate_connection_readiness=False,
-            )
+        if jobs:
+            expected_material_clause_ids = {str(item["clause_id"]) for item in material_clauses} or {"instruction"}
+            required_job_keys = {job.job_key for job in jobs}
+            if know_how is not None:
+                deterministic_proposal = build_deterministic_planner_proposal(
+                    intent=intent,
+                    jobs=jobs,
+                    know_how=know_how,
+                )
+                validate_planner_proposal(
+                    deterministic_proposal,
+                    know_how=know_how,
+                    expected_material_clause_ids=expected_material_clause_ids,
+                    required_job_keys=required_job_keys,
+                    connected_integrations=connected_integrations,
+                    validate_connection_readiness=False,
+                )
+                planner_status = "deterministic_validated"
+                planner_name = "catalog_contract"
+            else:
+                deterministic_proposal = build_catalog_planner_proposal(intent=intent, jobs=jobs)
+                validate_catalog_planner_proposal(
+                    deterministic_proposal,
+                    expected_material_clause_ids=expected_material_clause_ids,
+                    required_job_keys=required_job_keys,
+                    connected_integrations=connected_integrations,
+                    validate_connection_readiness=False,
+                )
+                planner_status = "deterministic_catalog_validated"
+                planner_name = "catalog_baseline_contract"
             planner_proposal = deterministic_proposal.model_dump(mode="json")
             planner_provenance = {
-                "status": "deterministic_validated",
-                "planner": "catalog_contract",
+                "status": planner_status,
+                "planner": planner_name,
                 "instruction_sha256": hashlib.sha256(raw_instruction.encode("utf-8")).hexdigest(),
                 "semantic_routing": semantic_routing.model_dump(mode="json"),
                 "grants_execution_authority": False,
@@ -373,6 +392,15 @@ class MissionCompositionProposalPhase:
         ledger = RuntimeEvidenceLedger(db, flush=False)
         correlation_id = record.proposal_id
         semantic_selection = record.composition_provenance.semantic_selection
+        semantic_routing = (planner_provenance or {}).get("semantic_routing")
+        semantic_routing_id = None
+        if isinstance(semantic_routing, dict):
+            semantic_routing_id = (
+                "sha256:"
+                + hashlib.sha256(
+                    json.dumps(semantic_routing, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+                ).hexdigest()
+            )
         capability_alternatives = tuple(
             alternative.action for selection in record.ability_selections for alternative in selection.alternatives
         )
@@ -404,6 +432,7 @@ class MissionCompositionProposalPhase:
                     "transformation_id": f"interpreter:{record.intent.interpreter_version}",
                     "selected_path": "regex_and_semantic_interpretation",
                     "safe_metadata": {
+                        "semantic_routing_id": semantic_routing_id,
                         "interpreter_version": record.intent.interpreter_version,
                         "interpreted_clause_count": len(record.intent.interpreted_clauses),
                         "requested_outcome_count": len(record.intent.requested_outcomes),
@@ -435,6 +464,7 @@ class MissionCompositionProposalPhase:
                         "intent.instruction": "semantic_selection.matched_terms",
                     },
                     "safe_metadata": {
+                        "semantic_routing_id": semantic_routing_id,
                         "semantic_schema_version": semantic_selection.schema_version
                         if semantic_selection is not None
                         else None,
@@ -454,7 +484,11 @@ class MissionCompositionProposalPhase:
                 {
                     "transformation_id": "mission-composition:jobs:v1",
                     "selected_path": "|".join(job.job_key for job in record.job_assignments),
+                    "field_lineage": {
+                        "semantic_routing.bindings": "planner_selection.job_assignments",
+                    },
                     "safe_metadata": {
+                        "semantic_routing_id": semantic_routing_id,
                         "planner_status": str((planner_provenance or {}).get("status") or "catalog"),
                         "job_count": len(record.job_assignments),
                         "planned_step_count": len(record.planned_steps),

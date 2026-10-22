@@ -82,12 +82,31 @@ from backend.services.mission_composition.interpretation.rule_engine import (
 
 _NAMED_REPORT_COMPANY = re.compile(
     r"\b(?:business\s+)?intelligence\s+report\s+on\s+"
-    r"(?P<name>[A-Z][A-Za-z0-9.&'\-]*(?:\s+[A-Z][A-Za-z0-9.&'\-]*){0,5})(?=$|[,.!;:]|\s+(?:and|with|using|for|from)\b)",
-)
-_RECOMMENDATION_COUNT = re.compile(
-    r"\b(?P<count>\d+|one|two|three|four|five|ten)\s+recommendations?\b",
+    r"(?P<name>"
+    r"(?!(?:and|with|using|for|from|to)\b)[A-Za-z0-9][A-Za-z0-9.&'\-]*"
+    r"(?:\s+(?!(?:and|with|using|for|from|to)\b)[A-Za-z0-9][A-Za-z0-9.&'\-]*){0,5}"
+    r"(?:,\s*(?:inc(?:orporated)?\.?|llc|ltd|limited|corp(?:oration)?\.?|co\.?))?"
+    r")(?=$|[.!;:]|\s+(?:and|with|using|for|from|to)\b)",
     re.IGNORECASE,
 )
+_RECOMMENDATION_COUNT = re.compile(
+    r"\b(?P<count>\d+|one|two|three|four|five|six|seven|eight|nine|ten)"
+    r"(?:\s+(?:strategic|prioritized|actionable|evidence[-\s]backed)){0,3}\s+recommendations?\b",
+    re.IGNORECASE,
+)
+
+_REPORT_COUNT_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
 
 
 def _extract_named_report_company(text: str) -> list[TargetEntity]:
@@ -96,7 +115,9 @@ def _extract_named_report_company(text: str) -> list[TargetEntity]:
     match = _NAMED_REPORT_COMPANY.search(text)
     if match is None:
         return []
-    name = match.group("name").strip(" ,.;:")
+    name = match.group("name").strip(" ,;:")
+    if name.endswith(".") and not re.search(r"\b(?:inc|corp|co)\.$", name, re.IGNORECASE):
+        name = name[:-1]
     if not name:
         return []
     return [
@@ -115,7 +136,7 @@ def _extract_recommendation_count(text: str) -> int | None:
     if match is None:
         return None
     raw = match.group("count").lower()
-    value = int(raw) if raw.isdigit() else {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "ten": 10}.get(raw)
+    value = int(raw) if raw.isdigit() else _REPORT_COUNT_WORDS.get(raw)
     return value if value is not None and 1 <= value <= 50 else None
 
 
@@ -787,7 +808,10 @@ def interpret_instruction(
     qualification_count = _extract_qualification_count(text)
     recommendation_count = _extract_recommendation_count(text) if wants_research_report else None
     prospect_count_explicit = bool(
-        re.search(r"\b(?:\d+|one|two|three|four|five|ten)\s+(?:prospects?|companies|leads)\b", lower)
+        re.search(
+            r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:prospects?|companies|leads)\b",
+            lower,
+        )
     )
     quantity: int | None
     if recommendation_count is not None and not prospect_count_explicit:
@@ -1163,6 +1187,42 @@ def interpret_instruction(
                     reason="Prospect discovery requires a usable target scope.",
                 )
             )
+
+    # A research report is not a generic prospect request.  It must identify
+    # the company, market, comparison set, or another bounded research subject
+    # before its report-synthesis contract can be considered executable.
+    if wants_research_report and not entities:
+        clarifications.append(
+            _restatement(
+                field="report_subject",
+                understood=understood,
+                missing="the research report has no named company, market, competitor set, or other bounded subject",
+                include_instruction="the company or market the report should cover, including location when relevant",
+                reason="Research-report synthesis requires a bounded evidence subject.",
+            )
+        )
+
+    # Decision support may consume research, but the requested recommendation
+    # must still be anchored to a market/entity or an explicitly referenced
+    # approved business profile.  Without that binding, composition would
+    # misleadingly accept a generic research mission and fail only at input
+    # binding or provider dispatch.
+    profile_subject_requested = bool(profile_context.get("profile_id")) and (
+        uses_business_profile or bool(re.search(r"\b(?:my|our|the)\s+(?:business|company|team|pipeline)\b", lower))
+    )
+    if decision_support_requested and not entities and not profile_subject_requested:
+        clarifications.append(
+            _restatement(
+                field="decision_scope",
+                understood=understood,
+                missing="the decision recommendation has no named subject, market, or approved business-profile reference",
+                include_instruction=(
+                    "a named company, a market such as industry and region, or an explicit request to use "
+                    "your approved business profile"
+                ),
+                reason="Decision support requires a bounded evidence subject before research can be planned.",
+            )
+        )
 
     approval = "review_before_external_action"
     if send_policy.mode == "allow":

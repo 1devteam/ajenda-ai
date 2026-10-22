@@ -140,7 +140,17 @@ class MissionCompositionConfirmationPhase:
                     "revision_reason": "confirmation_revalidation",
                 }
             )
-            put_proposal(tenant_id=tenant_id, record=record, db=self._db, actor_id=actor_id)
+            if not put_proposal(
+                tenant_id=tenant_id,
+                record=record,
+                db=self._db,
+                actor_id=actor_id,
+                require_durable=True,
+            ):
+                raise MissionCompositionError(
+                    code="REVALIDATED_PROPOSAL_PERSIST_FAILED",
+                    message="confirmation requires durable revalidation lineage before mission persistence",
+                )
 
         # Both composition and revision persistence may commit this session.
         # PostgreSQL SET LOCAL tenant context expires on commit, so restore it

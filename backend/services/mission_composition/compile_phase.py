@@ -107,7 +107,17 @@ class MissionCompositionCompilePhase:
             )
             from backend.services.mission_composition.proposal_store import put_proposal
 
-            put_proposal(tenant_id=tenant_id, record=record, db=self._db, actor_id=actor_id)
+            if not put_proposal(
+                tenant_id=tenant_id,
+                record=record,
+                db=self._db,
+                actor_id=actor_id,
+                require_durable=True,
+            ):
+                raise MissionCompositionError(
+                    code="REVALIDATED_PROPOSAL_PERSIST_FAILED",
+                    message="compile requires durable revalidation lineage before graph persistence",
+                )
         # Composition persists its durable proposal and commits the current
         # transaction. Tenant context is applied with PostgreSQL SET LOCAL, so
         # it expires at that commit. Re-establish it before the tenant-owned

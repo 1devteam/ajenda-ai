@@ -18,6 +18,13 @@ _LOCK = threading.Lock()
 _PROPOSALS: dict[str, dict[str, Any]] = {}
 
 
+def _cache_proposal(*, proposal_id: str, payload: dict[str, Any]) -> None:
+    """Expose only records that are usable under this store's durability contract."""
+
+    with _LOCK:
+        _PROPOSALS[proposal_id] = payload
+
+
 def put_proposal(
     *,
     tenant_id: str,
@@ -36,17 +43,20 @@ def put_proposal(
         "tenant_id": tenant_id,
         "record": record_json,
     }
-    with _LOCK:
-        _PROPOSALS[record.proposal_id] = payload
-
     if db is None:
-        return not require_durable
+        if require_durable:
+            return False
+        _cache_proposal(proposal_id=record.proposal_id, payload=payload)
+        return True
     try:
         from backend.repositories.mission_composition_proposal_repository import (
             MissionCompositionProposalRepository,
         )
     except Exception:
-        return not require_durable
+        if require_durable:
+            return False
+        _cache_proposal(proposal_id=record.proposal_id, payload=payload)
+        return True
 
     intent = record.intent
     restatement = None
@@ -94,6 +104,7 @@ def put_proposal(
             status=status,
         )
         db.commit()
+        _cache_proposal(proposal_id=record.proposal_id, payload=payload)
         return True
     except Exception:
         try:

@@ -45,6 +45,13 @@ def test_revops_v2_is_linked_to_frozen_graft1st_contract_and_report() -> None:
     assert any(field.field_key == "research_report" for field in REVOPS_V2_KNOW_HOW.deliverable_fields)
 
 
+def test_revops_v2_business_review_has_its_declared_profile_context() -> None:
+    stages = {stage.stage_key: stage for stage in REVOPS_V2_KNOW_HOW.stages}
+
+    assert stages["business_profile_context"].job_keys == ("intelligence.retrieve_business_profile",)
+    assert "business_profile_context" in stages["business_review"].depends_on
+
+
 def test_revops_know_how_fails_closed_when_runtime_action_is_unavailable() -> None:
     registry = ActionRegistry()
     registry.freeze()
