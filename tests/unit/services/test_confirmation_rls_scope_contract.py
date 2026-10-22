@@ -24,9 +24,7 @@ def test_confirmation_reactivates_tenant_after_recompilation_before_quota_write(
         and ast.unparse(node.args[1]) == "str(tenant_id)"
     ]
     quota_lines = [line for line, func, _ in calls if func == "quota.check_and_record_mission_creation"]
-    proposal_write_lines = [
-        line for line, func, _ in calls if func == "put_proposal" and line < min(quota_lines)
-    ]
+    proposal_write_lines = [line for line, func, _ in calls if func == "put_proposal" and line < min(quota_lines)]
     assert len(compose_lines) == 1
     assert len(activation_lines) == 1
     assert len(quota_lines) == 1
