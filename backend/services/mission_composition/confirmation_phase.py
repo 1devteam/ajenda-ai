@@ -498,6 +498,10 @@ class MissionCompositionConfirmationPhase:
                     "ready_to_start": True,
                 }
             )
+            # Receipt persistence commits the mission/plan transaction.  Make
+            # the tenant context explicit at every commit-capable proposal
+            # boundary rather than relying on a prior SET LOCAL.
+            activate_tenant_session(self._db, str(tenant_id))
             persisted = put_proposal(
                 tenant_id=tenant_id,
                 record=stored,
@@ -522,6 +526,7 @@ class MissionCompositionConfirmationPhase:
                         "proposal_status": "confirmed",
                     }
                 )
+                activate_tenant_session(self._db, str(tenant_id))
                 if not put_proposal(
                     tenant_id=tenant_id,
                     record=reviewed_receipt,
@@ -533,6 +538,9 @@ class MissionCompositionConfirmationPhase:
                         code="CONFIRM_RECEIPT_PERSIST_FAILED",
                         message="confirmation receipt could not be durably attached to the reviewed proposal",
                     )
+            # The final receipt write commits as well.  Restore RLS before
+            # adding the confirmation evidence to the caller-owned transaction.
+            activate_tenant_session(self._db, str(tenant_id))
         RuntimeEvidenceLedger(self._db, flush=False).append_fact(
             tenant_id=str(tenant_id),
             mission_id=mission.id,
