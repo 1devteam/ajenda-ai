@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
-from backend.domain.business_understanding import BusinessNeedRevision, BusinessObservation
+from backend.domain.business_understanding import BusinessMeasurement, BusinessNeedRevision, BusinessObservation, utcnow
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
 from backend.repositories.evidence_repository import EvidenceRepository
@@ -109,6 +109,71 @@ class BusinessUnderstandingService:
                 corrects_observation_id=corrects_observation_id,
             )
         )
+
+    def ingest_measurement(
+        self,
+        *,
+        tenant_id: str,
+        goal: Goal,
+        kpis: list[Kpi],
+        subject_references: list[dict[str, Any]],
+        source_kind: Literal["customer_attested", "source_verified"],
+        source_reference: dict[str, Any],
+        source_version: str,
+        measurement_period_start: datetime | None,
+        measurement_period_end: datetime | None,
+        observed_at: datetime,
+        limitations: list[dict[str, Any]],
+        confidence: float | None,
+        producer: str,
+    ) -> tuple[BusinessMeasurement, BusinessNeedRevision | None]:
+        """Persist an attributed measurement and feed existing recognition."""
+        payload = {
+            "goal_id": goal.goal_id,
+            "objective_key": goal.objective_key,
+            "subjects": subject_references,
+            "source": source_reference,
+            "source_version": source_version,
+            "period_start": measurement_period_start.isoformat() if measurement_period_start else None,
+            "period_end": measurement_period_end.isoformat() if measurement_period_end else None,
+            "observed_at": observed_at.isoformat(),
+            "kpis": [k.model_dump(mode="json") for k in sorted(kpis, key=lambda item: item.kpi_id)],
+        }
+        fingerprint = self.source_fingerprint(payload)
+        measurement = self._repository.get_measurement_by_fingerprint_for_tenant(
+            tenant_id=tenant_id, fingerprint=fingerprint
+        )
+        if measurement is None:
+            measurement = self._repository.add_measurement(
+                BusinessMeasurement(
+                    tenant_id=tenant_id,
+                    subject_references=subject_references,
+                    objective_key=goal.objective_key or goal.goal_id,
+                    metric=", ".join(sorted(k.metric for k in kpis)),
+                    values=[k.model_dump(mode="json") for k in kpis],
+                    value=None,
+                    unit="",
+                    period_start=measurement_period_start,
+                    period_end=measurement_period_end,
+                    observed_at=observed_at,
+                    captured_at=utcnow(),
+                    source_kind=source_kind,
+                    source_reference=source_reference,
+                    source_version=source_version,
+                    source_content_fingerprint=fingerprint,
+                    limitations=[*limitations, {"code": f"provenance:{source_kind}"}],
+                    confidence=confidence,
+                )
+            )
+        need = self.recognize_goal_gap(
+            tenant_id=tenant_id,
+            goal=goal,
+            kpis=kpis,
+            source=SourceReference(source_kind="external_provider", reference={"source_id": str(measurement.id)}),
+            observed_at=observed_at,
+            producer=producer,
+        )
+        return measurement, need
 
     def recognize_goal_gap(
         self,

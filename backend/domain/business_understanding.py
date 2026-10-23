@@ -59,6 +59,31 @@ class BusinessObservation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
+class BusinessMeasurement(Base):
+    """Immutable source-owned operating measurement; not an inferred outcome."""
+
+    __tablename__ = "business_measurements"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    subject_references: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    objective_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    metric: Mapped[str] = mapped_column(String(160), nullable=False)
+    values: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    value: Mapped[float | None] = mapped_column(nullable=True)
+    unit: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    source_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_reference: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    source_version: Mapped[str] = mapped_column(String(160), nullable=False)
+    source_content_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    limitations: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    confidence: Mapped[float | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
 class BusinessNeedRevision(Base):
     """Immutable revision of a business need hypothesis.
 

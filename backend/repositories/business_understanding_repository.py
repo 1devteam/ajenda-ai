@@ -9,7 +9,12 @@ from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from backend.domain.business_understanding import BusinessNeedAssessment, BusinessNeedRevision, BusinessObservation
+from backend.domain.business_understanding import (
+    BusinessMeasurement,
+    BusinessNeedAssessment,
+    BusinessNeedRevision,
+    BusinessObservation,
+)
 
 
 class BusinessNeedRevisionConflict(RuntimeError):
@@ -32,6 +37,22 @@ class BusinessUnderstandingRepository:
         self._session.flush()
         self._session.refresh(observation)
         return observation
+
+    def add_measurement(self, measurement: BusinessMeasurement) -> BusinessMeasurement:
+        self._session.add(measurement)
+        self._session.flush()
+        self._session.refresh(measurement)
+        return measurement
+
+    def get_measurement_by_fingerprint_for_tenant(
+        self, *, tenant_id: str, fingerprint: str
+    ) -> BusinessMeasurement | None:
+        return self._session.scalar(
+            select(BusinessMeasurement).where(
+                BusinessMeasurement.tenant_id == tenant_id,
+                BusinessMeasurement.source_content_fingerprint == fingerprint,
+            )
+        )
 
     def get_observation_for_tenant(self, *, observation_id: uuid.UUID, tenant_id: str) -> BusinessObservation | None:
         return self._session.scalar(
@@ -113,8 +134,7 @@ class BusinessUnderstandingRepository:
         if measurement_fingerprint is not None:
             conditions.append(BusinessObservation.measurement_fingerprint == measurement_fingerprint)
         return self._session.scalar(
-            select(BusinessObservation).where(*conditions)
-            .order_by(BusinessObservation.created_at.asc())
+            select(BusinessObservation).where(*conditions).order_by(BusinessObservation.created_at.asc())
         )
 
     def add_assessment(self, assessment: BusinessNeedAssessment) -> BusinessNeedAssessment:
