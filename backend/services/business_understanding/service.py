@@ -132,33 +132,48 @@ class BusinessUnderstandingService:
             GoalProgressStatus.INSUFFICIENT_DATA,
         }:
             return None
-        observation = self.record_observation(
+        objective_key = goal.objective_key or goal.goal_id
+        subject_references = [item.model_dump(mode="json") for item in goal.subject_refs]
+        condition_key = hashlib.sha256(
+            json.dumps(
+                {"goal_id": goal.goal_id, "kpi_ids": sorted(k.kpi_id for k in kpis), "subjects": subject_references},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        source_fingerprint = self.source_fingerprint(source.reference)
+        observation = self._repository.get_observation_by_source_fingerprint_for_tenant(
+            tenant_id=tenant_id, source_fingerprint=source_fingerprint
+        ) or self.record_observation(
             tenant_id=tenant_id,
             source=source,
             observation_summary=f"Goal condition requires attention: {goal.name}",
-            subject_references=[item.model_dump(mode="json") for item in goal.subject_refs],
+            subject_references=subject_references,
             observed_at=observed_at,
             confidence=None,
             limitations=[{"code": "goal_gap_is_not_causal_explanation"}],
             producer=producer,
         )
-        objective_reference = {"objective_key": goal.objective_key or goal.goal_id}
-        existing = next(
-            (
-                item
-                for item in self._repository.list_latest_needs_for_tenant(tenant_id=tenant_id)
-                if item.objective_reference == objective_reference
-                and item.status not in {"resolved", "disproven", "superseded"}
-            ),
-            None,
+        objective_reference = {"objective_key": objective_key, "condition_key": condition_key}
+        existing = self._repository.find_active_need_for_identity(
+            tenant_id=tenant_id,
+            objective_key=objective_key,
+            subject_references=subject_references,
+            condition_key=condition_key,
         )
+        if existing is not None and any(
+            str(item.get("observation_id")) == str(observation.id)
+            for item in existing.observation_references
+            if isinstance(item, dict)
+        ):
+            return existing
         return self.append_need_revision(
             tenant_id=tenant_id,
             need_id=existing.need_id if existing is not None else None,
             expected_revision=existing.revision if existing is not None else 0,
             origin="observed",
             status="recognized",
-            subject_references=[item.model_dump(mode="json") for item in goal.subject_refs],
+            subject_references=subject_references,
             objective_reference=objective_reference,
             condition_summary=f"Goal '{goal.name}' is {evaluation.status.value}",
             uncertainty=[{"code": "causal_explanation_unresolved"}],
@@ -453,11 +468,14 @@ class BusinessUnderstandingService:
 
         if reference is None:
             return
-        allowed_fields = {"objective_key", "objective_summary"}
+        allowed_fields = {"objective_key", "objective_summary", "condition_key"}
         if set(reference).difference(allowed_fields) or not str(reference.get("objective_key") or "").strip():
             raise BusinessUnderstandingValidationError("objective reference is invalid")
         summary = reference.get("objective_summary")
         if summary is not None and not isinstance(summary, str):
+            raise BusinessUnderstandingValidationError("objective reference is invalid")
+        condition_key = reference.get("condition_key")
+        if condition_key is not None and (not isinstance(condition_key, str) or not condition_key.strip()):
             raise BusinessUnderstandingValidationError("objective reference is invalid")
 
     def _validate_proposal_references(self, *, tenant_id: str, references: list[dict[str, Any]]) -> None:

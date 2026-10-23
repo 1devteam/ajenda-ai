@@ -377,14 +377,15 @@ class BusinessNeedReasoningService:
                     )
                 )
             except IntegrityError:
-                assessment = self._repository.get_assessment_by_fingerprint_for_tenant(
+                recovered = self._repository.get_assessment_by_fingerprint_for_tenant(
                     tenant_id=tenant_id,
                     need_id=need_id,
                     need_revision=revision,
                     fingerprint=fingerprint,
                 )
-                if assessment is None:
+                if recovered is None:
                     raise
+                assessment = recovered
         return BusinessNeedAssessmentResult.model_validate(
             {**payload, "assessment_id": assessment.id, "assessment_fingerprint": fingerprint}
         )

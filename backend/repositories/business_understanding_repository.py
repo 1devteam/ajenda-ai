@@ -81,7 +81,39 @@ class BusinessUnderstandingRepository:
         latest: dict[str, BusinessNeedRevision] = {}
         for row in rows:
             latest.setdefault(row.need_id, row)
-        return list(latest.values())[:limit]
+        return list(latest.values()) if limit <= 0 else list(latest.values())[:limit]
+
+    def find_active_need_for_identity(
+        self,
+        *,
+        tenant_id: str,
+        objective_key: str,
+        subject_references: list[dict[str, Any]],
+        condition_key: str,
+    ) -> BusinessNeedRevision | None:
+        subject = sorted(subject_references, key=lambda item: str(item))
+        for item in self.list_latest_needs_for_tenant(tenant_id=tenant_id, limit=0):
+            reference = item.objective_reference or {}
+            if (
+                reference.get("objective_key") == objective_key
+                and reference.get("condition_key") == condition_key
+                and sorted(item.subject_references, key=lambda value: str(value)) == subject
+                and item.status not in {"resolved", "disproven", "superseded"}
+            ):
+                return item
+        return None
+
+    def get_observation_by_source_fingerprint_for_tenant(
+        self, *, tenant_id: str, source_fingerprint: str
+    ) -> BusinessObservation | None:
+        return self._session.scalar(
+            select(BusinessObservation)
+            .where(
+                BusinessObservation.tenant_id == tenant_id,
+                BusinessObservation.source_fingerprint == source_fingerprint,
+            )
+            .order_by(BusinessObservation.created_at.asc())
+        )
 
     def add_assessment(self, assessment: BusinessNeedAssessment) -> BusinessNeedAssessment:
         with self._session.begin_nested():
