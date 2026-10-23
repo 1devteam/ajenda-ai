@@ -2,6 +2,7 @@ from backend.domain.assurance_snapshot import AssuranceMetricState, AssuranceSna
 from backend.domain.audit_event import AuditEvent
 from backend.domain.billing_meter_dispatch import BillingMeterDispatch
 from backend.domain.business_profile import BusinessProfile, BusinessProfileSuggestion
+from backend.domain.business_understanding import BusinessNeedAssessment, BusinessNeedRevision, BusinessObservation
 from backend.domain.capability import Capability
 from backend.domain.capability_adapter import CapabilityAdapter
 from backend.domain.enums import (
@@ -35,6 +36,9 @@ __all__ = [
     "AssuranceSnapshot",
     "AuditEvent",
     "BillingMeterDispatch",
+    "BusinessNeedAssessment",
+    "BusinessNeedRevision",
+    "BusinessObservation",
     "BusinessProfile",
     "BusinessProfileSuggestion",
     "Capability",

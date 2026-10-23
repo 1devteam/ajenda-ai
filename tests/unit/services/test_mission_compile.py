@@ -228,6 +228,8 @@ def test_compile_preserves_downstream_acceptance_and_provenance_contract() -> No
     assert isinstance(composition["allowed_actions_provenance"], dict)
     assert isinstance(composition["missing_connections"], list)
     assert isinstance(composition["composition_provenance"], dict)
+    assert composition["semantic_snapshot"] is not None
+    assert composition["reviewed_composition_snapshot"] is not None
     assert composition["acceptance_contract"]["candidate_min"] == 10
     assert composition["acceptance_contract"]["require_verified_identity"] is True
 

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
 
+from backend.db.tenant_session import activate_tenant_session
+from backend.domain.business_understanding import BusinessMeasurement
 from backend.domain.capability import Capability
 from backend.domain.capability_adapter import CapabilityAdapter
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
@@ -17,9 +19,13 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.domain.worker_lease import WorkerLease
+from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
+from backend.services.business_understanding.service import BusinessUnderstandingService
 from backend.services.execution_coordinator import ExecutionCoordinator
+from backend.services.ontology.commercial_state import Goal, Kpi, KpiDirection
 from backend.services.ontology.decision_feedback import DecisionLearningSignal
+from backend.services.ontology.types import BusinessObjectRef, BusinessObjectType
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
 from tests.integration.credentials._invoke_authority_helpers import (
@@ -44,6 +50,10 @@ class CanonicalDecisionEpisode:
     learning_signal_evidence_id: uuid.UUID
     recommendation_task_id: uuid.UUID
     learning_signal: DecisionLearningSignal
+    baseline_measurement_id: uuid.UUID | None = None
+    later_measurement_id: uuid.UUID | None = None
+    need_id: str | None = None
+    impact_revision_id: uuid.UUID | None = None
 
 
 def seed_execution_authority(*, factory: Any, tenant_id: str) -> dict[str, object]:
@@ -149,7 +159,10 @@ def execute_canonical_action(
             )
         ).all()
         records = verify.scalars(select(EvidenceRecord).where(EvidenceRecord.execution_task_id == task_id)).all()
-        assert task is not None and task.status == ExecutionTaskState.COMPLETED.value
+        assert task is not None and task.status == ExecutionTaskState.COMPLETED.value, (
+            f"{action}: status={getattr(task, 'status', None)}, "
+            f"failure={(task.metadata_json or {}).get('failure') if task is not None else None}"
+        )
         assert lease is not None and lease.status == WorkerLeaseState.RELEASED.value
         assert len(lineage) == 1
         assert len(records) == 1
@@ -168,6 +181,7 @@ def materialize_canonical_decision_episode(
     queue_adapter: Any,
     tenant_id: str,
     index: int,
+    measurement_backed: bool = False,
 ) -> CanonicalDecisionEpisode:
     """Produce observation, Decision, execution, Outcome, and learning evidence canonically."""
 
@@ -175,6 +189,10 @@ def materialize_canonical_decision_episode(
     subject_id = f"opp-history-{index}"
     subject_ref = {"object_type": "opportunity", "object_id": subject_id}
     goal_id = "goal-increase-conversion"
+    baseline_measurement: BusinessMeasurement | None = None
+    later_measurement: BusinessMeasurement | None = None
+    measurement_need_id: str | None = None
+    impact_revision_id: uuid.UUID | None = None
     with factory() as setup:
         setup.add(Mission(id=mission_id, tenant_id=tenant_id, objective=f"Canonical episode {index}"))
         setup.flush()
@@ -186,6 +204,47 @@ def materialize_canonical_decision_episode(
             data={"name": f"Qualified opportunity {index}", "qualified": True},
         )
         setup.commit()
+
+    if measurement_backed:
+        # Distinct customer-attested measurements for each independent business
+        # subject; these remain attestations, not adapter-verified observations.
+        business_goal = Goal(
+            goal_id=goal_id,
+            objective_key="increase_conversion",
+            name="Increase conversion",
+            subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id=subject_id)],
+        )
+        with factory() as measurement_session:
+            activate_tenant_session(measurement_session, tenant_id)
+            baseline_measurement, need = BusinessUnderstandingService(measurement_session).ingest_measurement(
+                tenant_id=tenant_id,
+                goal=business_goal,
+                kpis=[
+                    Kpi(
+                        kpi_id="conversion",
+                        goal_id=goal_id,
+                        name="Conversion",
+                        metric="conversion",
+                        direction=KpiDirection.INCREASE,
+                        current_value=0.5,
+                        previous_value=0.6,
+                        target_value=1.0,
+                    )
+                ],
+                subject_references=[subject_ref],
+                source_kind="customer_attested",
+                source_reference={"source_id": f"test-fixture:opportunity:{index}"},
+                source_version="baseline-1",
+                measurement_period_start=datetime(2026, 1, 1, tzinfo=UTC),
+                measurement_period_end=datetime(2026, 1, 31, tzinfo=UTC),
+                observed_at=datetime(2026, 1, 31, 12, tzinfo=UTC),
+                limitations=[{"code": "customer_attested_not_independently_verified"}],
+                confidence=None,
+                producer="integration-test",
+            )
+            assert need is not None
+            measurement_need_id = need.need_id
+            measurement_session.commit()
 
     supporting = execute_canonical_action(
         factory=factory,
@@ -253,6 +312,40 @@ def materialize_canonical_decision_episode(
     )
     executed_at = datetime.fromisoformat(str(execution.structured_payload["executed_at"]))
     observed_at = executed_at + timedelta(milliseconds=1)
+    if measurement_backed:
+        assert baseline_measurement is not None and measurement_need_id is not None
+        with factory() as measurement_session:
+            activate_tenant_session(measurement_session, tenant_id)
+            later_measurement, continuing_need = BusinessUnderstandingService(measurement_session).ingest_measurement(
+                tenant_id=tenant_id,
+                goal=business_goal,
+                kpis=[
+                    Kpi(
+                        kpi_id="conversion",
+                        goal_id=goal_id,
+                        name="Conversion",
+                        metric="conversion",
+                        direction=KpiDirection.INCREASE,
+                        current_value=1.0,
+                        previous_value=0.5,
+                        target_value=1.0,
+                    )
+                ],
+                subject_references=[subject_ref],
+                source_kind="customer_attested",
+                source_reference={"source_id": f"test-fixture:opportunity:{index}"},
+                source_version="later-1",
+                measurement_period_start=executed_at + timedelta(days=1),
+                measurement_period_end=executed_at + timedelta(days=29),
+                observed_at=executed_at + timedelta(days=30),
+                limitations=[{"code": "customer_attested_not_independently_verified"}],
+                confidence=None,
+                producer="integration-test",
+            )
+            assert continuing_need is not None
+            assert continuing_need.need_id == measurement_need_id
+            measurement_session.commit()
+        observed_at = later_measurement.observed_at
     outcome = execute_canonical_action(
         factory=factory,
         queue_adapter=queue_adapter,
@@ -267,7 +360,9 @@ def materialize_canonical_decision_episode(
                 "subject_refs": [subject_ref],
             },
             "subject_refs": [subject_ref],
-            "baseline_kpis": [
+            "baseline_kpis": baseline_measurement.values
+            if baseline_measurement is not None
+            else [
                 {
                     "kpi_id": "conversion",
                     "goal_id": goal_id,
@@ -277,7 +372,9 @@ def materialize_canonical_decision_episode(
                     "target_value": 1.0,
                 }
             ],
-            "observed_kpis": [
+            "observed_kpis": later_measurement.values
+            if later_measurement is not None
+            else [
                 {
                     "kpi_id": "conversion",
                     "goal_id": goal_id,
@@ -299,6 +396,32 @@ def materialize_canonical_decision_episode(
         },
         worker_label=f"outcome-{index}",
     )
+    if measurement_backed:
+        assert baseline_measurement is not None and later_measurement is not None
+        assert measurement_need_id is not None
+        with factory() as impact_session:
+            activate_tenant_session(impact_session, tenant_id)
+            current = BusinessUnderstandingRepository(impact_session).get_latest_need_for_tenant(
+                tenant_id=tenant_id, need_id=measurement_need_id
+            )
+            assert current is not None
+            impact_revision, _ = BusinessUnderstandingService(impact_session).record_canonical_measurement_impact(
+                tenant_id=tenant_id,
+                need_id=measurement_need_id,
+                expected_revision=current.revision,
+                baseline_measurement_id=baseline_measurement.id,
+                observed_measurement_id=later_measurement.id,
+                outcome_evidence_id=outcome.id,
+                producer="integration-test",
+                mission_reference={"mission_id": str(mission_id)},
+            )
+            assert impact_revision.impact_assessment is not None
+            assert impact_revision.impact_assessment["outcome_evidence_id"] == str(outcome.id)
+            assert impact_revision.impact_assessment["causation"] == "unresolved"
+            assert impact_revision.status == "impact_monitored"
+            impact_revision_id = impact_revision.id
+            impact_session.commit()
+
     materialized = execute_canonical_action(
         factory=factory,
         queue_adapter=queue_adapter,
@@ -324,4 +447,8 @@ def materialize_canonical_decision_episode(
         learning_signal_evidence_id=materialized.id,
         recommendation_task_id=recommendation.execution_task_id,
         learning_signal=signal,
+        baseline_measurement_id=baseline_measurement.id if baseline_measurement is not None else None,
+        later_measurement_id=later_measurement.id if later_measurement is not None else None,
+        need_id=measurement_need_id,
+        impact_revision_id=impact_revision_id,
     )

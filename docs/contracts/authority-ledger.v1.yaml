@@ -683,6 +683,36 @@ authority_entries:
       - tests/unit/api/test_evidence_route.py
       - tests/unit/repositories/test_evidence_repository.py
 
+  - id: business_understanding_contract
+    area: business observations and need hypotheses
+    source_of_truth:
+      - backend/api/routes/business_understanding.py
+      - backend/domain/business_understanding.py
+      - backend/repositories/business_understanding_repository.py
+      - backend/services/business_understanding/service.py
+    route_scope:
+      - /v1/business-understanding/observations
+      - /v1/business-understanding/needs
+      - /v1/business-understanding/needs/{need_id}
+      - /v1/business-understanding/recognitions
+    authority_class: declarative
+    side_effect_class: tenant_scoped_business_understanding_mutation
+    allowed_side_effects:
+      - persist source-attributed tenant business observations
+      - append tenant-bound business-need hypothesis revisions
+      - store read-only composition provenance references
+    forbidden_side_effects:
+      - mutate source business-profile, CRM, evidence, outcome-review, or knowledge records
+      - create missions, task graphs, execution tasks, queue entries, or worker leases
+      - invoke providers or external side effects
+      - grant current authorization, approval, capability readiness, or execution authority
+      - infer business-need resolution solely from task completion or mission acceptance
+    required_proofs:
+      - tests/integration/intelligence/test_business_understanding_real.py
+      - tests/integration/intelligence/test_business_understanding_api_real.py
+      - tests/contract/api/test_mission_composition_routes.py
+      - tests/unit/db/test_business_understanding_migration_contract.py
+
   - id: outcome_review_contract
     area: outcome reviews
     source_of_truth:

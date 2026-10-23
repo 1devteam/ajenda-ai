@@ -7,11 +7,14 @@ phase modules. Compose remains read-only; confirm/compile never queue work.
 
 from __future__ import annotations
 
+import hashlib
+import uuid
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from backend.repositories.business_profile_repository import BusinessProfileRepository
+from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.mission_plan_repository import MissionPlanRepository
 from backend.repositories.mission_repository import MissionRepository
@@ -319,6 +322,76 @@ class MissionCompositionService(
     # call time through these wrappers.
     def _business_profile_repository(self, db: Session) -> Any:
         return BusinessProfileRepository(db)
+
+    def _business_need_reference(
+        self, *, db: Session | None, tenant_id: str, reference: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        if reference is None:
+            return None
+        if db is None:
+            raise MissionCompositionError(code="BUSINESS_NEED_NOT_FOUND", message="business need requires database")
+        need_id = str(reference.get("need_id") or "")
+        revision = reference.get("revision")
+        if not need_id or not isinstance(revision, int):
+            raise MissionCompositionError(code="BUSINESS_NEED_INVALID", message="business need reference is invalid")
+        record = BusinessUnderstandingRepository(db).get_need_revision_for_tenant(
+            tenant_id=tenant_id,
+            need_id=need_id,
+            revision=revision,
+        )
+        if record is None:
+            raise MissionCompositionError(
+                code="BUSINESS_NEED_NOT_FOUND", message="business need was not found for tenant"
+            )
+        return {
+            "need_id": record.need_id,
+            "revision": record.revision,
+            "revision_id": str(record.id),
+            "status": record.status,
+            "condition_fingerprint": hashlib.sha256(record.condition_summary.encode("utf-8")).hexdigest(),
+            "grants_execution_authority": False,
+        }
+
+    def _business_need_assessment_reference(
+        self,
+        *,
+        db: Session | None,
+        tenant_id: str,
+        reference: dict[str, Any] | None,
+        need_reference: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if reference is None:
+            return None
+        if db is None or need_reference is None:
+            raise MissionCompositionError(
+                code="BUSINESS_NEED_ASSESSMENT_INVALID",
+                message="business need assessment requires a tenant-scoped need reference",
+            )
+        try:
+            assessment_id = uuid.UUID(str(reference.get("assessment_id")))
+        except (TypeError, ValueError) as exc:
+            raise MissionCompositionError(
+                code="BUSINESS_NEED_ASSESSMENT_INVALID", message="business need assessment reference is invalid"
+            ) from exc
+        assessment = BusinessUnderstandingRepository(db).get_assessment_for_tenant(
+            assessment_id=assessment_id, tenant_id=tenant_id
+        )
+        if (
+            assessment is None
+            or assessment.need_id != need_reference["need_id"]
+            or assessment.need_revision != need_reference["revision"]
+        ):
+            raise MissionCompositionError(
+                code="BUSINESS_NEED_ASSESSMENT_NOT_FOUND",
+                message="business need assessment was not found for referenced need revision",
+            )
+        return {
+            "assessment_id": str(assessment.id),
+            "need_id": assessment.need_id,
+            "revision": assessment.need_revision,
+            "assessment_fingerprint": assessment.assessment_fingerprint,
+            "grants_execution_authority": False,
+        }
 
     def _mission_repository(self, db: Session) -> Any:
         return MissionRepository(db)

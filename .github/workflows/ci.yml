@@ -3,6 +3,7 @@ name: CI — Pull Request Gate
 # Runs on every pull request and on direct pushes to main.
 # All jobs must pass before a PR can be merged.
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main]
   push:

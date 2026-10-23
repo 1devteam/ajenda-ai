@@ -166,6 +166,81 @@ def test_missing_context_is_unknown_and_no_conditions_are_applicable() -> None:
     )
 
 
+def test_historical_prose_invalidation_is_preserved_and_fails_closed() -> None:
+    historical_condition = "Repeated counterexamples under comparable conditions"
+    query, match = _match(invalidation=(historical_condition,))
+    result = evaluate_knowledge_applicability(
+        retrieval_id="retrieval:historical",
+        match=match,
+        context=_context(
+            query,
+            _assertion("segment:smb", ContextConditionState.ACTIVE),
+            _assertion("recurrence:comparable_counterexamples", ContextConditionState.INACTIVE),
+        ),
+    )
+
+    assert result.status == KnowledgeApplicabilityStatus.INSUFFICIENT_CONTEXT
+    assert result.invalidation_conditions == (historical_condition,)
+    assert result.unknown_invalidation_conditions == (historical_condition,)
+    assert result.cleared_invalidation_conditions == ()
+    assert "invalidation_condition_truth_unknown" in result.epistemic_limits
+
+
+def test_historical_prose_cannot_masquerade_as_current_condition_evidence() -> None:
+    historical_condition = "Evidence that attribution was mis-specified"
+    payload = {
+        "condition_key": historical_condition,
+        "state": "active",
+        "subject_refs": [{"object_type": "opportunity", "object_id": "opp-123"}],
+        "observed_at": NOW.isoformat(),
+        "verification_basis": "source_supplied_under_contract",
+    }
+
+    with pytest.raises(ValidationError, match="canonical token without whitespace"):
+        SourceConditionObservation.model_validate(payload)
+    with pytest.raises(ValidationError, match="canonical token without whitespace"):
+        ContextConditionAssertion.model_validate(payload)
+
+
+def test_canonical_invalidation_and_scope_remain_decisive() -> None:
+    query, match = _match(
+        scope=("segment:smb",),
+        invalidation=("recurrence:comparable_counterexamples",),
+    )
+
+    valid = evaluate_knowledge_applicability(
+        retrieval_id="retrieval:valid",
+        match=match,
+        context=_context(
+            query,
+            _assertion("segment:smb", ContextConditionState.ACTIVE),
+            _assertion("recurrence:comparable_counterexamples", ContextConditionState.INACTIVE),
+        ),
+    )
+    incompatible = evaluate_knowledge_applicability(
+        retrieval_id="retrieval:incompatible",
+        match=match,
+        context=_context(
+            query,
+            _assertion("segment:smb", ContextConditionState.INACTIVE),
+            _assertion("recurrence:comparable_counterexamples", ContextConditionState.INACTIVE),
+        ),
+    )
+    invalidated = evaluate_knowledge_applicability(
+        retrieval_id="retrieval:invalidated",
+        match=match,
+        context=_context(
+            query,
+            _assertion("segment:smb", ContextConditionState.ACTIVE),
+            _assertion("recurrence:comparable_counterexamples", ContextConditionState.ACTIVE),
+        ),
+    )
+
+    assert valid.status == KnowledgeApplicabilityStatus.APPLICABLE
+    assert incompatible.status == KnowledgeApplicabilityStatus.NOT_APPLICABLE
+    assert invalidated.status == KnowledgeApplicabilityStatus.INVALIDATED
+
+
 def test_partial_goal_equivalence_caps_applicability() -> None:
     query, match = _match()
     partial = match.model_copy(

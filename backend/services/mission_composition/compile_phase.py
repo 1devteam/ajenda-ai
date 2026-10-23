@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from backend.db.tenant_session import activate_tenant_session
 from backend.domain.enums import MissionPlanStatus
 from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
@@ -18,11 +17,13 @@ from backend.domain.mission import (
     build_mission_task_graph_contract_metadata,
     normalize_mission_task_graph_contract_metadata,
 )
+from backend.services.mission_composition.contracts import compare_reviewed_semantic_state
 from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
     build_deliverable_runtime_state,
 )
 from backend.services.mission_composition.plan_compiler import compile_plan_payload, compile_task_graph_preview
+from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.mission_composition.service_contracts import (
     COMPILER_NAME,
     COMPILER_VERSION,
@@ -96,12 +97,21 @@ class MissionCompositionCompilePhase:
             )
 
         prior_proposal_id = composition.get("proposal_id") if isinstance(composition.get("proposal_id"), str) else None
-        record = self.compose(tenant_id=tenant_id, instruction=instruction_text)
-        # compose() commits its initial proposal.  Restore PostgreSQL's
-        # transaction-local tenant context before the required revalidation
-        # lineage write, then restore it again after that write below.
-        activate_tenant_session(self._db, tenant_id)
+        provenance = composition.get("composition_provenance")
+        need_reference = provenance.get("business_need_reference") if isinstance(provenance, dict) else None
+        compose_kwargs: dict[str, Any] = {}
+        if isinstance(need_reference, dict):
+            compose_kwargs["business_need_reference"] = need_reference
+        record = self.compose(tenant_id=tenant_id, instruction=instruction_text, persist=False, **compose_kwargs)
         if prior_proposal_id:
+            reviewed_record = get_proposal(tenant_id=tenant_id, proposal_id=prior_proposal_id, db=self._db)
+            if reviewed_record is not None:
+                comparison = compare_reviewed_semantic_state(reviewed=reviewed_record, evaluated=record)
+                if comparison.revision_required:
+                    raise MissionCompositionError(
+                        code="SEMANTIC_REVISION_REQUIRED",
+                        message="reviewed meaning changed; compose and review a successor proposal before compilation",
+                    )
             record = record.model_copy(
                 update={
                     "reviewed_proposal_id": prior_proposal_id,
@@ -117,16 +127,12 @@ class MissionCompositionCompilePhase:
                 db=self._db,
                 actor_id=actor_id,
                 require_durable=True,
+                commit=False,
             ):
                 raise MissionCompositionError(
                     code="REVALIDATED_PROPOSAL_PERSIST_FAILED",
                     message="compile requires durable revalidation lineage before graph persistence",
                 )
-        # Composition persists its durable proposal and commits the current
-        # transaction. Tenant context is applied with PostgreSQL SET LOCAL, so
-        # it expires at that commit. Re-establish it before the tenant-owned
-        # graph, plan, and task-materialization writes below.
-        activate_tenant_session(self._db, tenant_id)
         graph_preview = compile_task_graph_preview(
             record.planned_steps,
             selections=list(record.ability_selections),
@@ -271,6 +277,14 @@ class MissionCompositionCompilePhase:
                 "revision_reason": record.revision_reason,
                 "schema_version": record.schema_version,
                 "instruction": record.instruction,
+                "semantic_snapshot": (
+                    record.semantic_snapshot.model_dump(mode="json") if record.semantic_snapshot is not None else None
+                ),
+                "reviewed_composition_snapshot": (
+                    record.reviewed_composition_snapshot.model_dump(mode="json")
+                    if record.reviewed_composition_snapshot is not None
+                    else None
+                ),
                 "compiled_by": COMPILER_NAME,
                 "compiler_version": COMPILER_VERSION,
                 "source": source,

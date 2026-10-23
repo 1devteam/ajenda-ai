@@ -1,0 +1,219 @@
+name: Change C single-chain acceptance proof
+
+on:
+  push:
+    branches:
+      - proof/change-c-measurement-learning-reuse
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+env:
+  AJENDA_QUEUE_URL: "redis://localhost:6379/0"
+  AJENDA_ENV: "test"
+  AJENDA_LOG_LEVEL: "WARNING"
+  AJENDA_LOG_JSON: "false"
+  AJENDA_APP_NAME: "Ajenda AI Test"
+  AJENDA_OIDC_ISSUER: ""
+  AJENDA_OIDC_AUDIENCE: "ajenda-api"
+  AJENDA_QUEUE_ADAPTER: "redis"
+  AJENDA_RATE_LIMIT_REQUESTS: "10000"
+  AJENDA_RATE_LIMIT_WINDOW_SECONDS: "60"
+  AJENDA_REDACT_KEYS: "password,secret,token,api_key,authorization,cookie,set-cookie"
+
+jobs:
+  proof:
+    name: PostgreSQL measurement-to-qualified-learning reuse
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate commit
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install '.[dev]'
+
+      - name: Verify real PostgreSQL and Redis Testcontainers runtime
+        run: docker info
+
+      - name: Run complete Change C single-chain acceptance
+        env:
+          CHANGE_C_EVIDENCE_MANIFEST_DIR: ${{ runner.temp }}/change-c-proof
+        run: |
+          python -m pytest tests/integration/intelligence/test_change_c_full_learning_lineage_real.py -v -s --tb=long -m integration --timeout=240
+
+      - name: Static check of proof and shared fixture
+        run: |
+          ruff check tests/integration/intelligence/canonical_decision_runtime.py tests/integration/intelligence/test_change_c_full_learning_lineage_real.py
+          ruff format --check tests/integration/intelligence/canonical_decision_runtime.py tests/integration/intelligence/test_change_c_full_learning_lineage_real.py
+          python -m compileall -q tests/integration/intelligence/canonical_decision_runtime.py tests/integration/intelligence/test_change_c_full_learning_lineage_real.py
+
+      - name: Archive machine-readable evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: change-c-lineage-evidence
+          path: ${{ runner.temp }}/change-c-proof/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish exact-commit proof status and run link
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            success) state=success ;;
+            failure|cancelled) state=failure ;;
+            *) state=pending ;;
+          esac
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$state" \
+            -f context="change-c/single-chain-proof" \
+            -f description="Real PostgreSQL single-chain proof: $state" \
+            -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+  unit-regression:
+    name: Full unit, contract and deployment tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install '.[dev]'
+
+      - name: Full unit, contract and deployment tests
+        run: |
+          python -m pytest tests/unit/ tests/contract/ tests/deployment/ -v -n auto --dist=loadscope --tb=short --cov=backend --cov-report=term-missing --cov-fail-under=80 -m "not integration"
+
+      - name: Publish unit-regression check with run link
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            success) state=success ;;
+            failure|cancelled) state=failure ;;
+            *) state=pending ;;
+          esac
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$state" \
+            -f context="change-c/unit-regression" \
+            -f description="Change C unit-regression regression: $state" \
+            -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+
+  integration-regression:
+    name: Full real PostgreSQL integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install '.[dev]'
+
+      - name: Full real PostgreSQL integration tests
+        run: |
+          docker info
+          python -m pytest tests/integration/ -v --tb=short -m "integration and not live" --timeout=60
+
+      - name: Publish integration-regression check with run link
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            success) state=success ;;
+            failure|cancelled) state=failure ;;
+            *) state=pending ;;
+          esac
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$state" \
+            -f context="change-c/integration-regression" \
+            -f description="Change C integration-regression regression: $state" \
+            -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+
+  source-integrity:
+    name: Full Ruff, mypy and contract sentinels
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install '.[dev]'
+
+      - name: Full Ruff, mypy and contract sentinels
+        run: |
+          ruff check backend/ tests/ scripts/validation/
+          ruff format --check backend/ tests/ scripts/validation/
+          mypy backend/
+          python scripts/validation/contract_drift_check.py
+          python scripts/validation/runtime_authority_inventory_check.py
+          python scripts/validation/migration_seed_contract_check.py
+          python scripts/validation/ability_rollout_contract_check.py
+
+      - name: Publish source-integrity check with run link
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            success) state=success ;;
+            failure|cancelled) state=failure ;;
+            *) state=pending ;;
+          esac
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$state" \
+            -f context="change-c/source-integrity" \
+            -f description="Change C source-integrity regression: $state" \
+            -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+

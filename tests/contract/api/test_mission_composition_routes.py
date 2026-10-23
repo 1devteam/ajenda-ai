@@ -92,6 +92,42 @@ def test_compose_returns_proposal_without_runtime_authority() -> None:
     assert body["ready_to_start"] is True
 
 
+def test_compose_can_link_a_tenant_need_without_turning_it_into_execution_authority() -> None:
+    tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    app = _build_app(tenant_id)
+    need = SimpleNamespace(
+        id=uuid.uuid4(),
+        need_id="need-customer-acquisition",
+        revision=2,
+        status="impact_monitored",
+        condition_summary="Customer acquisition remains below target.",
+    )
+    with (
+        patch.object(composition_module, "require_route_permission", return_value=None),
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
+        patch("backend.services.mission_composition.service.BusinessUnderstandingRepository") as need_repo_cls,
+    ):
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
+        cred_repo_cls.return_value.list_for_tenant.return_value = []
+        need_repo_cls.return_value.get_need_revision_for_tenant.return_value = need
+        response = TestClient(app).post(
+            "/v1/missions/compose",
+            json={
+                "instruction": ROOFING_INSTRUCTION,
+                "business_need_id": need.need_id,
+                "business_need_revision": need.revision,
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    reference = response.json()["composition"]["composition_provenance"]["business_need_reference"]
+    assert reference["need_id"] == need.need_id
+    assert reference["revision"] == 2
+    assert reference["grants_execution_authority"] is False
+    assert response.json()["allowed_actions"]
+
+
 def test_compose_fails_closed_when_active_profile_has_no_persisted_charter() -> None:
     tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
     app = _build_app(tenant_id)
@@ -145,8 +181,8 @@ def test_confirmation_revalidates_current_charter_after_composition() -> None:
 
         confirm = client.post(f"/v1/missions/proposals/{proposal_id}/confirm")
 
-    assert confirm.status_code == 422
-    assert confirm.json()["detail"]["code"] in {"NO_RUNTIME_ACTIONS", "PROPOSAL_NOT_READY"}
+    assert confirm.status_code == 409
+    assert confirm.json()["detail"]["code"] == "SEMANTIC_REVISION_REQUIRED"
 
 
 def test_shadow_preview_validates_plan_without_runtime_work() -> None:
@@ -322,5 +358,12 @@ def test_confirm_creates_mission_plan_graph_not_queue() -> None:
     # Mission metadata must include intake and not imply queue admission.
     added: Mission = mission_repo_cls.return_value.add.call_args[0][0]
     assert MISSION_INTAKE_METADATA_KEY in (added.metadata_json or {})
+    confirmed_composition = added.metadata_json[MISSION_INTAKE_METADATA_KEY]["context"]["composition"]
+    assert confirmed_composition["semantic_snapshot"] is not None
+    assert confirmed_composition["reviewed_composition_snapshot"] is not None
+    assert (
+        confirmed_composition["reviewed_composition_snapshot"]["semantic_snapshot_sha256"]
+        == confirmed_composition["semantic_snapshot"]["content_sha256"]
+    )
     intake = (added.metadata_json or {})[MISSION_INTAKE_METADATA_KEY]
     assert "gtm.email_send" not in intake.get("allowed_actions", [])
