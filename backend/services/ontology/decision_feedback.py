@@ -880,13 +880,16 @@ def extract_decision_learning_signal(
         f"algorithm={snapshot.algorithm_name}@{snapshot.algorithm_version}",
         f"fidelity={execution.fidelity.value}",
     ]
+    # These values become Knowledge applicability keys. Keep them machine-native
+    # at the Feedback authority boundary: SourceConditionObservation rejects
+    # prose/whitespace keys, and downstream owners must not rewrite semantics.
     invalidation = [
-        "Repeated counterexamples under comparable conditions",
-        "Evidence that attribution was mis-specified",
-        "Material change in decision algorithm or criteria weights",
+        "recurrence:comparable_counterexamples",
+        "attribution:mis_specified",
+        "decision_algorithm:material_change",
     ]
     if strength == LearningSignalStrength.WEAK:
-        invalidation.append("Signal already weak; any conflicting episode invalidates candidate status")
+        invalidation.append("learning_signal:weak_conflicting_episode")
 
     evidence_ids = _dedupe(
         list(snapshot.supporting_evidence_ids)
