@@ -291,6 +291,7 @@ def test_live_runtime_proof_workflow_writes_canonical_compose_env_file() -> None
     assert "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY" not in workflow
     assert not (names - _settings_env_aliases() - NON_SETTINGS_DEPLOYMENT_ENV)
     for workflow_path in (
+        Path(".github/workflows/live-runtime-proof.yml"),
         Path(".github/workflows/ci.yml"),
         Path(".github/workflows/premerge-live-runtime-proof.yml"),
     ):
@@ -298,6 +299,15 @@ def test_live_runtime_proof_workflow_writes_canonical_compose_env_file() -> None
         assert '"AJENDA_WORKER_TENANT_MODE=multi"' in workflow_text
         assert 'AJENDA_PROOF_START_SERVICES: "1"' in workflow_text
         assert 'AJENDA_PROOF_BOOTSTRAP_ROLES: "1"' in workflow_text
+
+    premerge_workflow = _read(Path(".github/workflows/premerge-live-runtime-proof.yml"))
+    premerge_names = _env_names(premerge_workflow)
+    assert LIVE_PROOF_REQUIRED_APP_ENV <= premerge_names
+    assert premerge_workflow.count('AJENDA_PROOF_START_SERVICES: "1"') == 1
+    assert "from base64 import urlsafe_b64encode" in premerge_workflow
+    assert "from secrets import token_bytes" in premerge_workflow
+    assert 'runtime_fernet_key = urlsafe_b64encode(token_bytes(32)).decode("ascii")' in premerge_workflow
+    assert 'print(f"::add-mask::{runtime_fernet_key}")' in premerge_workflow
 
 
 def test_compose_and_live_proof_use_same_env_file_for_config_up_exec_down() -> None:
