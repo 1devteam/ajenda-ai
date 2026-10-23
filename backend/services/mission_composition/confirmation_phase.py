@@ -128,7 +128,12 @@ class MissionCompositionConfirmationPhase:
                 db=self._db,
             )
 
-        record = self.compose(tenant_id=tenant_id, instruction=instruction)
+        compose_kwargs: dict[str, Any] = {}
+        if reviewed_record is not None:
+            need_reference = reviewed_record.composition_provenance.business_need_reference
+            if need_reference is not None:
+                compose_kwargs["business_need_reference"] = need_reference
+        record = self.compose(tenant_id=tenant_id, instruction=instruction, **compose_kwargs)
         # compose() durably records its proposal and commits.  PostgreSQL
         # SET LOCAL tenant context therefore expires before the required
         # revalidation lineage write below.

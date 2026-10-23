@@ -96,7 +96,12 @@ class MissionCompositionCompilePhase:
             )
 
         prior_proposal_id = composition.get("proposal_id") if isinstance(composition.get("proposal_id"), str) else None
-        record = self.compose(tenant_id=tenant_id, instruction=instruction_text)
+        provenance = composition.get("composition_provenance")
+        need_reference = provenance.get("business_need_reference") if isinstance(provenance, dict) else None
+        compose_kwargs: dict[str, Any] = {}
+        if isinstance(need_reference, dict):
+            compose_kwargs["business_need_reference"] = need_reference
+        record = self.compose(tenant_id=tenant_id, instruction=instruction_text, **compose_kwargs)
         # compose() commits its initial proposal.  Restore PostgreSQL's
         # transaction-local tenant context before the required revalidation
         # lineage write, then restore it again after that write below.

@@ -40,6 +40,15 @@ class ComposeMissionRequest(BaseModel):
     # Exact raw instruction (frontend validates non-empty with trim but must not strip).
     instruction: str = Field(min_length=1, max_length=8000)
     interpretation_thread_id: str | None = Field(default=None, max_length=80)
+    business_need_id: str | None = Field(default=None, min_length=1, max_length=128)
+    business_need_revision: int | None = Field(default=None, ge=1)
+
+    def need_reference(self) -> dict[str, Any] | None:
+        if bool(self.business_need_id) != bool(self.business_need_revision):
+            raise ValueError("business_need_id and business_need_revision must be supplied together")
+        if self.business_need_id is None:
+            return None
+        return {"need_id": self.business_need_id, "revision": self.business_need_revision}
 
 
 class ComposeMissionResponse(BaseModel):
@@ -176,7 +185,7 @@ def _to_compose_response(record: MissionCompositionRecord) -> ComposeMissionResp
 
 def _map_error(exc: MissionCompositionError) -> HTTPException:
     status = 400
-    if exc.code in {"PROPOSAL_NOT_FOUND"}:
+    if exc.code in {"PROPOSAL_NOT_FOUND", "BUSINESS_NEED_NOT_FOUND"}:
         status = 404
     elif exc.code in {"QUOTA_EXCEEDED"}:
         status = 402
@@ -186,6 +195,7 @@ def _map_error(exc: MissionCompositionError) -> HTTPException:
         "PROPOSAL_NOT_READY",
         "CHARTER_MISSING",
         "CHARTER_INVALID",
+        "BUSINESS_NEED_INVALID",
     }:
         status = 422
     return HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message})
@@ -272,6 +282,17 @@ def compose_mission(
     provider side-effect calls.
     """
     require_route_permission(request=request, db=db, permission=Permission.MISSION_CREATE, tenant_id=tenant_id)
+    try:
+        need_reference = body.need_reference()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "BUSINESS_NEED_REFERENCE_INVALID"}) from exc
+    if need_reference is not None:
+        require_route_permission(
+            request=request,
+            db=db,
+            permission=Permission.BUSINESS_UNDERSTANDING_READ,
+            tenant_id=tenant_id,
+        )
     service = MissionCompositionService(db)
     try:
         record = service.compose(
@@ -279,6 +300,7 @@ def compose_mission(
             instruction=body.instruction,
             actor_id=_actor_id(request),
             interpretation_thread_id=body.interpretation_thread_id,
+            business_need_reference=need_reference,
         )
     except MissionCompositionError as exc:
         raise _map_error(exc) from exc

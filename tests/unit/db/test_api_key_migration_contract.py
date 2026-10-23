@@ -11,7 +11,7 @@ def test_migration_graph_has_current_single_head_and_short_revision_id() -> None
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0054_merge_roles_evidence"]
+    assert heads == ["0055_business_understanding"]
     assert len(heads[0]) <= 32
 
 

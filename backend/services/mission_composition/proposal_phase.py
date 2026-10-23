@@ -59,9 +59,18 @@ class MissionCompositionProposalPhase:
         instruction: str,
         actor_id: str | None = None,
         interpretation_thread_id: str | None = None,
+        business_need_reference: dict[str, Any] | None = None,
     ) -> MissionCompositionRecord:
         if not instruction or not instruction.strip():
             raise MissionCompositionError(code="INSTRUCTION_REQUIRED", message="instruction is required")
+
+        # Need linkage is read-only provenance.  It deliberately does not add
+        # objectives, select a job, or weaken the customer instruction.
+        business_need_reference = self._business_need_reference(
+            db=self._db,
+            tenant_id=tenant_id,
+            reference=business_need_reference,
+        )
 
         # Preserve exact raw instruction; validation uses strip only for emptiness.
         raw_instruction = instruction
@@ -343,6 +352,7 @@ class MissionCompositionProposalPhase:
                 semantic_selection=semantic_selection,
                 charter_profile_id=str(profile.id) if profile is not None else None,
                 charter_revision=charter.revision,
+                business_need_reference=business_need_reference,
             ),
         )
         # Only interpretation failures escalate via thread history.

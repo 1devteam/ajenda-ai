@@ -36,3 +36,30 @@ def test_rbac_viewer_cannot_operate_runtime_or_queue_work() -> None:
 
     assert runtime_decision.allowed is False
     assert queue_decision.allowed is False
+
+
+def test_business_understanding_permissions_are_tenant_scoped_and_role_bound() -> None:
+    authorizer = RbacAuthorizer()
+    viewer = Principal("u1", "tenant-a", PrincipalType.USER, roles=("viewer",))
+    operator = Principal("u2", "tenant-a", PrincipalType.USER, roles=("tenant_operator",))
+
+    assert authorizer.authorize(
+        principal=viewer,
+        permission=Permission.BUSINESS_UNDERSTANDING_READ,
+        tenant_id="tenant-a",
+    ).allowed
+    assert not authorizer.authorize(
+        principal=viewer,
+        permission=Permission.BUSINESS_UNDERSTANDING_MANAGE,
+        tenant_id="tenant-a",
+    ).allowed
+    assert authorizer.authorize(
+        principal=operator,
+        permission=Permission.BUSINESS_UNDERSTANDING_MANAGE,
+        tenant_id="tenant-a",
+    ).allowed
+    assert not authorizer.authorize(
+        principal=operator,
+        permission=Permission.BUSINESS_UNDERSTANDING_READ,
+        tenant_id="tenant-b",
+    ).allowed

@@ -92,6 +92,42 @@ def test_compose_returns_proposal_without_runtime_authority() -> None:
     assert body["ready_to_start"] is True
 
 
+def test_compose_can_link_a_tenant_need_without_turning_it_into_execution_authority() -> None:
+    tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    app = _build_app(tenant_id)
+    need = SimpleNamespace(
+        id=uuid.uuid4(),
+        need_id="need-customer-acquisition",
+        revision=2,
+        status="impact_monitored",
+        condition_summary="Customer acquisition remains below target.",
+    )
+    with (
+        patch.object(composition_module, "require_route_permission", return_value=None),
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
+        patch("backend.services.mission_composition.service.BusinessUnderstandingRepository") as need_repo_cls,
+    ):
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
+        cred_repo_cls.return_value.list_for_tenant.return_value = []
+        need_repo_cls.return_value.get_need_revision_for_tenant.return_value = need
+        response = TestClient(app).post(
+            "/v1/missions/compose",
+            json={
+                "instruction": ROOFING_INSTRUCTION,
+                "business_need_id": need.need_id,
+                "business_need_revision": need.revision,
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    reference = response.json()["composition"]["composition_provenance"]["business_need_reference"]
+    assert reference["need_id"] == need.need_id
+    assert reference["revision"] == 2
+    assert reference["grants_execution_authority"] is False
+    assert response.json()["allowed_actions"]
+
+
 def test_compose_fails_closed_when_active_profile_has_no_persisted_charter() -> None:
     tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
     app = _build_app(tenant_id)
