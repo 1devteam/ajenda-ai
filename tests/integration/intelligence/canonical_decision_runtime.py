@@ -159,7 +159,10 @@ def execute_canonical_action(
             )
         ).all()
         records = verify.scalars(select(EvidenceRecord).where(EvidenceRecord.execution_task_id == task_id)).all()
-        assert task is not None and task.status == ExecutionTaskState.COMPLETED.value
+        assert task is not None and task.status == ExecutionTaskState.COMPLETED.value, (
+            f"{action}: status={getattr(task, 'status', None)}, "
+            f"failure={(task.metadata_json or {}).get('failure') if task is not None else None}"
+        )
         assert lease is not None and lease.status == WorkerLeaseState.RELEASED.value
         assert len(lineage) == 1
         assert len(records) == 1
