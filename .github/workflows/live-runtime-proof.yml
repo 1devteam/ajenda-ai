@@ -67,16 +67,24 @@ jobs:
           python - <<'PY'
           from __future__ import annotations
 
+          from base64 import urlsafe_b64encode
           from pathlib import Path
+          from secrets import token_bytes
           from uuid import uuid4
 
           env_path = Path("deploy/compose/.env.prod")
           worker_tenant_id = uuid4()
           postgres_password = f"ci-{uuid4().hex}"
+          # This isolated proof needs a valid current key after the runtime
+          # idempotency authority was made fail-closed. Generate it per run;
+          # never reuse a historical fallback or a live deployment key.
+          runtime_fernet_key = urlsafe_b64encode(token_bytes(32)).decode("ascii")
+          print(f"::add-mask::{runtime_fernet_key}")
           env_path.write_text(
               "\n".join(
                   [
                       f"POSTGRES_PASSWORD={postgres_password}",
+                      f"AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY={runtime_fernet_key}",
                       f"AJENDA_API_DATABASE_PASSWORD={postgres_password}-api",
                       f"AJENDA_WORKER_DATABASE_PASSWORD={postgres_password}-worker",
                       f"AJENDA_ASSURANCE_DATABASE_PASSWORD={postgres_password}-assurance",
