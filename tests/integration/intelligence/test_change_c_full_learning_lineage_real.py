@@ -82,12 +82,8 @@ def test_change_c_measurements_earn_knowledge_and_inform_subsequent_decision(
             assert item.need_id is not None and item.impact_revision_id is not None
             assert item.baseline_measurement_id is not None and item.later_measurement_id is not None
             repo = BusinessUnderstandingRepository(session)
-            baseline = repo.get_measurement_for_tenant(
-                tenant_id=tenant, measurement_id=item.baseline_measurement_id
-            )
-            later = repo.get_measurement_for_tenant(
-                tenant_id=tenant, measurement_id=item.later_measurement_id
-            )
+            baseline = repo.get_measurement_for_tenant(tenant_id=tenant, measurement_id=item.baseline_measurement_id)
+            later = repo.get_measurement_for_tenant(tenant_id=tenant, measurement_id=item.later_measurement_id)
             revision = repo.get_latest_need_for_tenant(tenant_id=tenant, need_id=item.need_id)
             assert baseline is not None and later is not None and revision is not None
             assert baseline.source_kind == later.source_kind == "customer_attested"
@@ -180,9 +176,7 @@ def test_change_c_measurements_earn_knowledge_and_inform_subsequent_decision(
             "subject_refs": [subject_ref],
             "subject_semantic_signatures": subjects,
             "goal_semantic_signature": goal_semantics,
-            "condition_assertions": [
-                {**condition, "evidence_ids": [str(source.id)]} for condition in conditions
-            ],
+            "condition_assertions": [{**condition, "evidence_ids": [str(source.id)]} for condition in conditions],
             "evaluated_at": evaluated_text,
         },
     }
@@ -190,13 +184,8 @@ def test_change_c_measurements_earn_knowledge_and_inform_subsequent_decision(
     without_knowledge = registry.invoke(
         ToolInvocation(action="decision.recommend_next_action", input=input_data["decision"]), context
     )
-    with_knowledge = registry.invoke(
-        ToolInvocation(action="knowledge.inform_decision", input=input_data), context
-    )
-    support = [
-        item for item in with_knowledge.output["support"]["influences"]
-        if item["direction"] == "supports"
-    ]
+    with_knowledge = registry.invoke(ToolInvocation(action="knowledge.inform_decision", input=input_data), context)
+    support = [item for item in with_knowledge.output["support"]["influences"] if item["direction"] == "supports"]
     assert [(item["option_id"], item["criterion_id"]) for item in support] == [("followup", "conversion")]
     assert set(support[0]["supporting_episode_ids"]) == episode_ids
     assert qualification["qualification_id"] in support[0]["qualification_ids"]
@@ -209,12 +198,19 @@ def test_change_c_measurements_earn_knowledge_and_inform_subsequent_decision(
     # Reuse must also survive durable queue execution and later materialization;
     # no direct knowledge action is allowed to grant execution authority.
     recommended = execute_canonical_action(
-        factory=factory, queue_adapter=queue_adapter, tenant_id=tenant,
-        mission_id=mission_id, action="knowledge.inform_decision",
-        action_input=input_data, worker_label="change-c-knowledge-decision",
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
+        action="knowledge.inform_decision",
+        action_input=input_data,
+        worker_label="change-c-knowledge-decision",
     )
     execution = execute_canonical_action(
-        factory=factory, queue_adapter=queue_adapter, tenant_id=tenant, mission_id=mission_id,
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
         action=EXECUTION_ACTION,
         action_input={
             "record_type": "activity",
@@ -226,7 +222,10 @@ def test_change_c_measurements_earn_knowledge_and_inform_subsequent_decision(
     )
     executed_at = datetime.fromisoformat(str(execution.structured_payload["executed_at"]))
     outcome = execute_canonical_action(
-        factory=factory, queue_adapter=queue_adapter, tenant_id=tenant, mission_id=mission_id,
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
         action="analysis.evaluate_outcome",
         action_input={
             "goal": {
@@ -236,23 +235,36 @@ def test_change_c_measurements_earn_knowledge_and_inform_subsequent_decision(
                 "subject_refs": [subject_ref],
             },
             "subject_refs": [subject_ref],
-            "baseline_kpis": [{
-                "kpi_id": "conversion", "goal_id": "goal-increase-conversion",
-                "name": "Conversion", "metric": "conversion",
-                "current_value": 0.5, "target_value": 1.0,
-            }],
-            "observed_kpis": [{
-                "kpi_id": "conversion", "goal_id": "goal-increase-conversion",
-                "name": "Conversion", "metric": "conversion",
-                "current_value": 1.0, "target_value": 1.0,
-            }],
+            "baseline_kpis": [
+                {
+                    "kpi_id": "conversion",
+                    "goal_id": "goal-increase-conversion",
+                    "name": "Conversion",
+                    "metric": "conversion",
+                    "current_value": 0.5,
+                    "target_value": 1.0,
+                }
+            ],
+            "observed_kpis": [
+                {
+                    "kpi_id": "conversion",
+                    "goal_id": "goal-increase-conversion",
+                    "name": "Conversion",
+                    "metric": "conversion",
+                    "current_value": 1.0,
+                    "target_value": 1.0,
+                }
+            ],
             "source_observed_at": (executed_at + timedelta(milliseconds=1)).isoformat(),
             "evidence_ids": [str(execution.id)],
         },
         worker_label="change-c-next-outcome",
     )
     learned = execute_canonical_action(
-        factory=factory, queue_adapter=queue_adapter, tenant_id=tenant, mission_id=mission_id,
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
         action=MATERIALIZATION_ACTION,
         action_input={
             "recommendation_evidence_id": str(recommended.id),
