@@ -1,0 +1,54 @@
+name: Change C single-chain acceptance proof
+
+on:
+  push:
+    branches:
+      - proof/change-c-measurement-learning-reuse
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    name: PostgreSQL measurement-to-qualified-learning reuse
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate commit
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install '.[dev]'
+
+      - name: Static check of proof and shared fixture
+        run: |
+          ruff check tests/integration/intelligence/canonical_decision_runtime.py tests/integration/intelligence/test_change_c_full_learning_lineage_real.py
+          ruff format --check tests/integration/intelligence/canonical_decision_runtime.py tests/integration/intelligence/test_change_c_full_learning_lineage_real.py
+          python -m compileall -q tests/integration/intelligence/canonical_decision_runtime.py tests/integration/intelligence/test_change_c_full_learning_lineage_real.py
+
+      - name: Verify real PostgreSQL and Redis Testcontainers runtime
+        run: docker info
+
+      - name: Run complete Change C single-chain acceptance
+        env:
+          CHANGE_C_EVIDENCE_MANIFEST_DIR: ${{ runner.temp }}/change-c-proof
+        run: |
+          python -m pytest tests/integration/intelligence/test_change_c_full_learning_lineage_real.py -v -s --tb=long -m integration --timeout=240
+
+      - name: Archive machine-readable evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: change-c-lineage-evidence
+          path: ${{ runner.temp }}/change-c-proof/
+          if-no-files-found: warn
+          retention-days: 14
