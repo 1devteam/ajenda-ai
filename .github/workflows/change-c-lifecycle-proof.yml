@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   proof:
@@ -29,12 +30,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install '.[dev]'
 
-      - name: Static check of proof and shared fixture
-        run: |
-          ruff check tests/integration/intelligence/canonical_decision_runtime.py tests/integration/intelligence/test_change_c_full_learning_lineage_real.py
-          ruff format --check tests/integration/intelligence/canonical_decision_runtime.py tests/integration/intelligence/test_change_c_full_learning_lineage_real.py
-          python -m compileall -q tests/integration/intelligence/canonical_decision_runtime.py tests/integration/intelligence/test_change_c_full_learning_lineage_real.py
-
       - name: Verify real PostgreSQL and Redis Testcontainers runtime
         run: docker info
 
@@ -44,6 +39,12 @@ jobs:
         run: |
           python -m pytest tests/integration/intelligence/test_change_c_full_learning_lineage_real.py -v -s --tb=long -m integration --timeout=240
 
+      - name: Static check of proof and shared fixture
+        run: |
+          ruff check tests/integration/intelligence/canonical_decision_runtime.py tests/integration/intelligence/test_change_c_full_learning_lineage_real.py
+          ruff format --check tests/integration/intelligence/canonical_decision_runtime.py tests/integration/intelligence/test_change_c_full_learning_lineage_real.py
+          python -m compileall -q tests/integration/intelligence/canonical_decision_runtime.py tests/integration/intelligence/test_change_c_full_learning_lineage_real.py
+
       - name: Archive machine-readable evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -52,3 +53,21 @@ jobs:
           path: ${{ runner.temp }}/change-c-proof/
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Publish exact-commit proof status and run link
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            success) state=success ;;
+            failure|cancelled) state=failure ;;
+            *) state=pending ;;
+          esac
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$state" \
+            -f context="change-c/single-chain-proof" \
+            -f description="Real PostgreSQL single-chain proof: $state" \
+            -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
