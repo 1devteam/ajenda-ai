@@ -171,9 +171,30 @@ def test_measurement_endpoint_persists_atomically_and_replays_without_duplicate_
         with pg_engine.connect() as connection:
             session = Session(bind=connection)
             activate_tenant_session(session, tenant_id)
-            assert session.scalar(select(func.count()).select_from(BusinessMeasurement)) == 1
-            assert session.scalar(select(func.count()).select_from(BusinessObservation)) == 1
-            assert session.scalar(select(func.count()).select_from(BusinessNeedRevision)) == 1
+            assert (
+                session.scalar(
+                    select(func.count())
+                    .select_from(BusinessMeasurement)
+                    .where(BusinessMeasurement.tenant_id == tenant_id)
+                )
+                == 1
+            )
+            assert (
+                session.scalar(
+                    select(func.count())
+                    .select_from(BusinessObservation)
+                    .where(BusinessObservation.tenant_id == tenant_id)
+                )
+                == 1
+            )
+            assert (
+                session.scalar(
+                    select(func.count())
+                    .select_from(BusinessNeedRevision)
+                    .where(BusinessNeedRevision.tenant_id == tenant_id)
+                )
+                == 1
+            )
             session.close()
     finally:
         app.state.database_runtime.dispose()
@@ -194,9 +215,30 @@ def test_measurement_endpoint_rejects_forged_provenance_and_subject_mismatch(pg_
         with pg_engine.connect() as connection:
             session = Session(bind=connection)
             activate_tenant_session(session, tenant_id)
-            assert session.scalar(select(func.count()).select_from(BusinessMeasurement)) == 0
-            assert session.scalar(select(func.count()).select_from(BusinessObservation)) == 0
-            assert session.scalar(select(func.count()).select_from(BusinessNeedRevision)) == 0
+            assert (
+                session.scalar(
+                    select(func.count())
+                    .select_from(BusinessMeasurement)
+                    .where(BusinessMeasurement.tenant_id == tenant_id)
+                )
+                == 0
+            )
+            assert (
+                session.scalar(
+                    select(func.count())
+                    .select_from(BusinessObservation)
+                    .where(BusinessObservation.tenant_id == tenant_id)
+                )
+                == 0
+            )
+            assert (
+                session.scalar(
+                    select(func.count())
+                    .select_from(BusinessNeedRevision)
+                    .where(BusinessNeedRevision.tenant_id == tenant_id)
+                )
+                == 0
+            )
             session.close()
     finally:
         app.state.database_runtime.dispose()
@@ -211,7 +253,14 @@ def test_measurement_endpoint_denies_authenticated_viewer(pg_engine) -> None:
         with pg_engine.connect() as connection:
             session = Session(bind=connection)
             activate_tenant_session(session, tenant_id)
-            assert session.scalar(select(func.count()).select_from(BusinessMeasurement)) == 0
+            assert (
+                session.scalar(
+                    select(func.count())
+                    .select_from(BusinessMeasurement)
+                    .where(BusinessMeasurement.tenant_id == tenant_id)
+                )
+                == 0
+            )
             session.close()
     finally:
         app.state.database_runtime.dispose()

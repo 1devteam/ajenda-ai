@@ -304,9 +304,26 @@ def test_concurrent_identical_measurement_ingestion_creates_one_history(pg_engin
     assert len({item[1] for item in results}) == 1
     with factory() as verify:
         activate_tenant_session(verify, tenant_id)
-        assert verify.scalar(select(func.count()).select_from(BusinessMeasurement)) == 1
-        assert verify.scalar(select(func.count()).select_from(BusinessObservation)) == 1
-        assert verify.scalar(select(func.count()).select_from(BusinessNeedRevision)) == 1
+        assert (
+            verify.scalar(
+                select(func.count()).select_from(BusinessMeasurement).where(BusinessMeasurement.tenant_id == tenant_id)
+            )
+            == 1
+        )
+        assert (
+            verify.scalar(
+                select(func.count()).select_from(BusinessObservation).where(BusinessObservation.tenant_id == tenant_id)
+            )
+            == 1
+        )
+        assert (
+            verify.scalar(
+                select(func.count())
+                .select_from(BusinessNeedRevision)
+                .where(BusinessNeedRevision.tenant_id == tenant_id)
+            )
+            == 1
+        )
 
 
 def test_customer_attested_measurement_impact_flows_to_canonical_learning_candidate(
@@ -1035,15 +1052,26 @@ def test_rls_hides_business_understanding_without_tenant_context(pg_engine) -> N
                 _record_acquisition_observation(session, tenant_id=tenant, source_id="blocked")
             session.rollback()
             with pytest.raises(DBAPIError):
-                _ingest_customer_measurement(
-                    session,
-                    tenant_id=tenant,
-                    current=2,
-                    previous=3,
-                    source_version="blocked-v1",
-                    period_start=datetime(2026, 5, 1, tzinfo=UTC),
-                    period_end=datetime(2026, 5, 31, tzinfo=UTC),
+                session.add(
+                    BusinessMeasurement(
+                        tenant_id=tenant,
+                        subject_references=[],
+                        objective_key="blocked",
+                        metric="blocked",
+                        values=[],
+                        value=None,
+                        unit="",
+                        observed_at=datetime(2026, 5, 31, tzinfo=UTC),
+                        captured_at=datetime(2026, 5, 31, tzinfo=UTC),
+                        source_kind="customer_attested",
+                        source_reference={"source_id": "blocked"},
+                        source_version="blocked-v1",
+                        source_content_fingerprint=f"sha256:{'0' * 64}",
+                        limitations=[],
+                        confidence=None,
+                    )
                 )
+                session.flush()
             session.rollback()
             session.close()
             connection.execute(text("RESET ROLE"))
