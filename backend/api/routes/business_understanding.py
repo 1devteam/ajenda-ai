@@ -34,6 +34,7 @@ from backend.services.business_understanding.service import (
     BusinessUnderstandingValidationError,
     SourceReference,
 )
+from backend.services.ontology.commercial_state import Goal, Kpi
 
 router = APIRouter(prefix="/business-understanding", tags=["business-understanding"])
 
@@ -84,6 +85,22 @@ class ObservationCreate(BaseModel):
         if not value:
             raise ValueError("observation_summary must be non-empty")
         return value
+
+
+class MeasurementCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    goal: Goal
+    kpis: list[Kpi] = Field(min_length=1, max_length=100)
+    subject_references: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    source_kind: Literal["customer_attested", "source_verified"] = "customer_attested"
+    source_reference: dict[str, Any] = Field(min_length=1)
+    source_version: str = Field(min_length=1, max_length=160)
+    measurement_period_start: datetime | None = None
+    measurement_period_end: datetime | None = None
+    observed_at: datetime
+    limitations: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    confidence: float | None = Field(default=None, ge=0, le=1)
 
 
 class NeedRevisionCreate(BaseModel):
@@ -188,6 +205,15 @@ class NeedRevisionRead(BaseModel):
 
 class ObservationListRead(BaseModel):
     observations: list[ObservationRead]
+
+
+class MeasurementRead(BaseModel):
+    measurement_id: UUID
+    tenant_id: str
+    source_kind: str
+    source_version: str
+    source_content_fingerprint: str
+    recognized_need_id: str | None = None
 
 
 class NeedListRead(BaseModel):
@@ -317,6 +343,52 @@ def create_observation(
                 body=body,
                 producer=_actor_id(request),
             )
+        )
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
+@router.post("/measurements", response_model=MeasurementRead, status_code=status.HTTP_201_CREATED)
+def ingest_measurement(
+    body: MeasurementCreate,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> MeasurementRead:
+    """Authenticated customer-attested operating measurement ingress."""
+    require_route_permission(
+        request=request, db=db, permission=Permission.BUSINESS_UNDERSTANDING_MANAGE, tenant_id=tenant_id
+    )
+    if body.source_kind == "source_verified":
+        raise HTTPException(status_code=422, detail="source_verified measurements require an internal adapter")
+    if any(k.goal_id != body.goal.goal_id for k in body.kpis):
+        raise HTTPException(status_code=422, detail="all KPI values must belong to the supplied goal")
+    if body.measurement_period_start and body.measurement_period_end:
+        if body.measurement_period_end < body.measurement_period_start:
+            raise HTTPException(status_code=422, detail="measurement period is invalid")
+    try:
+        measurement, need = BusinessUnderstandingService(db).ingest_measurement(
+            tenant_id=str(tenant_id),
+            goal=body.goal,
+            kpis=body.kpis,
+            subject_references=body.subject_references,
+            source_kind=body.source_kind,
+            source_reference=body.source_reference,
+            source_version=body.source_version,
+            measurement_period_start=body.measurement_period_start,
+            measurement_period_end=body.measurement_period_end,
+            observed_at=body.observed_at,
+            limitations=body.limitations,
+            confidence=body.confidence,
+            producer=_actor_id(request),
+        )
+        return MeasurementRead(
+            measurement_id=measurement.id,
+            tenant_id=measurement.tenant_id,
+            source_kind=measurement.source_kind,
+            source_version=measurement.source_version,
+            source_content_fingerprint=measurement.source_content_fingerprint,
+            recognized_need_id=need.need_id if need is not None else None,
         )
     except Exception as exc:
         raise _map_error(exc) from exc

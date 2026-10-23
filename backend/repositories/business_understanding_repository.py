@@ -39,8 +39,9 @@ class BusinessUnderstandingRepository:
         return observation
 
     def add_measurement(self, measurement: BusinessMeasurement) -> BusinessMeasurement:
-        self._session.add(measurement)
-        self._session.flush()
+        with self._session.begin_nested():
+            self._session.add(measurement)
+            self._session.flush()
         self._session.refresh(measurement)
         return measurement
 

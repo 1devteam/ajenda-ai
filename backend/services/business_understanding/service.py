@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.domain.business_understanding import BusinessMeasurement, BusinessNeedRevision, BusinessObservation, utcnow
@@ -152,27 +153,33 @@ class BusinessUnderstandingService:
             tenant_id=tenant_id, fingerprint=fingerprint
         )
         if measurement is None:
-            measurement = self._repository.add_measurement(
-                BusinessMeasurement(
-                    tenant_id=tenant_id,
-                    subject_references=subject_references,
-                    objective_key=goal.objective_key or goal.goal_id,
-                    metric=", ".join(sorted(k.metric for k in kpis)),
-                    values=[k.model_dump(mode="json") for k in kpis],
-                    value=None,
-                    unit="",
-                    period_start=measurement_period_start,
-                    period_end=measurement_period_end,
-                    observed_at=observed_at,
-                    captured_at=utcnow(),
-                    source_kind=source_kind,
-                    source_reference=source_reference,
-                    source_version=source_version,
-                    source_content_fingerprint=fingerprint,
-                    limitations=[*limitations, {"code": f"provenance:{source_kind}"}],
-                    confidence=confidence,
-                )
+            candidate = BusinessMeasurement(
+                tenant_id=tenant_id,
+                subject_references=subject_references,
+                objective_key=goal.objective_key or goal.goal_id,
+                metric=", ".join(sorted(k.metric for k in kpis)),
+                values=[k.model_dump(mode="json") for k in kpis],
+                value=None,
+                unit="",
+                period_start=measurement_period_start,
+                period_end=measurement_period_end,
+                observed_at=observed_at,
+                captured_at=utcnow(),
+                source_kind=source_kind,
+                source_reference=source_reference,
+                source_version=source_version,
+                source_content_fingerprint=fingerprint,
+                limitations=[*limitations, {"code": f"provenance:{source_kind}"}],
+                confidence=confidence,
             )
+            try:
+                measurement = self._repository.add_measurement(candidate)
+            except IntegrityError:
+                measurement = self._repository.get_measurement_by_fingerprint_for_tenant(
+                    tenant_id=tenant_id, fingerprint=fingerprint
+                )
+                if measurement is None:
+                    raise
         need = self.recognize_goal_gap(
             tenant_id=tenant_id,
             goal=goal,
