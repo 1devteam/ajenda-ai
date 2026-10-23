@@ -89,6 +89,19 @@ class BusinessUnderstandingRepository:
         self._session.refresh(assessment)
         return assessment
 
+    def get_assessment_by_fingerprint_for_tenant(
+        self, *, tenant_id: str, need_id: str, need_revision: int, fingerprint: str
+    ) -> BusinessNeedAssessment | None:
+        """Return an identical assessment so retries do not create duplicates."""
+        return self._session.scalar(
+            select(BusinessNeedAssessment).where(
+                BusinessNeedAssessment.tenant_id == tenant_id,
+                BusinessNeedAssessment.need_id == need_id,
+                BusinessNeedAssessment.need_revision == need_revision,
+                BusinessNeedAssessment.assessment_fingerprint == fingerprint,
+            )
+        )
+
     def get_assessment_for_tenant(self, *, assessment_id: uuid.UUID, tenant_id: str) -> BusinessNeedAssessment | None:
         return self._session.scalar(
             select(BusinessNeedAssessment).where(

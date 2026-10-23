@@ -162,6 +162,13 @@ def _knowledge_status(
 ) -> Literal["not_provided", "supports", "opposes", "conditional", "unresolved"]:
     if not directions:
         return "not_provided"
+    # Conflicting or unresolved knowledge must never be collapsed into a
+    # recommendation.  In particular, supports + opposes is evidence of a
+    # conflict, not a reason to prefer the positive influence.
+    if KnowledgeInfluenceDirection.SUPPORTS in directions and KnowledgeInfluenceDirection.OPPOSES in directions:
+        return "unresolved"
+    if KnowledgeInfluenceDirection.UNRESOLVED in directions or KnowledgeInfluenceDirection.NEUTRAL in directions:
+        return "unresolved"
     if KnowledgeInfluenceDirection.SUPPORTS in directions:
         return "supports"
     if KnowledgeInfluenceDirection.OPPOSES in directions:
@@ -305,9 +312,10 @@ class BusinessNeedReasoningService:
                 "investigate_further", "seek_clarification", "consider_response", "insufficient_evidence"
             ] = "insufficient_evidence"
         elif any(
-            response.evidence_status == "supported" or response.knowledge_support_status == "supports"
+            response.evidence_status == "supported"
+            and response.knowledge_support_status not in {"opposes", "unresolved"}
             for response in responses
-        ):
+        ) or any(response.knowledge_support_status == "supports" for response in responses):
             next_step = "consider_response"
         elif causes:
             next_step = "investigate_further"
@@ -343,7 +351,13 @@ class BusinessNeedReasoningService:
             "sha256:"
             + hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         )
-        assessment = self._repository.add_assessment(
+        existing = self._repository.get_assessment_by_fingerprint_for_tenant(
+            tenant_id=tenant_id,
+            need_id=need_id,
+            need_revision=revision,
+            fingerprint=fingerprint,
+        )
+        assessment = existing or self._repository.add_assessment(
             BusinessNeedAssessment(
                 tenant_id=tenant_id,
                 need_id=need_id,

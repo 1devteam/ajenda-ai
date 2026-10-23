@@ -989,7 +989,15 @@ def compare_reviewed_semantic_state(
     # through the existing authority and feasibility checks, not as a rewrite
     # of customer meaning.  A changed semantic frame, selected catalog jobs,
     # or acceptance contract is material and requires a successor proposal.
-    material_composition_fields = {"selected_job_keys", "acceptance_criteria"}
+    # Artifacts and dependency edges define what Ajenda promises to produce
+    # and in what order.  Changing either is therefore a material response
+    # change, even when the catalog job identities are unchanged.
+    material_composition_fields = {
+        "selected_job_keys",
+        "planned_artifacts",
+        "dependencies",
+        "acceptance_criteria",
+    }
     changed = bool(semantic_changes or material_composition_fields.intersection(composition_changes))
     return SemanticRevisionComparison(
         status="material_change" if changed else "unchanged",
