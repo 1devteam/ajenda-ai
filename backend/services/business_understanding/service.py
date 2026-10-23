@@ -146,7 +146,7 @@ class BusinessUnderstandingService:
             raise BusinessUnderstandingValidationError("observed_at must be timezone-aware")
         expected_subjects = canonical_subject_keys(goal.subject_refs)
         supplied_subjects = canonical_subject_keys(subject_references)
-        if expected_subjects and expected_subjects != supplied_subjects:
+        if expected_subjects != supplied_subjects:
             raise BusinessUnderstandingValidationError("measurement subjects must match goal subjects")
         payload = {
             "goal_id": goal.goal_id,
@@ -232,12 +232,6 @@ class BusinessUnderstandingService:
         atomically or neither is usable.
         """
         evaluation = evaluate_goal_progress(goal=goal, kpis=kpis, evaluated_at=observed_at)
-        if evaluation.status in {
-            GoalProgressStatus.ON_TRACK,
-            GoalProgressStatus.ACHIEVED,
-            GoalProgressStatus.INSUFFICIENT_DATA,
-        }:
-            return None
         objective_key = goal.objective_key or goal.goal_id
         subject_references = [item.model_dump(mode="json") for item in goal.subject_refs]
         condition_key = hashlib.sha256(
@@ -287,6 +281,16 @@ class BusinessUnderstandingService:
             subject_references=subject_references,
             condition_key=condition_key,
         )
+        if (
+            evaluation.status
+            in {
+                GoalProgressStatus.ON_TRACK,
+                GoalProgressStatus.ACHIEVED,
+                GoalProgressStatus.INSUFFICIENT_DATA,
+            }
+            and existing is None
+        ):
+            return None
         if existing is not None and any(
             str(item.get("observation_id")) == str(observation.id)
             for item in existing.observation_references
@@ -304,7 +308,13 @@ class BusinessUnderstandingService:
             need_id=existing.need_id if existing is not None else None,
             expected_revision=existing.revision if existing is not None else 0,
             origin="observed",
-            status=existing.status if existing is not None else "recognized",
+            status=(
+                "monitoring"
+                if evaluation.status in {GoalProgressStatus.ON_TRACK, GoalProgressStatus.ACHIEVED}
+                else existing.status
+            )
+            if existing is not None
+            else "recognized",
             subject_references=subject_references,
             objective_reference=objective_reference,
             condition_summary=f"Goal '{goal.name}' is {evaluation.status.value}",
