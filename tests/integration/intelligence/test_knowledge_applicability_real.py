@@ -4,8 +4,11 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from backend.db.tenant_session import activate_tenant_session
+from backend.domain.knowledge import KnowledgeArtifactRecord, KnowledgeQualificationRecord
 from backend.services.ontology.commercial_state import GoalSemanticSignature
 from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.action_registry import get_default_action_registry
@@ -97,3 +100,95 @@ def test_real_ledger_lifecycle_retrieval_applicability_is_read_only_and_tenant_s
     assert hidden.output["evaluations"] == []
     assert hidden.output["reason_codes"] == ["no_current_semantic_knowledge_match"]
     assert _tenant_counts(factory, tenant) == before
+
+
+def test_historical_prose_invalidation_remains_immutable_and_fails_closed(pg_engine) -> None:
+    tenant = f"tenant-{uuid.uuid4()}"
+    factory = sessionmaker(bind=pg_engine, expire_on_commit=False)
+    registry = get_default_action_registry(rebuild=True)
+    historical_condition = "Repeated counterexamples under comparable conditions"
+    qualification = _replace_proposition(
+        _qualification(intervention="sales.schedule_discovery", indexes=(201, 202, 203)),
+        scope_conditions=("segment:smb",),
+        invalidation_conditions=(historical_condition,),
+    )
+    registry.invoke(
+        ToolInvocation(
+            action="knowledge.record_qualification",
+            input={"result": qualification.model_dump(mode="json")},
+        ),
+        _context(tenant, factory),
+    )
+    with factory() as session:
+        activate_tenant_session(session, tenant)
+        qualification_payload_before = session.scalar(
+            select(KnowledgeQualificationRecord.qualification_payload).where(
+                KnowledgeQualificationRecord.tenant_id == tenant
+            )
+        )
+        artifact_payload_before = session.scalar(
+            select(KnowledgeArtifactRecord.artifact_payload).where(KnowledgeArtifactRecord.tenant_id == tenant)
+        )
+    assert qualification_payload_before is not None
+    assert artifact_payload_before is not None
+    assert qualification_payload_before["proposition"]["invalidation_conditions"] == [historical_condition]
+    assert artifact_payload_before["proposition"]["invalidation_conditions"] == [historical_condition]
+
+    now = datetime(2026, 8, 13, tzinfo=UTC).isoformat()
+    query = {
+        "subject_semantic_signatures": [
+            BusinessObjectSemanticSignature(object_type=BusinessObjectType.OPPORTUNITY).model_dump(mode="json")
+        ],
+        "goal_semantic_signature": GoalSemanticSignature(objective_key="increase_conversion").model_dump(mode="json"),
+    }
+    evaluated = registry.invoke(
+        ToolInvocation(
+            action="knowledge.evaluate_applicability",
+            input={
+                "query": query,
+                "context": {
+                    "subject_refs": [{"object_type": "opportunity", "object_id": "opp-123"}],
+                    "subject_semantic_signatures": query["subject_semantic_signatures"],
+                    "goal_semantic_signature": query["goal_semantic_signature"],
+                    "condition_assertions": [
+                        {
+                            "condition_key": "segment:smb",
+                            "state": "active",
+                            "subject_refs": [{"object_type": "opportunity", "object_id": "opp-123"}],
+                            "evidence_ids": ["ev-crm-segment"],
+                            "observed_at": now,
+                            "verification_basis": "source_supplied_under_contract",
+                        },
+                        {
+                            "condition_key": "recurrence:comparable_counterexamples",
+                            "state": "inactive",
+                            "subject_refs": [{"object_type": "opportunity", "object_id": "opp-123"}],
+                            "evidence_ids": ["ev-current-recurrence"],
+                            "observed_at": now,
+                            "verification_basis": "independently_verified",
+                        },
+                    ],
+                    "evaluated_at": now,
+                },
+            },
+        ),
+        _context(tenant, factory),
+    )
+    result = evaluated.output["evaluations"][0]
+    assert result["status"] == "insufficient_context"
+    assert result["invalidation_conditions"] == [historical_condition]
+    assert result["unknown_invalidation_conditions"] == [historical_condition]
+    assert result["cleared_invalidation_conditions"] == []
+
+    with factory() as session:
+        activate_tenant_session(session, tenant)
+        qualification_payload_after = session.scalar(
+            select(KnowledgeQualificationRecord.qualification_payload).where(
+                KnowledgeQualificationRecord.tenant_id == tenant
+            )
+        )
+        artifact_payload_after = session.scalar(
+            select(KnowledgeArtifactRecord.artifact_payload).where(KnowledgeArtifactRecord.tenant_id == tenant)
+        )
+    assert qualification_payload_after == qualification_payload_before
+    assert artifact_payload_after == artifact_payload_before
