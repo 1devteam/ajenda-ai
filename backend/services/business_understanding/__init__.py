@@ -1,1 +1,1 @@
-"""Business observation and need-hypothesis services."""
+"""Durable business-understanding services and non-authoritative reasoning."""

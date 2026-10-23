@@ -41,6 +41,16 @@ class MissionRepository:
             self._reconcile_review_holds(missions=[mission], tenant_id=tenant_id)
         return mission
 
+    def get_reference_for_tenant(self, *, mission_id: uuid.UUID, tenant_id: str) -> Mission | None:
+        """Read a mission identity for attribution without reconciling lifecycle state.
+
+        Business-understanding provenance needs to establish tenant ownership of
+        a mission reference.  It must not turn that read into a mission-state
+        mutation (for example, review-hold reconciliation).
+        """
+
+        return self._session.scalar(select(Mission).where(Mission.id == mission_id, Mission.tenant_id == tenant_id))
+
     def lock_for_tenant(self, *, mission_id: uuid.UUID, tenant_id: str) -> Mission | None:
         """Return a tenant-owned mission while holding a row lock for mutation serialization."""
         stmt = select(Mission).where(Mission.id == mission_id, Mission.tenant_id == tenant_id).with_for_update()

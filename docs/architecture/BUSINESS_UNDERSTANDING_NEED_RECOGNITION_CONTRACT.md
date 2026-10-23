@@ -1,7 +1,8 @@
 # Business Understanding and Need Recognition Contract
 
-**Status:** implemented foundation, with later intelligence-spine phases still
-explicitly deferred.
+**Status:** implemented business-understanding foundation and bounded
+need-assessment integration. Autonomous recognition, long-horizon impact
+measurement, and learning promotion remain explicitly deferred.
 
 **Baseline:** `fafb93069a70e6a01becaf154c57e67dfa6f7693`
 
@@ -63,9 +64,11 @@ history or a need lifecycle independent of a mission. The implemented minimum
 responsibility is therefore a **business-understanding record family**, not a
 planner, policy engine, action registry, evidence ledger, or worker.
 
-The implementation is `BusinessObservation` and `BusinessNeedRevision` in
+The implementation is `BusinessObservation`, `BusinessNeedRevision`, and
+`BusinessNeedAssessment` in
 `backend/domain/business_understanding.py`, with tenant-scoped repository and
-service boundaries, migration `0055_business_understanding`, and the
+service boundaries, migrations `0055_business_understanding` and
+`0056_business_need_assessments`, and the
 `/v1/business-understanding` API. Every write remains inside the caller-owned
 tenant transaction; no service method commits or reaches runtime execution.
 
@@ -132,6 +135,34 @@ governance and runtime paths. A need record may link to a proposal or an
 authorisation receipt for explanation, but that link is not an approval and
 must be revalidated at existing execution boundaries.
 
+### 4. Deterministic need assessment
+
+`backend/services/business_understanding/reasoning.py` evaluates a specific,
+tenant-scoped need revision using the existing goal/KPI evaluator, catalog, and
+bounded qualified-knowledge decision-support result. The assessment persists
+an immutable `BusinessNeedAssessment` and returns:
+
+- the business condition, goal/KPI status, explicitly cited supporting and
+  contradictory observations, and information gaps;
+- competing cause hypotheses with `supported`, `contradicted`, `conflicted`,
+  or `unresolved` status;
+- candidate responses, assumptions, dependencies, trade-offs, and catalog
+  coverage (`catalog_supported`, `partially_mapped`, or `unmapped`); and
+- the next justified step and the independent evidence required to claim
+  business improvement.
+
+KPI variance establishes a condition, not a causal explanation. A cause or
+response is supported only by its explicitly attributed observation IDs or a
+separately produced qualified-knowledge influence. The assessment does not
+infer that an available capability is appropriate, and an unmapped capability
+does not erase an otherwise justified response.
+
+Qualified knowledge enters only through
+`KnowledgeDecisionSupportResult`, which already applies retrieval and
+applicability rules. It remains derived, non-independent evidence. An
+inapplicable, invalidated, or unresolved knowledge influence cannot justify a
+response here.
+
 ## Lifecycle and temporal continuity
 
 The need lifecycle is analytical, not an execution state machine.
@@ -192,20 +223,24 @@ composition snapshot.
 For the implemented need-linked composition:
 
 1. `POST /v1/missions/compose` may include a tenant-visible `business_need_id`
-   and revision. Composition verifies that exact revision and records a safe
-   reference/fingerprint in `CompositionProvenance`.
+   and revision, plus a matching persisted assessment ID. Composition verifies
+   the exact tenant-owned references and records safe fingerprints in
+   `CompositionProvenance`.
 2. The reference is read-only provenance: it does not add objectives, choose
    catalog jobs, or change the instruction. Direct customer instruction remains
    independently composable without a need.
-3. Confirmation and compilation preserve the reference when they revalidate a
-   reviewed record. A later need revision cannot rewrite the stored proposal.
-4. A proposal link is explanatory only. The need revision cannot mark a mission
+3. Composition persists paired immutable `semantic_snapshot` and
+   `reviewed_composition_snapshot` payloads in the existing durable proposal
+   record. Confirmation and compilation compare fresh semantic meaning with
+   the reviewed snapshot. A material change to instruction-derived meaning,
+   selected catalog jobs, or acceptance criteria requires a successor proposal;
+   current charter, credential, and provider readiness continue through their
+   independent authority checks.
+4. Revalidation is transient until its proposal lineage, mission/plan/graph,
+   and evidence are written in the caller-owned transaction. The process cache
+   is never authoritative when a database session is available.
+5. A proposal link is explanatory only. The need revision cannot mark a mission
    accepted, authorised, or resolved.
-
-The current proposal store remains a mutable JSON projection and does not yet
-implement the charter's two immutable semantic/reviewed-composition snapshot
-contracts. This foundation intentionally does not claim to solve that separate
-durability gap.
 
 ## Tenant, authority, privacy, and compatibility invariants
 
@@ -249,17 +284,21 @@ durability gap.
 
 ## Implementation evidence and remaining work
 
-The foundation is proven by `tests/integration/intelligence/
-test_business_understanding_real.py`: append-only continuity, independent
-impact observation before resolution, stale revision conflict from two database
-sessions, cross-tenant reference rejection, and PostgreSQL RLS fail-closed
-behavior. `tests/contract/api/test_mission_composition_routes.py` proves that a
-need-linked composition remains a read model and has no execution authority.
+The foundation and assessment are proven by
+`tests/integration/intelligence/test_business_understanding_real.py`:
+append-only continuity, independent impact observation before resolution,
+stale revision conflict from two database sessions, cross-tenant reference
+rejection, PostgreSQL RLS fail-closed behavior, cause/response evidence
+separation, supported-but-unmapped responses, mapped-but-unjustified
+capabilities, and inapplicable qualified knowledge. The composition contract
+tests prove paired snapshots, semantic materiality comparison, transactionally
+owned revalidation, and that need-linked composition remains a read model with
+no execution authority.
 
-Remaining work is deliberately outside this first persistence layer: automated
-goal/outcome-to-observation projection, materiality comparison against the
-future immutable snapshots, authoritative candidate-response readiness, formal
-retention/tombstone policy, and qualified-learning promotion/reuse.
+Remaining work is deliberately outside this layer: automated
+goal/outcome-to-observation projection, provider-backed investigation of
+unresolved causes, formal retention/tombstone policy, long-horizon business
+impact monitoring, and qualified-learning promotion/reuse.
 
 This contract deliberately does **not** authorize: a generalized state graph,
 automatic CRM mutation, an autonomous campaign engine, a new execution loop,

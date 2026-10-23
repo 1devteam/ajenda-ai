@@ -15,6 +15,9 @@ from backend.services.mission_composition.contracts import (
     AllowedActionsProvenance,
     CompositionProvenance,
     MissionCompositionRecord,
+    ReviewedCompositionSnapshot,
+    SemanticSnapshot,
+    _snapshot_digest,
 )
 from backend.services.mission_composition.coverage import assess_coverage, coverage_mode_for_intent
 from backend.services.mission_composition.epistemic import build_epistemic_context
@@ -60,6 +63,8 @@ class MissionCompositionProposalPhase:
         actor_id: str | None = None,
         interpretation_thread_id: str | None = None,
         business_need_reference: dict[str, Any] | None = None,
+        business_need_assessment_reference: dict[str, Any] | None = None,
+        persist: bool = True,
     ) -> MissionCompositionRecord:
         if not instruction or not instruction.strip():
             raise MissionCompositionError(code="INSTRUCTION_REQUIRED", message="instruction is required")
@@ -70,6 +75,12 @@ class MissionCompositionProposalPhase:
             db=self._db,
             tenant_id=tenant_id,
             reference=business_need_reference,
+        )
+        business_need_assessment_reference = self._business_need_assessment_reference(
+            db=self._db,
+            tenant_id=tenant_id,
+            reference=business_need_assessment_reference,
+            need_reference=business_need_reference,
         )
 
         # Preserve exact raw instruction; validation uses strip only for emptiness.
@@ -85,7 +96,8 @@ class MissionCompositionProposalPhase:
         profile = None
         if self._db is not None:
             profile = self._business_profile_repository(self._db).get_active_profile_for_tenant(tenant_id=tenant_id)
-        intent = interpret_instruction(raw_instruction, profile_context=self._profile_context(profile))
+        profile_context = self._profile_context(profile)
+        intent = interpret_instruction(raw_instruction, profile_context=profile_context)
         # Escalation only for same actor+thread interpretation failures (durable required).
         if prior and prior.get("durable") and intent.ambiguity and not intent.interpretation_ready:
             shared = set(prior.get("unresolved_fields") or []) & {c.field for c in intent.ambiguity}
@@ -316,14 +328,99 @@ class MissionCompositionProposalPhase:
         else:
             proposal_status = "proposal_ready"
 
+        proposal_id = str(uuid.uuid4())
+        # ``profile_id`` identifies the retrieval owner but does not influence
+        # instruction meaning.  Only facts available to interpretation belong
+        # in the semantic context fingerprint.
+        semantic_context = {key: value for key, value in profile_context.items() if key != "profile_id"}
+        semantic_snapshot_payload = {
+            "schema_version": 1,
+            "snapshot_id": f"semantic:{tenant_id}:{proposal_id}",
+            "tenant_id": tenant_id,
+            "instruction_sha256": "sha256:" + hashlib.sha256(raw_instruction.encode("utf-8")).hexdigest(),
+            "interpreted_clauses": tuple(item.model_dump(mode="json") for item in intent.interpreted_clauses),
+            "requested_outcomes": tuple(intent.requested_outcomes),
+            "target_entities": tuple(item.model_dump(mode="json") for item in intent.target_entities),
+            "constraints": tuple(intent.constraints),
+            "success_criteria": tuple(item.model_dump(mode="json") for item in intent.success_criteria),
+            "semantic_selection": semantic_selection.model_dump(mode="json"),
+            "business_need_reference": business_need_reference,
+            "business_need_assessment_reference": business_need_assessment_reference,
+            "context_fingerprints": tuple(
+                value
+                for value in (
+                    (
+                        "sha256:"
+                        + hashlib.sha256(
+                            json.dumps(semantic_context, sort_keys=True, default=str).encode("utf-8")
+                        ).hexdigest()
+                    )
+                    if profile is not None
+                    else None,
+                )
+                if value is not None
+            ),
+            "uncertainty": tuple(item.model_dump(mode="json") for item in intent.ambiguity),
+            "rule_versions": {
+                "interpreter": intent.interpreter_version,
+                "semantic_lattice": "1",
+            },
+            "grants_execution_authority": False,
+        }
+        semantic_snapshot = SemanticSnapshot.model_validate(
+            {**semantic_snapshot_payload, "content_sha256": _snapshot_digest(semantic_snapshot_payload)}
+        )
+        reviewed_snapshot_payload = {
+            "schema_version": 1,
+            "snapshot_id": f"reviewed-composition:{tenant_id}:{proposal_id}",
+            "tenant_id": tenant_id,
+            "semantic_snapshot_id": semantic_snapshot.snapshot_id,
+            "semantic_snapshot_sha256": semantic_snapshot.content_sha256,
+            "selected_job_keys": tuple(job.job_key for job in jobs),
+            "planned_artifacts": tuple(
+                {
+                    "step_key": step.step_key,
+                    "job_key": step.job_key,
+                    "output_contract": step.output_contract,
+                }
+                for step in planned_steps
+            ),
+            "dependencies": tuple(
+                {
+                    "step_key": step.step_key,
+                    "depends_on": tuple(step.depends_on),
+                }
+                for step in planned_steps
+            ),
+            "acceptance_criteria": tuple(item.model_dump(mode="json") for item in intent.success_criteria),
+            "alternatives_considered": tuple(
+                {
+                    "job_key": selection.job_key,
+                    "alternatives": [item.model_dump(mode="json") for item in selection.alternatives],
+                }
+                for selection in selections
+                if selection.alternatives
+            ),
+            "planner_versions": {
+                "catalog": "12",
+                "planner": str((planner_provenance or {}).get("planner") or "catalog_contract"),
+            },
+            "grants_execution_authority": False,
+        }
+        reviewed_composition_snapshot = ReviewedCompositionSnapshot.model_validate(
+            {**reviewed_snapshot_payload, "content_sha256": _snapshot_digest(reviewed_snapshot_payload)}
+        )
+
         record = MissionCompositionRecord(
             schema_version=COMPOSITION_SCHEMA_VERSION,
-            proposal_id=str(uuid.uuid4()),
+            proposal_id=proposal_id,
             interpretation_thread_id=thread_id,
             proposal_status=proposal_status,  # type: ignore[arg-type]
             instruction=raw_instruction,
             raw_instruction=raw_instruction,
             normalized_instruction=intent.normalized_instruction or raw_instruction,
+            semantic_snapshot=semantic_snapshot,
+            reviewed_composition_snapshot=reviewed_composition_snapshot,
             intent=intent,
             job_assignments=job_assignments,
             ability_selections=selections,
@@ -353,6 +450,7 @@ class MissionCompositionProposalPhase:
                 charter_profile_id=str(profile.id) if profile is not None else None,
                 charter_revision=charter.revision,
                 business_need_reference=business_need_reference,
+                business_need_assessment_reference=business_need_assessment_reference,
             ),
         )
         # Only interpretation failures escalate via thread history.
@@ -361,29 +459,42 @@ class MissionCompositionProposalPhase:
         if proposal_status == "interpretation_failed" and prior and prior.get("durable"):
             failure_count = int(prior.get("repeated_failure_count") or 0)
             superseded_id = str(prior["proposal_id"]) if prior.get("proposal_id") else None
-        put_proposal(
-            tenant_id=tenant_id,
-            record=record,
-            db=self._db,
-            actor_id=actor_id,
-            normalized_instruction=intent.normalized_instruction or raw_instruction,
-            repeated_failure_count=failure_count,
-            superseded_proposal_id=superseded_id,
-            require_durable=False,
-        )
-        if superseded_id and proposal_status == "interpretation_failed":
+        if persist:
+            # In a tenant request, the proposal, its decision lineage, and
+            # later confirmation/compilation state must share the caller's
+            # transaction.  Cache-only storage remains the explicit no-DB
+            # compatibility path, never a substitute for durable snapshots.
+            persisted = put_proposal(
+                tenant_id=tenant_id,
+                record=record,
+                db=self._db,
+                actor_id=actor_id,
+                normalized_instruction=intent.normalized_instruction or raw_instruction,
+                repeated_failure_count=failure_count,
+                superseded_proposal_id=superseded_id,
+                require_durable=self._db is not None,
+                commit=self._db is None,
+            )
+            if not persisted:
+                raise MissionCompositionError(
+                    code="PROPOSAL_PERSIST_FAILED",
+                    message="composition requires durable proposal and decision lineage persistence",
+                )
+        if persist and superseded_id and proposal_status == "interpretation_failed":
             mark_superseded(
                 tenant_id=tenant_id,
                 proposal_id=superseded_id,
                 superseding_proposal_id=record.proposal_id,
                 db=self._db,
+                commit=self._db is None,
             )
-        self._record_decision_observations(
-            tenant_id=tenant_id,
-            actor_id=actor_id or "mission_composition",
-            record=record,
-            planner_provenance=planner_provenance,
-        )
+        if persist:
+            self._record_decision_observations(
+                tenant_id=tenant_id,
+                actor_id=actor_id or "mission_composition",
+                record=record,
+                planner_provenance=planner_provenance,
+            )
         return record
 
     def _record_decision_observations(

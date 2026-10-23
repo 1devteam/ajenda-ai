@@ -170,6 +170,12 @@ class BusinessUnderstandingService:
                 )
             if impact_assessment is None:
                 raise BusinessUnderstandingValidationError("resolved need revisions require an impact_assessment")
+            self._validate_resolution_consistency(
+                previous=previous,
+                subject_references=subject_references,
+                resolution_observations=resolution_observations,
+                impact_assessment=impact_assessment,
+            )
         self._validate_related_needs(tenant_id=tenant_id, references=related_need_references)
         self._validate_proposal_references(tenant_id=tenant_id, references=proposal_references)
         self._validate_mission_references(tenant_id=tenant_id, references=mission_references)
@@ -187,22 +193,97 @@ class BusinessUnderstandingService:
                 "uncertainty": list(uncertainty),
                 "priority": dict(priority) if priority is not None else None,
                 "confidence": confidence,
-                "observation_references": [
-                    {"observation_id": str(item.id), "source_fingerprint": item.source_fingerprint}
-                    for item in observations
-                ],
+                "observation_references": [self._observation_reference(item) for item in observations],
                 "related_need_references": list(related_need_references),
                 "candidate_responses": list(candidate_responses),
                 "proposal_references": list(proposal_references),
                 "mission_references": list(mission_references),
-                "impact_assessment": dict(impact_assessment) if impact_assessment is not None else None,
+                "impact_assessment": self._bounded_impact_assessment(
+                    condition_summary=condition_summary,
+                    assessment=impact_assessment,
+                ),
                 "resolution_observation_references": [
-                    {"observation_id": str(item.id), "source_fingerprint": item.source_fingerprint}
-                    for item in resolution_observations
+                    self._observation_reference(item) for item in resolution_observations
                 ],
                 "producer": producer.strip(),
             },
         )
+
+    @staticmethod
+    def _observation_reference(observation: BusinessObservation) -> dict[str, str]:
+        """Preserve source identity without claiming payload verification.
+
+        The source owner validates tenant-scoped identity at write time.  A
+        business-need revision does not re-fetch or independently verify the
+        underlying source version/content, so its provenance must say so.
+        """
+
+        status = (
+            "producer_attested_reference"
+            if observation.source_kind in {"external_provider", "customer_instruction"}
+            else "source_owner_identity_verified_content_version_unavailable"
+        )
+        return {
+            "observation_id": str(observation.id),
+            "source_identity_fingerprint": observation.source_fingerprint,
+            "source_content_verification": status,
+        }
+
+    @staticmethod
+    def _subject_keys(references: list[dict[str, Any]]) -> set[str]:
+        return {
+            json.dumps(reference, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+            for reference in references
+            if isinstance(reference, dict)
+        }
+
+    def _validate_resolution_consistency(
+        self,
+        *,
+        previous: BusinessNeedRevision | None,
+        subject_references: list[dict[str, Any]],
+        resolution_observations: list[BusinessObservation],
+        impact_assessment: dict[str, Any],
+    ) -> None:
+        allowed = {"status", "evaluation_basis", "condition_fingerprint"}
+        if set(impact_assessment).difference(allowed) or not str(impact_assessment.get("status") or "").strip():
+            raise BusinessUnderstandingValidationError("impact assessment is invalid")
+        expected_subjects = self._subject_keys(subject_references)
+        if expected_subjects and any(
+            not expected_subjects.intersection(self._subject_keys(list(item.subject_references)))
+            for item in resolution_observations
+        ):
+            raise BusinessUnderstandingValidationError("resolution observations must concern the need subject")
+        if previous is None:
+            return
+        prior_ids = [
+            uuid.UUID(str(item["observation_id"]))
+            for item in previous.observation_references
+            if isinstance(item, dict) and item.get("observation_id")
+        ]
+        prior = self._require_observations(tenant_id=previous.tenant_id, observation_ids=prior_ids)
+        if prior and max(item.observed_at for item in resolution_observations) <= max(
+            item.observed_at for item in prior
+        ):
+            raise BusinessUnderstandingValidationError(
+                "resolution observations must follow the previously observed condition"
+            )
+
+    @staticmethod
+    def _bounded_impact_assessment(
+        *,
+        condition_summary: str,
+        assessment: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if assessment is None:
+            return None
+        expected = "sha256:" + hashlib.sha256(condition_summary.strip().encode("utf-8")).hexdigest()
+        supplied = assessment.get("condition_fingerprint")
+        if supplied is not None and supplied != expected:
+            raise BusinessUnderstandingValidationError("impact assessment condition does not match the need")
+        result = {key: value for key, value in assessment.items() if key in {"status", "evaluation_basis"}}
+        result["condition_fingerprint"] = expected
+        return result
 
     def _validate_source(self, *, tenant_id: str, source: SourceReference) -> None:
         reference = source.reference
@@ -327,7 +408,7 @@ class BusinessUnderstandingService:
                 raise BusinessUnderstandingValidationError("mission reference is invalid") from exc
             if set(reference).difference({"mission_id"}):
                 raise BusinessUnderstandingValidationError("mission reference is invalid")
-            if repository.get_for_tenant(mission_id=mission_id, tenant_id=tenant_id) is None:
+            if repository.get_reference_for_tenant(mission_id=mission_id, tenant_id=tenant_id) is None:
                 raise BusinessUnderstandingValidationError("mission reference was not found for tenant")
 
     @staticmethod

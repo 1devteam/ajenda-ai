@@ -8,7 +8,10 @@ import pytest
 
 from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
-from backend.services.mission_composition.contracts import MissionCompositionRecord
+from backend.services.mission_composition.contracts import (
+    MissionCompositionRecord,
+    compare_reviewed_semantic_state,
+)
 from backend.services.mission_composition.deliverable_runtime_state import build_deliverable_runtime_state
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
@@ -530,6 +533,42 @@ def test_composition_projects_replayable_intelligence_envelope_without_authority
     assert "prospect" in record.composition_provenance.semantic_selection.concepts
     assert not record.composition_provenance.semantic_selection.conflicts
     assert record.ready_to_start is True
+
+
+def test_composition_persists_paired_immutable_semantic_and_reviewed_snapshots() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-snapshots",
+        instruction="Evaluate goal progress for customer acquisition and recommend a next action.",
+    )
+
+    assert record.semantic_snapshot is not None
+    assert record.reviewed_composition_snapshot is not None
+    assert record.semantic_snapshot.tenant_id == "tenant-snapshots"
+    assert record.reviewed_composition_snapshot.semantic_snapshot_sha256 == record.semantic_snapshot.content_sha256
+    assert record.semantic_snapshot.grants_execution_authority is False
+    assert record.reviewed_composition_snapshot.grants_execution_authority is False
+
+
+def test_snapshot_comparison_requires_successor_for_changed_reviewed_meaning() -> None:
+    service = MissionCompositionService(db=None)
+    reviewed = service.compose(
+        tenant_id="tenant-snapshots",
+        instruction="Research three software companies in Austin using public web research only.",
+    )
+    unchanged = service.compose(
+        tenant_id="tenant-snapshots",
+        instruction="Research three software companies in Austin using public web research only.",
+    )
+    changed = service.compose(
+        tenant_id="tenant-snapshots",
+        instruction="Research five software companies in Austin using public web research only.",
+    )
+
+    assert compare_reviewed_semantic_state(reviewed=reviewed, evaluated=unchanged).status == "unchanged"
+    comparison = compare_reviewed_semantic_state(reviewed=reviewed, evaluated=changed)
+    assert comparison.status == "material_change"
+    assert comparison.revision_required is True
+    assert "interpreted_clauses" in comparison.changed_semantic_fields
 
 
 def test_persisted_composition_rejects_tampered_algorithm_result() -> None:

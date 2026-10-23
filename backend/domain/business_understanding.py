@@ -113,3 +113,32 @@ class BusinessNeedRevision(Base):
     producer: Mapped[str] = mapped_column(String(160), nullable=False)
     schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=BUSINESS_UNDERSTANDING_SCHEMA_VERSION)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class BusinessNeedAssessment(Base):
+    """Immutable reasoning result about one tenant-owned need revision.
+
+    This preserves an assessment's inputs and conclusion without redefining a
+    source fact, selecting runtime actions, or changing the need itself.
+    """
+
+    __tablename__ = "business_need_assessments"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_business_need_assessments_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "need_revision_id"],
+            ["business_need_revisions.tenant_id", "business_need_revisions.id"],
+            name="fk_business_need_assessments_need_revision_tenant",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    need_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    need_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    need_revision_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    assessment_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    assessment_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    producer: Mapped[str] = mapped_column(String(160), nullable=False)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=BUSINESS_UNDERSTANDING_SCHEMA_VERSION)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)

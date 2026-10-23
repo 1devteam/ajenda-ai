@@ -18,7 +18,11 @@ from backend.domain.mission import (
     build_mission_task_graph_contract_metadata,
     normalize_mission_task_graph_contract_metadata,
 )
-from backend.services.mission_composition.contracts import MissionCompositionRecord, MissionIntent
+from backend.services.mission_composition.contracts import (
+    MissionCompositionRecord,
+    MissionIntent,
+    compare_reviewed_semantic_state,
+)
 from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
     build_deliverable_runtime_state,
@@ -133,12 +137,18 @@ class MissionCompositionConfirmationPhase:
             need_reference = reviewed_record.composition_provenance.business_need_reference
             if need_reference is not None:
                 compose_kwargs["business_need_reference"] = need_reference
-        record = self.compose(tenant_id=tenant_id, instruction=instruction, **compose_kwargs)
-        # compose() durably records its proposal and commits.  PostgreSQL
-        # SET LOCAL tenant context therefore expires before the required
-        # revalidation lineage write below.
-        activate_tenant_session(self._db, str(tenant_id))
+        # Revalidation derives a transient record. It becomes durable only in
+        # the same caller-owned transaction as the reviewed lineage, mission,
+        # plan, and graph below.
+        record = self.compose(tenant_id=tenant_id, instruction=instruction, persist=False, **compose_kwargs)
         if client_proposal_id:
+            if reviewed_record is not None:
+                comparison = compare_reviewed_semantic_state(reviewed=reviewed_record, evaluated=record)
+                if comparison.revision_required:
+                    raise MissionCompositionError(
+                        code="SEMANTIC_REVISION_REQUIRED",
+                        message="reviewed meaning changed; compose and review a successor proposal before confirmation",
+                    )
             # Revalidation must not overwrite the reviewed proposal. Preserve
             # its immutable decision payload and attach the fresh server-side
             # composition as a separately persisted revision.
@@ -155,16 +165,12 @@ class MissionCompositionConfirmationPhase:
                 db=self._db,
                 actor_id=actor_id,
                 require_durable=True,
+                commit=False,
             ):
                 raise MissionCompositionError(
                     code="REVALIDATED_PROPOSAL_PERSIST_FAILED",
                     message="confirmation requires durable revalidation lineage before mission persistence",
                 )
-
-        # Both composition and revision persistence may commit this session.
-        # PostgreSQL SET LOCAL tenant context expires on commit, so restore it
-        # after the final proposal write and before quota and mission writes.
-        activate_tenant_session(self._db, str(tenant_id))
 
         if not record.allowed_actions:
             raise MissionCompositionError(
@@ -286,6 +292,16 @@ class MissionCompositionConfirmationPhase:
                     "revision_reason": record.revision_reason,
                     "schema_version": record.schema_version,
                     "instruction": record.instruction,
+                    "semantic_snapshot": (
+                        record.semantic_snapshot.model_dump(mode="json")
+                        if record.semantic_snapshot is not None
+                        else None
+                    ),
+                    "reviewed_composition_snapshot": (
+                        record.reviewed_composition_snapshot.model_dump(mode="json")
+                        if record.reviewed_composition_snapshot is not None
+                        else None
+                    ),
                     "job_assignments": [item.model_dump(mode="json") for item in record.job_assignments],
                     "ability_selections": [item.model_dump(mode="json") for item in record.ability_selections],
                     "intelligence_envelope": (
@@ -513,6 +529,7 @@ class MissionCompositionConfirmationPhase:
                 db=self._db,
                 actor_id=actor_id,
                 require_durable=True,
+                commit=False,
             )
             if not persisted:
                 raise MissionCompositionError(
@@ -538,6 +555,7 @@ class MissionCompositionConfirmationPhase:
                     db=self._db,
                     actor_id=actor_id,
                     require_durable=True,
+                    commit=False,
                 ):
                     raise MissionCompositionError(
                         code="CONFIRM_RECEIPT_PERSIST_FAILED",

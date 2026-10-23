@@ -9,7 +9,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from backend.domain.business_understanding import BusinessNeedRevision, BusinessObservation
+from backend.domain.business_understanding import BusinessNeedAssessment, BusinessNeedRevision, BusinessObservation
 
 
 class BusinessNeedRevisionConflict(RuntimeError):
@@ -82,6 +82,20 @@ class BusinessUnderstandingRepository:
         for row in rows:
             latest.setdefault(row.need_id, row)
         return list(latest.values())[:limit]
+
+    def add_assessment(self, assessment: BusinessNeedAssessment) -> BusinessNeedAssessment:
+        self._session.add(assessment)
+        self._session.flush()
+        self._session.refresh(assessment)
+        return assessment
+
+    def get_assessment_for_tenant(self, *, assessment_id: uuid.UUID, tenant_id: str) -> BusinessNeedAssessment | None:
+        return self._session.scalar(
+            select(BusinessNeedAssessment).where(
+                BusinessNeedAssessment.id == assessment_id,
+                BusinessNeedAssessment.tenant_id == tenant_id,
+            )
+        )
 
     def append_need_revision(
         self,

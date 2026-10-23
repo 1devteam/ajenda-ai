@@ -18,6 +18,17 @@ _LOCK = threading.Lock()
 _PROPOSALS: dict[str, dict[str, Any]] = {}
 
 
+def _has_canonical_db_session(db: Session | None) -> bool:
+    """Distinguish a real SQLAlchemy session from a route/unit-test double.
+
+    A process cache is never a fallback for a real database session: rollback
+    must make a proposal unavailable.  Compatibility callers without a real
+    session retain the historical in-process read model.
+    """
+
+    return isinstance(db, Session)
+
+
 def _cache_proposal(*, proposal_id: str, payload: dict[str, Any]) -> None:
     """Expose only records that are usable under this store's durability contract."""
 
@@ -35,8 +46,15 @@ def put_proposal(
     repeated_failure_count: int = 0,
     superseded_proposal_id: str | None = None,
     require_durable: bool = False,
+    commit: bool = True,
 ) -> bool:
-    """Persist proposal. Returns True when durable write succeeded (or not required)."""
+    """Persist proposal without letting cache substitute for durable state.
+
+    ``commit=False`` is for a caller-owned transaction such as confirmation,
+    where the reviewed proposal, mission, plan, graph, and their lineage must
+    become visible together.  The cache is intentionally not updated until a
+    committing owner confirms the write.
+    """
 
     record_json: dict[str, Any] = record.model_dump(mode="json")
     payload: dict[str, Any] = {
@@ -103,14 +121,21 @@ def put_proposal(
             superseded_proposal_id=superseded_proposal_id,
             status=status,
         )
-        db.commit()
-        _cache_proposal(proposal_id=record.proposal_id, payload=payload)
+        if commit:
+            db.commit()
+            _cache_proposal(proposal_id=record.proposal_id, payload=payload)
+        elif not _has_canonical_db_session(db):
+            # Test/compatibility doubles cannot provide canonical persistence;
+            # retain their established process-local proposal behavior without
+            # weakening the real-session durability boundary.
+            _cache_proposal(proposal_id=record.proposal_id, payload=payload)
         return True
     except Exception:
-        try:
-            db.rollback()
-        except Exception:
-            pass
+        if commit:
+            try:
+                db.rollback()
+            except Exception:
+                pass
         return False
 
 
@@ -120,31 +145,33 @@ def get_proposal(
     proposal_id: str,
     db: Session | None = None,
 ) -> MissionCompositionRecord | None:
+    # A database-backed caller must always observe the canonical persisted
+    # proposal.  The process cache is only a no-database fallback; otherwise
+    # a stale pre-confirmation cache entry could hide a durable receipt or a
+    # transactionally persisted revalidation record.
+    if db is not None:
+        try:
+            from backend.repositories.mission_composition_proposal_repository import (
+                MissionCompositionProposalRepository,
+            )
+
+            row = MissionCompositionProposalRepository(db).get(tenant_id=tenant_id, proposal_id=proposal_id)
+        except Exception:
+            row = None
+        if row is not None and isinstance(row.record_json, dict):
+            try:
+                return MissionCompositionRecord.model_validate(row.record_json)
+            except Exception:
+                return None
+        if _has_canonical_db_session(db):
+            return None
+
     with _LOCK:
         payload = _PROPOSALS.get(proposal_id)
-    if payload is not None and payload.get("tenant_id") == tenant_id:
-        raw = payload.get("record")
-        if isinstance(raw, dict):
-            return MissionCompositionRecord.model_validate(raw)
-
-    if db is None:
+    if payload is None or payload.get("tenant_id") != tenant_id:
         return None
-    try:
-        from backend.repositories.mission_composition_proposal_repository import (
-            MissionCompositionProposalRepository,
-        )
-    except Exception:
-        return None
-    try:
-        row = MissionCompositionProposalRepository(db).get(tenant_id=tenant_id, proposal_id=proposal_id)
-    except Exception:
-        return None
-    if row is None or not isinstance(row.record_json, dict):
-        return None
-    try:
-        return MissionCompositionRecord.model_validate(row.record_json)
-    except Exception:
-        return None
+    raw = payload.get("record")
+    return MissionCompositionRecord.model_validate(raw) if isinstance(raw, dict) else None
 
 
 def load_thread_failure_context(
@@ -206,6 +233,7 @@ def mark_superseded(
     proposal_id: str,
     superseding_proposal_id: str,
     db: Session | None,
+    commit: bool = True,
 ) -> None:
     if db is None:
         return
@@ -219,12 +247,14 @@ def mark_superseded(
             proposal_id=proposal_id,
             superseding_proposal_id=superseding_proposal_id,
         )
-        db.commit()
+        if commit:
+            db.commit()
     except Exception:
-        try:
-            db.rollback()
-        except Exception:
-            pass
+        if commit:
+            try:
+                db.rollback()
+            except Exception:
+                pass
 
 
 def clear_proposals_for_tests() -> None:

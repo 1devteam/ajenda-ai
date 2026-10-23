@@ -8,6 +8,7 @@ phase modules. Compose remains read-only; confirm/compile never queue work.
 from __future__ import annotations
 
 import hashlib
+import uuid
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -348,6 +349,47 @@ class MissionCompositionService(
             "revision_id": str(record.id),
             "status": record.status,
             "condition_fingerprint": hashlib.sha256(record.condition_summary.encode("utf-8")).hexdigest(),
+            "grants_execution_authority": False,
+        }
+
+    def _business_need_assessment_reference(
+        self,
+        *,
+        db: Session | None,
+        tenant_id: str,
+        reference: dict[str, Any] | None,
+        need_reference: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if reference is None:
+            return None
+        if db is None or need_reference is None:
+            raise MissionCompositionError(
+                code="BUSINESS_NEED_ASSESSMENT_INVALID",
+                message="business need assessment requires a tenant-scoped need reference",
+            )
+        try:
+            assessment_id = uuid.UUID(str(reference.get("assessment_id")))
+        except (TypeError, ValueError) as exc:
+            raise MissionCompositionError(
+                code="BUSINESS_NEED_ASSESSMENT_INVALID", message="business need assessment reference is invalid"
+            ) from exc
+        assessment = BusinessUnderstandingRepository(db).get_assessment_for_tenant(
+            assessment_id=assessment_id, tenant_id=tenant_id
+        )
+        if (
+            assessment is None
+            or assessment.need_id != need_reference["need_id"]
+            or assessment.need_revision != need_reference["revision"]
+        ):
+            raise MissionCompositionError(
+                code="BUSINESS_NEED_ASSESSMENT_NOT_FOUND",
+                message="business need assessment was not found for referenced need revision",
+            )
+        return {
+            "assessment_id": str(assessment.id),
+            "need_id": assessment.need_id,
+            "revision": assessment.need_revision,
+            "assessment_fingerprint": assessment.assessment_fingerprint,
             "grants_execution_authority": False,
         }
 

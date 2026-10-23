@@ -12,6 +12,10 @@ from sqlalchemy.orm import Session
 from backend.domain.mission_composition_proposal import MissionCompositionProposal
 
 
+class ProposalSnapshotConflict(RuntimeError):
+    """A reviewed proposal cannot be silently given different semantics."""
+
+
 class MissionCompositionProposalRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -72,6 +76,8 @@ class MissionCompositionProposalRepository:
             self._session.flush()
             return row
 
+        self._assert_snapshot_compatibility(existing=existing, record_json=record_json)
+
         existing.actor_id = actor_id
         existing.interpretation_thread_id = interpretation_thread_id
         existing.instruction = instruction
@@ -95,6 +101,22 @@ class MissionCompositionProposalRepository:
         self._session.add(existing)
         self._session.flush()
         return existing
+
+    @staticmethod
+    def _assert_snapshot_compatibility(*, existing: MissionCompositionProposal, record_json: dict[str, Any]) -> None:
+        """Permit receipt/status updates, never a changed reviewed snapshot.
+
+        Older rows have no snapshot contract and remain explicitly historical.
+        Once either snapshot was persisted, a later write for the same proposal
+        identity must contain byte-equivalent JSON content.
+        """
+
+        prior = existing.record_json if isinstance(existing.record_json, dict) else {}
+        for field in ("semantic_snapshot", "reviewed_composition_snapshot"):
+            prior_value = prior.get(field)
+            next_value = record_json.get(field)
+            if prior_value is not None and prior_value != next_value:
+                raise ProposalSnapshotConflict(f"proposal {field} is immutable")
 
     def get(self, *, tenant_id: str, proposal_id: str) -> MissionCompositionProposal | None:
         stmt = select(MissionCompositionProposal).where(

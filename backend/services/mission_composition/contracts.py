@@ -6,6 +6,8 @@ runtime execution authority, queue work, claim leases, or invoke tools.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any, Literal
 
@@ -18,7 +20,7 @@ from backend.services.mission_composition.deliverable_contract import (
 from backend.services.mission_composition.semantic_vocabulary import SemanticSelection
 from backend.services.ontology.algorithms import AlgorithmResult, validate_composition_algorithm_results
 
-COMPOSITION_SCHEMA_VERSION = 9
+COMPOSITION_SCHEMA_VERSION = 10
 JOB_CATALOG_VERSION = "12"
 INTERPRETER_VERSION = "14"
 CAPABILITY_RESOLVER_VERSION = "11"
@@ -830,12 +832,173 @@ class CompositionProvenance(BaseModel):
     # A need reference is provenance for why a proposal was considered.  It
     # cannot select jobs, add authority, or alter a direct instruction.
     business_need_reference: dict[str, Any] | None = None
+    business_need_assessment_reference: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def _know_how_reference_is_complete(self) -> CompositionProvenance:
         if bool(self.know_how_id) != bool(self.know_how_version):
             raise ValueError("know-how reference requires both id and version")
         return self
+
+
+def _snapshot_digest(payload: dict[str, Any]) -> str:
+    """Return a stable content fingerprint without implying causal ownership."""
+
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+class SemanticSnapshot(BaseModel):
+    """Immutable understanding that preceded a composition decision.
+
+    The proposal owner persists this alongside the full composition record.  It
+    is distinct from current charter, credential, and queue admission state.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    snapshot_id: str = Field(min_length=1, max_length=160)
+    tenant_id: str = Field(min_length=1, max_length=160)
+    instruction_sha256: str = Field(min_length=71, max_length=71)
+    interpreted_clauses: tuple[dict[str, Any], ...] = ()
+    requested_outcomes: tuple[str, ...] = ()
+    target_entities: tuple[dict[str, Any], ...] = ()
+    constraints: tuple[str, ...] = ()
+    success_criteria: tuple[dict[str, Any], ...] = ()
+    semantic_selection: dict[str, Any] | None = None
+    business_need_reference: dict[str, Any] | None = None
+    business_need_assessment_reference: dict[str, Any] | None = None
+    context_fingerprints: tuple[str, ...] = ()
+    uncertainty: tuple[dict[str, Any], ...] = ()
+    rule_versions: dict[str, str] = Field(default_factory=dict)
+    content_sha256: str = Field(min_length=71, max_length=71)
+    grants_execution_authority: Literal[False] = False
+
+    @model_validator(mode="after")
+    def _content_matches(self) -> SemanticSnapshot:
+        payload = self.model_dump(mode="json", exclude={"content_sha256"})
+        if _snapshot_digest(payload) != self.content_sha256:
+            raise ValueError("semantic snapshot content fingerprint does not match payload")
+        return self
+
+
+class ReviewedCompositionSnapshot(BaseModel):
+    """Immutable reviewed decision about fulfilling one semantic snapshot."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    snapshot_id: str = Field(min_length=1, max_length=160)
+    tenant_id: str = Field(min_length=1, max_length=160)
+    semantic_snapshot_id: str = Field(min_length=1, max_length=160)
+    semantic_snapshot_sha256: str = Field(min_length=71, max_length=71)
+    selected_job_keys: tuple[str, ...] = ()
+    planned_artifacts: tuple[dict[str, Any], ...] = ()
+    dependencies: tuple[dict[str, Any], ...] = ()
+    acceptance_criteria: tuple[dict[str, Any], ...] = ()
+    alternatives_considered: tuple[dict[str, Any], ...] = ()
+    planner_versions: dict[str, str] = Field(default_factory=dict)
+    content_sha256: str = Field(min_length=71, max_length=71)
+    grants_execution_authority: Literal[False] = False
+
+    @model_validator(mode="after")
+    def _content_matches(self) -> ReviewedCompositionSnapshot:
+        payload = self.model_dump(mode="json", exclude={"content_sha256"})
+        if _snapshot_digest(payload) != self.content_sha256:
+            raise ValueError("reviewed composition snapshot content fingerprint does not match payload")
+        return self
+
+
+class SemanticRevisionComparison(BaseModel):
+    """A non-authoritative comparison of reviewed and freshly evaluated meaning."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["unchanged", "material_change", "historical_unknown"]
+    reviewed_semantic_snapshot_id: str | None = None
+    evaluated_semantic_snapshot_id: str | None = None
+    changed_semantic_fields: tuple[str, ...] = ()
+    changed_composition_fields: tuple[str, ...] = ()
+    revision_required: bool
+
+
+def _snapshot_comparable_payload(snapshot: BaseModel, *, exclude: set[str]) -> dict[str, Any]:
+    """Return content fields, never identity or self-derived content hashes."""
+
+    return snapshot.model_dump(mode="json", exclude=exclude)
+
+
+def compare_reviewed_semantic_state(
+    *,
+    reviewed: MissionCompositionRecord,
+    evaluated: MissionCompositionRecord,
+) -> SemanticRevisionComparison:
+    """Classify semantic changes without mutating either proposal.
+
+    Legacy records without the paired snapshots do not acquire invented
+    history.  They remain explicitly incomplete and can still be governed by
+    the established current-authority checks.
+    """
+
+    if (
+        reviewed.semantic_snapshot is None
+        or reviewed.reviewed_composition_snapshot is None
+        or evaluated.semantic_snapshot is None
+        or evaluated.reviewed_composition_snapshot is None
+    ):
+        return SemanticRevisionComparison(
+            status="historical_unknown",
+            reviewed_semantic_snapshot_id=(
+                reviewed.semantic_snapshot.snapshot_id if reviewed.semantic_snapshot else None
+            ),
+            evaluated_semantic_snapshot_id=(
+                evaluated.semantic_snapshot.snapshot_id if evaluated.semantic_snapshot else None
+            ),
+            revision_required=False,
+        )
+
+    reviewed_semantic = _snapshot_comparable_payload(
+        reviewed.semantic_snapshot,
+        exclude={"snapshot_id", "content_sha256"},
+    )
+    evaluated_semantic = _snapshot_comparable_payload(
+        evaluated.semantic_snapshot,
+        exclude={"snapshot_id", "content_sha256"},
+    )
+    reviewed_composition = _snapshot_comparable_payload(
+        reviewed.reviewed_composition_snapshot,
+        exclude={"snapshot_id", "content_sha256", "semantic_snapshot_id", "semantic_snapshot_sha256"},
+    )
+    evaluated_composition = _snapshot_comparable_payload(
+        evaluated.reviewed_composition_snapshot,
+        exclude={"snapshot_id", "content_sha256", "semantic_snapshot_id", "semantic_snapshot_sha256"},
+    )
+    semantic_changes = tuple(
+        key
+        for key in sorted(set(reviewed_semantic) | set(evaluated_semantic))
+        if reviewed_semantic.get(key) != evaluated_semantic.get(key)
+    )
+    composition_changes = tuple(
+        key
+        for key in sorted(set(reviewed_composition) | set(evaluated_composition))
+        if reviewed_composition.get(key) != evaluated_composition.get(key)
+    )
+    # Runtime readiness can legitimately change after review (revoked charter,
+    # expired credential, provider availability).  Those differences surface
+    # through the existing authority and feasibility checks, not as a rewrite
+    # of customer meaning.  A changed semantic frame, selected catalog jobs,
+    # or acceptance contract is material and requires a successor proposal.
+    material_composition_fields = {"selected_job_keys", "acceptance_criteria"}
+    changed = bool(semantic_changes or material_composition_fields.intersection(composition_changes))
+    return SemanticRevisionComparison(
+        status="material_change" if changed else "unchanged",
+        reviewed_semantic_snapshot_id=reviewed.semantic_snapshot.snapshot_id,
+        evaluated_semantic_snapshot_id=evaluated.semantic_snapshot.snapshot_id,
+        changed_semantic_fields=semantic_changes,
+        changed_composition_fields=composition_changes,
+        revision_required=changed,
+    )
 
 
 class MissionCompositionRecord(BaseModel):
@@ -859,6 +1022,8 @@ class MissionCompositionRecord(BaseModel):
     instruction: str = Field(min_length=1, max_length=8000)
     raw_instruction: str = Field(default="", max_length=8000)
     normalized_instruction: str = Field(default="", max_length=8000)
+    semantic_snapshot: SemanticSnapshot | None = None
+    reviewed_composition_snapshot: ReviewedCompositionSnapshot | None = None
     intent: MissionIntent
     job_assignments: list[JobAssignment] = Field(default_factory=list, max_length=40)
     ability_selections: list[AbilitySelection] = Field(default_factory=list, max_length=40)
@@ -892,4 +1057,13 @@ class MissionCompositionRecord(BaseModel):
         )
         if list(self.allowed_actions) != runtime_selected and self.ability_selections:
             self.allowed_actions = runtime_selected
+        if bool(self.semantic_snapshot) != bool(self.reviewed_composition_snapshot):
+            raise ValueError("semantic and reviewed composition snapshots must be persisted together")
+        if self.semantic_snapshot is not None and self.reviewed_composition_snapshot is not None:
+            if self.semantic_snapshot.tenant_id != self.reviewed_composition_snapshot.tenant_id:
+                raise ValueError("composition snapshots must have the same tenant")
+            if self.reviewed_composition_snapshot.semantic_snapshot_id != self.semantic_snapshot.snapshot_id:
+                raise ValueError("reviewed composition snapshot must reference semantic snapshot")
+            if self.reviewed_composition_snapshot.semantic_snapshot_sha256 != self.semantic_snapshot.content_sha256:
+                raise ValueError("reviewed composition snapshot semantic fingerprint mismatch")
         return self

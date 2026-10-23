@@ -358,5 +358,12 @@ def test_confirm_creates_mission_plan_graph_not_queue() -> None:
     # Mission metadata must include intake and not imply queue admission.
     added: Mission = mission_repo_cls.return_value.add.call_args[0][0]
     assert MISSION_INTAKE_METADATA_KEY in (added.metadata_json or {})
+    confirmed_composition = added.metadata_json[MISSION_INTAKE_METADATA_KEY]["context"]["composition"]
+    assert confirmed_composition["semantic_snapshot"] is not None
+    assert confirmed_composition["reviewed_composition_snapshot"] is not None
+    assert (
+        confirmed_composition["reviewed_composition_snapshot"]["semantic_snapshot_sha256"]
+        == confirmed_composition["semantic_snapshot"]["content_sha256"]
+    )
     intake = (added.metadata_json or {})[MISSION_INTAKE_METADATA_KEY]
     assert "gtm.email_send" not in intake.get("allowed_actions", [])

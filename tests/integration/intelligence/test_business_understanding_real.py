@@ -22,11 +22,24 @@ from backend.repositories.business_understanding_repository import (
     BusinessUnderstandingRepository,
 )
 from backend.repositories.mission_repository import MissionRepository
+from backend.services.business_understanding.reasoning import (
+    BusinessNeedReasoningService,
+    NeedAssessmentRequest,
+    NeedCandidateResponse,
+    NeedCauseHypothesis,
+)
 from backend.services.business_understanding.service import (
     BusinessUnderstandingService,
     BusinessUnderstandingValidationError,
     SourceReference,
 )
+from backend.services.knowledge.knowledge_decision_support import (
+    KnowledgeDecisionInfluence,
+    KnowledgeDecisionSupportResult,
+    KnowledgeInfluenceDirection,
+)
+from backend.services.ontology.commercial_state import Goal, Kpi, KpiDirection
+from backend.services.ontology.types import BusinessObjectRef, BusinessObjectType
 
 pytestmark = pytest.mark.integration
 
@@ -138,6 +151,7 @@ def test_need_is_append_only_and_mission_work_does_not_resolve_it(pg_session) ->
     )
     assert [row.revision for row in rows] == [1, 2]
     assert initial.status == "recognized"
+    assert initial.observation_references[0]["source_content_verification"] == "producer_attested_reference"
     assert monitoring.status == "impact_monitored"
     assert all(item["grants_execution_authority"] is False for item in monitoring.candidate_responses)
 
@@ -193,6 +207,275 @@ def test_need_is_append_only_and_mission_work_does_not_resolve_it(pg_session) ->
     )
     assert resolved.status == "resolved"
     assert resolved.revision == 3
+    assert resolved.impact_assessment is not None
+    assert resolved.impact_assessment["condition_fingerprint"].startswith("sha256:")
+
+
+def test_resolution_requires_matching_subject_and_later_independent_observation(pg_session) -> None:
+    tenant_id = _tenant()
+    activate_tenant_session(pg_session, tenant_id)
+    service = BusinessUnderstandingService(pg_session)
+    initial_observation = _record_acquisition_observation(pg_session, tenant_id=tenant_id, source_id="initial")
+    initial = _initial_need(service, tenant_id=tenant_id, observation_id=initial_observation.id)
+    unrelated = service.record_observation(
+        tenant_id=tenant_id,
+        source=SourceReference(
+            source_kind="external_provider",
+            reference={"source_id": "different-business", "provider": "fixture-metrics"},
+        ),
+        observation_summary="A different business improved after an unrelated measurement.",
+        subject_references=[{"kind": "organization", "id": "other"}],
+        observed_at=initial_observation.observed_at + timedelta(days=31),
+        confidence=0.9,
+        limitations=[],
+        producer="integration-test",
+    )
+
+    with pytest.raises(BusinessUnderstandingValidationError, match="need subject"):
+        service.append_need_revision(
+            tenant_id=tenant_id,
+            need_id=initial.need_id,
+            expected_revision=1,
+            origin="observed",
+            status="resolved",
+            subject_references=list(initial.subject_references),
+            objective_reference=initial.objective_reference,
+            condition_summary=initial.condition_summary,
+            uncertainty=[],
+            priority=initial.priority,
+            confidence=0.9,
+            observation_ids=[initial_observation.id, unrelated.id],
+            related_need_references=[],
+            candidate_responses=[],
+            proposal_references=[],
+            mission_references=[],
+            impact_assessment={"status": "improved", "evaluation_basis": "later_measurement"},
+            resolution_observation_ids=[unrelated.id],
+            producer="integration-test",
+        )
+
+
+def test_need_assessment_separates_evidence_from_capability_and_execution(pg_session) -> None:
+    tenant_id = _tenant()
+    activate_tenant_session(pg_session, tenant_id)
+    observation = _record_acquisition_observation(pg_session, tenant_id=tenant_id, source_id="acquisition-kpi")
+    need = _initial_need(BusinessUnderstandingService(pg_session), tenant_id=tenant_id, observation_id=observation.id)
+    assessment = BusinessNeedReasoningService(BusinessUnderstandingRepository(pg_session)).assess(
+        tenant_id=tenant_id,
+        need_id=need.need_id,
+        revision=need.revision,
+        producer="integration-test",
+        request=NeedAssessmentRequest(
+            goal=Goal(
+                goal_id="customer-acquisition",
+                objective_key="customer_acquisition",
+                name="Acquire customers",
+                subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.ORGANIZATION, object_id="self")],
+            ),
+            kpis=(
+                Kpi(
+                    kpi_id="qualified-leads",
+                    goal_id="customer-acquisition",
+                    name="Qualified leads",
+                    metric="qualified_leads",
+                    direction=KpiDirection.INCREASE,
+                    current_value=2,
+                    target_value=10,
+                    previous_value=3,
+                ),
+            ),
+            hypotheses=(
+                NeedCauseHypothesis(
+                    cause_key="lead_quality",
+                    summary="Lead quality may be below the intended market fit.",
+                    supporting_observation_ids=(observation.id,),
+                ),
+                NeedCauseHypothesis(
+                    cause_key="pricing",
+                    summary="Pricing remains unverified.",
+                ),
+            ),
+            candidate_responses=(
+                NeedCandidateResponse(
+                    response_key="investigate_lead_quality",
+                    summary="Investigate lead-quality evidence before selecting a channel response.",
+                    requested_outcomes=("evaluate_goal_progress",),
+                    supporting_observation_ids=(observation.id,),
+                ),
+                NeedCandidateResponse(
+                    response_key="evaluate_product_gap",
+                    summary="Evaluate product readiness even though no catalog outcome exists yet.",
+                    requested_outcomes=("evaluate_product_readiness",),
+                ),
+            ),
+        ),
+    )
+    assert assessment.goal_evaluation is not None
+    assert assessment.goal_evaluation.status.value == "off_track"
+    assert assessment.causes[0].status == "supported"
+    assert assessment.causes[1].status == "unresolved"
+    assert assessment.candidate_responses[0].capability_status == "catalog_supported"
+    assert assessment.candidate_responses[1].capability_status == "unmapped"
+    assert assessment.grants_execution_authority is False
+    assert assessment.recommended_next_step == "consider_response"
+
+
+def test_supported_response_can_be_recommended_when_the_catalog_has_no_capability(pg_session) -> None:
+    tenant_id = _tenant()
+    activate_tenant_session(pg_session, tenant_id)
+    observation = _record_acquisition_observation(pg_session, tenant_id=tenant_id, source_id="product-readiness")
+    need = _initial_need(BusinessUnderstandingService(pg_session), tenant_id=tenant_id, observation_id=observation.id)
+
+    assessment = BusinessNeedReasoningService(BusinessUnderstandingRepository(pg_session)).assess(
+        tenant_id=tenant_id,
+        need_id=need.need_id,
+        revision=need.revision,
+        producer="integration-test",
+        request=NeedAssessmentRequest(
+            goal=Goal(
+                goal_id="customer-acquisition",
+                objective_key="customer_acquisition",
+                name="Acquire customers",
+                subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.ORGANIZATION, object_id="self")],
+            ),
+            kpis=(
+                Kpi(
+                    kpi_id="qualified-leads",
+                    goal_id="customer-acquisition",
+                    name="Qualified leads",
+                    metric="qualified_leads",
+                    direction=KpiDirection.INCREASE,
+                    current_value=2,
+                    target_value=10,
+                    previous_value=3,
+                ),
+            ),
+            candidate_responses=(
+                NeedCandidateResponse(
+                    response_key="investigate_product_readiness",
+                    summary="Investigate the observed product-readiness concern.",
+                    requested_outcomes=("evaluate_product_readiness",),
+                    supporting_observation_ids=(observation.id,),
+                ),
+            ),
+        ),
+    )
+
+    response = assessment.candidate_responses[0]
+    assert response.evidence_status == "supported"
+    assert response.capability_status == "unmapped"
+    assert assessment.recommended_next_step == "consider_response"
+    assert assessment.grants_execution_authority is False
+
+
+def test_catalog_capability_is_not_recommended_without_evidence(pg_session) -> None:
+    tenant_id = _tenant()
+    activate_tenant_session(pg_session, tenant_id)
+    observation = _record_acquisition_observation(pg_session, tenant_id=tenant_id, source_id="kpi-only")
+    need = _initial_need(BusinessUnderstandingService(pg_session), tenant_id=tenant_id, observation_id=observation.id)
+
+    assessment = BusinessNeedReasoningService(BusinessUnderstandingRepository(pg_session)).assess(
+        tenant_id=tenant_id,
+        need_id=need.need_id,
+        revision=need.revision,
+        producer="integration-test",
+        request=NeedAssessmentRequest(
+            goal=Goal(
+                goal_id="customer-acquisition",
+                objective_key="customer_acquisition",
+                name="Acquire customers",
+                subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.ORGANIZATION, object_id="self")],
+            ),
+            kpis=(
+                Kpi(
+                    kpi_id="qualified-leads",
+                    goal_id="customer-acquisition",
+                    name="Qualified leads",
+                    metric="qualified_leads",
+                    direction=KpiDirection.INCREASE,
+                    current_value=2,
+                    target_value=10,
+                    previous_value=3,
+                ),
+            ),
+            candidate_responses=(
+                NeedCandidateResponse(
+                    response_key="run_outreach",
+                    summary="Run outreach despite no attributed causal evidence.",
+                    requested_outcomes=("prepare_outreach",),
+                ),
+            ),
+        ),
+    )
+
+    response = assessment.candidate_responses[0]
+    assert response.capability_status == "catalog_supported"
+    assert response.evidence_status == "unresolved"
+    assert assessment.recommended_next_step == "seek_clarification"
+    assert assessment.causes == ()
+
+
+def test_inapplicable_qualified_knowledge_cannot_justify_a_response(pg_session) -> None:
+    tenant_id = _tenant()
+    activate_tenant_session(pg_session, tenant_id)
+    observation = _record_acquisition_observation(pg_session, tenant_id=tenant_id, source_id="stale-knowledge")
+    need = _initial_need(BusinessUnderstandingService(pg_session), tenant_id=tenant_id, observation_id=observation.id)
+    # The knowledge subsystem emits UNRESOLVED when an otherwise relevant
+    # proposition is stale or inapplicable.  The need layer consumes that
+    # bounded result; it does not reinterpret it as support.
+    knowledge_support = KnowledgeDecisionSupportResult.model_construct(
+        support_id="knowledge-support:inapplicable",
+        decision_id="need-response-evaluation",
+        influences=(
+            KnowledgeDecisionInfluence.model_construct(
+                influence_id="knowledge-influence:inapplicable",
+                option_id="run_outreach",
+                direction=KnowledgeInfluenceDirection.UNRESOLVED,
+            ),
+        ),
+        epistemic_limits=("knowledge_inapplicable",),
+    )
+
+    assessment = BusinessNeedReasoningService(BusinessUnderstandingRepository(pg_session)).assess(
+        tenant_id=tenant_id,
+        need_id=need.need_id,
+        revision=need.revision,
+        producer="integration-test",
+        request=NeedAssessmentRequest(
+            goal=Goal(
+                goal_id="customer-acquisition",
+                objective_key="customer_acquisition",
+                name="Acquire customers",
+                subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.ORGANIZATION, object_id="self")],
+            ),
+            kpis=(
+                Kpi(
+                    kpi_id="qualified-leads",
+                    goal_id="customer-acquisition",
+                    name="Qualified leads",
+                    metric="qualified_leads",
+                    direction=KpiDirection.INCREASE,
+                    current_value=2,
+                    target_value=10,
+                    previous_value=3,
+                ),
+            ),
+            candidate_responses=(
+                NeedCandidateResponse(
+                    response_key="run_outreach",
+                    summary="A catalog response that stale knowledge cannot justify.",
+                    requested_outcomes=("prepare_outreach",),
+                ),
+            ),
+            knowledge_support=knowledge_support,
+        ),
+    )
+
+    response = assessment.candidate_responses[0]
+    assert response.capability_status == "catalog_supported"
+    assert response.knowledge_support_status == "unresolved"
+    assert response.evidence_status == "unresolved"
+    assert assessment.recommended_next_step == "seek_clarification"
 
 
 def test_need_revision_conflict_and_cross_tenant_observation_fail_closed(pg_session) -> None:

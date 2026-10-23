@@ -24,6 +24,11 @@ from backend.repositories.business_understanding_repository import (
     BusinessNeedRevisionConflict,
     BusinessUnderstandingRepository,
 )
+from backend.services.business_understanding.reasoning import (
+    BusinessNeedAssessmentResult,
+    BusinessNeedReasoningService,
+    NeedAssessmentRequest,
+)
 from backend.services.business_understanding.service import (
     BusinessUnderstandingService,
     BusinessUnderstandingValidationError,
@@ -364,6 +369,36 @@ def create_recognition(
         return _need_read(_append_need(service=service, tenant_id=str(tenant_id), body=need_body, producer=producer))
     except Exception as exc:
         raise _map_error(exc) from exc
+
+
+@router.post(
+    "/needs/{need_id}/revisions/{revision}/assessments",
+    response_model=BusinessNeedAssessmentResult,
+    status_code=status.HTTP_201_CREATED,
+)
+def assess_need(
+    need_id: str,
+    revision: int,
+    body: NeedAssessmentRequest,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> BusinessNeedAssessmentResult:
+    """Assess a need using ontology rules; it cannot create or authorize work."""
+
+    require_route_permission(
+        request=request, db=db, permission=Permission.BUSINESS_UNDERSTANDING_MANAGE, tenant_id=tenant_id
+    )
+    try:
+        return BusinessNeedReasoningService(BusinessUnderstandingRepository(db)).assess(
+            tenant_id=str(tenant_id),
+            need_id=need_id,
+            revision=revision,
+            request=body,
+            producer=_actor_id(request),
+        )
+    except ValueError as exc:
+        raise _map_error(BusinessUnderstandingValidationError("assessment is invalid")) from exc
 
 
 @router.get("/observations", response_model=ObservationListRead)
