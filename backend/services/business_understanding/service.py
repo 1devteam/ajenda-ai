@@ -22,6 +22,7 @@ from backend.repositories.tenant_internal_record_repository import TenantInterna
 from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.ontology.commercial_state import Goal, Kpi
 from backend.services.ontology.evaluation import GoalProgressStatus, evaluate_goal_progress
+from backend.services.ontology.outcome import ObservedOutcome, OutcomeExpectation, OutcomeStatus, evaluate_outcome
 
 ObservationSourceKind = Literal[
     "business_profile",
@@ -220,6 +221,57 @@ class BusinessUnderstandingService:
             ],
             producer=producer,
         )
+
+    def record_independent_impact(
+        self,
+        *,
+        tenant_id: str,
+        need_id: str,
+        expected_revision: int,
+        expectation: OutcomeExpectation,
+        observed: ObservedOutcome,
+        observation_id: uuid.UUID,
+        producer: str,
+        mission_reference: dict[str, Any] | None = None,
+    ) -> tuple[BusinessNeedRevision, Any]:
+        """Evaluate later business evidence and append a need revision.
+
+        Mission completion is merely lineage; only the independent observed
+        outcome determines the impact status. ``evaluate_outcome`` retains
+        attribution uncertainty and never upgrades temporal association to
+        causation.
+        """
+        outcome = evaluate_outcome(expectation=expectation, observed=observed)
+        status = "impact_monitored"
+        impact = {
+            "status": outcome.status.value,
+            "evaluation_basis": outcome.model_dump(mode="json"),
+            "causation": "unresolved",
+        }
+        if outcome.status == OutcomeStatus.INCONCLUSIVE:
+            impact["status"] = "uncertain"
+        revision = self.append_need_revision(
+            tenant_id=tenant_id,
+            need_id=need_id,
+            expected_revision=expected_revision,
+            origin="observed",
+            status=status,
+            subject_references=[item.model_dump(mode="json") for item in expectation.subject_refs],
+            objective_reference={"objective_key": expectation.goal.objective_key or expectation.goal.goal_id},
+            condition_summary=f"Independent impact observed for {expectation.goal.name}",
+            uncertainty=[{"code": "impact_causation_requires_attribution"}],
+            priority=None,
+            confidence=None,
+            observation_ids=[observation_id],
+            related_need_references=[],
+            candidate_responses=[],
+            proposal_references=[],
+            mission_references=[mission_reference] if mission_reference else [],
+            impact_assessment=impact,
+            resolution_observation_ids=[],
+            producer=producer,
+        )
+        return revision, outcome
 
     def append_need_revision(
         self,
