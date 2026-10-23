@@ -261,12 +261,32 @@ class BusinessUnderstandingService:
                 ],
             }
         )
+        existing = self._repository.find_active_need_for_identity(
+            tenant_id=tenant_id,
+            objective_key=objective_key,
+            subject_references=subject_references,
+            condition_key=condition_key,
+        )
+        if (
+            evaluation.status
+            in {
+                GoalProgressStatus.ON_TRACK,
+                GoalProgressStatus.ACHIEVED,
+                GoalProgressStatus.INSUFFICIENT_DATA,
+            }
+            and existing is None
+        ):
+            return None
         observation = self._repository.get_observation_by_source_fingerprint_for_tenant(
             tenant_id=tenant_id, source_fingerprint=source_fingerprint, measurement_fingerprint=measurement_fingerprint
         ) or self.record_observation(
             tenant_id=tenant_id,
             source=source,
-            observation_summary=f"Goal condition requires attention: {goal.name}",
+            observation_summary=(
+                f"Goal condition requires attention: {goal.name}"
+                if evaluation.status in {GoalProgressStatus.AT_RISK, GoalProgressStatus.OFF_TRACK}
+                else f"Goal condition observed: {goal.name} ({evaluation.status.value})"
+            ),
             subject_references=subject_references,
             observed_at=observed_at,
             confidence=None,
@@ -322,7 +342,7 @@ class BusinessUnderstandingService:
             priority=existing.priority if existing is not None else None,
             confidence=existing.confidence if existing is not None else None,
             observation_ids=observation_ids,
-            related_need_references=[],
+            related_need_references=existing.related_need_references if existing is not None else [],
             candidate_responses=existing.candidate_responses if existing is not None else [],
             proposal_references=existing.proposal_references if existing is not None else [],
             mission_references=existing.mission_references if existing is not None else [],
@@ -363,8 +383,8 @@ class BusinessUnderstandingService:
         observation = self._repository.get_observation_for_tenant(observation_id=observation_id, tenant_id=tenant_id)
         if observation is None:
             raise BusinessUnderstandingValidationError("impact observation was not found for tenant")
-        expected_subjects = {json.dumps(item, sort_keys=True) for item in expectation.subject_refs}
-        observed_subjects = {json.dumps(item, sort_keys=True) for item in observation.subject_references}
+        expected_subjects = canonical_subject_keys(expectation.subject_refs)
+        observed_subjects = canonical_subject_keys(observation.subject_references)
         if expected_subjects and not expected_subjects.intersection(observed_subjects):
             raise BusinessUnderstandingValidationError("impact observation subject does not match outcome")
         prior_ids = {
