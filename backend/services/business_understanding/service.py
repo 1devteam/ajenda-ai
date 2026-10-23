@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
@@ -24,6 +25,7 @@ from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.ontology.commercial_state import Goal, Kpi
 from backend.services.ontology.evaluation import GoalProgressStatus, evaluate_goal_progress
 from backend.services.ontology.outcome import ObservedOutcome, OutcomeExpectation, OutcomeStatus, evaluate_outcome
+from backend.services.ontology.types import BusinessObjectRef
 
 ObservationSourceKind = Literal[
     "business_profile",
@@ -44,6 +46,15 @@ class BusinessUnderstandingValidationError(ValueError):
 class SourceReference:
     source_kind: ObservationSourceKind
     reference: dict[str, Any]
+
+
+def canonical_subject_keys(subjects: Sequence[BusinessObjectRef | dict[str, Any]]) -> frozenset[tuple[str, str]]:
+    return frozenset(
+        (ref.object_type.value, ref.object_id)
+        for ref in (
+            item if isinstance(item, BusinessObjectRef) else BusinessObjectRef.model_validate(item) for item in subjects
+        )
+    )
 
 
 class BusinessUnderstandingService:
@@ -133,8 +144,8 @@ class BusinessUnderstandingService:
             raise BusinessUnderstandingValidationError("source_version must be non-empty")
         if observed_at.tzinfo is None or observed_at.utcoffset() is None:
             raise BusinessUnderstandingValidationError("observed_at must be timezone-aware")
-        expected_subjects = {json.dumps(item, sort_keys=True) for item in goal.subject_refs}
-        supplied_subjects = {json.dumps(item, sort_keys=True) for item in subject_references}
+        expected_subjects = canonical_subject_keys(goal.subject_refs)
+        supplied_subjects = canonical_subject_keys(subject_references)
         if expected_subjects and expected_subjects != supplied_subjects:
             raise BusinessUnderstandingValidationError("measurement subjects must match goal subjects")
         payload = {

@@ -33,6 +33,7 @@ from backend.services.business_understanding.service import (
     BusinessUnderstandingService,
     BusinessUnderstandingValidationError,
     SourceReference,
+    canonical_subject_keys,
 )
 from backend.services.ontology.commercial_state import Goal, Kpi
 
@@ -120,9 +121,7 @@ class MeasurementCreate(BaseModel):
             and self.measurement_period_end < self.measurement_period_start
         ):
             raise ValueError("measurement period is invalid")
-        expected = {item.model_dump(mode="json") for item in self.goal.subject_refs}
-        supplied = {str(item) for item in self.subject_references}
-        if expected and {str(item) for item in expected} != supplied:
+        if canonical_subject_keys(self.goal.subject_refs) != canonical_subject_keys(self.subject_references):
             raise ValueError("measurement subjects must match goal subjects")
         return self
 
