@@ -9,23 +9,23 @@ from typing import Any
 
 from sqlalchemy import select
 
+from backend.db.tenant_session import activate_tenant_session
+from backend.domain.business_understanding import BusinessMeasurement
 from backend.domain.capability import Capability
 from backend.domain.capability_adapter import CapabilityAdapter
-from backend.domain.business_understanding import BusinessMeasurement
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.mission import Mission
 from backend.domain.worker_lease import WorkerLease
-from backend.db.tenant_session import activate_tenant_session
 from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
-from backend.services.business_understanding.service import BusinessUnderstandingService
-from backend.services.ontology.commercial_state import Goal, Kpi, KpiDirection
-from backend.services.ontology.types import BusinessObjectRef, BusinessObjectType
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
+from backend.services.business_understanding.service import BusinessUnderstandingService
 from backend.services.execution_coordinator import ExecutionCoordinator
+from backend.services.ontology.commercial_state import Goal, Kpi, KpiDirection
 from backend.services.ontology.decision_feedback import DecisionLearningSignal
+from backend.services.ontology.types import BusinessObjectRef, BusinessObjectType
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
 from tests.integration.credentials._invoke_authority_helpers import (
