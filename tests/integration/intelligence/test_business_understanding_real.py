@@ -1051,6 +1051,12 @@ def test_rls_hides_business_understanding_without_tenant_context(pg_engine) -> N
             with pytest.raises(DBAPIError):
                 _record_acquisition_observation(session, tenant_id=tenant, source_id="blocked")
             session.rollback()
+
+            # The rollback ends the transaction that established SET ROLE.
+            # Re-enter the restricted role so this proves measurement RLS
+            # rather than inserting as the Testcontainers superuser.
+            connection.execute(text(f"SET ROLE {quoted_role}"))
+            session.execute(text("RESET app.current_tenant_id"))
             with pytest.raises(DBAPIError):
                 session.add(
                     BusinessMeasurement(
