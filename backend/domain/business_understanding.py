@@ -125,6 +125,13 @@ class BusinessNeedAssessment(Base):
     __tablename__ = "business_need_assessments"
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="uq_business_need_assessments_tenant_id"),
+        UniqueConstraint(
+            "tenant_id",
+            "need_id",
+            "need_revision",
+            "assessment_fingerprint",
+            name="uq_business_need_assessments_retry",
+        ),
         ForeignKeyConstraint(
             ["tenant_id", "need_revision_id"],
             ["business_need_revisions.tenant_id", "business_need_revisions.id"],

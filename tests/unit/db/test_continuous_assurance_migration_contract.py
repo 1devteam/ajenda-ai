@@ -8,7 +8,7 @@ def test_continuous_assurance_migration_is_current_head_and_tenant_scoped() -> N
     config = Config("alembic.ini")
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["0056_business_need_assessments"]
+    assert script.get_heads() == ["0057_assessment_retry_dedup"]
 
     migration = Path("alembic/versions/0049_continuous_assurance.py").read_text(encoding="utf-8")
     assert "assurance_snapshots" in migration

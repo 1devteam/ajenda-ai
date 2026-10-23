@@ -11,7 +11,7 @@ def test_provider_runtime_credential_migration_is_current_head_and_short_revisio
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0056_business_need_assessments"]
+    assert heads == ["0057_assessment_retry_dedup"]
     assert len(heads[0]) <= 32
 
 

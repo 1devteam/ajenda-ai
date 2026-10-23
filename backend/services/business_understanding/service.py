@@ -20,6 +20,8 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.mission_composition.proposal_store import get_proposal
+from backend.services.ontology.commercial_state import Goal, Kpi
+from backend.services.ontology.evaluation import GoalProgressStatus, evaluate_goal_progress
 
 ObservationSourceKind = Literal[
     "business_profile",
@@ -103,6 +105,59 @@ class BusinessUnderstandingService:
                 contradicts_observation_id=contradicts_observation_id,
                 corrects_observation_id=corrects_observation_id,
             )
+        )
+
+    def recognize_goal_gap(
+        self,
+        *,
+        tenant_id: str,
+        goal: Goal,
+        kpis: list[Kpi],
+        source: SourceReference,
+        observed_at: datetime,
+        producer: str,
+    ) -> BusinessNeedRevision | None:
+        """Recognize a durable need from an evaluated goal gap.
+
+        This is deliberately bounded: it records an observation and a
+        hypothesis only when the existing goal evaluator reports a gap. It
+        never composes a mission or treats the KPI as a causal explanation.
+        The caller owns the surrounding transaction, so both records commit
+        atomically or neither is usable.
+        """
+        evaluation = evaluate_goal_progress(goal=goal, kpis=kpis, evaluated_at=observed_at)
+        if evaluation.status in {GoalProgressStatus.ACHIEVED, GoalProgressStatus.INSUFFICIENT_DATA}:
+            return None
+        observation = self.record_observation(
+            tenant_id=tenant_id,
+            source=source,
+            observation_summary=f"Goal condition requires attention: {goal.name}",
+            subject_references=[item.model_dump(mode="json") for item in goal.subject_refs],
+            observed_at=observed_at,
+            confidence=None,
+            limitations=[{"code": "goal_gap_is_not_causal_explanation"}],
+            producer=producer,
+        )
+        return self.append_need_revision(
+            tenant_id=tenant_id,
+            need_id=None,
+            expected_revision=0,
+            origin="observed",
+            status="recognized",
+            subject_references=[item.model_dump(mode="json") for item in goal.subject_refs],
+            objective_reference={"goal_id": goal.goal_id, "objective_key": goal.objective_key},
+            condition_summary=f"Goal '{goal.name}' is {evaluation.status.value}",
+            uncertainty=[{"code": "causal_explanation_unresolved"}],
+            priority=None,
+            confidence=None,
+            observation_ids=[observation.id],
+            related_need_references=[],
+            candidate_responses=[],
+            proposal_references=[],
+            mission_references=[],
+            impact_assessment=None,
+            resolution_observation_ids=[],
+            producer=producer,
         )
 
     def append_need_revision(

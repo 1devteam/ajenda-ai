@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy.exc import IntegrityError
 
 from backend.domain.business_understanding import BusinessNeedAssessment, BusinessNeedRevision
 from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
@@ -315,7 +316,10 @@ class BusinessNeedReasoningService:
             response.evidence_status == "supported"
             and response.knowledge_support_status not in {"opposes", "unresolved"}
             for response in responses
-        ) or any(response.knowledge_support_status == "supports" for response in responses):
+        ) or any(
+            response.knowledge_support_status == "supports" and response.evidence_status == "supported"
+            for response in responses
+        ):
             next_step = "consider_response"
         elif causes:
             next_step = "investigate_further"
@@ -357,17 +361,30 @@ class BusinessNeedReasoningService:
             need_revision=revision,
             fingerprint=fingerprint,
         )
-        assessment = existing or self._repository.add_assessment(
-            BusinessNeedAssessment(
-                tenant_id=tenant_id,
-                need_id=need_id,
-                need_revision=revision,
-                need_revision_id=need.id,
-                assessment_json=payload,
-                assessment_fingerprint=fingerprint,
-                producer=producer.strip(),
-            )
-        )
+        if existing is not None:
+            assessment = existing
+        else:
+            try:
+                assessment = self._repository.add_assessment(
+                    BusinessNeedAssessment(
+                        tenant_id=tenant_id,
+                        need_id=need_id,
+                        need_revision=revision,
+                        need_revision_id=need.id,
+                        assessment_json=payload,
+                        assessment_fingerprint=fingerprint,
+                        producer=producer.strip(),
+                    )
+                )
+            except IntegrityError:
+                assessment = self._repository.get_assessment_by_fingerprint_for_tenant(
+                    tenant_id=tenant_id,
+                    need_id=need_id,
+                    need_revision=revision,
+                    fingerprint=fingerprint,
+                )
+                if assessment is None:
+                    raise
         return BusinessNeedAssessmentResult.model_validate(
             {**payload, "assessment_id": assessment.id, "assessment_fingerprint": fingerprint}
         )

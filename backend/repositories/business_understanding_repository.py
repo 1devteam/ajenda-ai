@@ -84,8 +84,9 @@ class BusinessUnderstandingRepository:
         return list(latest.values())[:limit]
 
     def add_assessment(self, assessment: BusinessNeedAssessment) -> BusinessNeedAssessment:
-        self._session.add(assessment)
-        self._session.flush()
+        with self._session.begin_nested():
+            self._session.add(assessment)
+            self._session.flush()
         self._session.refresh(assessment)
         return assessment
 
