@@ -212,9 +212,7 @@ def materialize_canonical_decision_episode(
             goal_id=goal_id,
             objective_key="increase_conversion",
             name="Increase conversion",
-            subject_refs=[
-                BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id=subject_id)
-            ],
+            subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id=subject_id)],
         )
         with factory() as measurement_session:
             activate_tenant_session(measurement_session, tenant_id)
@@ -362,7 +360,9 @@ def materialize_canonical_decision_episode(
                 "subject_refs": [subject_ref],
             },
             "subject_refs": [subject_ref],
-            "baseline_kpis": baseline_measurement.values if baseline_measurement is not None else [
+            "baseline_kpis": baseline_measurement.values
+            if baseline_measurement is not None
+            else [
                 {
                     "kpi_id": "conversion",
                     "goal_id": goal_id,
@@ -372,7 +372,9 @@ def materialize_canonical_decision_episode(
                     "target_value": 1.0,
                 }
             ],
-            "observed_kpis": later_measurement.values if later_measurement is not None else [
+            "observed_kpis": later_measurement.values
+            if later_measurement is not None
+            else [
                 {
                     "kpi_id": "conversion",
                     "goal_id": goal_id,
