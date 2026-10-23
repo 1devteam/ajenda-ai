@@ -144,8 +144,24 @@ class BusinessUnderstandingService:
             ).encode()
         ).hexdigest()
         source_fingerprint = self.source_fingerprint(source.reference)
+        # Measurement identity is based on the source version and actual
+        # business values, never on evaluation timestamps or invocation IDs.
         measurement_fingerprint = self.source_fingerprint(
-            {"source": source.reference, "condition": evaluation.model_dump(mode="json")}
+            {
+                "source": source.reference,
+                "goal_id": goal.goal_id,
+                "kpis": [
+                    {
+                        "kpi_id": k.kpi_id,
+                        "metric": k.metric,
+                        "current_value": k.current_value,
+                        "target_value": k.target_value,
+                        "previous_value": k.previous_value,
+                        "unit": k.unit,
+                    }
+                    for k in sorted(kpis, key=lambda item: item.kpi_id)
+                ],
+            }
         )
         observation = self._repository.get_observation_by_source_fingerprint_for_tenant(
             tenant_id=tenant_id, source_fingerprint=source_fingerprint, measurement_fingerprint=measurement_fingerprint
@@ -173,25 +189,35 @@ class BusinessUnderstandingService:
             if isinstance(item, dict)
         ):
             return existing
+        prior_observation_ids = [
+            uuid.UUID(str(item["observation_id"]))
+            for item in (existing.observation_references if existing is not None else [])
+            if isinstance(item, dict) and item.get("observation_id")
+        ]
+        observation_ids = list(dict.fromkeys([*prior_observation_ids, observation.id]))
         return self.append_need_revision(
             tenant_id=tenant_id,
             need_id=existing.need_id if existing is not None else None,
             expected_revision=existing.revision if existing is not None else 0,
             origin="observed",
-            status="recognized",
+            status=existing.status if existing is not None else "recognized",
             subject_references=subject_references,
             objective_reference=objective_reference,
             condition_summary=f"Goal '{goal.name}' is {evaluation.status.value}",
-            uncertainty=[{"code": "causal_explanation_unresolved"}],
-            priority=None,
-            confidence=None,
-            observation_ids=[observation.id],
+            uncertainty=(existing.uncertainty if existing is not None else [{"code": "causal_explanation_unresolved"}]),
+            priority=existing.priority if existing is not None else None,
+            confidence=existing.confidence if existing is not None else None,
+            observation_ids=observation_ids,
             related_need_references=[],
-            candidate_responses=[],
-            proposal_references=[],
-            mission_references=[],
-            impact_assessment=None,
-            resolution_observation_ids=[],
+            candidate_responses=existing.candidate_responses if existing is not None else [],
+            proposal_references=existing.proposal_references if existing is not None else [],
+            mission_references=existing.mission_references if existing is not None else [],
+            impact_assessment=existing.impact_assessment if existing is not None else None,
+            resolution_observation_ids=[
+                uuid.UUID(str(item["observation_id"]))
+                for item in (existing.resolution_observation_references if existing is not None else [])
+                if isinstance(item, dict) and item.get("observation_id")
+            ],
             producer=producer,
         )
 
