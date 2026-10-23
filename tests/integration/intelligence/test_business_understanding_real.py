@@ -3,25 +3,28 @@
 from __future__ import annotations
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from alembic.config import Config as AlembicConfig
-from sqlalchemy import select, text
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command as alembic_command
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.business_profile import BusinessProfile
-from backend.domain.business_understanding import BusinessNeedRevision, BusinessObservation
+from backend.domain.business_understanding import BusinessMeasurement, BusinessNeedRevision, BusinessObservation
 from backend.domain.mission import Mission
+from backend.domain.tenant import Tenant
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.business_understanding_repository import (
     BusinessNeedRevisionConflict,
     BusinessUnderstandingRepository,
 )
 from backend.repositories.mission_repository import MissionRepository
+from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.business_understanding.reasoning import (
     BusinessNeedReasoningService,
     NeedAssessmentRequest,
@@ -39,7 +42,15 @@ from backend.services.knowledge.knowledge_decision_support import (
     KnowledgeInfluenceDirection,
 )
 from backend.services.ontology.commercial_state import Goal, Kpi, KpiDirection
+from backend.services.ontology.decision_feedback import DecisionLearningSignal
 from backend.services.ontology.types import BusinessObjectRef, BusinessObjectType
+from tests.integration.intelligence.canonical_decision_runtime import (
+    EXECUTION_ACTION,
+    MATERIALIZATION_ACTION,
+    execute_canonical_action,
+    seed_execution_authority,
+)
+from tests.integration.operating_charter_support import persist_test_operating_charter
 
 pytestmark = pytest.mark.integration
 
@@ -101,6 +112,375 @@ def _initial_need(
         resolution_observation_ids=[],
         producer="integration-test",
     )
+
+
+def _goal_and_kpis(*, current: float, previous: float | None = None) -> tuple[Goal, list[Kpi]]:
+    goal = Goal(
+        goal_id="customer-acquisition",
+        objective_key="customer_acquisition",
+        name="Acquire qualified customers",
+        subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.ORGANIZATION, object_id="ajenda")],
+    )
+    return goal, [
+        Kpi(
+            kpi_id="qualified-customers",
+            goal_id=goal.goal_id,
+            name="Qualified customers",
+            metric="qualified_customers",
+            direction=KpiDirection.INCREASE,
+            current_value=current,
+            target_value=10,
+            previous_value=previous,
+            unit="customers",
+        )
+    ]
+
+
+def _ingest_customer_measurement(
+    session: Session,
+    *,
+    tenant_id: str,
+    current: float,
+    source_version: str,
+    period_start: datetime,
+    period_end: datetime,
+    previous: float | None = None,
+) -> tuple[BusinessMeasurement, BusinessNeedRevision | None]:
+    goal, kpis = _goal_and_kpis(current=current, previous=previous)
+    return BusinessUnderstandingService(session).ingest_measurement(
+        tenant_id=tenant_id,
+        goal=goal,
+        kpis=kpis,
+        subject_references=[item.model_dump(mode="json") for item in goal.subject_refs],
+        source_kind="customer_attested",
+        source_reference={"source_id": "monthly-operating-statement"},
+        source_version=source_version,
+        measurement_period_start=period_start,
+        measurement_period_end=period_end,
+        observed_at=period_end + timedelta(hours=12),
+        limitations=[{"code": "customer_attested_not_independently_verified"}],
+        confidence=None,
+        producer="integration-test",
+    )
+
+
+def test_measurement_replay_change_and_recovery_preserve_one_continuing_need(pg_session) -> None:
+    tenant_id = _tenant()
+    activate_tenant_session(pg_session, tenant_id)
+    january_start = datetime(2026, 1, 1, tzinfo=UTC)
+    january_end = datetime(2026, 1, 31, tzinfo=UTC)
+    first_measurement, first_need = _ingest_customer_measurement(
+        pg_session,
+        tenant_id=tenant_id,
+        current=2,
+        previous=3,
+        source_version="jan-v1",
+        period_start=january_start,
+        period_end=january_end,
+    )
+    replay_measurement, replay_need = _ingest_customer_measurement(
+        pg_session,
+        tenant_id=tenant_id,
+        current=2,
+        previous=3,
+        source_version="jan-v1",
+        period_start=january_start,
+        period_end=january_end,
+    )
+    assert first_need is not None and replay_need is not None
+    assert replay_measurement.id == first_measurement.id
+    assert replay_need.id == first_need.id
+
+    february_start = datetime(2026, 2, 1, tzinfo=UTC)
+    february_end = datetime(2026, 2, 28, tzinfo=UTC)
+    _, recovered = _ingest_customer_measurement(
+        pg_session,
+        tenant_id=tenant_id,
+        current=10,
+        previous=2,
+        source_version="feb-v1",
+        period_start=february_start,
+        period_end=february_end,
+    )
+    assert recovered is not None
+    assert recovered.need_id == first_need.need_id
+    assert recovered.revision == 2
+    assert recovered.status == "monitoring"
+    assert len(recovered.observation_references) == 2
+
+    march_start = datetime(2026, 3, 1, tzinfo=UTC)
+    march_end = datetime(2026, 3, 31, tzinfo=UTC)
+    _, deteriorated = _ingest_customer_measurement(
+        pg_session,
+        tenant_id=tenant_id,
+        current=1,
+        previous=10,
+        source_version="mar-v1",
+        period_start=march_start,
+        period_end=march_end,
+    )
+    assert deteriorated is not None
+    assert deteriorated.need_id == first_need.need_id
+    assert deteriorated.revision == 3
+    assert deteriorated.status == "monitoring"
+    assert len(deteriorated.observation_references) == 3
+
+
+def test_non_sales_operating_measurement_uses_same_continuing_need_contract(pg_session) -> None:
+    tenant_id = _tenant()
+    activate_tenant_session(pg_session, tenant_id)
+    subject = BusinessObjectRef(object_type=BusinessObjectType.ORGANIZATION, object_id="manufacturing-line")
+    goal = Goal(
+        goal_id="reduce-defects",
+        objective_key="manufacturing_quality",
+        name="Reduce manufacturing defects",
+        subject_refs=[subject],
+    )
+
+    def ingest(*, current: float, previous: float, month: int) -> BusinessNeedRevision | None:
+        _, need = BusinessUnderstandingService(pg_session).ingest_measurement(
+            tenant_id=tenant_id,
+            goal=goal,
+            kpis=[
+                Kpi(
+                    kpi_id="defect-rate",
+                    goal_id=goal.goal_id,
+                    name="Defect rate",
+                    metric="defect_rate",
+                    direction=KpiDirection.DECREASE,
+                    current_value=current,
+                    previous_value=previous,
+                    target_value=5,
+                    unit="percent",
+                )
+            ],
+            subject_references=[subject.model_dump(mode="json")],
+            source_kind="customer_attested",
+            source_reference={"source_id": "quality-control-report"},
+            source_version=f"2026-{month:02d}",
+            measurement_period_start=datetime(2026, month, 1, tzinfo=UTC),
+            measurement_period_end=datetime(2026, month, 20, tzinfo=UTC),
+            observed_at=datetime(2026, month, 21, tzinfo=UTC),
+            limitations=[{"code": "customer_attested_not_independently_verified"}],
+            confidence=None,
+            producer="integration-test",
+        )
+        return need
+
+    initial = ingest(current=12, previous=10, month=6)
+    improved = ingest(current=4, previous=12, month=7)
+    assert initial is not None and improved is not None
+    assert improved.need_id == initial.need_id
+    assert improved.revision == 2
+    assert improved.status == "monitoring"
+    assert improved.objective_reference == initial.objective_reference
+
+
+def test_concurrent_identical_measurement_ingestion_creates_one_history(pg_engine) -> None:
+    tenant_id = _tenant()
+    factory = sessionmaker(bind=pg_engine, expire_on_commit=False)
+    period_start = datetime(2026, 4, 1, tzinfo=UTC)
+    period_end = datetime(2026, 4, 30, tzinfo=UTC)
+
+    def ingest() -> tuple[uuid.UUID, str]:
+        with factory() as session:
+            activate_tenant_session(session, tenant_id)
+            measurement, need = _ingest_customer_measurement(
+                session,
+                tenant_id=tenant_id,
+                current=2,
+                previous=3,
+                source_version="apr-v1",
+                period_start=period_start,
+                period_end=period_end,
+            )
+            assert need is not None
+            session.commit()
+            return measurement.id, need.need_id
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: ingest(), range(2)))
+    assert len({item[0] for item in results}) == 1
+    assert len({item[1] for item in results}) == 1
+    with factory() as verify:
+        activate_tenant_session(verify, tenant_id)
+        assert verify.scalar(select(func.count()).select_from(BusinessMeasurement)) == 1
+        assert verify.scalar(select(func.count()).select_from(BusinessObservation)) == 1
+        assert verify.scalar(select(func.count()).select_from(BusinessNeedRevision)) == 1
+
+
+def test_customer_attested_measurement_impact_flows_to_canonical_learning_candidate(
+    pg_engine, queue_adapter, redis_client
+) -> None:
+    """One outcome identity links durable impact and canonical feedback.
+
+    Customer-attested measurements can update understanding, but the learning
+    signal retains their bounded evidence and is not promoted here.
+    """
+
+    tenant_id = str(uuid.uuid4())
+    mission_id = uuid.uuid4()
+    factory = sessionmaker(bind=pg_engine, expire_on_commit=False)
+    with factory() as setup:
+        setup.add(Tenant(id=uuid.UUID(tenant_id), name="Ajenda", slug=f"ajenda-{tenant_id[:8]}", plan="free"))
+        setup.add(Mission(id=mission_id, tenant_id=tenant_id, objective="Improve customer acquisition"))
+        activate_tenant_session(setup, tenant_id)
+        persist_test_operating_charter(setup, tenant_id=tenant_id)
+        TenantInternalRecordRepository(setup).write_record(
+            tenant_id=tenant_id,
+            record_type="account",
+            record_id="ajenda",
+            data={"name": "Ajenda", "measurement_scope": "customer_acquisition"},
+        )
+        baseline, need = _ingest_customer_measurement(
+            setup,
+            tenant_id=tenant_id,
+            current=2,
+            previous=3,
+            source_version="2026-01",
+            period_start=datetime(2026, 1, 1, tzinfo=UTC),
+            period_end=datetime(2026, 1, 31, tzinfo=UTC),
+        )
+        assert need is not None
+        setup.commit()
+
+    supporting = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        action="record.read",
+        action_input={"record_type": "account", "record_id": "ajenda"},
+        worker_label="business-impact-source",
+    )
+    recommendation = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        action="decision.recommend_next_action",
+        action_input={
+            "goal": "Improve customer acquisition",
+            "goal_ref": {
+                "goal_id": "customer-acquisition",
+                "objective_key": "customer_acquisition",
+                "name": "Acquire qualified customers",
+                "subject_refs": [{"object_type": "organization", "object_id": "ajenda"}],
+            },
+            "subject_refs": [{"object_type": "organization", "object_id": "ajenda"}],
+            "options": [
+                {
+                    "option_id": "improve-onboarding",
+                    "label": "Improve onboarding",
+                    "intervention_key": EXECUTION_ACTION,
+                },
+                {"option_id": "investigate", "label": "Investigate further", "intervention_key": "record.search"},
+            ],
+            "criteria": [{"criterion_id": "acquisition", "label": "Acquisition", "required": False}],
+            "evidence": [
+                {
+                    "evidence_id": str(supporting.id),
+                    "claim": "The account record establishes the business subject only.",
+                    "status": "known",
+                    "confidence": 0.8,
+                    "supports_option_ids": ["improve-onboarding"],
+                    "supports_criterion_ids": ["acquisition"],
+                    "lineage": supporting.provenance_metadata["evidence_lineage"],
+                }
+            ],
+        },
+        worker_label="business-impact-decision",
+    )
+    execution = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        action=EXECUTION_ACTION,
+        action_input={
+            "record_type": "activity",
+            "record_id": "onboarding-improvement",
+            "data": {"status": "completed", "subject_id": "ajenda"},
+        },
+        worker_label="business-impact-execution",
+        runtime_authority_metadata=seed_execution_authority(factory=factory, tenant_id=tenant_id),
+    )
+
+    observed_at = datetime.fromisoformat(str(execution.structured_payload["executed_at"])) + timedelta(days=30)
+    with factory() as measurement_session:
+        activate_tenant_session(measurement_session, tenant_id)
+        later, updated_need = _ingest_customer_measurement(
+            measurement_session,
+            tenant_id=tenant_id,
+            current=4,
+            previous=2,
+            source_version="2026-02",
+            period_start=observed_at - timedelta(days=29),
+            period_end=observed_at - timedelta(hours=12),
+        )
+        assert updated_need is not None and updated_need.need_id == need.need_id
+        measurement_session.commit()
+
+    outcome = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        action="analysis.evaluate_outcome",
+        action_input={
+            "goal": {
+                "goal_id": "customer-acquisition",
+                "objective_key": "customer_acquisition",
+                "name": "Acquire qualified customers",
+                "subject_refs": [{"object_type": "organization", "object_id": "ajenda"}],
+            },
+            "subject_refs": [{"object_type": "organization", "object_id": "ajenda"}],
+            "baseline_kpis": baseline.values,
+            "observed_kpis": later.values,
+            "source_observed_at": later.observed_at.isoformat(),
+            "evidence_ids": [str(execution.id)],
+        },
+        worker_label="business-impact-outcome",
+    )
+    with factory() as impact_session:
+        activate_tenant_session(impact_session, tenant_id)
+        current = BusinessUnderstandingRepository(impact_session).get_latest_need_for_tenant(
+            tenant_id=tenant_id, need_id=need.need_id
+        )
+        assert current is not None
+        impact_revision, evaluation = BusinessUnderstandingService(impact_session).record_canonical_measurement_impact(
+            tenant_id=tenant_id,
+            need_id=need.need_id,
+            expected_revision=current.revision,
+            baseline_measurement_id=baseline.id,
+            observed_measurement_id=later.id,
+            outcome_evidence_id=outcome.id,
+            producer="integration-test",
+        )
+        impact_session.commit()
+    assert impact_revision.status == "impact_monitored"
+    assert impact_revision.mission_references == [{"mission_id": str(mission_id)}]
+    assert impact_revision.impact_assessment is not None
+    assert impact_revision.impact_assessment["outcome_evidence_id"] == str(outcome.id)
+    assert impact_revision.impact_assessment["causation"] == "unresolved"
+    assert evaluation.attribution.value == "not_assessed"
+
+    learning_record = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        action=MATERIALIZATION_ACTION,
+        action_input={
+            "recommendation_evidence_id": str(recommendation.id),
+            "outcome_evaluation_evidence_id": str(outcome.id),
+            "execution_evidence_ids": [str(execution.id)],
+        },
+        worker_label="business-impact-learning",
+    )
+    signal = DecisionLearningSignal.model_validate(learning_record.structured_payload)
+    assert signal.episode_reference is not None
+    assert signal.episode_reference.outcome_evaluation_evidence_id == str(outcome.id)
 
 
 def test_need_is_append_only_and_mission_work_does_not_resolve_it(pg_session) -> None:
@@ -630,7 +1010,10 @@ def test_rls_hides_business_understanding_without_tenant_context(pg_engine) -> N
         admin.execute(text(f"CREATE ROLE {quoted_role} NOLOGIN"))
         admin.execute(text(f"GRANT USAGE ON SCHEMA public TO {quoted_role}"))
         admin.execute(
-            text(f"GRANT SELECT, INSERT, UPDATE ON business_observations, business_need_revisions TO {quoted_role}")
+            text(
+                f"GRANT SELECT, INSERT, UPDATE ON business_measurements, business_observations, "
+                f"business_need_revisions TO {quoted_role}"
+            )
         )
     try:
         with pg_engine.connect() as connection:
@@ -650,6 +1033,17 @@ def test_rls_hides_business_understanding_without_tenant_context(pg_engine) -> N
             assert BusinessUnderstandingRepository(session).list_observations_for_tenant(tenant_id=tenant) == []
             with pytest.raises(DBAPIError):
                 _record_acquisition_observation(session, tenant_id=tenant, source_id="blocked")
+            session.rollback()
+            with pytest.raises(DBAPIError):
+                _ingest_customer_measurement(
+                    session,
+                    tenant_id=tenant,
+                    current=2,
+                    previous=3,
+                    source_version="blocked-v1",
+                    period_start=datetime(2026, 5, 1, tzinfo=UTC),
+                    period_end=datetime(2026, 5, 31, tzinfo=UTC),
+                )
             session.rollback()
             session.close()
             connection.execute(text("RESET ROLE"))
@@ -684,3 +1078,39 @@ def test_business_understanding_migration_preserves_populated_existing_tenant_da
         restored = BusinessProfileRepository(upgraded_session).get_active_profile_for_tenant(tenant_id=tenant_id)
         assert restored is not None
         assert restored.approved_facts["business_name"]["value"] == "Existing tenant business"
+
+
+def test_upgrade_from_original_published_0057_creates_secured_measurement_schema(pg_engine) -> None:
+    """0058 repairs databases where the original 0057 had no measurement table."""
+
+    config = AlembicConfig("alembic.ini")
+    config.set_main_option("sqlalchemy.url", str(pg_engine.url))
+    alembic_command.downgrade(config, "0056_business_need_assessments")
+    with pg_engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE business_need_assessments ADD CONSTRAINT "
+                "uq_business_need_assessments_retry UNIQUE "
+                "(tenant_id, need_id, need_revision, assessment_fingerprint)"
+            )
+        )
+    alembic_command.stamp(config, "0057_assessment_retry_dedup")
+    assert not inspect(pg_engine).has_table("business_measurements")
+
+    alembic_command.upgrade(config, "head")
+    inspector = inspect(pg_engine)
+    assert inspector.has_table("business_measurements")
+    assert "measurement_fingerprint" in {column["name"] for column in inspector.get_columns("business_observations")}
+    assert "uq_business_measurements_ingestion_identity" in {
+        item["name"] for item in inspector.get_unique_constraints("business_measurements")
+    }
+    with pg_engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT relrowsecurity AND relforcerowsecurity FROM pg_class "
+                    "WHERE oid = 'business_measurements'::regclass"
+                )
+            )
+            is True
+        )

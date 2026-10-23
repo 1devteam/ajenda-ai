@@ -121,6 +121,8 @@ class MeasurementCreate(BaseModel):
             and self.measurement_period_end < self.measurement_period_start
         ):
             raise ValueError("measurement period is invalid")
+        if self.measurement_period_end is not None and self.observed_at < self.measurement_period_end:
+            raise ValueError("observed_at cannot precede the measurement period end")
         if canonical_subject_keys(self.goal.subject_refs) != canonical_subject_keys(self.subject_references):
             raise ValueError("measurement subjects must match goal subjects")
         return self
@@ -178,6 +180,18 @@ class RecognitionCreate(BaseModel):
         if value.need_id is not None or value.expected_revision != 0:
             raise ValueError("recognition must create the initial need revision")
         return value
+
+
+class MeasurementImpactCreate(BaseModel):
+    """Link canonical outcome evidence to durable before/after measurements."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+    baseline_measurement_id: UUID
+    observed_measurement_id: UUID
+    outcome_evidence_id: UUID
+    mission_id: UUID | None = None
 
 
 class ObservationRead(BaseModel):
@@ -494,6 +508,39 @@ def assess_need(
         )
     except ValueError as exc:
         raise _map_error(BusinessUnderstandingValidationError("assessment is invalid")) from exc
+
+
+@router.post(
+    "/needs/{need_id}/measurement-impact",
+    response_model=NeedRevisionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_measurement_impact(
+    need_id: str,
+    body: MeasurementImpactCreate,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> NeedRevisionRead:
+    """Attach runtime-owned outcome evidence to comparable measurements."""
+
+    require_route_permission(
+        request=request, db=db, permission=Permission.BUSINESS_UNDERSTANDING_MANAGE, tenant_id=tenant_id
+    )
+    try:
+        revision, _ = BusinessUnderstandingService(db).record_canonical_measurement_impact(
+            tenant_id=str(tenant_id),
+            need_id=need_id,
+            expected_revision=body.expected_revision,
+            baseline_measurement_id=body.baseline_measurement_id,
+            observed_measurement_id=body.observed_measurement_id,
+            outcome_evidence_id=body.outcome_evidence_id,
+            mission_reference={"mission_id": str(body.mission_id)} if body.mission_id is not None else None,
+            producer=_actor_id(request),
+        )
+        return _need_read(revision)
+    except Exception as exc:
+        raise _map_error(exc) from exc
 
 
 @router.get("/observations", response_model=ObservationListRead)

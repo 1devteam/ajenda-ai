@@ -11,7 +11,17 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKeyConstraint, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,6 +48,14 @@ class BusinessObservation(Base):
             "'outcome_review', 'knowledge_artifact', 'external_provider', 'customer_instruction')",
             name="ck_business_observations_source_kind",
         ),
+        Index(
+            "uq_business_observations_measurement_identity",
+            "tenant_id",
+            "source_fingerprint",
+            "measurement_fingerprint",
+            unique=True,
+            postgresql_where=text("measurement_fingerprint IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -63,6 +81,13 @@ class BusinessMeasurement(Base):
     """Immutable source-owned operating measurement; not an inferred outcome."""
 
     __tablename__ = "business_measurements"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "source_content_fingerprint",
+            name="uq_business_measurements_ingestion_identity",
+        ),
+    )
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     subject_references: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)

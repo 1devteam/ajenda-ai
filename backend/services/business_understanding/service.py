@@ -15,7 +15,10 @@ from sqlalchemy.orm import Session
 
 from backend.domain.business_understanding import BusinessMeasurement, BusinessNeedRevision, BusinessObservation, utcnow
 from backend.repositories.business_profile_repository import BusinessProfileRepository
-from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
+from backend.repositories.business_understanding_repository import (
+    BusinessNeedRevisionConflict,
+    BusinessUnderstandingRepository,
+)
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.knowledge_repository import KnowledgeRepository
 from backend.repositories.mission_repository import MissionRepository
@@ -24,7 +27,7 @@ from backend.repositories.tenant_internal_record_repository import TenantInterna
 from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.ontology.commercial_state import Goal, Kpi
 from backend.services.ontology.evaluation import GoalProgressStatus, evaluate_goal_progress
-from backend.services.ontology.outcome import ObservedOutcome, OutcomeExpectation, OutcomeStatus, evaluate_outcome
+from backend.services.ontology.outcome import OutcomeEvaluation, OutcomeStatus
 from backend.services.ontology.types import BusinessObjectRef
 
 ObservationSourceKind = Literal[
@@ -142,8 +145,13 @@ class BusinessUnderstandingService:
         """Persist an attributed measurement and feed existing recognition."""
         if not source_version.strip():
             raise BusinessUnderstandingValidationError("source_version must be non-empty")
-        if observed_at.tzinfo is None or observed_at.utcoffset() is None:
-            raise BusinessUnderstandingValidationError("observed_at must be timezone-aware")
+        self._validate_measurement_timing(
+            observed_at=observed_at,
+            period_start=measurement_period_start,
+            period_end=measurement_period_end,
+        )
+        if not kpis or any(kpi.goal_id != goal.goal_id for kpi in kpis):
+            raise BusinessUnderstandingValidationError("all KPI values must belong to the supplied goal")
         expected_subjects = canonical_subject_keys(goal.subject_refs)
         supplied_subjects = canonical_subject_keys(subject_references)
         if expected_subjects != supplied_subjects:
@@ -160,13 +168,9 @@ class BusinessUnderstandingService:
             "observed_at": observed_at.isoformat(),
             "kpis": [k.model_dump(mode="json") for k in sorted(kpis, key=lambda item: item.kpi_id)],
         }
-        if source_kind == "source_verified" and not {
-            "adapter_id",
-            "record_id",
-            "source_version",
-        }.issubset(source_reference):
+        if source_kind == "source_verified":
             raise BusinessUnderstandingValidationError(
-                "source_verified measurements require an authorized adapter record and version"
+                "source_verified measurements require an authorized internal adapter"
             )
         fingerprint = self.source_fingerprint(payload)
         measurement = self._repository.get_measurement_by_fingerprint_for_tenant(
@@ -205,7 +209,7 @@ class BusinessUnderstandingService:
             goal=goal,
             kpis=kpis,
             source=SourceReference(
-                source_kind="external_provider" if source_kind == "source_verified" else "customer_instruction",
+                source_kind="customer_instruction",
                 reference={"source_id": str(measurement.id)},
             ),
             observed_at=observed_at,
@@ -244,22 +248,10 @@ class BusinessUnderstandingService:
         source_fingerprint = self.source_fingerprint(source.reference)
         # Measurement identity is based on the source version and actual
         # business values, never on evaluation timestamps or invocation IDs.
-        measurement_fingerprint = self.source_fingerprint(
-            {
-                "source": source.reference,
-                "goal_id": goal.goal_id,
-                "kpis": [
-                    {
-                        "kpi_id": k.kpi_id,
-                        "metric": k.metric,
-                        "current_value": k.current_value,
-                        "target_value": k.target_value,
-                        "previous_value": k.previous_value,
-                        "unit": k.unit,
-                    }
-                    for k in sorted(kpis, key=lambda item: item.kpi_id)
-                ],
-            }
+        measurement_fingerprint = self._recognition_measurement_fingerprint(
+            source_reference=source.reference,
+            goal_id=goal.goal_id,
+            kpis=[item.model_dump(mode="json") for item in kpis],
         )
         existing = self._repository.find_active_need_for_identity(
             tenant_id=tenant_id,
@@ -279,21 +271,32 @@ class BusinessUnderstandingService:
             return None
         observation = self._repository.get_observation_by_source_fingerprint_for_tenant(
             tenant_id=tenant_id, source_fingerprint=source_fingerprint, measurement_fingerprint=measurement_fingerprint
-        ) or self.record_observation(
-            tenant_id=tenant_id,
-            source=source,
-            observation_summary=(
-                f"Goal condition requires attention: {goal.name}"
-                if evaluation.status in {GoalProgressStatus.AT_RISK, GoalProgressStatus.OFF_TRACK}
-                else f"Goal condition observed: {goal.name} ({evaluation.status.value})"
-            ),
-            subject_references=subject_references,
-            observed_at=observed_at,
-            confidence=None,
-            limitations=[{"code": "goal_gap_is_not_causal_explanation"}],
-            producer=producer,
-            measurement_fingerprint=measurement_fingerprint,
         )
+        if observation is None:
+            try:
+                observation = self.record_observation(
+                    tenant_id=tenant_id,
+                    source=source,
+                    observation_summary=(
+                        f"Goal condition requires attention: {goal.name}"
+                        if evaluation.status in {GoalProgressStatus.AT_RISK, GoalProgressStatus.OFF_TRACK}
+                        else f"Goal condition observed: {goal.name} ({evaluation.status.value})"
+                    ),
+                    subject_references=subject_references,
+                    observed_at=observed_at,
+                    confidence=None,
+                    limitations=[{"code": "goal_gap_is_not_causal_explanation"}],
+                    producer=producer,
+                    measurement_fingerprint=measurement_fingerprint,
+                )
+            except IntegrityError:
+                observation = self._repository.get_observation_by_source_fingerprint_for_tenant(
+                    tenant_id=tenant_id,
+                    source_fingerprint=source_fingerprint,
+                    measurement_fingerprint=measurement_fingerprint,
+                )
+                if observation is None:
+                    raise
         objective_reference = {"objective_key": objective_key, "condition_key": condition_key}
         existing = self._repository.find_active_need_for_identity(
             tenant_id=tenant_id,
@@ -323,76 +326,128 @@ class BusinessUnderstandingService:
             if isinstance(item, dict) and item.get("observation_id")
         ]
         observation_ids = list(dict.fromkeys([*prior_observation_ids, observation.id]))
-        return self.append_need_revision(
-            tenant_id=tenant_id,
-            need_id=existing.need_id if existing is not None else None,
-            expected_revision=existing.revision if existing is not None else 0,
-            origin="observed",
-            status=(
-                "monitoring"
-                if evaluation.status in {GoalProgressStatus.ON_TRACK, GoalProgressStatus.ACHIEVED}
-                else existing.status
-            )
+        stable_need_id = (
+            existing.need_id
             if existing is not None
-            else "recognized",
-            subject_references=subject_references,
-            objective_reference=objective_reference,
-            condition_summary=f"Goal '{goal.name}' is {evaluation.status.value}",
-            uncertainty=(existing.uncertainty if existing is not None else [{"code": "causal_explanation_unresolved"}]),
-            priority=existing.priority if existing is not None else None,
-            confidence=existing.confidence if existing is not None else None,
-            observation_ids=observation_ids,
-            related_need_references=existing.related_need_references if existing is not None else [],
-            candidate_responses=existing.candidate_responses if existing is not None else [],
-            proposal_references=existing.proposal_references if existing is not None else [],
-            mission_references=existing.mission_references if existing is not None else [],
-            impact_assessment=existing.impact_assessment if existing is not None else None,
-            resolution_observation_ids=[
-                uuid.UUID(str(item["observation_id"]))
-                for item in (existing.resolution_observation_references if existing is not None else [])
-                if isinstance(item, dict) and item.get("observation_id")
-            ],
-            producer=producer,
+            else self._stable_need_id(
+                tenant_id=tenant_id,
+                objective_key=objective_key,
+                condition_key=condition_key,
+                subject_references=subject_references,
+            )
         )
+        try:
+            return self.append_need_revision(
+                tenant_id=tenant_id,
+                need_id=stable_need_id,
+                expected_revision=existing.revision if existing is not None else 0,
+                origin="observed",
+                status=(
+                    "monitoring"
+                    if evaluation.status in {GoalProgressStatus.ON_TRACK, GoalProgressStatus.ACHIEVED}
+                    else existing.status
+                )
+                if existing is not None
+                else "recognized",
+                subject_references=subject_references,
+                objective_reference=objective_reference,
+                condition_summary=f"Goal '{goal.name}' is {evaluation.status.value}",
+                uncertainty=(
+                    existing.uncertainty if existing is not None else [{"code": "causal_explanation_unresolved"}]
+                ),
+                priority=existing.priority if existing is not None else None,
+                confidence=existing.confidence if existing is not None else None,
+                observation_ids=observation_ids,
+                related_need_references=existing.related_need_references if existing is not None else [],
+                candidate_responses=existing.candidate_responses if existing is not None else [],
+                proposal_references=existing.proposal_references if existing is not None else [],
+                mission_references=existing.mission_references if existing is not None else [],
+                impact_assessment=existing.impact_assessment if existing is not None else None,
+                resolution_observation_ids=[
+                    uuid.UUID(str(item["observation_id"]))
+                    for item in (existing.resolution_observation_references if existing is not None else [])
+                    if isinstance(item, dict) and item.get("observation_id")
+                ],
+                producer=producer,
+            )
+        except BusinessNeedRevisionConflict:
+            concurrent = self._repository.get_latest_need_for_tenant(tenant_id=tenant_id, need_id=stable_need_id)
+            if concurrent is not None and any(
+                str(item.get("observation_id")) == str(observation.id)
+                for item in concurrent.observation_references
+                if isinstance(item, dict)
+            ):
+                return concurrent
+            raise
 
-    def record_independent_impact(
+    def record_canonical_measurement_impact(
         self,
         *,
         tenant_id: str,
         need_id: str,
         expected_revision: int,
-        expectation: OutcomeExpectation,
-        observed: ObservedOutcome,
-        observation_id: uuid.UUID,
+        baseline_measurement_id: uuid.UUID,
+        observed_measurement_id: uuid.UUID,
+        outcome_evidence_id: uuid.UUID,
         producer: str,
         mission_reference: dict[str, Any] | None = None,
-    ) -> tuple[BusinessNeedRevision, Any]:
-        """Evaluate later business evidence and append a need revision.
+    ) -> tuple[BusinessNeedRevision, OutcomeEvaluation]:
+        """Attach a canonical outcome evaluation to comparable measurements.
 
-        Mission completion is merely lineage; only the independent observed
-        outcome determines the impact status. ``evaluate_outcome`` retains
-        attribution uncertainty and never upgrades temporal association to
-        causation.
+        The outcome must already exist as canonical runtime evidence. This
+        method validates that its KPI deltas and chronology correspond to the
+        durable baseline and later measurement; it never manufactures outcome
+        or causal evidence from mission completion.
         """
-        outcome = evaluate_outcome(expectation=expectation, observed=observed)
         current = self._repository.get_need_revision_for_tenant(
             tenant_id=tenant_id, need_id=need_id, revision=expected_revision
         )
         if current is None:
             raise BusinessUnderstandingValidationError("need revision was not found for tenant")
-        observation = self._repository.get_observation_for_tenant(observation_id=observation_id, tenant_id=tenant_id)
+        baseline = self._repository.get_measurement_for_tenant(
+            tenant_id=tenant_id, measurement_id=baseline_measurement_id
+        )
+        later = self._repository.get_measurement_for_tenant(tenant_id=tenant_id, measurement_id=observed_measurement_id)
+        if baseline is None or later is None:
+            raise BusinessUnderstandingValidationError("impact measurement was not found for tenant")
+        self._validate_measurement_comparability(current=current, baseline=baseline, later=later)
+        evidence = EvidenceRepository(self._session).get_for_tenant(
+            evidence_id=outcome_evidence_id, tenant_id=tenant_id
+        )
+        if evidence is None or evidence.provenance_metadata.get("action_name") != "analysis.evaluate_outcome":
+            raise BusinessUnderstandingValidationError("canonical outcome evidence was not found for tenant")
+        canonical_mission_reference = {"mission_id": str(evidence.mission_id)}
+        if mission_reference is not None and mission_reference != canonical_mission_reference:
+            raise BusinessUnderstandingValidationError("mission reference does not own canonical outcome evidence")
+        try:
+            outcome = OutcomeEvaluation.model_validate(evidence.structured_payload)
+        except ValueError as exc:
+            raise BusinessUnderstandingValidationError("canonical outcome evidence is invalid") from exc
+        self._validate_outcome_matches_measurements(outcome=outcome, baseline=baseline, later=later)
+        observation = self._repository.get_observation_by_source_fingerprint_for_tenant(
+            tenant_id=tenant_id,
+            source_fingerprint=self.source_fingerprint({"source_id": str(later.id)}),
+            measurement_fingerprint=self._recognition_measurement_fingerprint(
+                source_reference={"source_id": str(later.id)},
+                goal_id=outcome.goal_id,
+                kpis=later.values,
+            ),
+        )
         if observation is None:
-            raise BusinessUnderstandingValidationError("impact observation was not found for tenant")
-        expected_subjects = canonical_subject_keys(expectation.subject_refs)
+            raise BusinessUnderstandingValidationError("impact observation was not found for measurement")
+        expected_subjects = canonical_subject_keys(current.subject_references)
         observed_subjects = canonical_subject_keys(observation.subject_references)
-        if expected_subjects and not expected_subjects.intersection(observed_subjects):
+        if expected_subjects != observed_subjects:
             raise BusinessUnderstandingValidationError("impact observation subject does not match outcome")
         prior_ids = {
             str(item.get("observation_id"))
             for item in current.observation_references
             if isinstance(item, dict) and item.get("observation_id")
         }
-        prior = self._require_observations(tenant_id=tenant_id, observation_ids=[uuid.UUID(item) for item in prior_ids])
+        prior = self._require_observations(
+            tenant_id=tenant_id,
+            observation_ids=[uuid.UUID(item) for item in prior_ids if item != str(observation.id)],
+        )
         if prior and observation.observed_at <= max(item.observed_at for item in prior):
             raise BusinessUnderstandingValidationError("impact observation must follow the existing need evidence")
         status = "impact_monitored"
@@ -400,6 +455,9 @@ class BusinessUnderstandingService:
             "status": outcome.status.value,
             "evaluation_basis": outcome.model_dump(mode="json"),
             "causation": "unresolved",
+            "baseline_measurement_id": str(baseline.id),
+            "observed_measurement_id": str(later.id),
+            "outcome_evidence_id": str(evidence.id),
         }
         if outcome.status == OutcomeStatus.INCONCLUSIVE:
             impact["status"] = "uncertain"
@@ -411,17 +469,27 @@ class BusinessUnderstandingService:
             status=status,
             subject_references=list(current.subject_references),
             objective_reference=dict(current.objective_reference or {}),
-            condition_summary=f"Independent impact observed for {expectation.goal.name}",
+            condition_summary=current.condition_summary,
             uncertainty=[*current.uncertainty, {"code": "impact_causation_requires_attribution"}],
-            priority=None,
-            confidence=None,
-            observation_ids=[*([uuid.UUID(item) for item in prior_ids]), observation_id],
+            priority=current.priority,
+            confidence=current.confidence,
+            observation_ids=[*([uuid.UUID(item) for item in prior_ids]), observation.id],
             related_need_references=list(current.related_need_references),
             candidate_responses=list(current.candidate_responses),
             proposal_references=list(current.proposal_references),
-            mission_references=[*current.mission_references, *([mission_reference] if mission_reference else [])],
-            impact_assessment=impact,
-            resolution_observation_ids=[],
+            mission_references=list(
+                {
+                    str(item["mission_id"]): item
+                    for item in [*current.mission_references, canonical_mission_reference]
+                    if isinstance(item, dict) and item.get("mission_id")
+                }.values()
+            ),
+            impact_assessment=self._append_impact_history(current.impact_assessment, impact),
+            resolution_observation_ids=[
+                uuid.UUID(str(item["observation_id"]))
+                for item in current.resolution_observation_references
+                if isinstance(item, dict) and item.get("observation_id")
+            ],
             producer=producer,
         )
         return revision, outcome
@@ -602,9 +670,141 @@ class BusinessUnderstandingService:
         supplied = assessment.get("condition_fingerprint")
         if supplied is not None and supplied != expected:
             raise BusinessUnderstandingValidationError("impact assessment condition does not match the need")
-        result = {key: value for key, value in assessment.items() if key in {"status", "evaluation_basis"}}
+        result = {
+            key: value
+            for key, value in assessment.items()
+            if key
+            in {
+                "status",
+                "evaluation_basis",
+                "history",
+                "causation",
+                "baseline_measurement_id",
+                "observed_measurement_id",
+                "outcome_evidence_id",
+            }
+        }
         result["condition_fingerprint"] = expected
         return result
+
+    @staticmethod
+    def _stable_need_id(
+        *,
+        tenant_id: str,
+        objective_key: str,
+        condition_key: str,
+        subject_references: list[dict[str, Any]],
+    ) -> str:
+        payload = json.dumps(
+            {
+                "tenant_id": tenant_id,
+                "objective_key": objective_key,
+                "condition_key": condition_key,
+                "subjects": sorted(subject_references, key=lambda item: json.dumps(item, sort_keys=True)),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return f"need:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
+
+    @classmethod
+    def _recognition_measurement_fingerprint(
+        cls,
+        *,
+        source_reference: dict[str, Any],
+        goal_id: str | None,
+        kpis: list[dict[str, Any]],
+    ) -> str:
+        return cls.source_fingerprint(
+            {
+                "source": source_reference,
+                "goal_id": goal_id,
+                "kpis": [
+                    {
+                        "kpi_id": item.get("kpi_id"),
+                        "metric": item.get("metric"),
+                        "current_value": item.get("current_value"),
+                        "target_value": item.get("target_value"),
+                        "previous_value": item.get("previous_value"),
+                        "unit": item.get("unit", ""),
+                    }
+                    for item in sorted(kpis, key=lambda value: str(value.get("kpi_id") or ""))
+                ],
+            }
+        )
+
+    @staticmethod
+    def _validate_measurement_timing(
+        *, observed_at: datetime, period_start: datetime | None, period_end: datetime | None
+    ) -> None:
+        for field_name, value in (
+            ("observed_at", observed_at),
+            ("measurement_period_start", period_start),
+            ("measurement_period_end", period_end),
+        ):
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise BusinessUnderstandingValidationError(f"{field_name} must be timezone-aware")
+        if period_start is not None and period_end is not None and period_end < period_start:
+            raise BusinessUnderstandingValidationError("measurement period is invalid")
+        if period_end is not None and observed_at < period_end:
+            raise BusinessUnderstandingValidationError("observed_at cannot precede the measurement period end")
+
+    @staticmethod
+    def _append_impact_history(existing: dict[str, Any] | None, current: dict[str, Any]) -> dict[str, Any]:
+        history = []
+        if existing:
+            history.extend(list(existing.get("history") or []))
+            previous = {
+                key: value for key, value in existing.items() if key not in {"history", "condition_fingerprint"}
+            }
+            if previous:
+                history.append(previous)
+        return {**current, "history": history}
+
+    @staticmethod
+    def _validate_measurement_comparability(
+        *, current: BusinessNeedRevision, baseline: BusinessMeasurement, later: BusinessMeasurement
+    ) -> None:
+        if baseline.id == later.id:
+            raise BusinessUnderstandingValidationError("impact requires a later distinct measurement")
+        if canonical_subject_keys(baseline.subject_references) != canonical_subject_keys(later.subject_references):
+            raise BusinessUnderstandingValidationError("impact measurements concern different subjects")
+        if canonical_subject_keys(current.subject_references) != canonical_subject_keys(later.subject_references):
+            raise BusinessUnderstandingValidationError("impact measurements do not match the need subject")
+        if baseline.objective_key != later.objective_key:
+            raise BusinessUnderstandingValidationError("impact measurements concern different objectives")
+        baseline_metrics = {(item.get("kpi_id"), item.get("metric"), item.get("unit", "")) for item in baseline.values}
+        later_metrics = {(item.get("kpi_id"), item.get("metric"), item.get("unit", "")) for item in later.values}
+        if baseline_metrics != later_metrics:
+            raise BusinessUnderstandingValidationError("impact measurements are not comparable")
+        baseline_end = baseline.period_end or baseline.observed_at
+        later_start = later.period_start or later.observed_at
+        if later_start <= baseline_end or later.observed_at <= baseline.observed_at:
+            raise BusinessUnderstandingValidationError("impact measurement chronology is invalid")
+
+    @staticmethod
+    def _validate_outcome_matches_measurements(
+        *, outcome: OutcomeEvaluation, baseline: BusinessMeasurement, later: BusinessMeasurement
+    ) -> None:
+        baseline_values = {
+            str(item.get("kpi_id")): (item.get("current_value"), item.get("target_value"), item.get("metric"))
+            for item in baseline.values
+        }
+        later_values = {
+            str(item.get("kpi_id")): (item.get("current_value"), item.get("target_value"), item.get("metric"))
+            for item in later.values
+        }
+        deltas = {item.kpi_id: (item.before, item.after, item.target, item.metric) for item in outcome.kpi_deltas}
+        expected = {
+            kpi_id: (before[0], later_values[kpi_id][0], later_values[kpi_id][1], before[2])
+            for kpi_id, before in baseline_values.items()
+            if kpi_id in later_values
+        }
+        if deltas != expected:
+            raise BusinessUnderstandingValidationError("canonical outcome does not match durable measurements")
+        resolved_observed_at = outcome.observation_timing.resolved_observed_at
+        if resolved_observed_at is None or resolved_observed_at != later.observed_at:
+            raise BusinessUnderstandingValidationError("canonical outcome chronology does not match measurement")
 
     def _validate_source(self, *, tenant_id: str, source: SourceReference) -> None:
         reference = source.reference

@@ -33,8 +33,9 @@ class BusinessUnderstandingRepository:
         self._session = session
 
     def add_observation(self, observation: BusinessObservation) -> BusinessObservation:
-        self._session.add(observation)
-        self._session.flush()
+        with self._session.begin_nested():
+            self._session.add(observation)
+            self._session.flush()
         self._session.refresh(observation)
         return observation
 
@@ -52,6 +53,14 @@ class BusinessUnderstandingRepository:
             select(BusinessMeasurement).where(
                 BusinessMeasurement.tenant_id == tenant_id,
                 BusinessMeasurement.source_content_fingerprint == fingerprint,
+            )
+        )
+
+    def get_measurement_for_tenant(self, *, tenant_id: str, measurement_id: uuid.UUID) -> BusinessMeasurement | None:
+        return self._session.scalar(
+            select(BusinessMeasurement).where(
+                BusinessMeasurement.tenant_id == tenant_id,
+                BusinessMeasurement.id == measurement_id,
             )
         )
 

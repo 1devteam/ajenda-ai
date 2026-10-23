@@ -181,8 +181,8 @@ def test_confirmation_revalidates_current_charter_after_composition() -> None:
 
         confirm = client.post(f"/v1/missions/proposals/{proposal_id}/confirm")
 
-    assert confirm.status_code == 422
-    assert confirm.json()["detail"]["code"] in {"NO_RUNTIME_ACTIONS", "PROPOSAL_NOT_READY"}
+    assert confirm.status_code == 409
+    assert confirm.json()["detail"]["code"] == "SEMANTIC_REVISION_REQUIRED"
 
 
 def test_shadow_preview_validates_plan_without_runtime_work() -> None:
