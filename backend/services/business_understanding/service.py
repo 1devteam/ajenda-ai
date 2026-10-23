@@ -139,6 +139,14 @@ class BusinessUnderstandingService:
             "observed_at": observed_at.isoformat(),
             "kpis": [k.model_dump(mode="json") for k in sorted(kpis, key=lambda item: item.kpi_id)],
         }
+        if source_kind == "source_verified" and not {
+            "adapter_id",
+            "record_id",
+            "source_version",
+        }.issubset(source_reference):
+            raise BusinessUnderstandingValidationError(
+                "source_verified measurements require an authorized adapter record and version"
+            )
         fingerprint = self.source_fingerprint(payload)
         measurement = self._repository.get_measurement_by_fingerprint_for_tenant(
             tenant_id=tenant_id, fingerprint=fingerprint
@@ -169,7 +177,10 @@ class BusinessUnderstandingService:
             tenant_id=tenant_id,
             goal=goal,
             kpis=kpis,
-            source=SourceReference(source_kind="external_provider", reference={"source_id": str(measurement.id)}),
+            source=SourceReference(
+                source_kind="external_provider" if source_kind == "source_verified" else "customer_instruction",
+                reference={"source_id": str(measurement.id)},
+            ),
             observed_at=observed_at,
             producer=producer,
         )
