@@ -242,6 +242,26 @@ class BusinessUnderstandingService:
         causation.
         """
         outcome = evaluate_outcome(expectation=expectation, observed=observed)
+        current = self._repository.get_need_revision_for_tenant(
+            tenant_id=tenant_id, need_id=need_id, revision=expected_revision
+        )
+        if current is None:
+            raise BusinessUnderstandingValidationError("need revision was not found for tenant")
+        observation = self._repository.get_observation_for_tenant(observation_id=observation_id, tenant_id=tenant_id)
+        if observation is None:
+            raise BusinessUnderstandingValidationError("impact observation was not found for tenant")
+        expected_subjects = {json.dumps(item, sort_keys=True) for item in expectation.subject_refs}
+        observed_subjects = {json.dumps(item, sort_keys=True) for item in observation.subject_references}
+        if expected_subjects and not expected_subjects.intersection(observed_subjects):
+            raise BusinessUnderstandingValidationError("impact observation subject does not match outcome")
+        prior_ids = {
+            str(item.get("observation_id"))
+            for item in current.observation_references
+            if isinstance(item, dict) and item.get("observation_id")
+        }
+        prior = self._require_observations(tenant_id=tenant_id, observation_ids=[uuid.UUID(item) for item in prior_ids])
+        if prior and observation.observed_at <= max(item.observed_at for item in prior):
+            raise BusinessUnderstandingValidationError("impact observation must follow the existing need evidence")
         status = "impact_monitored"
         impact = {
             "status": outcome.status.value,
@@ -256,17 +276,17 @@ class BusinessUnderstandingService:
             expected_revision=expected_revision,
             origin="observed",
             status=status,
-            subject_references=[item.model_dump(mode="json") for item in expectation.subject_refs],
-            objective_reference={"objective_key": expectation.goal.objective_key or expectation.goal.goal_id},
+            subject_references=list(current.subject_references),
+            objective_reference=dict(current.objective_reference or {}),
             condition_summary=f"Independent impact observed for {expectation.goal.name}",
-            uncertainty=[{"code": "impact_causation_requires_attribution"}],
+            uncertainty=[*current.uncertainty, {"code": "impact_causation_requires_attribution"}],
             priority=None,
             confidence=None,
-            observation_ids=[observation_id],
-            related_need_references=[],
-            candidate_responses=[],
-            proposal_references=[],
-            mission_references=[mission_reference] if mission_reference else [],
+            observation_ids=[*([uuid.UUID(item) for item in prior_ids]), observation_id],
+            related_need_references=list(current.related_need_references),
+            candidate_responses=list(current.candidate_responses),
+            proposal_references=list(current.proposal_references),
+            mission_references=[*current.mission_references, *([mission_reference] if mission_reference else [])],
             impact_assessment=impact,
             resolution_observation_ids=[],
             producer=producer,
