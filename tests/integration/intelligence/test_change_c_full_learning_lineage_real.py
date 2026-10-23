@@ -47,7 +47,12 @@ def test_change_c_measurements_earn_knowledge_and_inform_subsequent_decision(
         session.add_all(
             [
                 Tenant(id=uuid.UUID(tenant), name="Change C lineage", slug=f"change-c-{tenant[:8]}", plan="free"),
-                Tenant(id=uuid.UUID(other_tenant), name="Isolated tenant", slug=f"other-{other_tenant[:8]}", plan="free"),
+                Tenant(
+                    id=uuid.UUID(other_tenant),
+                    name="Isolated tenant",
+                    slug=f"other-{other_tenant[:8]}",
+                    plan="free",
+                ),
             ]
         )
         session.commit()
