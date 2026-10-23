@@ -129,11 +129,20 @@ class BusinessUnderstandingService:
         producer: str,
     ) -> tuple[BusinessMeasurement, BusinessNeedRevision | None]:
         """Persist an attributed measurement and feed existing recognition."""
+        if not source_version.strip():
+            raise BusinessUnderstandingValidationError("source_version must be non-empty")
+        if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+            raise BusinessUnderstandingValidationError("observed_at must be timezone-aware")
+        expected_subjects = {json.dumps(item, sort_keys=True) for item in goal.subject_refs}
+        supplied_subjects = {json.dumps(item, sort_keys=True) for item in subject_references}
+        if expected_subjects and expected_subjects != supplied_subjects:
+            raise BusinessUnderstandingValidationError("measurement subjects must match goal subjects")
         payload = {
             "goal_id": goal.goal_id,
             "objective_key": goal.objective_key,
             "subjects": subject_references,
             "source": source_reference,
+            "source_kind": source_kind,
             "source_version": source_version,
             "period_start": measurement_period_start.isoformat() if measurement_period_start else None,
             "period_end": measurement_period_end.isoformat() if measurement_period_end else None,

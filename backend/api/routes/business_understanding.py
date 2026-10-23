@@ -102,6 +102,30 @@ class MeasurementCreate(BaseModel):
     limitations: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
     confidence: float | None = Field(default=None, ge=0, le=1)
 
+    @model_validator(mode="after")
+    def _validate_measurement_contract(self) -> MeasurementCreate:
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
+            raise ValueError("observed_at must be timezone-aware")
+        if self.measurement_period_start and (
+            self.measurement_period_start.tzinfo is None or self.measurement_period_start.utcoffset() is None
+        ):
+            raise ValueError("measurement_period_start must be timezone-aware")
+        if self.measurement_period_end and (
+            self.measurement_period_end.tzinfo is None or self.measurement_period_end.utcoffset() is None
+        ):
+            raise ValueError("measurement_period_end must be timezone-aware")
+        if (
+            self.measurement_period_start is not None
+            and self.measurement_period_end is not None
+            and self.measurement_period_end < self.measurement_period_start
+        ):
+            raise ValueError("measurement period is invalid")
+        expected = {item.model_dump(mode="json") for item in self.goal.subject_refs}
+        supplied = {str(item) for item in self.subject_references}
+        if expected and {str(item) for item in expected} != supplied:
+            raise ValueError("measurement subjects must match goal subjects")
+        return self
+
 
 class NeedRevisionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
