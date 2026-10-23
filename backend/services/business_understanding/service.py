@@ -126,7 +126,11 @@ class BusinessUnderstandingService:
         atomically or neither is usable.
         """
         evaluation = evaluate_goal_progress(goal=goal, kpis=kpis, evaluated_at=observed_at)
-        if evaluation.status in {GoalProgressStatus.ACHIEVED, GoalProgressStatus.INSUFFICIENT_DATA}:
+        if evaluation.status in {
+            GoalProgressStatus.ON_TRACK,
+            GoalProgressStatus.ACHIEVED,
+            GoalProgressStatus.INSUFFICIENT_DATA,
+        }:
             return None
         observation = self.record_observation(
             tenant_id=tenant_id,
@@ -138,14 +142,24 @@ class BusinessUnderstandingService:
             limitations=[{"code": "goal_gap_is_not_causal_explanation"}],
             producer=producer,
         )
+        objective_reference = {"objective_key": goal.objective_key or goal.goal_id}
+        existing = next(
+            (
+                item
+                for item in self._repository.list_latest_needs_for_tenant(tenant_id=tenant_id)
+                if item.objective_reference == objective_reference
+                and item.status not in {"resolved", "disproven", "superseded"}
+            ),
+            None,
+        )
         return self.append_need_revision(
             tenant_id=tenant_id,
-            need_id=None,
-            expected_revision=0,
+            need_id=existing.need_id if existing is not None else None,
+            expected_revision=existing.revision if existing is not None else 0,
             origin="observed",
             status="recognized",
             subject_references=[item.model_dump(mode="json") for item in goal.subject_refs],
-            objective_reference={"goal_id": goal.goal_id, "objective_key": goal.objective_key},
+            objective_reference=objective_reference,
             condition_summary=f"Goal '{goal.name}' is {evaluation.status.value}",
             uncertainty=[{"code": "causal_explanation_unresolved"}],
             priority=None,
