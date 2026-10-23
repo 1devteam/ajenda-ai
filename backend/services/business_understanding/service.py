@@ -71,6 +71,7 @@ class BusinessUnderstandingService:
         observed_at: datetime,
         confidence: float | None,
         limitations: list[dict[str, Any]],
+        measurement_fingerprint: str | None = None,
         contradicts_observation_id: uuid.UUID | None = None,
         corrects_observation_id: uuid.UUID | None = None,
         producer: str,
@@ -96,6 +97,7 @@ class BusinessUnderstandingService:
                 source_kind=source.source_kind,
                 source_reference=dict(source.reference),
                 source_fingerprint=self.source_fingerprint(source.reference),
+                measurement_fingerprint=measurement_fingerprint,
                 producer=producer.strip(),
                 subject_references=list(subject_references),
                 observation_summary=observation_summary.strip(),
@@ -142,8 +144,11 @@ class BusinessUnderstandingService:
             ).encode()
         ).hexdigest()
         source_fingerprint = self.source_fingerprint(source.reference)
+        measurement_fingerprint = self.source_fingerprint(
+            {"source": source.reference, "condition": evaluation.model_dump(mode="json")}
+        )
         observation = self._repository.get_observation_by_source_fingerprint_for_tenant(
-            tenant_id=tenant_id, source_fingerprint=source_fingerprint
+            tenant_id=tenant_id, source_fingerprint=source_fingerprint, measurement_fingerprint=measurement_fingerprint
         ) or self.record_observation(
             tenant_id=tenant_id,
             source=source,
@@ -153,6 +158,7 @@ class BusinessUnderstandingService:
             confidence=None,
             limitations=[{"code": "goal_gap_is_not_causal_explanation"}],
             producer=producer,
+            measurement_fingerprint=measurement_fingerprint,
         )
         objective_reference = {"objective_key": objective_key, "condition_key": condition_key}
         existing = self._repository.find_active_need_for_identity(

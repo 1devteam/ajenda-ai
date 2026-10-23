@@ -15,6 +15,15 @@ depends_on = None
 
 
 def upgrade() -> None:
+    op.add_column(
+        "business_observations",
+        sa.Column("measurement_fingerprint", sa.String(length=128), nullable=True),
+    )
+    op.create_index(
+        "ix_business_observations_measurement_fingerprint",
+        "business_observations",
+        ["measurement_fingerprint"],
+    )
     op.create_unique_constraint(
         "uq_business_need_assessments_retry",
         "business_need_assessments",
@@ -23,4 +32,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_index("ix_business_observations_measurement_fingerprint", table_name="business_observations")
+    op.drop_column("business_observations", "measurement_fingerprint")
     op.drop_constraint("uq_business_need_assessments_retry", "business_need_assessments", type_="unique")

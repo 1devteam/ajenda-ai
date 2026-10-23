@@ -104,14 +104,16 @@ class BusinessUnderstandingRepository:
         return None
 
     def get_observation_by_source_fingerprint_for_tenant(
-        self, *, tenant_id: str, source_fingerprint: str
+        self, *, tenant_id: str, source_fingerprint: str, measurement_fingerprint: str | None = None
     ) -> BusinessObservation | None:
+        conditions = [
+            BusinessObservation.tenant_id == tenant_id,
+            BusinessObservation.source_fingerprint == source_fingerprint,
+        ]
+        if measurement_fingerprint is not None:
+            conditions.append(BusinessObservation.measurement_fingerprint == measurement_fingerprint)
         return self._session.scalar(
-            select(BusinessObservation)
-            .where(
-                BusinessObservation.tenant_id == tenant_id,
-                BusinessObservation.source_fingerprint == source_fingerprint,
-            )
+            select(BusinessObservation).where(*conditions)
             .order_by(BusinessObservation.created_at.asc())
         )
 

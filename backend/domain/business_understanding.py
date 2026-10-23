@@ -45,6 +45,7 @@ class BusinessObservation(Base):
     source_kind: Mapped[str] = mapped_column(String(48), nullable=False)
     source_reference: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     source_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    measurement_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     producer: Mapped[str] = mapped_column(String(160), nullable=False)
     subject_references: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     observation_summary: Mapped[str] = mapped_column(Text, nullable=False)
