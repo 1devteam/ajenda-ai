@@ -13,7 +13,7 @@ def test_onboarding_migrations_have_single_head() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0060_reaffirm_need_rls"]
+    assert heads == ["0061_measurement_contract_ref"]
     assert len(heads[0]) <= 32
 
 
