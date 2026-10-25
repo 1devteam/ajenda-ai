@@ -226,6 +226,41 @@ def test_pure_crm_read_does_not_require_qualification_artifacts() -> None:
     assert [field.field_key for field in runtime_request.fields] == ["company_name"]
 
 
+def test_internal_crm_followup_tasks_bind_existing_contacts_without_discovery_or_generic_persistence() -> None:
+    instruction = (
+        "Create three follow-up tasks in our internal CRM for existing prospect records. "
+        "Assign each task to its corresponding prospect, set a priority and due date, and persist the changes. "
+        "Verify that all three tasks can be retrieved afterward and report their record IDs, associated prospects, "
+        "and final status."
+    )
+
+    intent = interpret_instruction(instruction)
+
+    assert intent.requested_outcomes == ["read_crm", "create_internal_followup_tasks"]
+    assert intent.context_requirements == ["internal_crm_source"]
+    assert intent.interpreted_clauses[0].mapped_outcomes == ["create_internal_followup_tasks"]
+    jobs = route_jobs_for_intent(intent)
+    assert [job.job_key for job in jobs] == ["crm.read_records", "crm.create_internal_followup_tasks"]
+
+    selections, missing = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    assert missing == []
+    assert [selection.action_name for selection in selections] == ["record.search", "sales.create_followup_task"]
+
+    steps = compile_planned_steps(selections, intent=intent)
+    assert [step.action_name for step in steps] == ["record.search", "sales.create_followup_task"]
+    followup = steps[-1]
+    assert followup.depends_on == ["ability-record-search"]
+    assert followup.tool_input["context"]["requested_quantity"] == 3
+    assert followup.input_bindings == [
+        {
+            "from_step": "ability-record-search",
+            "output_path": "$.crm_records",
+            "to_step": "ability-sales-create_followup_task",
+            "input_path": "$.input.context.crm_records",
+        }
+    ]
+
+
 def test_interpreter_preserves_software_rnd_target_and_profile_context() -> None:
     instruction = (
         "Use 1DevTeam's approved business profile to research software and R&D developer companies in Austin, "
@@ -569,6 +604,22 @@ def test_snapshot_comparison_requires_successor_for_changed_reviewed_meaning() -
     assert comparison.status == "material_change"
     assert comparison.revision_required is True
     assert "interpreted_clauses" in comparison.changed_semantic_fields
+
+
+def test_snapshot_comparison_preserves_exact_reviewed_instruction_representation() -> None:
+    service = MissionCompositionService(db=None)
+    stored_instruction = (
+        " Review the 10 most recent messages in my connected Gmail inbox and return the retrieved email-\n"
+        "  > message artifact.\n"
+    )
+
+    reviewed = service.compose(tenant_id="tenant-snapshots", instruction=stored_instruction)
+    revalidated = service.compose(tenant_id="tenant-snapshots", instruction=stored_instruction)
+
+    comparison = compare_reviewed_semantic_state(reviewed=reviewed, evaluated=revalidated)
+    assert comparison.status == "unchanged"
+    assert comparison.revision_required is False
+    assert revalidated.intent.deliverable_request is None
 
 
 def test_persisted_composition_rejects_tampered_algorithm_result() -> None:
@@ -1129,6 +1180,23 @@ def test_unmatched_material_clause_fails_closed() -> None:
     assert intent.unmatched_material_clauses or any(c.field == "clause_coverage" for c in intent.ambiguity)
     assert intent.ambiguity
     assert any("restate the complete mission" in c.question.lower() for c in intent.ambiguity)
+
+
+def test_review_gmail_messages_with_email_message_artifact_is_a_complete_read_mission() -> None:
+    for artifact_phrase in ("email-message artifact", "email- message artifact", "email message artifact"):
+        intent = interpret_instruction(
+            "Review the 10 most recent messages in my connected Gmail inbox and "
+            f"return the retrieved {artifact_phrase}."
+        )
+
+        assert intent.requested_outcomes == ["read_email"]
+        assert intent.interpretation_ready is True
+        assert not intent.unmatched_material_clauses
+        assert not any(item.field == "clause_coverage" for item in intent.ambiguity)
+        assert [clause.mapped_outcomes for clause in intent.interpreted_clauses] == [
+            ["read_email"],
+            ["read_email"],
+        ]
 
 
 def test_hubspot_named_as_source_does_not_route_crm_write() -> None:

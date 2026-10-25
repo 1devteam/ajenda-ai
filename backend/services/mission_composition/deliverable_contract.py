@@ -121,6 +121,16 @@ _DELIVERABLE_SENTENCE = re.compile(
     r"\b(?:provide|return|include)\b)(?P<body>[^.!?]{1,1600})",
     re.IGNORECASE,
 )
+# Connector artifacts are producer-owned output contracts, not a RevOps field
+# list.  Keep a request for the email-message artifact with the read-email
+# outcome instead of projecting it as an unresolved ``revops_report``.  The
+# pattern is deliberately whole-instruction so a mixed request containing
+# actual report fields still reaches the typed RevOps parser below.
+_EMAIL_MESSAGE_ARTIFACT_ONLY = re.compile(
+    r"^.*\b(?:provide|return|include)\b\s+(?:the\s+)?(?:retrieved\s+)?"
+    r"email(?:[-\s>]+)messages?\s+(?:artifact|results?)\s*[.!?]?\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
 _SCORE_RANGE = re.compile(r"\b(?:from\s+)?(?P<minimum>\d{1,2})\s*(?:to|[-\u2013])\s*(?P<maximum>\d{1,2})\b")
 _TRAILING_PURPOSE = re.compile(r"\s+for\s+(?:review|approval|the\s+user)\s*$", re.IGNORECASE)
 
@@ -283,6 +293,9 @@ def _split_requested_items(body: str) -> list[str]:
 
 def extract_deliverable_request(text: str) -> DeliverableRequest | None:
     """Extract an explicit RevOps deliverable list without inventing unsupported fields."""
+
+    if _EMAIL_MESSAGE_ARTIFACT_ONLY.match(text.strip()):
+        return None
 
     match = _DELIVERABLE_SENTENCE.search(text)
     if match is None:

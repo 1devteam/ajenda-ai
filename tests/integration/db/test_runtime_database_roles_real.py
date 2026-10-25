@@ -11,6 +11,11 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.orm import Session, sessionmaker
+
+from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
+from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
+from backend.services.credentials.sqlalchemy_repository import SQLAlchemyCredentialRuntimeRepository
 
 _ROLE_PASSWORDS = {
     "api": f"test-{token_urlsafe(24)}",
@@ -149,6 +154,45 @@ def test_runtime_roles_are_restricted_and_billing_rows_are_tenant_isolated_real(
         api_engine.dispose()
         worker_engine.dispose()
         assurance_engine.dispose()
+
+
+def test_worker_credential_runtime_repository_activates_tenant_rls_context_real(pg_engine, pg_url: str) -> None:
+    """A fresh worker lookup must activate RLS before resolving a credential."""
+
+    tenant_a, tenant_b = _seed_tenants(pg_engine)
+    credential_id = f"credential-{uuid.uuid4().hex}"
+    protector = RuntimeCredentialSecretProtector()
+    with Session(pg_engine) as setup:
+        setup.add(
+            ProviderRuntimeCredential(
+                id=f"prc-{uuid.uuid4()}",
+                tenant_id=str(tenant_a),
+                credential_id=credential_id,
+                provider="external_crm",
+                integration="hubspot",
+                credential_type="api_key",
+                enabled=True,
+                revoked=False,
+                deleted=False,
+                allowed_actions=["crm.read"],
+                allowed_side_effect_classes=["external_read"],
+                trusted_destination_hosts=["api.hubapi.com"],
+                secret_ciphertext=protector.encrypt_secret("worker-rls-test-secret"),
+            )
+        )
+        setup.commit()
+
+    worker_engine = create_engine(_role_url(pg_url, username="ajenda_worker", password="integration-worker"))
+    worker_factory = sessionmaker(bind=worker_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    try:
+        repository = SQLAlchemyCredentialRuntimeRepository(session_factory=worker_factory)
+        record = repository.get_visible_for_tenant(tenant_id=str(tenant_a), credential_id=credential_id)
+        assert record is not None
+        assert record.tenant_id == str(tenant_a)
+        assert record.credential_id == credential_id
+        assert repository.get_visible_for_tenant(tenant_id=str(tenant_b), credential_id=credential_id) is None
+    finally:
+        worker_engine.dispose()
 
 
 def test_bootstrap_hardens_existing_runtime_roles_and_removes_memberships_real(pg_engine) -> None:

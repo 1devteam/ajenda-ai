@@ -22,6 +22,7 @@ DEFAULT_MAY_PREPARE: tuple[str, ...] = (
     "research.verify_public_identity",
     "research.synthesize_report",
     "knowledge.retrieve_current",
+    "knowledge.inform_decision",
     "decision.recommend_next_action",
     "web.browser_session",
     "http.request",

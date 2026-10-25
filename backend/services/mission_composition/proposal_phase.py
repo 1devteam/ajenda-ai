@@ -9,6 +9,7 @@ import uuid
 from typing import Any, cast
 
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
+from backend.services.mission_composition.action_input_analysis import assessment_context_supports_qualified_knowledge
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.contracts import (
     COMPOSITION_SCHEMA_VERSION,
@@ -97,7 +98,32 @@ class MissionCompositionProposalPhase:
         if self._db is not None:
             profile = self._business_profile_repository(self._db).get_active_profile_for_tenant(tenant_id=tenant_id)
         profile_context = self._profile_context(profile)
-        intent = interpret_instruction(raw_instruction, profile_context=profile_context)
+        intent = interpret_instruction(
+            raw_instruction,
+            profile_context=profile_context,
+            business_need_assessment_available=business_need_assessment_reference is not None,
+        )
+        if business_need_assessment_reference is not None:
+            # An explicit, tenant-validated assessment makes the existing
+            # decision-support path meaningful without altering the customer
+            # instruction or treating the assessment as execution authority.
+            # The marker is composition context only; the immutable reference
+            # remains the source of truth and is snapshotted below.
+            requirements = list(intent.context_requirements)
+            if "business_need_assessment_context" not in requirements:
+                requirements.append("business_need_assessment_context")
+            if (
+                assessment_context_supports_qualified_knowledge(
+                    business_need_assessment_reference.get("assessment_context")
+                )
+                and "business_need_knowledge_context" not in requirements
+            ):
+                # This selects the existing Retrieval → Applicability →
+                # Knowledge Decision Support action.  It is only available
+                # when the immutable assessment snapshot supplies its exact
+                # semantic prerequisites; composition never invents them.
+                requirements.append("business_need_knowledge_context")
+            intent = intent.model_copy(update={"context_requirements": requirements})
         # Escalation only for same actor+thread interpretation failures (durable required).
         if prior and prior.get("durable") and intent.ambiguity and not intent.interpretation_ready:
             shared = set(prior.get("unresolved_fields") or []) & {c.field for c in intent.ambiguity}
@@ -263,7 +289,15 @@ class MissionCompositionProposalPhase:
             missing.append({"kind": "semantic_conflict", "message": conflict})
         planner_compile_error: str | None = None
         try:
-            planned_steps = self._compile_planned_steps(selections, intent=intent)
+            planned_steps = self._compile_planned_steps(
+                selections,
+                intent=intent,
+                business_need_assessment_context=(
+                    business_need_assessment_reference.get("assessment_context")
+                    if isinstance(business_need_assessment_reference, dict)
+                    else None
+                ),
+            )
         except ValueError as exc:
             # Keep named jobs even when a selected action cannot bind inputs.
             # This is a planner gap on the shared envelope, not an API abort

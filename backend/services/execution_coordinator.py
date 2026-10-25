@@ -8,16 +8,16 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from backend.domain.audit_event import AuditEvent
-from backend.domain.enums import ExecutionTaskState
+from backend.domain.enums import ExecutionTaskState, MissionState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.governance_event import GovernanceEvent
 from backend.domain.mission import MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY, Mission
-from backend.queue.base import QueueAdapter, QueueMessage
+from backend.queue.base import QueueAdapter
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.governance_event_repository import GovernanceEventRepository
 from backend.repositories.mission_repository import MissionRepository
-from backend.runtime.transitions import transition_task
+from backend.runtime.transitions import transition_mission, transition_task
 from backend.services.mission_bridge.queue_admission import record_reviewed_task_admission
 from backend.services.policy_guardian import PolicyGuardian
 from backend.services.quota_enforcement import QuotaEnforcementService
@@ -458,35 +458,11 @@ class ExecutionCoordinator:
             return CoordinationResult(False, task.id, task.status, policy.reason)
 
         previous_state = task.status
+        self._preserve_retryable_failure(task=task, previous_state=previous_state)
+        self._reopen_failed_mission_for_retry(task=task, tenant_id=tenant_id)
         transition_task(task, ExecutionTaskState.QUEUED)
         self._session.flush()
-        dead_letter_entries = [
-            entry for entry in self._queue.list_dead_letter(tenant_id=tenant_id) if entry.task_id == task.id
-        ]
-        if dead_letter_entries:
-            queue_result = self._queue.retry_dead_letter(tenant_id=tenant_id, task_id=task.id)
-        else:
-            queue_result = self._queue.recover_task_for_retry(
-                tenant_id=tenant_id,
-                task_id=task.id,
-                worker_id="execution_coordinator_retry",
-            )
-            if queue_result.reason == "task not found in processing or pending queue":
-                queue_result = self._queue.enqueue_task(
-                    QueueMessage(
-                        tenant_id=tenant_id,
-                        task_id=task.id,
-                        mission_id=task.mission_id,
-                        fleet_id=task.fleet_id,
-                        branch_id=task.branch_id,
-                        payload=task.metadata_json,
-                        enqueued_at=datetime.now(UTC),
-                    )
-                )
-        if not queue_result.ok:
-            task.status = previous_state
-            self._session.flush()
-            raise ValueError(queue_result.reason or "queue retry failed")
+        self._dispatches.retry(task=task)
 
         self._audit.append(
             AuditEvent(
@@ -501,6 +477,86 @@ class ExecutionCoordinator:
         )
         self._session.flush()
         return CoordinationResult(True, task.id, task.status)
+
+    def _preserve_retryable_failure(self, *, task: ExecutionTask, previous_state: str) -> None:
+        """Move the active failure projection into bounded retry history.
+
+        Failure evidence and audits remain the durable explanation of the
+        earlier attempt.  The task's ``failure`` field describes only its
+        current state, so it must not survive a governed re-admission or a
+        later successful completion.
+        """
+
+        metadata = dict(task.metadata_json or {})
+        failure = metadata.pop("failure", None)
+        if isinstance(failure, dict):
+            raw_history = metadata.get("retry_history")
+            history = list(raw_history) if isinstance(raw_history, list) else []
+            history.append(
+                {
+                    "failure": dict(failure),
+                    "previous_status": previous_state,
+                    "retried_at": datetime.now(UTC).isoformat(),
+                }
+            )
+            # This is a projection, not the canonical evidence history. Keep
+            # it bounded while retained evidence and audits remain immutable.
+            metadata["retry_history"] = history[-20:]
+        task.metadata_json = metadata
+
+    def _reopen_failed_mission_for_retry(self, *, task: ExecutionTask, tenant_id: str) -> None:
+        """Restore current mission execution state through the coordinator.
+
+        A task retry cannot rewrite the historical failed rollup.  It records
+        that rollup as superseded by a new governed attempt, then lets the
+        worker's existing rollup determine the new result after terminal work.
+        """
+
+        if task.mission_id is None:
+            return
+        mission = MissionRepository(self._session).lock_for_tenant(
+            mission_id=task.mission_id,
+            tenant_id=tenant_id,
+        )
+        if mission is None:
+            raise ValueError("task mission is not owned by tenant")
+        if mission.status != MissionState.FAILED.value:
+            return
+        metadata = dict(mission.metadata_json or {})
+        prior_acceptance = metadata.pop("acceptance", None)
+        raw_history = metadata.get("acceptance_history")
+        history = list(raw_history) if isinstance(raw_history, list) else []
+        if isinstance(prior_acceptance, dict):
+            history.append(
+                {
+                    "acceptance": dict(prior_acceptance),
+                    "superseded_by": "governed_task_retry",
+                    "task_id": str(task.id),
+                    "superseded_at": datetime.now(UTC).isoformat(),
+                }
+            )
+            metadata["acceptance_history"] = history[-20:]
+        metadata["runtime_recovery"] = {
+            "schema_version": 1,
+            "reason": "governed_task_retry",
+            "retry_task_id": str(task.id),
+            "previous_mission_status": MissionState.FAILED.value,
+            "reopened_at": datetime.now(UTC).isoformat(),
+        }
+        mission.metadata_json = metadata
+        transition_mission(mission, MissionState.RUNNING)
+        self._session.add(mission)
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="mission",
+                action="mission_reopened_for_retry",
+                actor="execution_coordinator",
+                details=f"Mission {task.mission_id} reopened after governed retry of task {task.id}.",
+                payload_json={"task_id": str(task.id), "previous_status": MissionState.FAILED.value},
+            )
+        )
 
     def revoke_side_effect_approval(
         self,

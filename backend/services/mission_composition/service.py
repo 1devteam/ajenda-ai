@@ -8,6 +8,7 @@ phase modules. Compose remains read-only; confirm/compile never queue work.
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from typing import Any
 
@@ -348,6 +349,12 @@ class MissionCompositionService(
             "revision": record.revision,
             "revision_id": str(record.id),
             "status": record.status,
+            # These are source-owned identifiers and objective tokens, not a
+            # reconstructed business state.  Composition snapshots them so a
+            # later reviewed proposal can prove which continuing condition it
+            # considered without granting any authority over that condition.
+            "subject_references": list(getattr(record, "subject_references", []) or []),
+            "objective_reference": dict(getattr(record, "objective_reference", None) or {}),
             "condition_fingerprint": hashlib.sha256(record.condition_summary.encode("utf-8")).hexdigest(),
             "grants_execution_authority": False,
         }
@@ -385,13 +392,81 @@ class MissionCompositionService(
                 code="BUSINESS_NEED_ASSESSMENT_NOT_FOUND",
                 message="business need assessment was not found for referenced need revision",
             )
-        return {
+        payload = assessment.assessment_json
+        if not isinstance(payload, dict):
+            raise MissionCompositionError(
+                code="BUSINESS_NEED_ASSESSMENT_INVALID",
+                message="business need assessment payload is invalid",
+            )
+        if (
+            payload.get("need_id") != need_reference["need_id"]
+            or payload.get("need_revision") != need_reference["revision"]
+            or payload.get("tenant_id") != tenant_id
+        ):
+            raise MissionCompositionError(
+                code="BUSINESS_NEED_ASSESSMENT_INVALID",
+                message="business need assessment lineage is contradictory",
+            )
+        # The assessment is append-only and producer-owned.  Snapshot only
+        # the fields consumed by the existing decision input owner, together
+        # with a digest of exactly that context.  This is not a new evidence
+        # ledger and must never be promoted to canonical runtime evidence.
+        context = {
+            "schema_version": 1,
+            "assessment_id": str(assessment.id),
+            "need_id": assessment.need_id,
+            "need_revision": assessment.need_revision,
+            "condition_summary": payload.get("condition_summary"),
+            "candidate_responses": payload.get("candidate_responses", []),
+            "causes": payload.get("causes", []),
+            "information_gaps": payload.get("information_gaps", []),
+            "supporting_observation_ids": payload.get("supporting_observation_ids", []),
+            "contradictory_observation_ids": payload.get("contradictory_observation_ids", []),
+            "knowledge_epistemic_limits": payload.get("knowledge_epistemic_limits", []),
+            # The original, source-owned assessment time bounds applicability.
+            # Recomposition must not make historical knowledge appear newer.
+            "evaluated_at": payload.get("evaluated_at"),
+            "subject_references": need_reference.get("subject_references", []),
+            "objective_reference": need_reference.get("objective_reference", {}),
+        }
+        selected_candidate_response_key = reference.get("selected_candidate_response_key")
+        if selected_candidate_response_key is not None:
+            if not isinstance(selected_candidate_response_key, str) or not selected_candidate_response_key.strip():
+                raise MissionCompositionError(
+                    code="BUSINESS_NEED_ASSESSMENT_INVALID",
+                    message="selected business need response key is invalid",
+                )
+            selected_candidate_response_key = selected_candidate_response_key.strip()
+            candidates = context["candidate_responses"]
+            if not isinstance(candidates, list) or not any(
+                isinstance(candidate, dict) and candidate.get("response_key") == selected_candidate_response_key
+                for candidate in candidates
+            ):
+                raise MissionCompositionError(
+                    code="BUSINESS_NEED_ASSESSMENT_INVALID",
+                    message="selected business need response is not a candidate from the referenced assessment",
+                )
+        context_digest = (
+            "sha256:"
+            + hashlib.sha256(
+                json.dumps(context, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+            ).hexdigest()
+        )
+        result = {
             "assessment_id": str(assessment.id),
             "need_id": assessment.need_id,
             "revision": assessment.need_revision,
             "assessment_fingerprint": assessment.assessment_fingerprint,
+            "assessment_context": context,
+            "assessment_context_sha256": context_digest,
             "grants_execution_authority": False,
         }
+        if selected_candidate_response_key is not None:
+            # Preserve the intentional strategy selection beside the immutable
+            # assessment digest. This link is provenance only: catalog routing
+            # still depends on the customer instruction and existing resolver.
+            result["selected_candidate_response_key"] = selected_candidate_response_key
+        return result
 
     def _mission_repository(self, db: Session) -> Any:
         return MissionRepository(db)

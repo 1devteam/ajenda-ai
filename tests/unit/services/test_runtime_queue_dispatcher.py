@@ -110,6 +110,42 @@ def test_publish_due_marks_success_and_local_queue_is_idempotent() -> None:
     assert queue.claim_task(tenant_id=dispatch.tenant_id, worker_id="worker-2") is None
 
 
+def test_retry_rearms_existing_dispatch_with_new_durable_delivery_generation() -> None:
+    session = MagicMock()
+    queue = LocalQueueAdapter()
+    service = RuntimeQueueDispatchService(session, queue)
+    dispatch = _dispatch(status="published")
+    service._dispatches = MagicMock()
+    service._dispatches.get_for_task.return_value = dispatch
+    task = SimpleNamespace(
+        id=dispatch.task_id,
+        tenant_id=dispatch.tenant_id,
+        metadata_json={"task_type": "echo"},
+    )
+
+    retried = service.retry(task=task)
+
+    assert retried is dispatch
+    assert dispatch.status == "pending"
+    assert dispatch.published_at is None
+    assert dispatch.payload_json["_runtime_queue_retry_generation"] == 1
+    assert RuntimeQueueDispatchService._idempotency_key(dispatch).endswith(":retry:1")
+    session.flush.assert_called_once_with()
+
+
+def test_retry_publish_recovers_dead_letter_before_fallback_enqueue() -> None:
+    queue = MagicMock()
+    queue.retry_dead_letter.return_value = QueueOperationResult(ok=True)
+    dispatch = _dispatch(status="pending")
+    dispatch.payload_json = {"task_type": "echo", "_runtime_queue_retry_generation": 1}
+
+    result = RuntimeQueueDispatchService._publish(dispatch=dispatch, queue=queue)
+
+    assert result.ok is True
+    queue.retry_dead_letter.assert_called_once_with(tenant_id=dispatch.tenant_id, task_id=dispatch.task_id)
+    queue.enqueue_task_idempotent.assert_not_called()
+
+
 def test_publish_due_records_retry_and_backoff_on_queue_outage() -> None:
     session = MagicMock()
     queue = MagicMock()

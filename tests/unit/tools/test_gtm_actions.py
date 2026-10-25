@@ -376,6 +376,7 @@ def test_gtm_email_check_uses_gmail_api_with_runtime_credential_material() -> No
         )
 
     assert result.output["emails"] == [{"id": "m1", "thread_id": "t1", "snippet": "Hello"}]
+    assert result.output["email_messages"] == result.output["emails"]
     assert result.output["real"] is True
     assert "is%3Aunread" in authority.request.call_args.kwargs["url"]
 
@@ -431,6 +432,7 @@ def test_gtm_email_check_simulated_without_credential(monkeypatch) -> None:
     )
 
     assert result.output["emails"][0]["id"] == "sim-1"
+    assert result.output["email_messages"] == result.output["emails"]
     assert result.side_effect_class.value == "external_read"
 
 

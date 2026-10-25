@@ -43,6 +43,10 @@ class ComposeMissionRequest(BaseModel):
     business_need_id: str | None = Field(default=None, min_length=1, max_length=128)
     business_need_revision: int | None = Field(default=None, ge=1)
     business_need_assessment_id: _uuid.UUID | None = None
+    # A selected response is provenance for the reviewed strategy. It must be
+    # a candidate from the referenced tenant assessment; it cannot select a
+    # job or grant runtime authority by itself.
+    business_need_response_key: str | None = Field(default=None, min_length=1, max_length=160)
 
     def need_reference(self) -> dict[str, Any] | None:
         if bool(self.business_need_id) != bool(self.business_need_revision):
@@ -55,8 +59,13 @@ class ComposeMissionRequest(BaseModel):
 
     def assessment_reference(self) -> dict[str, Any] | None:
         if self.business_need_assessment_id is None:
+            if self.business_need_response_key is not None:
+                raise ValueError("business_need_response_key requires a business need assessment reference")
             return None
-        return {"assessment_id": str(self.business_need_assessment_id)}
+        reference = {"assessment_id": str(self.business_need_assessment_id)}
+        if self.business_need_response_key is not None:
+            reference["selected_candidate_response_key"] = self.business_need_response_key
+        return reference
 
 
 class ComposeMissionResponse(BaseModel):

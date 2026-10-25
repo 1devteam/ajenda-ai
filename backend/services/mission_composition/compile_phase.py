@@ -87,7 +87,13 @@ class MissionCompositionCompilePhase:
         if client_instruction:
             instruction_text = client_instruction
         elif isinstance(stored_instruction, str) and stored_instruction.strip():
-            instruction_text = stored_instruction.strip()
+            # A reviewed proposal records the exact instruction that its
+            # semantic snapshot fingerprints.  Preserve that representation
+            # during revalidation: trimming presentation whitespace here
+            # changes the raw-instruction fingerprint while leaving every
+            # interpreted clause unchanged, which incorrectly looks like a
+            # material semantic revision.
+            instruction_text = stored_instruction
         else:
             instruction_text = str(mission.objective or "").strip()
         if not instruction_text:
@@ -99,9 +105,14 @@ class MissionCompositionCompilePhase:
         prior_proposal_id = composition.get("proposal_id") if isinstance(composition.get("proposal_id"), str) else None
         provenance = composition.get("composition_provenance")
         need_reference = provenance.get("business_need_reference") if isinstance(provenance, dict) else None
+        assessment_reference = (
+            provenance.get("business_need_assessment_reference") if isinstance(provenance, dict) else None
+        )
         compose_kwargs: dict[str, Any] = {}
         if isinstance(need_reference, dict):
             compose_kwargs["business_need_reference"] = need_reference
+        if isinstance(assessment_reference, dict):
+            compose_kwargs["business_need_assessment_reference"] = assessment_reference
         record = self.compose(tenant_id=tenant_id, instruction=instruction_text, persist=False, **compose_kwargs)
         if prior_proposal_id:
             reviewed_record = get_proposal(tenant_id=tenant_id, proposal_id=prior_proposal_id, db=self._db)
@@ -350,6 +361,11 @@ class MissionCompositionCompilePhase:
                     if "persist_internal_crm" in record.intent.requested_outcomes
                     else 0,
                     "internal_crm_readback_required": "persist_internal_crm" in record.intent.requested_outcomes,
+                    "follow_up_tasks_min": record.intent.requested_quantity
+                    if "create_internal_followup_tasks" in record.intent.requested_outcomes
+                    else 0,
+                    "follow_up_task_readback_required": "create_internal_followup_tasks"
+                    in record.intent.requested_outcomes,
                     "score_threshold_10": self._acceptance_score_threshold(record.intent),
                     "require_verified_identity": "research_prospects" in record.intent.requested_outcomes,
                 },

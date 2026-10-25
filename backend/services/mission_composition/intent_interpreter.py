@@ -44,12 +44,14 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _CRM_UPDATE_PATTERNS,
     _DIRECT_CRM_RECORD_READ,
     _DRAFT_PATTERNS,
+    _EMAIL_MESSAGE_DELIVERY_CLAUSE,
     _EMAIL_READ_PATTERNS,
     _ENRICH_PATTERNS,
     _GITHUB_READ_PATTERNS,
     _INTERNAL_CRM_PATTERNS,
     _INTERNAL_CRM_READ_NEGATION_PATTERNS,
     _INTERNAL_CRM_READ_PATTERNS,
+    _INTERNAL_FOLLOWUP_TASK_PATTERNS,
     _LINKEDIN_READ_PATTERNS,
     _NO_EXTERNAL_ACTION_PATTERNS,
     _NO_SEND_PATTERNS,
@@ -152,6 +154,7 @@ def _classify_clause(
     profile_mission: bool = False,
     external_action_forbidden: bool = False,
     business_income_review: bool = False,
+    business_need_review: bool = False,
     goal_progress_evaluation: bool = False,
 ) -> tuple[list[CanonicalOutcome], bool, bool]:
     """Compatibility boundary for the canonical graph-visible clause classifier."""
@@ -161,6 +164,7 @@ def _classify_clause(
         profile_mission=profile_mission,
         external_action_forbidden=external_action_forbidden,
         business_income_review=business_income_review,
+        business_need_review=business_need_review,
         goal_progress_evaluation=goal_progress_evaluation,
     )
 
@@ -169,6 +173,7 @@ def interpret_instruction(
     instruction: str,
     *,
     profile_context: dict[str, Any] | None = None,
+    business_need_assessment_available: bool = False,
     spelling_enabled: bool | None = None,
     fuzzy_enabled: bool | None = None,
 ) -> MissionIntent:
@@ -218,6 +223,16 @@ def interpret_instruction(
     business_income_review_requested = bool(
         legacy_business_income_review or (profile_review_request and opportunity_request)
     )
+    # A business-need assessment is an immutable, tenant-validated composition
+    # input. It may make a narrow *review* outcome meaningful, but it never
+    # turns generic strategy prose into an executable mission by itself.
+    business_need_review_requested = business_need_assessment_available and bool(
+        re.search(
+            r"\b(?:use|review|assess|evaluate|analy[sz]e|recommend|determine|compare)\b"
+            r"[^.!?]{0,160}\b(?:need|assessment|business\s+condition|candidate\s+responses?|next\s+action)\b",
+            lower,
+        )
+    )
     evidence: list[InterpretationEvidence] = []
     clarifications: list[Clarification] = []
     context_requirements: list[str] = []
@@ -245,6 +260,7 @@ def interpret_instruction(
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
     wants_email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
     internal_crm_requested = _contains_any(lower, _INTERNAL_CRM_PATTERNS)
+    wants_internal_followup_tasks = internal_crm_requested and _contains_any(lower, _INTERNAL_FOLLOWUP_TASK_PATTERNS)
     crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
         lower, _CRM_NEGATION_PATTERNS
     )
@@ -269,6 +285,11 @@ def interpret_instruction(
     # obligation of the write lane, not a second user-requested CRM read job.
     if _CRM_READBACK_VERIFICATION_PATTERN.search(lower) and not internal_crm_as_source:
         internal_crm_read = False
+    if wants_internal_followup_tasks:
+        # Existing CRM contacts are the explicit source for this bounded
+        # internal-write lane. This is a dependency read, not a second
+        # user-requested generic CRM mission or public prospect discovery.
+        internal_crm_read = True
     explicit_hubspot_record_read = bool(re.search(r"\buse\s+(?:the\s+)?(?:hubspot|crm)\s+records?\b", lower))
     wants_crm_read = (
         (
@@ -298,7 +319,9 @@ def interpret_instruction(
     # truth.  This prevents resolver fallback to public web discovery when the
     # adapter cannot represent an unsupported CRM scope (for example a market
     # wide location filter).
-    if (internal_crm_read or internal_crm_as_source) and "internal_crm_source" not in context_requirements:
+    if (
+        internal_crm_read or internal_crm_as_source or wants_internal_followup_tasks
+    ) and "internal_crm_source" not in context_requirements:
         context_requirements.append("internal_crm_source")
     elif direct_crm_record_read and not explicit_research_verb and "hubspot_source" not in context_requirements:
         context_requirements.append("hubspot_source")
@@ -306,6 +329,7 @@ def interpret_instruction(
         _contains_any(lower, _RESEARCH_PATTERNS)
         and (not direct_crm_record_read or explicit_research_verb)
         and (not connector_read or explicit_prospect_research or hubspot_as_research_source)
+        and not wants_internal_followup_tasks
     )
     if internal_crm_as_source:
         # "From internal CRM" names the authoritative dataset. The verb
@@ -376,7 +400,7 @@ def interpret_instruction(
                 rule_id="decision_support.explicit_request",
             )
         )
-    wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not no_crm
+    wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not no_crm and not wants_internal_followup_tasks
     wants_internal_crm = wants_crm and internal_crm_requested
     no_publish = _contains_any(lower, _PUBLISH_NEGATION_PATTERNS)
     wants_publish = _contains_any(lower, _PUBLISH_PATTERNS) and not no_publish
@@ -522,6 +546,18 @@ def interpret_instruction(
                 rule_id="review.business_income",
             )
         )
+    if business_need_review_requested and "review_business_need" not in outcomes:
+        outcomes.append("review_business_need")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.review_business_need",
+                source="inferred_deterministic",
+                source_text=text[:240],
+                normalized_value="review_business_need",
+                confidence=0.95,
+                rule_id="review.referenced_business_need",
+            )
+        )
     if "evaluate_goal_progress" in outcomes:
         evidence.append(
             _evidence(
@@ -660,15 +696,21 @@ def interpret_instruction(
             and not crm_write_requested
         ):
             continue
+        if wants_internal_followup_tasks and fuzzy_hit.outcome in {
+            "research_prospects",
+            "persist_internal_crm",
+        }:
+            continue
         if fuzzy_hit.outcome == "send_outreach" and (no_send or conditional_send):
             continue
-        # Browser deliverable language such as "return the final URL" can
-        # score falsely against the legacy "return the contact info" alias.
-        # Once an explicit web observation is present, require actual contact
-        # wording before admitting observe_contacts from fuzzy matching.
+        # Output-delivery language such as "return the final URL" or "return
+        # the retrieved email-message artifact" can score falsely against the
+        # legacy "return the contact info" alias. Once a bounded read outcome
+        # is already explicit, require actual contact wording before admitting
+        # observe_contacts from fuzzy matching.
         if (
             fuzzy_hit.outcome == "observe_contacts"
-            and ("observe_web_page" in outcomes or "evaluate_goal_progress" in outcomes)
+            and ("observe_web_page" in outcomes or "evaluate_goal_progress" in outcomes or "read_email" in outcomes)
             and not _contains_any(lower, _OBSERVE_CONTACT_PATTERNS)
         ):
             continue
@@ -726,6 +768,18 @@ def interpret_instruction(
                 missing="the external-send policy is contradictory",
                 include_instruction="one unambiguous choice: draft only, send now, or send only after approval",
                 reason="Contradictory external-effect instructions fail closed.",
+            )
+        )
+    if wants_internal_followup_tasks:
+        outcomes.append("create_internal_followup_tasks")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.create_internal_followup_tasks",
+                source="explicit",
+                source_text=text[:240],
+                normalized_value="create_internal_followup_tasks",
+                confidence=0.95,
+                rule_id="crm.internal_followup_task",
             )
         )
     if no_crm:
@@ -971,6 +1025,7 @@ def interpret_instruction(
             profile_mission=wants_business_profile,
             external_action_forbidden=_contains_any(lower, _NO_EXTERNAL_ACTION_PATTERNS),
             business_income_review=business_income_review_requested,
+            business_need_review=business_need_review_requested,
             goal_progress_evaluation="evaluate_goal_progress" in outcomes,
         )
         if "verify_runtime_controls" in outcomes and re.search(
@@ -991,6 +1046,13 @@ def interpret_instruction(
             material = True
             if "observe_web_page" not in mapped:
                 mapped.append("observe_web_page")
+        if "read_email" in outcomes and _EMAIL_MESSAGE_DELIVERY_CLAUSE.match(clause_text.strip()):
+            # This is an explicit request for the output of an already
+            # recognized Gmail read, not an additional connector operation.
+            recognized = True
+            material = True
+            if "read_email" not in mapped:
+                mapped.append("read_email")
         # Non-material filler: short politeness without risk keywords.
         if not material and len(clause_text.split()) <= 3:
             status = "non_material"
@@ -1210,7 +1272,12 @@ def interpret_instruction(
     profile_subject_requested = bool(profile_context.get("profile_id")) and (
         uses_business_profile or bool(re.search(r"\b(?:my|our|the)\s+(?:business|company|team|pipeline)\b", lower))
     )
-    if decision_support_requested and not entities and not profile_subject_requested:
+    if (
+        decision_support_requested
+        and not business_need_assessment_available
+        and not entities
+        and not profile_subject_requested
+    ):
         clarifications.append(
             _restatement(
                 field="decision_scope",

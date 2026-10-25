@@ -88,19 +88,11 @@ REVIEWED_CALL_SITES: dict[CallSiteKey, ReviewedCallSite] = {
     ),
     CallSiteKey(
         "backend/services/runtime_queue_dispatcher.py",
-        "_publish_committed_dispatches",
+        "RuntimeQueueDispatchService._publish",
         "queue_enqueue",
     ): ReviewedCallSite(
         "canonical_boundary",
-        "publish a committed durable dispatch intent with deterministic queue deduplication",
-    ),
-    CallSiteKey(
-        "backend/services/runtime_queue_dispatcher.py",
-        "RuntimeQueueDispatchService.publish_due",
-        "queue_enqueue",
-    ): ReviewedCallSite(
-        "canonical_boundary",
-        "reconcile committed pending dispatch intents with deterministic queue deduplication",
+        "the single durable-dispatch publication boundary used by after-commit, retry, and reconciliation paths",
     ),
     CallSiteKey(
         "backend/services/execution_coordinator.py",
@@ -115,11 +107,6 @@ REVIEWED_CALL_SITES: dict[CallSiteKey, ReviewedCallSite] = {
         "MissionRuntimeQueueAdmissionService.admit",
         "admission",
     ): ReviewedCallSite("canonical_boundary", "retain as mission queue admission owner"),
-    CallSiteKey(
-        "backend/services/execution_coordinator.py",
-        "ExecutionCoordinator.retry_task",
-        "queue_enqueue",
-    ): ReviewedCallSite("canonical_boundary", "bounded retry re-admits through governor, policy, and review gates"),
     CallSiteKey(
         "backend/services/tools/runtime_authority.py", "ToolRuntimeAuthority.execute", "action_invoke"
     ): ReviewedCallSite("canonical_boundary", "retain as the only production action-registry invocation"),

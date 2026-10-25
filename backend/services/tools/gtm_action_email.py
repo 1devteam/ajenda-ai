@@ -375,6 +375,12 @@ def email_check_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Actio
         "query": inp.query,
         "limit": inp.limit,
         "emails": emails,
+        # ``email.read_messages`` declares ``email_messages`` as its
+        # materialized artifact.  Preserve the legacy ``emails`` projection
+        # for direct action consumers, but emit the catalog-owned artifact
+        # identity as well so a composed mission cannot complete without the
+        # output it actually promised.
+        "email_messages": emails,
         "real": credentialed_path,
     }
     summary = f"Gmail check ({len(emails)} results)" if credentialed_path else "Gmail check (simulated)"

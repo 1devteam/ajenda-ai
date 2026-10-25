@@ -163,6 +163,19 @@ def test_validate_denies_objective_without_scope_signal() -> None:
     assert "objective_lacks_scope_signal" in codes
 
 
+def test_validate_accepts_source_bound_scope_without_weakening_other_quality_checks() -> None:
+    validate_mission_intake_prompt(
+        objective="Review the referenced business need assessment and recommend the next action.",
+        success_criteria=[
+            {
+                "description": "A recommendation artifact preserves the referenced assessment and next-step rationale.",
+                "evidence": ["action_result_evidence"],
+            }
+        ],
+        source_bound_scope=True,
+    )
+
+
 def test_validate_allows_explicit_url_as_web_observation_scope() -> None:
     validate_mission_intake_prompt(
         objective=(

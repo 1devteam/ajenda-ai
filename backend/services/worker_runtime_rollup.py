@@ -80,12 +80,78 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
     siblings = service._tasks.list_for_mission(task.mission_id)
     if not siblings:
         return
-    open_tasks = [item for item in siblings if item.status not in _TERMINAL_TASK_STATES]
     failedish = {
         ExecutionTaskState.FAILED.value,
         ExecutionTaskState.DEAD_LETTERED.value,
         ExecutionTaskState.BLOCKED.value,
     }
+    # A governed retry may complete a node that previously made descendants
+    # impossible. Re-admit only descendants which this rollup itself blocked
+    # for dependency failure and whose full dependency set is now complete.
+    # This does not replay successful work or bypass the durable dispatcher.
+    node_tasks = {
+        str((item.metadata_json or {}).get("graph_node_key")): item
+        for item in siblings
+        if isinstance(item.metadata_json, dict) and isinstance(item.metadata_json.get("graph_node_key"), str)
+    }
+    recovered_dependents: list[ExecutionTask] = []
+    for item in siblings:
+        if item.status != ExecutionTaskState.BLOCKED.value:
+            continue
+        metadata = item.metadata_json if isinstance(item.metadata_json, dict) else {}
+        blocked_by = metadata.get("blocked_by_dependency_failure")
+        dependencies = metadata.get("dependency_keys")
+        failure = metadata.get("failure")
+        if (
+            not isinstance(blocked_by, list)
+            or not blocked_by
+            or not isinstance(dependencies, list)
+            or not isinstance(failure, dict)
+            or failure.get("code") != "DEPENDENCY_FAILED"
+        ):
+            continue
+        dependency_tasks = [node_tasks.get(str(key)) for key in dependencies]
+        if not dependency_tasks or any(
+            dependency is None or dependency.status != ExecutionTaskState.COMPLETED.value
+            for dependency in dependency_tasks
+        ):
+            continue
+        raw_history = metadata.get("dependency_block_history")
+        history = list(raw_history) if isinstance(raw_history, list) else []
+        history.append(
+            {
+                "blocked_by_dependency_failure": [str(key) for key in blocked_by],
+                "failure": dict(failure),
+                "recovered_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        restored_metadata = dict(metadata)
+        restored_metadata.pop("blocked_by_dependency_failure", None)
+        restored_metadata.pop("failure", None)
+        restored_metadata["dependency_block_history"] = history[-20:]
+        transition_task(item, ExecutionTaskState.QUEUED)
+        item.metadata_json = restored_metadata
+        service._session.add(item)
+        service._dispatches.retry(task=item)
+        recovered_dependents.append(item)
+        service._audit.append(
+            AuditEvent(
+                tenant_id=item.tenant_id,
+                mission_id=item.mission_id,
+                category="execution_task",
+                action="dependency_recovered",
+                actor=worker_id,
+                details=f"Task {item.id} re-admitted after all recorded dependencies completed.",
+                payload_json={
+                    "task_id": str(item.id),
+                    "dependency_keys": [str(key) for key in dependencies],
+                },
+            )
+        )
+    if recovered_dependents:
+        service._session.flush()
+
+    open_tasks = [item for item in siblings if item.status not in _TERMINAL_TASK_STATES]
     # A failed graph node makes every still-open dependent node impossible.
     # Terminalize those descendants now so missions cannot remain running
     # forever behind queued dependency deferrals.
@@ -161,6 +227,12 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
         for reason in contract_reasons:
             if reason not in acceptance_reasons:
                 acceptance_reasons.append(reason)
+        # Runtime task failure is independently sufficient to leave the
+        # customer deliverable unmet.  An empty or underspecified composition
+        # acceptance contract must never turn a failed credential/provider/
+        # handler path into an accepted mission outcome.
+        if any_failed:
+            acceptance_reasons.append("one or more runtime tasks failed")
         acceptance_met = contract_met and not acceptance_reasons
         # A terminal task graph is not a successful product result when a
         # mission declared a durable deliverable whose read model is still

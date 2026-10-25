@@ -154,6 +154,25 @@ def build_sales_action_input(
                 "summary": intent.objective[:240],
             },
         }
+    if action_name == "sales.create_followup_task":
+        return {
+            "record_type": "task",
+            "data": {
+                "title": "Follow up with existing prospect",
+                "priority": "normal",
+                "status": "open",
+            },
+            "context": {
+                "source": "mission_composition",
+                "binding_required": True,
+                "binding_source": "upstream_crm_records",
+                "requested_quantity": intent.requested_quantity or 1,
+                # Existing CRM workflow defaults follow-up work to three days
+                # after the producer-owned execution time. The actual date is
+                # captured by the action, not guessed at composition time.
+                "due_policy": "three_days_after_execution",
+            },
+        }
     if action_name == "record.write":
         role = (vertical_role or "").strip().lower()
         workflow_context = (

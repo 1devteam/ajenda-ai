@@ -530,6 +530,13 @@ class WorkerRuntimeService:
         )
 
         transition_task(task, ExecutionTaskState.COMPLETED)
+        # ``failure`` is the active failure projection, not historical truth.
+        # A task can only complete from running, but defensive cleanup also
+        # repairs work retried by older runtime versions that left it present.
+        current_metadata = dict(task.metadata_json or {})
+        if "failure" in current_metadata:
+            current_metadata.pop("failure", None)
+            task.metadata_json = current_metadata
         self._transition_lease_to_released(lease)
         lease.heartbeat_at = datetime.now(UTC)
         evidence_ids_for_review: list[str] = []

@@ -21,9 +21,9 @@ from backend.services.mission_composition.semantic_vocabulary import SemanticSel
 from backend.services.ontology.algorithms import AlgorithmResult, validate_composition_algorithm_results
 
 COMPOSITION_SCHEMA_VERSION = 10
-JOB_CATALOG_VERSION = "12"
-INTERPRETER_VERSION = "14"
-CAPABILITY_RESOLVER_VERSION = "11"
+JOB_CATALOG_VERSION = "13"
+INTERPRETER_VERSION = "15"
+CAPABILITY_RESOLVER_VERSION = "12"
 
 
 def is_ranking_only_instruction(objective: str) -> bool:
@@ -111,6 +111,7 @@ CanonicalOutcome = Literal[
     "send_outreach",
     "update_crm",
     "persist_internal_crm",
+    "create_internal_followup_tasks",
     "publish_content",
     "read_calendar",
     "read_email",
@@ -126,6 +127,7 @@ CanonicalOutcome = Literal[
     "prepare_invoice_drafts",
     "verify_runtime_controls",
     "review_business_income",
+    "review_business_need",
     "evaluate_goal_progress",
 ]
 
@@ -141,6 +143,7 @@ CANONICAL_OUTCOMES: frozenset[str] = frozenset(
         "send_outreach",
         "update_crm",
         "persist_internal_crm",
+        "create_internal_followup_tasks",
         "publish_content",
         "read_calendar",
         "read_email",
@@ -156,6 +159,7 @@ CANONICAL_OUTCOMES: frozenset[str] = frozenset(
         "prepare_invoice_drafts",
         "verify_runtime_controls",
         "review_business_income",
+        "review_business_need",
         "evaluate_goal_progress",
     }
 )

@@ -61,3 +61,7 @@ def test_cancelled_to_queued_task_transition_remains_invalid() -> None:
     """cancelled -> queued must remain invalid so cancelled work cannot be admitted."""
     with pytest.raises(InvalidTransitionError):
         StateMachine.ensure_task_transition("cancelled", "queued")
+
+
+def test_failed_mission_can_reopen_only_for_governed_runtime_recovery() -> None:
+    StateMachine.ensure_mission_transition("failed", "running")

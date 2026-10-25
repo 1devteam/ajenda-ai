@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import uuid
 
+from backend.services.mission_composition.action_inputs import build_action_input
+from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
 
@@ -122,6 +124,53 @@ def test_business_income_review_returns_bounded_opportunities_from_profile() -> 
     assert report["status"] == "evidence_limited"
     assert report["evidence"]["profile_id"] == "profile-1"
     assert result.side_effect_class.value == "none"
+
+
+def test_assessment_derived_decision_does_not_promote_conflicted_response() -> None:
+    intent = interpret_instruction("Use the approved business profile and recommend the next action.").model_copy(
+        update={"context_requirements": ["business_need_assessment_context"]}
+    )
+    payload = build_action_input(
+        action_name="decision.recommend_next_action",
+        intent=intent,
+        business_need_assessment_context={
+            "assessment_id": "assessment-1",
+            "need_id": "need-1",
+            "need_revision": 1,
+            "condition_summary": "Customer acquisition is below target.",
+            "candidate_responses": [
+                {
+                    "response_key": "investigate_funnel",
+                    "summary": "Inspect funnel-stage loss before selecting a campaign.",
+                    "evidence_status": "supported",
+                    "knowledge_support_status": "not_provided",
+                },
+                {
+                    "response_key": "increase_advertising",
+                    "summary": "Increase advertising spend.",
+                    "evidence_status": "conflicted",
+                    "knowledge_support_status": "supports",
+                },
+            ],
+            "causes": [],
+            "information_gaps": [],
+            "supporting_observation_ids": [],
+            "contradictory_observation_ids": [],
+            "knowledge_epistemic_limits": [],
+            "subject_references": [],
+            "objective_reference": {},
+        },
+    )
+
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(action="decision.recommend_next_action", input=payload),
+        _context(),
+    )
+
+    assert result.output["recommendation"] == "investigate_funnel"
+    assert result.output["supporting_evidence_ids"] == ["assessment:assessment-1:investigate_funnel"]
+    conflicting = next(item for item in result.output["option_scores"] if item["option_id"] == "increase_advertising")
+    assert conflicting["total_score"] == 0.0
 
 
 def test_decision_recommend_respects_forbid_constraint() -> None:

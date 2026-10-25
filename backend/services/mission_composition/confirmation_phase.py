@@ -137,6 +137,9 @@ class MissionCompositionConfirmationPhase:
             need_reference = reviewed_record.composition_provenance.business_need_reference
             if need_reference is not None:
                 compose_kwargs["business_need_reference"] = need_reference
+            assessment_reference = reviewed_record.composition_provenance.business_need_assessment_reference
+            if assessment_reference is not None:
+                compose_kwargs["business_need_assessment_reference"] = assessment_reference
         # Revalidation derives a transient record. It becomes durable only in
         # the same caller-owned transaction as the reviewed lineage, mission,
         # plan, and graph below.
@@ -231,6 +234,17 @@ class MissionCompositionConfirmationPhase:
             f"{entity.location or 'region'} {entity.industry or entity.type} prospects only".strip()
             for entity in record.intent.target_entities
         ] or ["composition-selected outcomes for this mission only"]
+        need_reference = (
+            record.semantic_snapshot.business_need_reference if record.semantic_snapshot is not None else None
+        )
+        source_bound_scope = bool(
+            isinstance(need_reference, dict)
+            and isinstance(need_reference.get("need_id"), str)
+            and need_reference.get("need_id")
+            and isinstance(need_reference.get("revision"), int)
+            and isinstance(need_reference.get("subject_references"), list)
+            and need_reference.get("subject_references")
+        )
 
         try:
             validate_mission_intake_prompt(
@@ -239,6 +253,7 @@ class MissionCompositionConfirmationPhase:
                 constraints=constraints,
                 scope_limits=scope_limits,
                 allowed_actions=record.allowed_actions,
+                source_bound_scope=source_bound_scope,
                 operator_notes=(
                     f"Composed from proposal {record.proposal_id}; abilities selected by mission_composition_engine."
                 ),
@@ -370,6 +385,11 @@ class MissionCompositionConfirmationPhase:
                         if "persist_internal_crm" in record.intent.requested_outcomes
                         else 0,
                         "internal_crm_readback_required": "persist_internal_crm" in record.intent.requested_outcomes,
+                        "follow_up_tasks_min": record.intent.requested_quantity
+                        if "create_internal_followup_tasks" in record.intent.requested_outcomes
+                        else 0,
+                        "follow_up_task_readback_required": "create_internal_followup_tasks"
+                        in record.intent.requested_outcomes,
                         "score_threshold_10": self._acceptance_score_threshold(record.intent),
                         # Public research is not complete until the observation
                         # stage promotes verified identities. Qualification may

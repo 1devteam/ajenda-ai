@@ -126,6 +126,75 @@ def test_rollup_marks_running_when_siblings_open() -> None:
     assert mission.status == MissionState.RUNNING.value
 
 
+def test_rollup_requeues_only_dependency_blocked_descendant_after_retry_completes_parent() -> None:
+    tenant_id = "tenant-recovery"
+    mission_id = uuid.uuid4()
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="recover dependency graph",
+        status=MissionState.RUNNING.value,
+        metadata_json={},
+    )
+    mission.id = mission_id
+    parent = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    parent.metadata_json = {"graph_node_key": "collect"}
+    descendant = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.BLOCKED.value)
+    descendant.metadata_json = {
+        "graph_node_key": "summarize",
+        "dependency_keys": ["collect"],
+        "blocked_by_dependency_failure": ["collect"],
+        "failure": {"code": "DEPENDENCY_FAILED", "retryable": False},
+    }
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[parent, descendant])  # type: ignore[method-assign]
+    service._audit.append = MagicMock()  # type: ignore[method-assign]
+    service._dispatches.retry = MagicMock()  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._maybe_rollup_mission_status(task=parent, worker_id="recovery-worker")
+
+    assert descendant.status == ExecutionTaskState.QUEUED.value
+    assert "failure" not in descendant.metadata_json
+    assert "blocked_by_dependency_failure" not in descendant.metadata_json
+    assert descendant.metadata_json["dependency_block_history"][-1]["failure"]["code"] == "DEPENDENCY_FAILED"
+    service._dispatches.retry.assert_called_once_with(task=descendant)
+    assert mission.status == MissionState.RUNNING.value
+
+
+def test_rollup_keeps_descendant_blocked_until_all_dependencies_complete() -> None:
+    tenant_id = "tenant-recovery-wait"
+    mission_id = uuid.uuid4()
+    mission = Mission(tenant_id=tenant_id, objective="recover dependency graph", status=MissionState.RUNNING.value)
+    mission.id = mission_id
+    recovered_parent = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    recovered_parent.metadata_json = {"graph_node_key": "collect"}
+    still_failed_parent = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.FAILED.value)
+    still_failed_parent.metadata_json = {"graph_node_key": "verify"}
+    descendant = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.BLOCKED.value)
+    descendant.metadata_json = {
+        "graph_node_key": "summarize",
+        "dependency_keys": ["collect", "verify"],
+        "blocked_by_dependency_failure": ["collect", "verify"],
+        "failure": {"code": "DEPENDENCY_FAILED", "retryable": False},
+    }
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(  # type: ignore[method-assign]
+        return_value=[recovered_parent, still_failed_parent, descendant]
+    )
+    service._audit.append = MagicMock()  # type: ignore[method-assign]
+    service._dispatches.retry = MagicMock()  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._maybe_rollup_mission_status(task=recovered_parent, worker_id="recovery-worker")
+
+    assert descendant.status == ExecutionTaskState.BLOCKED.value
+    service._dispatches.retry.assert_not_called()
+
+
 def test_rollup_marks_mission_failed_when_all_tasks_terminal_and_one_failed() -> None:
     tenant_id = "tenant-1"
     mission_id = uuid.uuid4()
@@ -158,6 +227,8 @@ def test_rollup_marks_mission_failed_when_all_tasks_terminal_and_one_failed() ->
         service._maybe_rollup_mission_status(task=failed, worker_id="worker-1")
 
     assert mission.status == MissionState.FAILED.value
+    assert mission.metadata_json["acceptance"]["status"] == "partially_met"
+    assert "one or more runtime tasks failed" in mission.metadata_json["acceptance"]["reasons"]
 
 
 def test_rollup_fails_when_observe_acceptance_is_unmet() -> None:

@@ -321,6 +321,19 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                     "input_path": "$.input.prospects",
                 }
             )
+        if action_name == "sales.create_followup_task" and "record-search" in dep:
+            # Match the compiler's explicit binding for the internal CRM
+            # follow-up lane.  This fallback is used only when durable graph
+            # metadata is unavailable (for example recovery of a legacy
+            # materialization); it remains tenant task-world-state, never a
+            # replacement CRM query or a synthetic prospect list.
+            specs.append(
+                {
+                    "from_step": dep,
+                    "output_path": "$.crm_records",
+                    "input_path": "$.input.context.crm_records",
+                }
+            )
         if action_name in {"research.observe_contacts", "research.verify_public_candidates"} and "web-research" in dep:
             specs.append(
                 {

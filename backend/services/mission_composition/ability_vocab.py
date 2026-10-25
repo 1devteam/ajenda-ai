@@ -112,9 +112,9 @@ OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
     (r"\b(?:prepare|create|produce)\b[^.!?]{0,48}\binvoice\s+drafts?\b", "prepare_invoice_drafts"),
     (r"\b(?:read|check|show|list|fetch)\b[^.!?]{0,48}\b(?:stripe|revenue|invoices?)\b", "read_revenue"),
     (r"\b(?:prepare|create|produce)\b[^.!?]{0,48}\b(?:revenue\s+)?reconciliation\b", "prepare_reconciliation"),
-    (r"\b(?:check|read|search|list|show)\b.{0,48}\b(?:gmail|inbox)\b", "read_email"),
+    (r"\b(?:check|read|review|search|list|show)\b.{0,48}\b(?:gmail|inbox)\b", "read_email"),
     (r"\b(?:gmail|inbox)\b.{0,48}\b(?:unread|recent|replies?|messages?|emails?)\b", "read_email"),
-    (r"\b(?:check|read|search|list|show)\s+my\s+(?:emails?|messages?)\b", "read_email"),
+    (r"\b(?:check|read|review|search|list|show)\s+my\s+(?:emails?|messages?)\b", "read_email"),
     (r"\b(?:check|read|search|query|list|show)\b[^.!?]{0,48}\b(?:hubspot|crm)\b", "read_crm"),
     (
         r"\b(?:read|check|search|query|list|show|summarize|find|look up)\b[^.!?]{0,48}\b(?:hubspot|crm)\b[^.!?]{0,48}\b(?:records?|contacts?|companies|deals?|pipeline)\b",

@@ -11,6 +11,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.services.tools.mission_input_binding import (
     DependencyNotReadyError,
     apply_input_bindings,
+    default_bindings_for_action,
     index_mission_tasks_by_node_key,
     pending_dependency_keys,
 )
@@ -144,6 +145,19 @@ def test_bind_prospect_candidates_into_draft_context() -> None:
     assert "Fayetteville Roof Pros" in bound["topic"]
     assert audit["prospect_count"] == 1
     assert bound["recipient"] == "pending.binding@invalid.local"
+
+
+def test_followup_task_fallback_binds_tenant_crm_records_from_record_search() -> None:
+    assert default_bindings_for_action(
+        action_name="sales.create_followup_task",
+        dependency_keys=["ability-record-search"],
+    ) == [
+        {
+            "from_step": "ability-record-search",
+            "output_path": "$.crm_records",
+            "input_path": "$.input.context.crm_records",
+        }
+    ]
 
 
 def test_bind_fails_closed_when_required_and_empty() -> None:

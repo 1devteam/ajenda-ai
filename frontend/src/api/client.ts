@@ -780,7 +780,14 @@ export async function createMission(
 
 export async function composeMission(
   caller: AuthedCaller,
-  body: { instruction: string; interpretation_thread_id?: string },
+  body: {
+    instruction: string;
+    interpretation_thread_id?: string;
+    business_need_id?: string;
+    business_need_revision?: number;
+    business_need_assessment_id?: string;
+    business_need_response_key?: string;
+  },
 ): Promise<MissionComposeResponse> {
   return withAuthedRuntime(caller, (config) =>
     request<MissionComposeResponse>(

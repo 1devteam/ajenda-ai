@@ -11,12 +11,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.runtime_queue_dispatch import RuntimeQueueDispatch
-from backend.queue.base import QueueAdapter, QueueMessage
+from backend.queue.base import QueueAdapter, QueueMessage, QueueOperationResult
 from backend.repositories.runtime_queue_dispatch_repository import RuntimeQueueDispatchRepository
 
 logger = logging.getLogger("ajenda.runtime_queue_dispatcher")
 
 _AFTER_COMMIT_DISPATCHES = "runtime_queue_dispatches_after_commit"
+_RETRY_GENERATION_KEY = "_runtime_queue_retry_generation"
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,10 +74,7 @@ def _publish_committed_dispatches(session: Session) -> None:
             if dispatch is None or dispatch.tenant_id != intent.tenant_id or dispatch.status != "pending":
                 fresh.rollback()
                 continue
-            result = intent.queue.enqueue_task_idempotent(
-                intent.message,
-                idempotency_key=str(intent.dispatch_id),
-            )
+            result = RuntimeQueueDispatchService._publish(dispatch=dispatch, queue=intent.queue)
             dispatch.attempt_count += 1
             if result.ok:
                 dispatch.status = "published"
@@ -145,6 +143,33 @@ class RuntimeQueueDispatchService:
         self._schedule_after_commit(dispatch)
         return dispatch
 
+    def retry(self, *, task: ExecutionTask) -> RuntimeQueueDispatch:
+        """Re-arm a terminal task's existing dispatch after its DB retry state commits.
+
+        A retry is a new delivery generation for the same task, not a second
+        task or a direct queue write.  Retaining the dispatch record preserves
+        the original admission lineage while the generation gives a recovered
+        message a distinct idempotency identity.
+        """
+
+        dispatch = self._dispatches.get_for_task(tenant_id=task.tenant_id, task_id=task.id)
+        if dispatch is None:
+            dispatch, _created = self.admit(task=task, held_for_review=False)
+            return dispatch
+
+        generation = self._retry_generation(dispatch) + 1
+        payload = dict(task.metadata_json or {})
+        payload[_RETRY_GENERATION_KEY] = generation
+        dispatch.payload_json = payload
+        dispatch.status = "pending"
+        dispatch.next_attempt_at = datetime.now(UTC)
+        dispatch.last_error = None
+        dispatch.published_at = None
+        dispatch.cancelled_at = None
+        self._session.flush()
+        self._schedule_after_commit(dispatch)
+        return dispatch
+
     def cancel(self, *, task: ExecutionTask) -> RuntimeQueueDispatch | None:
         dispatch = self._dispatches.get_for_task(tenant_id=task.tenant_id, task_id=task.id)
         if dispatch is None or dispatch.status == "cancelled":
@@ -168,10 +193,7 @@ class RuntimeQueueDispatchService:
                 dispatch.last_error = "dispatch task is missing, cross-tenant, or no longer queued"
                 self._session.commit()
                 continue
-            result = self._queue.enqueue_task_idempotent(
-                self._message(dispatch),
-                idempotency_key=str(dispatch.id),
-            )
+            result = self._publish(dispatch=dispatch, queue=self._queue)
             dispatch.attempt_count += 1
             if result.ok:
                 dispatch.status = "published"
@@ -225,6 +247,34 @@ class RuntimeQueueDispatchService:
             payload=dict(dispatch.payload_json or {}),
             enqueued_at=dispatch.created_at if dispatch.created_at is not None else datetime.now(UTC),
         )
+
+    @classmethod
+    def _publish(cls, *, dispatch: RuntimeQueueDispatch, queue: QueueAdapter) -> QueueOperationResult:
+        """Publish one committed dispatch, preserving retry recovery semantics."""
+
+        generation = cls._retry_generation(dispatch)
+        if generation:
+            recovered = queue.retry_dead_letter(tenant_id=dispatch.tenant_id, task_id=dispatch.task_id)
+            if recovered.ok or recovered.reason in {"task already pending", "task already processing"}:
+                return QueueOperationResult(ok=True)
+            if recovered.reason != "dead-letter entry not found":
+                return recovered
+        return queue.enqueue_task_idempotent(
+            cls._message(dispatch),
+            idempotency_key=cls._idempotency_key(dispatch),
+        )
+
+    @staticmethod
+    def _retry_generation(dispatch: RuntimeQueueDispatch) -> int:
+        raw = (dispatch.payload_json or {}).get(_RETRY_GENERATION_KEY, 0)
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+            raise ValueError("runtime queue dispatch has an invalid retry generation")
+        return int(raw)
+
+    @classmethod
+    def _idempotency_key(cls, dispatch: RuntimeQueueDispatch) -> str:
+        generation = cls._retry_generation(dispatch)
+        return str(dispatch.id) if generation == 0 else f"{dispatch.id}:retry:{generation}"
 
     @staticmethod
     def _backoff(attempt_count: int) -> timedelta:

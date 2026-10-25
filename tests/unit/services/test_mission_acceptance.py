@@ -171,6 +171,33 @@ def test_acceptance_requires_internal_crm_readback_evidence() -> None:
     assert reasons == []
 
 
+def test_acceptance_requires_followup_task_readback_evidence() -> None:
+    persisted_only = _task(
+        {"follow_up_tasks": [{"id": "task-1", "prospect_id": "contact-1", "status": "open", "readback_verified": True}]}
+    )
+    met, reasons = evaluate_mission_acceptance(
+        tasks=[persisted_only],
+        contract={"follow_up_tasks_min": 1, "follow_up_task_readback_required": True},
+    )
+    assert met is False
+    assert "follow-up task" in " ".join(reasons)
+
+    verified = _task(
+        {
+            "follow_up_tasks": [
+                {"id": "task-1", "prospect_id": "contact-1", "status": "open", "readback_verified": True}
+            ],
+            "crm_readback_records": [{"record_type": "task", "record_id": "task-1", "verified": True}],
+        }
+    )
+    met, reasons = evaluate_mission_acceptance(
+        tasks=[verified],
+        contract={"follow_up_tasks_min": 1, "follow_up_task_readback_required": True},
+    )
+    assert met is True
+    assert reasons == []
+
+
 def test_acceptance_does_not_mix_source_crm_rows_with_persisted_rows() -> None:
     met, reasons = evaluate_mission_acceptance(
         tasks=[

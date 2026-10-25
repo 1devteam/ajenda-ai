@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.config import Settings, get_settings
+from backend.db.tenant_session import activate_tenant_session
 from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
 from backend.services.credentials.github_runtime_token import (
     GitHubRuntimeTokenError,
@@ -78,6 +79,13 @@ class SQLAlchemyCredentialRuntimeRepository(CredentialRuntimeRepository):
     def get_visible_for_tenant(self, *, tenant_id: str, credential_id: str) -> CredentialRecord | None:
         session = self._session_factory()
         try:
+            # This repository deliberately owns a fresh short-lived session so
+            # decrypted credential material cannot escape the runtime lookup.
+            # Forced PostgreSQL RLS is transaction-local, however: the worker's
+            # authority session cannot make this separate session tenant-visible.
+            # Activate the same tenant boundary before querying rather than
+            # weakening the query or falling back to cross-tenant lookup.
+            activate_tenant_session(session, tenant_id)
             row = session.execute(
                 select(ProviderRuntimeCredential).where(
                     ProviderRuntimeCredential.tenant_id == tenant_id,

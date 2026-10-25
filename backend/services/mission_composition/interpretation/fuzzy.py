@@ -15,6 +15,11 @@ from backend.services.mission_composition.contracts import CANONICAL_OUTCOMES, L
 _HIGH_SCORE = 90.0
 _MEDIUM_SCORE = 80.0
 
+# These outcomes require composition-owned, tenant-validated context.  They
+# are canonical identifiers for snapshot compatibility, not phrases that fuzzy
+# text matching may introduce into an otherwise unscoped instruction.
+_CONTEXT_ONLY_OUTCOMES = frozenset({"review_business_need"})
+
 
 @dataclass(frozen=True, slots=True)
 class FuzzyOutcomeCandidate:
@@ -28,7 +33,7 @@ def _alias_table() -> list[tuple[str, CanonicalOutcome]]:
     rows: list[tuple[str, CanonicalOutcome]] = []
     for alias, outcome in LEGACY_OUTCOME_ALIASES.items():
         rows.append((alias, outcome))
-    for outcome_id in sorted(CANONICAL_OUTCOMES):
+    for outcome_id in sorted(CANONICAL_OUTCOMES - _CONTEXT_ONLY_OUTCOMES):
         rows.append((str(outcome_id).replace("_", " "), cast(CanonicalOutcome, outcome_id)))
     return rows
 

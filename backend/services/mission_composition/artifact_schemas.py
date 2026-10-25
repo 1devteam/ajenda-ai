@@ -435,6 +435,18 @@ PIPELINE_RECORDS_SCHEMA = CompositionArtifactSchema(
     ),
 )
 
+FOLLOW_UP_TASKS_SCHEMA = CompositionArtifactSchema(
+    artifact_key="follow_up_tasks",
+    producer_job="crm.create_internal_followup_tasks",
+    fields=(
+        ArtifactFieldProjection(deliverable_field="crm_record_id", json_path="$[].id", scope="per_item"),
+        ArtifactFieldProjection(deliverable_field="pipeline_status", json_path="$[].status", scope="per_item"),
+        ArtifactFieldProjection(
+            deliverable_field="readback_verified", json_path="$[].readback_verified", scope="per_item"
+        ),
+    ),
+)
+
 ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     PROSPECT_CANDIDATES_SCHEMA.artifact_key: PROSPECT_CANDIDATES_SCHEMA,
     OBSERVED_CONTACTS_SCHEMA.artifact_key: OBSERVED_CONTACTS_SCHEMA,
@@ -451,6 +463,7 @@ ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     INTERNAL_CRM_RECORDS_SCHEMA.artifact_key: INTERNAL_CRM_RECORDS_SCHEMA,
     CRM_RECORDS_SCHEMA.artifact_key: CRM_RECORDS_SCHEMA,
     PIPELINE_RECORDS_SCHEMA.artifact_key: PIPELINE_RECORDS_SCHEMA,
+    FOLLOW_UP_TASKS_SCHEMA.artifact_key: FOLLOW_UP_TASKS_SCHEMA,
 }
 
 

@@ -47,6 +47,12 @@ def test_confirmation_creates_a_revalidated_record_instead_of_reusing_reviewed_p
     assert "require_durable=True" in source
 
 
+def test_confirmation_revalidates_assessment_lineage_with_its_need_reference() -> None:
+    source = inspect.getsource(MissionCompositionConfirmationPhase.confirm)
+    assert "business_need_assessment_reference" in source
+    assert 'compose_kwargs["business_need_assessment_reference"] = assessment_reference' in source
+
+
 def test_compile_keeps_recomposition_and_graph_writes_in_caller_transaction() -> None:
     source = inspect.getsource(MissionCompositionCompilePhase.compile_for_mission)
     tree = ast.parse(textwrap.dedent(source))
@@ -70,3 +76,9 @@ def test_compile_retains_prior_composition_as_revalidation_lineage() -> None:
     assert '"revalidated_from_proposal_id": prior_proposal_id' in source
     assert '"revision_reason": "compile_revalidation"' in source
     assert "require_durable=True" in source
+
+
+def test_compile_revalidates_assessment_lineage_with_its_need_reference() -> None:
+    source = inspect.getsource(MissionCompositionCompilePhase.compile_for_mission)
+    assert "business_need_assessment_reference" in source
+    assert 'compose_kwargs["business_need_assessment_reference"] = assessment_reference' in source

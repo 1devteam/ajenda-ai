@@ -489,9 +489,16 @@ def validate_mission_intake_prompt(
     scope_limits: list[str] | None = None,
     allowed_actions: list[str] | None = None,
     operator_notes: str | None = None,
+    source_bound_scope: bool = False,
     allow_legacy_v1: bool = False,
 ) -> None:
-    """Fail closed when mission prompt text is too vague to plan or measure."""
+    """Fail closed when mission prompt text is too vague to plan or measure.
+
+    ``source_bound_scope`` is for an internal caller that has already bound the
+    mission to an immutable, tenant-owned subject reference. It relaxes only
+    the duplicate textual-scope requirement; all other quality checks remain
+    in force. Public mission intake leaves it false.
+    """
 
     if allow_legacy_v1:
         return
@@ -541,7 +548,7 @@ def validate_mission_intake_prompt(
                 reason="Objective looks like keyboard noise or filler characters, not a concrete executable objective.",
             )
         )
-    elif not _has_scope_signal(normalized_objective):
+    elif not _has_scope_signal(normalized_objective) and not source_bound_scope:
         violations.append(
             MissionIntakeQualityViolation(
                 field="objective",

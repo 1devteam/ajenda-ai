@@ -62,7 +62,11 @@ class StateMachine:
         "running": {"paused", "completed", "failed", "cancelled"},
         "paused": {"running"},
         "completed": {"archived"},
-        "failed": {"archived"},
+        # A failed mission may be reopened only by the governed retry path
+        # after a retryable execution task is re-admitted.  This preserves the
+        # original failure evidence while allowing the current mission state to
+        # reflect a real recovery attempt; it is not a generic operator edit.
+        "failed": {"running", "archived"},
         "cancelled": {"archived"},
     }
 

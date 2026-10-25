@@ -72,6 +72,15 @@ def test_descriptive_conjunctions_are_not_misread_as_deliverables() -> None:
     assert request is None
 
 
+def test_email_message_artifact_remains_connector_output_not_revops_report() -> None:
+    request = deliverable_contract.extract_deliverable_request(
+        "Review the 10 most recent messages in my connected Gmail inbox and return the retrieved email-\n"
+        "  > message artifact."
+    )
+
+    assert request is None
+
+
 def test_browser_observation_fields_do_not_become_prospect_website() -> None:
     request = deliverable_contract.extract_deliverable_request(
         "Open https://www.iana.org/domains/example and return the final URL, page title, visible text, observation timestamp, browser step trace, and blocked-request list."

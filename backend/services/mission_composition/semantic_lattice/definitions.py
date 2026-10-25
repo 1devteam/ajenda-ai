@@ -468,6 +468,7 @@ _OUTCOME_CONCEPTS: dict[str, tuple[str, tuple[str, ...]]] = {
     "send_outreach": ("outreach", ("email.deliver_outreach",)),
     "read_crm": ("pipeline", ("crm.read_records",)),
     "persist_internal_crm": ("pipeline", ("crm.internal_persistence",)),
+    "create_internal_followup_tasks": ("pipeline", ("crm.create_internal_followup_tasks",)),
     "maintain_pipeline": ("pipeline", ("crm.pipeline_maintenance",)),
 }
 

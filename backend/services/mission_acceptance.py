@@ -165,6 +165,28 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
                 f"missing {len(missing_readback) if persisted_ids else crm_min}"
             )
 
+    follow_up_tasks = unique_records("follow_up_tasks")
+    follow_up_min = int(contract.get("follow_up_tasks_min", 0) or 0)
+    if len(follow_up_tasks) < follow_up_min:
+        reasons.append(f"required at least {follow_up_min} persisted follow-up tasks, produced {len(follow_up_tasks)}")
+    if contract.get("follow_up_task_readback_required"):
+        verified_task_ids = {
+            str(item.get("record_id"))
+            for output in outputs
+            for item in output.get("crm_readback_records", [])
+            if isinstance(item, dict)
+            and item.get("record_type") == "task"
+            and item.get("verified") is True
+            and item.get("record_id")
+        }
+        persisted_task_ids = {str(item.get("id")) for item in follow_up_tasks if item.get("id")}
+        missing_task_readback = sorted(persisted_task_ids - verified_task_ids)
+        if not persisted_task_ids or missing_task_readback:
+            reasons.append(
+                "required verified internal CRM read-back evidence for every persisted follow-up task; "
+                f"missing {len(missing_task_readback) if persisted_task_ids else follow_up_min}"
+            )
+
     opportunity_min = int(contract.get("internal_crm_opportunities_min", 0) or 0)
     if opportunity_min:
         persisted_contact_ids = {str(item.get("id")) for item in crm_records if item.get("id")}

@@ -19,10 +19,10 @@ from backend.services.mission_composition.job_catalog import get_business_job
 from backend.services.operating_charter import default_operating_charter
 
 
-def test_versions_bumped_for_wave_a() -> None:
-    assert JOB_CATALOG_VERSION == "12"
-    assert INTERPRETER_VERSION == "14"
-    assert CAPABILITY_RESOLVER_VERSION == "11"
+def test_versions_bumped_for_internal_crm_followup_composition() -> None:
+    assert JOB_CATALOG_VERSION == "13"
+    assert INTERPRETER_VERSION == "15"
+    assert CAPABILITY_RESOLVER_VERSION == "12"
 
 
 def test_web_page_observation_selects_browser_only_for_explicit_url() -> None:

@@ -185,6 +185,7 @@ REVOPS_V1_KNOW_HOW = VerticalKnowHowContract(
         "send_outreach",
         "update_crm",
         "persist_internal_crm",
+        "create_internal_followup_tasks",
     ),
     stages=(
         KnowHowStage(
@@ -237,6 +238,12 @@ REVOPS_V1_KNOW_HOW = VerticalKnowHowContract(
             depends_on=("qualification",),
             optional=True,
         ),
+        KnowHowStage(
+            stage_key="crm_followup_tasks",
+            job_keys=("crm.create_internal_followup_tasks",),
+            depends_on=("crm_context",),
+            optional=True,
+        ),
     ),
     deliverable_fields=(
         DeliverableField(field_key="prospect_candidates", produced_by_jobs=("research.discover_prospects",)),
@@ -249,6 +256,11 @@ REVOPS_V1_KNOW_HOW = VerticalKnowHowContract(
         DeliverableField(
             field_key="internal_crm_records",
             produced_by_jobs=("crm.internal_persistence",),
+            required=False,
+        ),
+        DeliverableField(
+            field_key="follow_up_tasks",
+            produced_by_jobs=("crm.create_internal_followup_tasks",),
             required=False,
         ),
     ),

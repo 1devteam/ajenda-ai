@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from backend.domain.enums import ExecutionTaskState
+from backend.domain.enums import ExecutionTaskState, MissionState
 from backend.domain.mission import MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY
 from backend.queue.base import QueueOperationResult
 from backend.services.execution_coordinator import ExecutionCoordinator
@@ -42,6 +42,7 @@ def _coordinator_with_task(*, task: SimpleNamespace, queue: MagicMock | None = N
     session.scalar.return_value = SimpleNamespace(
         id=task.mission_id,
         tenant_id=task.tenant_id,
+        status=MissionState.PLANNED.value,
         metadata_json={
             MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY: {
                 "queued_execution_task_ids": [],
@@ -501,12 +502,6 @@ def test_retry_task_reenters_admission_and_canonical_queue_boundary() -> None:
     tenant_id = str(uuid.uuid4())
     task = _task(tenant_id=tenant_id, status=ExecutionTaskState.FAILED.value)
     queue = MagicMock()
-    queue.list_dead_letter.return_value = []
-    queue.recover_task_for_retry.return_value = QueueOperationResult(
-        ok=False,
-        reason="task not found in processing or pending queue",
-    )
-    queue.enqueue_task.return_value = QueueOperationResult(ok=True)
     coordinator = _coordinator_with_task(task=task, queue=queue)
 
     result = coordinator.retry_task(tenant_id=tenant_id, task_id=task.id)
@@ -515,7 +510,36 @@ def test_retry_task_reenters_admission_and_canonical_queue_boundary() -> None:
     assert task.status == ExecutionTaskState.QUEUED.value
     coordinator._governor.evaluate.assert_called_once()
     coordinator._policy.evaluate_task.assert_called_once_with(task)
-    queue.enqueue_task.assert_called_once()
+    coordinator._dispatches.retry.assert_called_once_with(task=task)
+    queue.enqueue_task.assert_not_called()
+    queue.enqueue_task_idempotent.assert_not_called()
+
+
+def test_retry_reopens_failed_mission_and_preserves_prior_failure_as_history() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.FAILED.value)
+    task.metadata_json = {
+        "task_type": "echo",
+        "failure": {"code": "HANDLER_FAILED", "message": "transient provider error", "retryable": True},
+    }
+    queue = MagicMock()
+    coordinator = _coordinator_with_task(task=task, queue=queue)
+    mission = coordinator._session.scalar.return_value
+    mission.status = MissionState.FAILED.value
+    mission.metadata_json["acceptance"] = {"status": "partially_met", "reasons": ["provider failed"]}
+
+    result = coordinator.retry_task(tenant_id=tenant_id, task_id=task.id)
+
+    assert result.ok is True
+    assert task.status == ExecutionTaskState.QUEUED.value
+    assert "failure" not in task.metadata_json
+    assert task.metadata_json["retry_history"][-1]["failure"]["code"] == "HANDLER_FAILED"
+    assert mission.status == MissionState.RUNNING.value
+    assert "acceptance" not in mission.metadata_json
+    assert mission.metadata_json["acceptance_history"][-1]["acceptance"]["status"] == "partially_met"
+    assert mission.metadata_json["runtime_recovery"]["retry_task_id"] == str(task.id)
+    actions = [call.args[0].action for call in coordinator._audit.append.call_args_list]
+    assert "mission_reopened_for_retry" in actions
 
 
 def test_retry_side_effect_without_current_grant_returns_to_review() -> None:

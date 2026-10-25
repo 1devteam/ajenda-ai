@@ -205,6 +205,43 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         depends_on_jobs=("intelligence.retrieve_business_profile",),
     ),
     BusinessJob(
+        job_key="business.review_need",
+        display_name="Review a recognized business need",
+        vertical_role="vertical.research",
+        # This job is reached only from a tenant-validated assessment context
+        # in the composition owner.  It reuses the existing deterministic
+        # decision action; it does not create a planner or execution path.
+        supported_outcomes=("review_business_need",),
+        required_inputs=("business_need_assessment",),
+        produced_outputs=("recommendation",),
+        candidate_actions=("decision.recommend_next_action",),
+        risk_level="low",
+        maturity="runtime_bound",
+        credential_policy="none",
+        evidence_requirements=("action_result_evidence",),
+    ),
+    BusinessJob(
+        job_key="business.review_need_with_knowledge",
+        display_name="Review a recognized business need with qualified experience",
+        vertical_role="vertical.research",
+        # Retrieval, applicability, and bounded knowledge influence are owned
+        # by knowledge.inform_decision.  This catalog row only makes that
+        # existing read-only action reachable from a semantically complete
+        # reviewed assessment.
+        supported_outcomes=(),
+        required_inputs=("business_need_assessment", "qualified_knowledge_semantics"),
+        # Both candidates produce the established recommendation field.  The
+        # resolver prefers qualified knowledge when governance permits it,
+        # then falls back to the assessment-only decision owner rather than
+        # suppressing a justified need because knowledge use is unavailable.
+        produced_outputs=("recommendation",),
+        candidate_actions=("knowledge.inform_decision", "decision.recommend_next_action"),
+        risk_level="low",
+        maturity="runtime_bound",
+        credential_policy="none",
+        evidence_requirements=("action_result_evidence",),
+    ),
+    BusinessJob(
         job_key="intelligence.advise_next",
         display_name="Recommend next action",
         vertical_role="vertical.research",
@@ -421,6 +458,21 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
             JobDependency(job_key="sales.qualify_prospects", kind="hard"),
         ),
         depends_on_jobs=("research.discover_prospects", "research.observe_sources", "sales.qualify_prospects"),
+    ),
+    BusinessJob(
+        job_key="crm.create_internal_followup_tasks",
+        display_name="Create internal CRM follow-up tasks",
+        vertical_role="vertical.sales",
+        supported_outcomes=("create_internal_followup_tasks",),
+        required_inputs=("crm_records", "quantity"),
+        produced_outputs=("follow_up_tasks",),
+        candidate_actions=("sales.create_followup_task",),
+        risk_level="medium",
+        maturity="runtime_bound",
+        credential_policy="none",
+        evidence_requirements=("action_result_evidence", "readback_evidence"),
+        dependencies=(JobDependency(job_key="crm.read_records", kind="hard"),),
+        depends_on_jobs=("crm.read_records",),
     ),
     BusinessJob(
         job_key="crm.pipeline_maintenance",

@@ -371,6 +371,53 @@ def test_compile_uses_stored_composition_when_client_omits_instruction() -> None
     assert "gtm.email_send" not in result["display"]["allowed_actions"]
 
 
+def test_compile_preserves_exact_reviewed_instruction_for_revalidation() -> None:
+    """Formatting retained by the reviewed proposal must not create a false revision."""
+    tenant_id = "11111111-1111-1111-1111-111111111111"
+    stored_instruction = (
+        " Review the 10 most recent messages in my connected Gmail inbox and return the retrieved email-\n"
+        "  > message artifact.\n"
+    )
+    mission = _mission(objective="Review Gmail messages.")
+    service = MissionCompositionService(db=MagicMock())
+
+    with (
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_cls,
+        patch("backend.services.mission_composition.service.MissionRepository") as mission_repo_cls,
+        patch("backend.services.mission_composition.service.MissionPlanRepository") as plan_repo_cls,
+        patch("backend.services.mission_composition.compile_phase.get_proposal") as get_proposal,
+        patch("backend.services.mission_composition.proposal_store.put_proposal", return_value=True),
+    ):
+        profile_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
+        cred_cls.return_value.list_for_tenant.return_value = []
+        reviewed = service.compose(tenant_id=tenant_id, instruction=stored_instruction, persist=False)
+        get_proposal.return_value = reviewed
+        mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["context"] = {
+            "composition": {
+                "proposal_id": reviewed.proposal_id,
+                "instruction": stored_instruction,
+            }
+        }
+        mission_repo_cls.return_value.get_for_tenant.return_value = mission
+        plan_repo_cls.return_value.create_or_get_active_for_mission.return_value = MissionPlan(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            status=MissionPlanStatus.DRAFT.value,
+            metadata_json={},
+        )
+
+        result = service.compile_for_mission(
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            persist=False,
+        )
+
+    assert result["compile_status"] in {"ready", "blocked"}
+    assert result["proposal_id"] != reviewed.proposal_id
+
+
 def test_compile_honors_explicit_client_instruction_over_stored() -> None:
     """API recompile with a new instruction must not be silently discarded."""
     stored = "Research five roofing companies in Austin and prepare drafts without sending."

@@ -44,6 +44,11 @@ _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "intelligence.retrieve_knowledge": ("knowledge.retrieve_current",),
     "intelligence.retrieve_business_profile": ("retrieval.hybrid_search",),
     "business.review_income": ("decision.recommend_next_action",),
+    "business.review_need": ("decision.recommend_next_action",),
+    "business.review_need_with_knowledge": (
+        "knowledge.inform_decision",
+        "decision.recommend_next_action",
+    ),
     "intelligence.advise_next": ("decision.recommend_next_action",),
     "sales.research_context": ("sales.research", "crm.research"),
     "sales.qualify_prospects": ("sales.qualify", "sales.score_lead"),
@@ -54,6 +59,7 @@ _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "crm.read_records": ("sales.research",),
     "crm.query_salesforce": ("salesforce.soql_read",),
     "crm.internal_persistence": ("record.write",),
+    "crm.create_internal_followup_tasks": ("sales.create_followup_task",),
     "crm.pipeline_maintenance": ("gtm.crm_upsert",),
     "ops.calendar_briefing": ("google_calendar.events_read",),
     "ops.linkedin_profile_read": ("linkedin.profile_read",),
@@ -229,7 +235,12 @@ def route_jobs_for_intent(
     """Map canonical requested outcomes to business jobs (deterministic)."""
 
     outcomes = {item.strip() for item in intent.requested_outcomes if item and item.strip()}
-    if not outcomes:
+    assessment_context = "business_need_assessment_context" in set(intent.context_requirements)
+    # A reviewed, tenant-validated assessment is an intentional composition
+    # ingress independent of natural-language outcome extraction.  It must be
+    # able to reach its existing decision owner even when the accompanying
+    # instruction only requests review of that referenced need.
+    if not outcomes and not assessment_context:
         return []
 
     # A typed deliverable requirement is part of the requested outcome
@@ -253,8 +264,14 @@ def route_jobs_for_intent(
     selected: list[BusinessJob] = []
     selected_keys: set[str] = set()
     available = _intent_input_sources(intent)
+    knowledge_assessment_context = "business_need_knowledge_context" in set(intent.context_requirements)
 
     for job in list_business_jobs():
+        # The knowledge-aware review owns the same semantic outcome when its
+        # exact existing applicability contract is available. It has a
+        # governed direct-decision fallback, so this avoids duplicate work.
+        if job.job_key == "business.review_need" and knowledge_assessment_context:
+            continue
         supported = set(job.supported_outcomes)
         if outcomes.intersection(supported):
             if job.job_key not in selected_keys:
@@ -276,7 +293,15 @@ def route_jobs_for_intent(
     # Existing learning capabilities become reachable only after the user
     # explicitly asks for decision support. They remain read-only composition
     # work; this branch neither resolves a provider nor grants runtime power.
-    if "decision_support_requested" in set(intent.context_requirements):
+    if assessment_context:
+        review_job_key = (
+            "business.review_need_with_knowledge" if knowledge_assessment_context else "business.review_need"
+        )
+        review_job = BUSINESS_JOBS_BY_KEY.get(review_job_key)
+        if review_job is not None and review_job.job_key not in selected_keys:
+            selected.append(review_job)
+            selected_keys.add(review_job.job_key)
+    if "decision_support_requested" in set(intent.context_requirements) and not assessment_context:
         for job_key in ("intelligence.retrieve_knowledge", "intelligence.advise_next"):
             learning_job = BUSINESS_JOBS_BY_KEY.get(job_key)
             if learning_job is not None and learning_job.job_key not in selected_keys:

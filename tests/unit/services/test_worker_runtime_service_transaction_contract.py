@@ -216,6 +216,7 @@ def test_complete_mirrors_handler_result_and_output_to_task_metadata() -> None:
         status=ExecutionTaskState.RUNNING.value
     )
     queue.complete_task.return_value = QueueOperationResult(ok=True)
+    task.metadata_json["failure"] = {"code": "HANDLER_FAILED", "message": "old attempt"}
     task_output = {
         "handler": "echo",
         "status": "completed",
@@ -232,6 +233,7 @@ def test_complete_mirrors_handler_result_and_output_to_task_metadata() -> None:
 
     assert task.metadata_json["handler_result"] == task_output
     assert task.metadata_json["output"] == {"count": 2}
+    assert "failure" not in task.metadata_json
 
 
 def test_complete_rejects_declared_output_contract_without_handler_output() -> None:

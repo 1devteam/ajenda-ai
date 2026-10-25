@@ -133,9 +133,18 @@ _OBSERVE_CONTACT_PATTERNS = (
 )
 _EMAIL_READ_PATTERNS = (
     # Require Gmail/inbox context — bare "email/message" often means CRM fields.
-    r"\b(?:check|read|search|list|show)\b.{0,48}\b(?:gmail|inbox)\b",
+    r"\b(?:check|read|review|search|list|show)\b.{0,48}\b(?:gmail|inbox)\b",
     r"\b(?:gmail|inbox)\b.{0,48}\b(?:unread|recent|replies?|messages?|emails?)\b",
-    r"\b(?:check|read|search|list|show)\s+my\s+(?:emails?|messages?)\b",
+    r"\b(?:check|read|review|search|list|show)\s+my\s+(?:emails?|messages?)\b",
+)
+# A delivery phrase can account for a Gmail-read clause only when the enclosing
+# instruction independently requests ``read_email``.  The phrase itself never
+# authorizes a connector read; it merely names the artifact produced by that
+# already-selected, read-only outcome.
+_EMAIL_MESSAGE_DELIVERY_CLAUSE = re.compile(
+    r"^(?:return|provide|include)\b[^.!?]{0,160}\b(?:retrieved\s+)?"
+    r"email(?:[-\s]+)?messages?\b[^.!?]{0,120}\b(?:artifact|results?)\b",
+    re.IGNORECASE,
 )
 _CRM_READ_PATTERNS = (
     r"\b(?:check|read|search|query|list|show|summarize|find|look up)\b[^.!?]{0,48}\b(?:hubspot|crm)\b",
@@ -284,6 +293,14 @@ _INTERNAL_CRM_PATTERNS = (
     r"\bajenda(?:'s)?\s+(?:internal\s+)?crm\b",
     r"\binternal\s+(?:ajenda\s+)?crm\b",
     r"\bajenda\s+(?:internal\s+)?records?\b",
+)
+# A follow-up task is a tenant-local CRM work item, not a generic CRM upsert.
+# Keep this vocabulary separate from ``_CRM_UPDATE_PATTERNS`` so an explicit
+# request for task creation cannot silently become prospect persistence or an
+# external HubSpot mutation.
+_INTERNAL_FOLLOWUP_TASK_PATTERNS = (
+    r"\b(?:create|add|open)\b[^.!?]{0,80}\b(?:follow[- ]?up|followup)\s+tasks?\b",
+    r"\b(?:follow[- ]?up|followup)\s+tasks?\b[^.!?]{0,80}\b(?:internal|ajenda(?:['\u2019]s)?)\s+(?:crm|records?)\b",
 )
 _CRM_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\s+add\b.{0,40}\bcontacts?\b",
@@ -502,6 +519,11 @@ _BUSINESS_REVIEW_CLAUSE = re.compile(
     r"^(?:use\s+only\s+the\s+approved\s+business\s+profile|"
     r"identify\b.*\b(?:income|revenue|opportunit)|"
     r"list\b.*\bevidence\s+gaps?)",
+    re.IGNORECASE,
+)
+_BUSINESS_NEED_REVIEW_CLAUSE = re.compile(
+    r"^(?:use|review|assess|evaluate|analy[sz]e|recommend|determine|compare)\b"
+    r".*\b(?:need|assessment|business\s+condition|candidate\s+responses?|next\s+action)\b",
     re.IGNORECASE,
 )
 _EXPLICIT_WEB_URL = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
@@ -853,6 +875,16 @@ def _success_for_outcomes(
                 measurable=True,
             )
         )
+    if "review_business_need" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description=(
+                    "A recommendation artifact preserves the referenced business need assessment, "
+                    "its evidence limits, and the selected next-step rationale"
+                ),
+                measurable=True,
+            )
+        )
     if "evaluate_goal_progress" in outcomes:
         success.append(
             SuccessCriterion(
@@ -1063,6 +1095,7 @@ def _classify_clause(
     profile_mission: bool = False,
     external_action_forbidden: bool = False,
     business_income_review: bool = False,
+    business_need_review: bool = False,
     goal_progress_evaluation: bool = False,
 ) -> tuple[list[CanonicalOutcome], bool, bool]:
     """Return (outcomes, material, recognized)."""
@@ -1070,12 +1103,19 @@ def _classify_clause(
     lower = clause.lower()
     if business_income_review and _BUSINESS_REVIEW_CLAUSE.match(clause.strip()):
         return ["review_business_income"], True, True
+    if business_need_review and _BUSINESS_NEED_REVIEW_CLAUSE.match(clause.strip()):
+        return ["review_business_need"], True, True
     if goal_progress_evaluation and re.match(
         r"^(?:return|provide|include|list)\b.*\b(?:status|confidence|kpi|progress\s+gaps?|evidence\s+gaps?|explanations?)\b",
         clause.strip(),
         flags=re.IGNORECASE,
     ):
         return ["evaluate_goal_progress"], True, True
+    if _contains_any(lower, _INTERNAL_CRM_PATTERNS) and _contains_any(lower, _INTERNAL_FOLLOWUP_TASK_PATTERNS):
+        # The operator may ask to report task IDs/status after an internal CRM
+        # write.  That reporting is an acceptance/read-back obligation of the
+        # follow-up task lane, not a research-report synthesis request.
+        return ["create_internal_followup_tasks"], True, True
     # A detailed multi-field deliverable list is not represented by the
     # canonical outcome contract. Do not let field names such as "research"
     # or "drafts" silently authorize a partial interpretation.
@@ -1101,6 +1141,7 @@ def _classify_clause(
         outcomes.append("read_business_profile")
     email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
     internal_crm_requested = _contains_any(lower, _INTERNAL_CRM_PATTERNS)
+    internal_followup_tasks = internal_crm_requested and _contains_any(lower, _INTERNAL_FOLLOWUP_TASK_PATTERNS)
     crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
         lower, _CRM_NEGATION_PATTERNS
     )
@@ -1167,7 +1208,9 @@ def _classify_clause(
         outcomes.append("send_outreach")
     if _contains_any(lower, _CALENDAR_PATTERNS):
         outcomes.append("read_calendar")
-    if _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(lower, _CRM_NEGATION_PATTERNS):
+    if internal_followup_tasks:
+        outcomes.append("create_internal_followup_tasks")
+    elif _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(lower, _CRM_NEGATION_PATTERNS):
         outcomes.append("persist_internal_crm" if internal_crm_requested else "update_crm")
     if _contains_any(lower, _PUBLISH_PATTERNS) and not _contains_any(lower, _PUBLISH_NEGATION_PATTERNS):
         outcomes.append("publish_content")
@@ -1181,6 +1224,7 @@ def _classify_clause(
         _NO_SEND_PATTERNS
         + _CONDITIONAL_SEND_PATTERNS
         + _CRM_UPDATE_PATTERNS
+        + _INTERNAL_FOLLOWUP_TASK_PATTERNS
         + _CRM_NEGATION_PATTERNS
         + _PUBLISH_PATTERNS
         + _PUBLISH_NEGATION_PATTERNS

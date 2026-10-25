@@ -596,6 +596,11 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
         "scoring_decision_input": decision_payload,
         "decision_input": materialization_input,
         "decision_result": normalized_decision_result,
+        # Preserve the canonical Decision result while exposing the same
+        # declared recommendation artifact that the direct Decision action
+        # already produces.  This lets the composition owner use a governed
+        # fallback without inventing a second output contract.
+        "recommendation": normalized_decision_result.get("recommendation"),
     }
     records_inspected = [
         *(f"knowledge_proposition:{item}" for item in retrieval.inspection_trace.candidate_proposition_keys),

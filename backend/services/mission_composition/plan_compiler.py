@@ -73,6 +73,8 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
         return "$.input.context.upstream"
     if action_name == "knowledge.retrieve_current":
         return None
+    if action_name == "sales.create_followup_task" and output_name == "crm_records":
+        return "$.input.context.crm_records"
     if action_name == "record.write" and output_name in {"qualified_prospects", "observed_contacts"}:
         return f"$.input.context.{output_name}"
     if action_name == "record.write" and output_name == "enriched_prospects":
@@ -123,6 +125,7 @@ def _dependency_output_name(*, dependency: BusinessJob, downstream_action: str) 
         "gtm.lead_enrich",
         "gtm.email_draft",
         "sales.draft_followup",
+        "sales.create_followup_task",
     }:
         return "crm_records"
     return dependency.produced_outputs[0] if dependency.produced_outputs else "result"
@@ -212,6 +215,7 @@ def compile_planned_steps(
     selections: list[AbilitySelection],
     *,
     intent: MissionIntent | None = None,
+    business_need_assessment_context: dict[str, Any] | None = None,
 ) -> list[PlannedStepPreview]:
     """Build dependency-aware planned steps from ready selected abilities."""
 
@@ -290,6 +294,7 @@ def compile_planned_steps(
                     action_name=selection.action_name,
                     intent=intent,
                     vertical_role=selection.vertical_role,
+                    business_need_assessment_context=business_need_assessment_context,
                 )
                 definition = get_default_action_registry().get(selection.action_name)
                 if definition.input_model is not None:
