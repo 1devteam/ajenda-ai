@@ -166,6 +166,7 @@ class BusinessUnderstandingService:
             metric=metric,
             observed_at=observed_at,
             measurement_period_start=measurement_period_start,
+            measurement_period_end=measurement_period_end,
         )
         payload = {
             "goal_id": goal.goal_id,
@@ -242,6 +243,7 @@ class BusinessUnderstandingService:
         metric: str,
         observed_at: datetime,
         measurement_period_start: datetime | None = None,
+        measurement_period_end: datetime | None = None,
     ) -> dict[str, Any] | None:
         """Resolve a frozen successor contract for an independently ingested measurement.
 
@@ -310,8 +312,10 @@ class BusinessUnderstandingService:
             raise BusinessUnderstandingValidationError(
                 "measurement metric does not match successor measurement contract"
             )
-        if observed_at <= not_before or (
-            measurement_period_start is not None and measurement_period_start <= not_before
+        if (
+            observed_at <= not_before
+            or (measurement_period_start is not None and measurement_period_start <= not_before)
+            or (measurement_period_end is not None and measurement_period_end <= not_before)
         ):
             raise BusinessUnderstandingValidationError(
                 "measurement period must follow the successor measurement baseline"
@@ -1018,6 +1022,7 @@ class BusinessUnderstandingService:
             or contract["metric"] != later.metric
             or subjects != canonical_subject_keys(later.subject_references)
             or (later.period_start or later.observed_at) <= not_before
+            or (later.period_end is not None and later.period_end <= not_before)
         ):
             raise BusinessUnderstandingValidationError(
                 "impact measurements contradict the frozen successor measurement contract"
