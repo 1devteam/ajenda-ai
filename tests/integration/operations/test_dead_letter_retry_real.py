@@ -26,7 +26,6 @@ def test_rg_dead_letter_retry_requeues_db_only_dead_letter_task(pg_engine, queue
     """
     tenant_id = str(uuid.uuid4())
     task_id: uuid.UUID | None = None
-    mission_id: uuid.UUID | None = None
     try:
         with Session(pg_engine, expire_on_commit=False) as session:
             tenant = Tenant(id=uuid.UUID(tenant_id), name="Tenant-RG10", slug=f"tenant-{tenant_id[:8]}", plan="free")
