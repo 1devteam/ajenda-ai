@@ -3,6 +3,7 @@
 A frozen successor reference constrains the baseline and need identity. It
 cannot itself produce a comparable outcome, causal claim, or learning signal.
 """
+
 from __future__ import annotations
 
 from copy import deepcopy
