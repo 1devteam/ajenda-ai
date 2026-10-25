@@ -110,7 +110,7 @@ def test_valid_successor_reference_does_not_replace_outcome_evidence() -> None:
 @pytest.mark.parametrize(
     "field, value",
     [
-        ("wrong_baseline_id", str(uuid4())),
+        ("wrong_baseline_id", "00000000-0000-4000-8000-000000000001"),
         ("wrong_baseline_fingerprint", "sha256:" + "e" * 64),
         ("wrong_need", "need-unrelated"),
         ("future_need_revision", 999),
