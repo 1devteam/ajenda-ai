@@ -36,7 +36,6 @@ def test_rg_dead_letter_retry_requeues_db_only_dead_letter_task(pg_engine, queue
             mission = Mission(tenant_id=tenant_id, objective="dead-letter retry", status="running")
             session.add(mission)
             session.flush()
-            mission_id = mission.id
 
             task = ExecutionTask(
                 tenant_id=tenant_id,
