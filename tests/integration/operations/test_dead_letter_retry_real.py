@@ -48,9 +48,7 @@ def test_rg_dead_letter_retry_requeues_db_only_dead_letter_task(pg_engine, queue
             session.flush()
             task_id = task.id
 
-            result = OperationsService(session, queue_adapter).retry_dead_letter(
-                tenant_id=tenant_id, task_id=task.id
-            )
+            result = OperationsService(session, queue_adapter).retry_dead_letter(tenant_id=tenant_id, task_id=task.id)
 
             assert result == {"task_id": str(task.id), "status": ExecutionTaskState.QUEUED.value}
             assert task.status == ExecutionTaskState.QUEUED.value
