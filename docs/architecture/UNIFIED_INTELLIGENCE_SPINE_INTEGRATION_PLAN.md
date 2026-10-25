@@ -107,7 +107,21 @@ assessment, candidate, successor), measurement lineage (baseline, subject,
 objective, metric, intended timing), and its own source provenance. It rejects
 missing, foreign-tenant, malformed, contradictory, mismatched, or too-early
 claims. Multiple later measurements may claim the same contract; none modifies
-the baseline.
+the baseline. A successor-linked measurement period, when supplied, must
+begin strictly after the frozen contract's `not_before` boundary.
+A supplied period end must also be strictly later than that boundary,
+including when the period start is omitted. Merely submitting a later
+`observed_at` timestamp cannot relabel historical measurements as a future period.
+
+The existing canonical impact recorder independently checks any present
+successor reference against the selected baseline measurement ID and source
+fingerprint, the need ID/revision, objective, metric, subjects, contract
+fingerprint, and intended chronology *before* fetching outcome evidence.
+A valid reference is still only provenance: the recorder separately requires
+tenant-owned, canonical `analysis.evaluate_outcome` evidence and exact
+measurement comparability. Legacy measurements with no successor contract
+remain subject to the original impact rules; no new outcome or learning path
+has been introduced.
 
 This continuity claim is not a comparability decision. Only a later
 measurement, canonical outcome evidence, and the existing
