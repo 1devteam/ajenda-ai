@@ -1,0 +1,237 @@
+"""Contract continuity at measurement ingress and canonical impact admission.
+
+A frozen successor reference constrains the baseline and need identity. It
+cannot itself produce a comparable outcome, causal claim, or learning signal.
+"""
+from __future__ import annotations
+
+from copy import deepcopy
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+from uuid import uuid4
+
+import pytest
+
+from backend.services.business_understanding.service import (
+    BusinessUnderstandingService,
+    BusinessUnderstandingValidationError,
+)
+
+
+def _fixture():
+    subject = {"schema_version": 1, "object_type": "organization", "object_id": "tenant-business"}
+    baseline = SimpleNamespace(
+        id=uuid4(), subject_references=[subject],
+        objective_key="improve_service_quality", metric="defect_rate",
+        source_content_fingerprint="sha256:" + "a" * 64,
+        values=[{"kpi_id": "defect-rate", "metric": "defect_rate", "unit": "ratio"}],
+        observed_at=datetime(2026, 1, 16, tzinfo=UTC),
+        period_end=datetime(2026, 1, 15, tzinfo=UTC),
+    )
+    later = SimpleNamespace(
+        id=uuid4(), subject_references=[subject],
+        objective_key="improve_service_quality", metric="defect_rate",
+        values=list(baseline.values),
+        observed_at=datetime(2026, 2, 16, tzinfo=UTC),
+        period_start=datetime(2026, 2, 1, tzinfo=UTC),
+        intended_measurement_reference=None,
+    )
+    current = SimpleNamespace(
+        need_id="need-a", revision=3, subject_references=[subject],
+    )
+    reference = {
+        "schema_version": 1,
+        "successor_mission_id": str(uuid4()),
+        "successor_proposal_id": "proposal-a",
+        "semantic_snapshot_id": "semantic:tenant-a:proposal-a",
+        "semantic_snapshot_sha256": "sha256:" + "b" * 64,
+        "strategy_lineage": {
+            "need_id": "need-a", "need_revision": 2,
+            "assessment_id": "assessment-a",
+            "assessment_fingerprint": "sha256:" + "c" * 64,
+            "selected_candidate_response_key": "inspect_funnel",
+        },
+        "measurement_contract": {
+            "baseline_measurement_id": str(baseline.id),
+            "baseline_source_content_fingerprint": baseline.source_content_fingerprint,
+            "subject_references": [subject],
+            "objective_key": "improve_service_quality",
+            "metric": "defect_rate",
+            "not_before": "2026-01-31T00:00:00+00:00",
+        },
+        "grants_execution_authority": False,
+    }
+    reference["contract_id"] = BusinessUnderstandingService.source_fingerprint(reference)
+    later.intended_measurement_reference = reference
+    return current, baseline, later
+
+
+def _resign(reference: dict) -> None:
+    reference["contract_id"] = BusinessUnderstandingService.source_fingerprint(
+        {key: value for key, value in reference.items() if key != "contract_id"}
+    )
+
+
+def test_valid_successor_reference_does_not_replace_outcome_evidence() -> None:
+    current, baseline, later = _fixture()
+    BusinessUnderstandingService._validate_measurement_comparability(
+        current=current, baseline=baseline, later=later
+    )
+    BusinessUnderstandingService._validate_successor_measurement_impact_lineage(
+        current=current, baseline=baseline, later=later
+    )
+
+    service = BusinessUnderstandingService(MagicMock())
+    service._repository = MagicMock()
+    service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
+    with patch("backend.services.business_understanding.service.EvidenceRepository") as evidence_repository:
+        evidence_repository.return_value.get_for_tenant.return_value = None
+        with pytest.raises(BusinessUnderstandingValidationError, match="canonical outcome evidence"):
+            service.record_canonical_measurement_impact(
+                tenant_id="tenant-a",
+                need_id=current.need_id,
+                expected_revision=current.revision,
+                baseline_measurement_id=baseline.id,
+                observed_measurement_id=later.id,
+                outcome_evidence_id=uuid4(),
+                producer="unit-test",
+            )
+        evidence_repository.return_value.get_for_tenant.assert_called_once()
+    service._repository.append_need_revision.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("wrong_baseline_id", str(uuid4())),
+        ("wrong_baseline_fingerprint", "sha256:" + "e" * 64),
+        ("wrong_need", "need-unrelated"),
+        ("future_need_revision", 999),
+        ("wrong_metric", "response_time"),
+        ("wrong_objective", "unrelated_goal"),
+        ("old_period_start", datetime(2026, 1, 25, tzinfo=UTC)),
+        ("invalid_authority", True),
+        ("malformed_subjects", [{"object_type": "alien", "object_id": "unknown"}]),
+    ],
+)
+def test_contradictory_successor_reference_rejected_before_outcome_access(field: str, value) -> None:
+    current, baseline, later = _fixture()
+    reference = deepcopy(later.intended_measurement_reference)
+    strategy = reference["strategy_lineage"]
+    contract = reference["measurement_contract"]
+    if field == "wrong_baseline_id":
+        contract["baseline_measurement_id"] = value
+    elif field == "wrong_baseline_fingerprint":
+        contract["baseline_source_content_fingerprint"] = value
+    elif field == "wrong_need":
+        strategy["need_id"] = value
+    elif field == "future_need_revision":
+        strategy["need_revision"] = value
+    elif field == "wrong_metric":
+        contract["metric"] = value
+    elif field == "wrong_objective":
+        contract["objective_key"] = value
+    elif field == "old_period_start":
+        later.period_start = value
+    elif field == "invalid_authority":
+        reference["grants_execution_authority"] = value
+    elif field == "malformed_subjects":
+        contract["subject_references"] = value
+    _resign(reference)
+    later.intended_measurement_reference = reference
+
+    service = BusinessUnderstandingService(MagicMock())
+    service._repository = MagicMock()
+    service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
+    with patch("backend.services.business_understanding.service.EvidenceRepository") as evidence_repository:
+        with pytest.raises(BusinessUnderstandingValidationError):
+            service.record_canonical_measurement_impact(
+                tenant_id="tenant-a", need_id=current.need_id,
+                expected_revision=current.revision,
+                baseline_measurement_id=baseline.id,
+                observed_measurement_id=later.id,
+                outcome_evidence_id=uuid4(), producer="unit-test",
+            )
+        evidence_repository.assert_not_called()
+    service._repository.append_need_revision.assert_not_called()
+
+
+def test_invalid_contract_id_is_rejected() -> None:
+    current, baseline, later = _fixture()
+    later.intended_measurement_reference["contract_id"] = "sha256:" + "f" * 64
+    with pytest.raises(BusinessUnderstandingValidationError, match="identity"):
+        BusinessUnderstandingService._validate_successor_measurement_impact_lineage(
+            current=current, baseline=baseline, later=later
+        )
+
+
+def test_legacy_measurement_without_successor_claim_retains_existing_impact_rules() -> None:
+    current, baseline, later = _fixture()
+    later.intended_measurement_reference = None
+    BusinessUnderstandingService._validate_measurement_comparability(
+        current=current, baseline=baseline, later=later
+    )
+    BusinessUnderstandingService._validate_successor_measurement_impact_lineage(
+        current=current, baseline=baseline, later=later
+    )
+
+
+def test_successor_resolver_rejects_backdated_measurement_period() -> None:
+    service = BusinessUnderstandingService(MagicMock())
+    mission_id = uuid4()
+    current, baseline, later = _fixture()
+    reference = later.intended_measurement_reference
+    snap = {
+        "snapshot_id": reference["semantic_snapshot_id"],
+        "content_sha256": reference["semantic_snapshot_sha256"],
+        "business_need_reference": {
+            "need_id": current.need_id, "revision": 2,
+        },
+        "business_need_assessment_reference": {
+            "assessment_id": "assessment-a",
+            "assessment_fingerprint": reference["strategy_lineage"]["assessment_fingerprint"],
+            "response_advancement": {
+                "selected_candidate_response_key": "inspect_funnel",
+                "baseline_measurement": {
+                    "measurement_id": str(baseline.id),
+                    "source_content_fingerprint": baseline.source_content_fingerprint,
+                },
+                "intended_measurement": {
+                    **reference["measurement_contract"],
+                    "baseline_measurement_id": str(baseline.id),
+                },
+            },
+        },
+    }
+    mission = SimpleNamespace(
+        id=mission_id,
+        metadata_json={
+            "mission_intake": {
+                "context": {"composition": {
+                    "reviewed_proposal_id": "proposal-a",
+                    "semantic_snapshot": snap,
+                }}
+            }
+        },
+    )
+    with patch("backend.services.business_understanding.service.MissionRepository") as missions:
+        missions.return_value.get_reference_for_tenant.return_value = mission
+        subject = current.subject_references
+        with pytest.raises(BusinessUnderstandingValidationError, match="period must follow"):
+            service._resolve_intended_measurement_reference(
+                tenant_id="tenant-a", successor_mission_id=mission_id,
+                subject_references=subject, objective_key="improve_service_quality",
+                metric="defect_rate", observed_at=datetime(2026, 2, 16, tzinfo=UTC),
+                measurement_period_start=datetime(2026, 1, 25, tzinfo=UTC),
+            )
+        resolved = service._resolve_intended_measurement_reference(
+            tenant_id="tenant-a", successor_mission_id=mission_id,
+            subject_references=subject, objective_key="improve_service_quality",
+            metric="defect_rate", observed_at=datetime(2026, 2, 16, tzinfo=UTC),
+            measurement_period_start=datetime(2026, 2, 1, tzinfo=UTC),
+        )
+        assert resolved is not None
+        assert resolved["measurement_contract"]["baseline_measurement_id"] == str(baseline.id)
