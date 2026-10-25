@@ -6,7 +6,7 @@ from alembic.script import ScriptDirectory
 
 def test_billing_meter_dispatch_migration_is_current_head_and_durable() -> None:
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_heads() == ["0060_reaffirm_need_rls"]
+    assert script.get_heads() == ["0061_measurement_contract_ref"]
 
     migration = Path("alembic/versions/0051_billing_meter_dispatches.py").read_text(encoding="utf-8")
     assert 'down_revision = "0050_runtime_queue_dispatches"' in migration
