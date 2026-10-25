@@ -108,9 +108,10 @@ objective, metric, intended timing), and its own source provenance. It rejects
 missing, foreign-tenant, malformed, contradictory, mismatched, or too-early
 claims. Multiple later measurements may claim the same contract; none modifies
 the baseline. A successor-linked measurement period, when supplied, must
-begin strictly after the frozen contract's `not_before` boundary; merely
-submitting a later `observed_at` timestamp cannot relabel historical
-measurements as a future period.
+begin strictly after the frozen contract's `not_before` boundary.
+A supplied period end must also be strictly later than that boundary,
+including when the period start is omitted. Merely submitting a later
+`observed_at` timestamp cannot relabel historical measurements as a future period.
 
 The existing canonical impact recorder independently checks any present
 successor reference against the selected baseline measurement ID and source
