@@ -2,6 +2,7 @@ from backend.services.mission_composition.artifact_schemas import (
     ARTIFACT_SCHEMAS_BY_KEY,
     CRM_RECORDS_SCHEMA,
     ENRICHED_PROSPECTS_SCHEMA,
+    FOLLOW_UP_TASKS_SCHEMA,
     INTERNAL_CRM_RECORDS_SCHEMA,
     INTRODUCTION_DRAFTS_SCHEMA,
     OBSERVED_CONTACTS_SCHEMA,
@@ -120,7 +121,26 @@ def test_artifact_schema_catalog_matches_job_outputs() -> None:
         "internal_crm_records",
         "crm_records",
         "pipeline_records",
+        "follow_up_tasks",
     )
+
+
+def test_follow_up_tasks_schema_preserves_typed_internal_crm_readback_contract() -> None:
+    schema = FOLLOW_UP_TASKS_SCHEMA
+
+    assert schema.artifact_key == "follow_up_tasks"
+    assert schema.producer_job == "crm.create_internal_followup_tasks"
+    assert [field.deliverable_field for field in schema.fields] == [
+        "crm_record_id",
+        "pipeline_status",
+        "readback_verified",
+    ]
+    assert [field.json_path for field in schema.fields] == [
+        "$[].id",
+        "$[].status",
+        "$[].readback_verified",
+    ]
+    assert schema.grants_execution_authority is False
 
 
 def test_revops_stage_schemas_cover_internal_lane_outputs() -> None:

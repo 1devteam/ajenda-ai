@@ -47,6 +47,7 @@ PROOF_OPERATING_CHARTER: dict[str, Any] = {
         "research.verify_public_identity",
         "research.synthesize_report",
         "knowledge.retrieve_current",
+        "knowledge.inform_decision",
         "decision.recommend_next_action",
         "web.browser_session",
         "http.request",

@@ -11,8 +11,9 @@ from backend.api.routes.operations import router
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.principal import Principal, PrincipalType
-from backend.domain.enums import ExecutionTaskState
+from backend.domain.enums import ExecutionTaskState, MissionState
 from backend.domain.execution_task import ExecutionTask
+from backend.domain.mission import Mission
 from backend.queue.base import QueueOperationResult
 from backend.services.operations_service import OperationsService
 
@@ -106,12 +107,40 @@ def test_rg_dead_letter_retry_route_passes_request_tenant_and_task_to_service(mo
 
 
 class _SessionStub:
-    def __init__(self, task: ExecutionTask | None) -> None:
-        self._task = task
-        self.flush_count = 0
+    """Minimal tenant-aware unit-of-work double for dead-letter recovery.
 
-    def get(self, _model, _task_id):
-        return self._task
+    Retry reopens the failed parent mission through the repository's
+    tenant-scoped ``SELECT ... FOR UPDATE`` path before it creates a durable
+    after-commit dispatch.  Model that interaction rather than bypassing it
+    with a production fallback.
+    """
+
+    def __init__(self, task: ExecutionTask | None, mission: Mission | None = None) -> None:
+        self._task = task
+        self._mission = mission
+        self.flush_count = 0
+        self.info: dict[str, object] = {}
+        self.scalar_statements: list[object] = []
+        self.added: list[object] = []
+
+    def get(self, model, record_id):
+        if model is ExecutionTask and self._task is not None and record_id == self._task.id:
+            return self._task
+        if model is Mission and self._mission is not None and record_id == self._mission.id:
+            return self._mission
+        return None
+
+    def scalar(self, statement):
+        self.scalar_statements.append(statement)
+        entity = statement.column_descriptions[0].get("entity")
+        if entity is ExecutionTask:
+            return self._task
+        if entity is Mission and self._mission is not None and self._task is not None:
+            return self._mission if self._mission.tenant_id == self._task.tenant_id else None
+        return None
+
+    def add(self, record) -> None:
+        self.added.append(record)
 
     def flush(self) -> None:
         self.flush_count += 1
@@ -181,16 +210,33 @@ def test_retry_dead_letter_contract_requeues_db_only_dead_lettered_task() -> Non
         status=ExecutionTaskState.DEAD_LETTERED.value,
         metadata_json={},
     )
+    mission = Mission(
+        id=task.mission_id,
+        tenant_id=tenant_id,
+        objective="Retry the failed task through governed runtime admission.",
+        status=MissionState.FAILED.value,
+        metadata_json={"acceptance": {"status": "not_met"}},
+    )
     queue = _QueueStub()
-    service = OperationsService(_SessionStub(task), queue)
+    service = OperationsService(_SessionStub(task, mission), queue)
     service._audit = MagicMock()
 
     result = service.retry_dead_letter(tenant_id=tenant_id, task_id=task.id)
 
     assert result == {"task_id": str(task.id), "status": ExecutionTaskState.QUEUED.value}
-    assert queue.enqueued is True
-    assert session_flush_count(service) == 2
-    service._audit.append.assert_called_once()
+    # Queue publication remains an after-commit responsibility of the durable
+    # dispatch record; retry must not enqueue directly from this transaction.
+    assert queue.enqueued is False
+    assert service._session.info["runtime_queue_dispatches_after_commit"]
+    assert mission.status == MissionState.RUNNING.value
+    assert mission.metadata_json["runtime_recovery"]["reason"] == "governed_task_retry"
+    assert mission.metadata_json["acceptance_history"][-1]["acceptance"] == {"status": "not_met"}
+    assert any("FOR UPDATE" in str(statement) for statement in service._session.scalar_statements)
+    assert session_flush_count(service) == 3
+    assert [call.args[0].action for call in service._audit.append.call_args_list] == [
+        "mission_reopened_for_retry",
+        "retry_dead_letter",
+    ]
 
 
 def session_flush_count(service: OperationsService) -> int:
