@@ -39,6 +39,7 @@ def _fixture():
         values=list(baseline.values),
         observed_at=datetime(2026, 2, 16, tzinfo=UTC),
         period_start=datetime(2026, 2, 1, tzinfo=UTC),
+        period_end=datetime(2026, 2, 15, tzinfo=UTC),
         intended_measurement_reference=None,
     )
     current = SimpleNamespace(
@@ -117,6 +118,7 @@ def test_valid_successor_reference_does_not_replace_outcome_evidence() -> None:
         ("wrong_metric", "response_time"),
         ("wrong_objective", "unrelated_goal"),
         ("old_period_start", datetime(2026, 1, 25, tzinfo=UTC)),
+        ("old_period_end_without_start", datetime(2026, 1, 25, tzinfo=UTC)),
         ("invalid_authority", True),
         ("malformed_subjects", [{"object_type": "alien", "object_id": "unknown"}]),
     ],
@@ -140,6 +142,9 @@ def test_contradictory_successor_reference_rejected_before_outcome_access(field:
         contract["objective_key"] = value
     elif field == "old_period_start":
         later.period_start = value
+    elif field == "old_period_end_without_start":
+        later.period_start = None
+        later.period_end = value
     elif field == "invalid_authority":
         reference["grants_execution_authority"] = value
     elif field == "malformed_subjects":
@@ -237,6 +242,16 @@ def test_successor_resolver_rejects_backdated_measurement_period() -> None:
                 metric="defect_rate",
                 observed_at=datetime(2026, 2, 16, tzinfo=UTC),
                 measurement_period_start=datetime(2026, 1, 25, tzinfo=UTC),
+            )
+        with pytest.raises(BusinessUnderstandingValidationError, match="period must follow"):
+            service._resolve_intended_measurement_reference(
+                tenant_id="tenant-a",
+                successor_mission_id=mission_id,
+                subject_references=subject,
+                objective_key="improve_service_quality",
+                metric="defect_rate",
+                observed_at=datetime(2026, 2, 16, tzinfo=UTC),
+                measurement_period_end=datetime(2026, 1, 25, tzinfo=UTC),
             )
         resolved = service._resolve_intended_measurement_reference(
             tenant_id="tenant-a",
