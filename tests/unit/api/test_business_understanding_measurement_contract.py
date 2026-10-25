@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -122,3 +124,94 @@ def test_direct_service_rejects_unowned_verified_provenance_and_kpi_mismatch() -
     wrong_kpi = _kpi().model_copy(update={"goal_id": "different-goal"})
     with pytest.raises(BusinessUnderstandingValidationError, match="belong to the supplied goal"):
         service.ingest_measurement(**{**common, "kpis": [wrong_kpi]}, source_kind="customer_attested")
+
+
+def test_measurement_contract_resolves_only_an_exact_immutable_successor_reference() -> None:
+    mission_id = "718eef59-f03e-4b1d-b907-4a35b49c0d3b"
+    subject = {"schema_version": 1, "object_type": "organization", "object_id": "tenant-business"}
+    snapshot = {
+        "snapshot_id": "semantic:tenant-a:proposal-a",
+        "content_sha256": "sha256:" + "a" * 64,
+        "business_need_reference": {"need_id": "need-a", "revision": 2},
+        "business_need_assessment_reference": {
+            "assessment_id": "assessment-a",
+            "assessment_fingerprint": "sha256:" + "b" * 64,
+            "response_advancement": {
+                "selected_candidate_response_key": "inspect_funnel",
+                "baseline_measurement": {
+                    "measurement_id": "baseline-a",
+                    "source_content_fingerprint": "sha256:" + "c" * 64,
+                },
+                "intended_measurement": {
+                    "baseline_measurement_id": "baseline-a",
+                    "subject_references": [subject],
+                    "objective_key": "improve_service_quality",
+                    "metric": "defect_rate",
+                    "not_before": "2026-01-31T00:00:00+00:00",
+                },
+            },
+        },
+    }
+    mission = SimpleNamespace(
+        id=mission_id,
+        metadata_json={
+            "mission_intake": {
+                "context": {
+                    "composition": {
+                        "proposal_id": "proposal-a",
+                        "reviewed_proposal_id": "proposal-a",
+                        "semantic_snapshot": snapshot,
+                    }
+                }
+            }
+        },
+    )
+    service = BusinessUnderstandingService(MagicMock())
+    with patch("backend.services.business_understanding.service.MissionRepository") as missions:
+        missions.return_value.get_reference_for_tenant.return_value = mission
+        reference = service._resolve_intended_measurement_reference(
+            tenant_id="tenant-a",
+            successor_mission_id=uuid.UUID(mission_id),
+            subject_references=[subject],
+            objective_key="improve_service_quality",
+            metric="defect_rate",
+            observed_at=datetime(2026, 2, 1, tzinfo=UTC),
+        )
+        assert reference is not None
+        assert reference["strategy_lineage"]["need_revision"] == 2
+        assert reference["measurement_contract"]["baseline_measurement_id"] == "baseline-a"
+        assert reference["grants_execution_authority"] is False
+
+        with pytest.raises(BusinessUnderstandingValidationError, match="objective"):
+            service._resolve_intended_measurement_reference(
+                tenant_id="tenant-a",
+                successor_mission_id=uuid.UUID(mission_id),
+                subject_references=[subject],
+                objective_key="other",
+                metric="defect_rate",
+                observed_at=datetime(2026, 2, 1, tzinfo=UTC),
+            )
+        with pytest.raises(BusinessUnderstandingValidationError, match="follow"):
+            service._resolve_intended_measurement_reference(
+                tenant_id="tenant-a",
+                successor_mission_id=uuid.UUID(mission_id),
+                subject_references=[subject],
+                objective_key="improve_service_quality",
+                metric="defect_rate",
+                observed_at=datetime(2026, 1, 31, tzinfo=UTC),
+            )
+
+
+def test_measurement_contract_fails_closed_when_the_successor_is_not_tenant_owned() -> None:
+    service = BusinessUnderstandingService(MagicMock())
+    with patch("backend.services.business_understanding.service.MissionRepository") as missions:
+        missions.return_value.get_reference_for_tenant.return_value = None
+        with pytest.raises(BusinessUnderstandingValidationError, match="not found for tenant"):
+            service._resolve_intended_measurement_reference(
+                tenant_id="tenant-b",
+                successor_mission_id=uuid.UUID("718eef59-f03e-4b1d-b907-4a35b49c0d3b"),
+                subject_references=[],
+                objective_key="objective",
+                metric="metric",
+                observed_at=datetime(2026, 2, 1, tzinfo=UTC),
+            )

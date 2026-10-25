@@ -138,6 +138,7 @@ class BusinessUnderstandingService:
         measurement_period_start: datetime | None,
         measurement_period_end: datetime | None,
         observed_at: datetime,
+        successor_mission_id: uuid.UUID | None = None,
         limitations: list[dict[str, Any]],
         confidence: float | None,
         producer: str,
@@ -156,6 +157,15 @@ class BusinessUnderstandingService:
         supplied_subjects = canonical_subject_keys(subject_references)
         if expected_subjects != supplied_subjects:
             raise BusinessUnderstandingValidationError("measurement subjects must match goal subjects")
+        metric = ", ".join(sorted(kpi.metric for kpi in kpis))
+        intended_measurement_reference = self._resolve_intended_measurement_reference(
+            tenant_id=tenant_id,
+            successor_mission_id=successor_mission_id,
+            subject_references=subject_references,
+            objective_key=goal.objective_key or goal.goal_id,
+            metric=metric,
+            observed_at=observed_at,
+        )
         payload = {
             "goal_id": goal.goal_id,
             "objective_key": goal.objective_key,
@@ -167,6 +177,9 @@ class BusinessUnderstandingService:
             "period_end": measurement_period_end.isoformat() if measurement_period_end else None,
             "observed_at": observed_at.isoformat(),
             "kpis": [k.model_dump(mode="json") for k in sorted(kpis, key=lambda item: item.kpi_id)],
+            "intended_measurement_contract_id": (
+                intended_measurement_reference.get("contract_id") if intended_measurement_reference else None
+            ),
         }
         if source_kind == "source_verified":
             raise BusinessUnderstandingValidationError(
@@ -181,7 +194,7 @@ class BusinessUnderstandingService:
                 tenant_id=tenant_id,
                 subject_references=subject_references,
                 objective_key=goal.objective_key or goal.goal_id,
-                metric=", ".join(sorted(k.metric for k in kpis)),
+                metric=metric,
                 values=[k.model_dump(mode="json") for k in kpis],
                 value=None,
                 unit="",
@@ -193,6 +206,7 @@ class BusinessUnderstandingService:
                 source_reference=source_reference,
                 source_version=source_version,
                 source_content_fingerprint=fingerprint,
+                intended_measurement_reference=intended_measurement_reference,
                 limitations=[*limitations, {"code": f"provenance:{source_kind}"}],
                 confidence=confidence,
             )
@@ -216,6 +230,128 @@ class BusinessUnderstandingService:
             producer=producer,
         )
         return measurement, need
+
+    def _resolve_intended_measurement_reference(
+        self,
+        *,
+        tenant_id: str,
+        successor_mission_id: uuid.UUID | None,
+        subject_references: list[dict[str, Any]],
+        objective_key: str,
+        metric: str,
+        observed_at: datetime,
+    ) -> dict[str, Any] | None:
+        """Resolve a frozen successor contract for an independently ingested measurement.
+
+        The mission snapshot is only a reference contract.  This method does
+        not infer an observation from mission completion, assess comparability,
+        mutate a need, or create outcome/learning evidence.
+        """
+
+        if successor_mission_id is None:
+            return None
+        mission = MissionRepository(self._session).get_reference_for_tenant(
+            mission_id=successor_mission_id,
+            tenant_id=tenant_id,
+        )
+        if mission is None:
+            raise BusinessUnderstandingValidationError("successor mission was not found for tenant")
+        metadata = mission.metadata_json if isinstance(mission.metadata_json, dict) else {}
+        intake = metadata.get("mission_intake")
+        context = intake.get("context") if isinstance(intake, dict) else None
+        composition = context.get("composition") if isinstance(context, dict) else None
+        if not isinstance(composition, dict):
+            raise BusinessUnderstandingValidationError("successor mission has no immutable semantic snapshot")
+        snapshot = composition.get("semantic_snapshot")
+        if not isinstance(snapshot, dict):
+            raise BusinessUnderstandingValidationError("successor mission has no immutable semantic snapshot")
+        assessment = snapshot.get("business_need_assessment_reference")
+        need = snapshot.get("business_need_reference")
+        if not isinstance(assessment, dict) or not isinstance(need, dict):
+            raise BusinessUnderstandingValidationError("successor mission has no business need measurement contract")
+        advancement = assessment.get("response_advancement")
+        if not isinstance(advancement, dict):
+            raise BusinessUnderstandingValidationError(
+                "successor mission has no selected response measurement contract"
+            )
+        intended = advancement.get("intended_measurement")
+        baseline = advancement.get("baseline_measurement")
+        if not isinstance(intended, dict) or not isinstance(baseline, dict):
+            raise BusinessUnderstandingValidationError("successor measurement contract is invalid")
+        expected_subjects = intended.get("subject_references")
+        expected_objective = intended.get("objective_key")
+        expected_metric = intended.get("metric")
+        not_before_raw = intended.get("not_before")
+        try:
+            not_before = datetime.fromisoformat(str(not_before_raw).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise BusinessUnderstandingValidationError("successor measurement contract has invalid chronology") from exc
+        if (
+            not isinstance(expected_subjects, list)
+            or not isinstance(expected_objective, str)
+            or not expected_objective
+            or not isinstance(expected_metric, str)
+            or not expected_metric
+            or (not_before.tzinfo is None)
+            or (not_before.utcoffset() is None)
+        ):
+            raise BusinessUnderstandingValidationError("successor measurement contract is invalid")
+        if canonical_subject_keys(expected_subjects) != canonical_subject_keys(subject_references):
+            raise BusinessUnderstandingValidationError(
+                "measurement subjects do not match successor measurement contract"
+            )
+        if expected_objective != objective_key:
+            raise BusinessUnderstandingValidationError(
+                "measurement objective does not match successor measurement contract"
+            )
+        if expected_metric != metric:
+            raise BusinessUnderstandingValidationError(
+                "measurement metric does not match successor measurement contract"
+            )
+        if observed_at <= not_before:
+            raise BusinessUnderstandingValidationError("measurement must follow the successor measurement baseline")
+        required_strings = {
+            "need_id": need.get("need_id"),
+            "assessment_id": assessment.get("assessment_id"),
+            "assessment_fingerprint": assessment.get("assessment_fingerprint"),
+            "selected_candidate_response_key": advancement.get("selected_candidate_response_key"),
+            "baseline_measurement_id": intended.get("baseline_measurement_id"),
+            "baseline_source_content_fingerprint": baseline.get("source_content_fingerprint"),
+            "semantic_snapshot_id": snapshot.get("snapshot_id"),
+            "semantic_snapshot_sha256": snapshot.get("content_sha256"),
+        }
+        if any(not isinstance(value, str) or not value for value in required_strings.values()):
+            raise BusinessUnderstandingValidationError("successor measurement contract is invalid")
+        revision = need.get("revision")
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+            raise BusinessUnderstandingValidationError("successor measurement contract has invalid need revision")
+        if baseline.get("measurement_id") != intended.get("baseline_measurement_id"):
+            raise BusinessUnderstandingValidationError("successor measurement contract baseline is contradictory")
+        reference = {
+            "schema_version": 1,
+            "successor_mission_id": str(mission.id),
+            "successor_proposal_id": composition.get("reviewed_proposal_id") or composition.get("proposal_id"),
+            "semantic_snapshot_id": required_strings["semantic_snapshot_id"],
+            "semantic_snapshot_sha256": required_strings["semantic_snapshot_sha256"],
+            "strategy_lineage": {
+                "need_id": required_strings["need_id"],
+                "need_revision": revision,
+                "assessment_id": required_strings["assessment_id"],
+                "assessment_fingerprint": required_strings["assessment_fingerprint"],
+                "selected_candidate_response_key": required_strings["selected_candidate_response_key"],
+            },
+            "measurement_contract": {
+                "baseline_measurement_id": required_strings["baseline_measurement_id"],
+                "baseline_source_content_fingerprint": required_strings["baseline_source_content_fingerprint"],
+                "subject_references": list(expected_subjects),
+                "objective_key": expected_objective,
+                "metric": expected_metric,
+                "not_before": not_before.isoformat(),
+            },
+            "grants_execution_authority": False,
+        }
+        reference["contract_id"] = self.source_fingerprint(reference)
+        return reference
 
     def recognize_goal_gap(
         self,

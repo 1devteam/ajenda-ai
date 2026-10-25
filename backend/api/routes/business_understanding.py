@@ -100,6 +100,7 @@ class MeasurementCreate(BaseModel):
     measurement_period_start: datetime | None = None
     measurement_period_end: datetime | None = None
     observed_at: datetime
+    successor_mission_id: UUID | None = None
     limitations: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
     confidence: float | None = Field(default=None, ge=0, le=1)
 
@@ -250,6 +251,7 @@ class MeasurementRead(BaseModel):
     source_kind: str
     source_version: str
     source_content_fingerprint: str
+    intended_measurement_reference: dict[str, Any] | None
     recognized_need_id: str | None = None
 
 
@@ -415,6 +417,7 @@ def ingest_measurement(
             measurement_period_start=body.measurement_period_start,
             measurement_period_end=body.measurement_period_end,
             observed_at=body.observed_at,
+            successor_mission_id=body.successor_mission_id,
             limitations=body.limitations,
             confidence=body.confidence,
             producer=_actor_id(request),
@@ -425,6 +428,11 @@ def ingest_measurement(
             source_kind=measurement.source_kind,
             source_version=measurement.source_version,
             source_content_fingerprint=measurement.source_content_fingerprint,
+            intended_measurement_reference=(
+                dict(measurement.intended_measurement_reference)
+                if measurement.intended_measurement_reference is not None
+                else None
+            ),
             recognized_need_id=need.need_id if need is not None else None,
         )
     except Exception as exc:

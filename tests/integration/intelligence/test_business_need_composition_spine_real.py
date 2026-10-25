@@ -25,8 +25,11 @@ from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
+from backend.services.business_understanding.service import BusinessUnderstandingService
 from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.mission_composition.service import MissionCompositionService
+from backend.services.ontology.commercial_state import Goal, Kpi
+from backend.services.ontology.types import BusinessObjectRef, BusinessObjectType
 from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
@@ -372,5 +375,61 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
         assert queue_fact is not None
         assert "response_advancement" in queue_fact.facts["semantic_lineage"]
         assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
+
+        subject = {"schema_version": 1, "object_type": "opportunity", "object_id": "opp-42"}
+        goal = Goal(
+            goal_id="goal-increase-conversion",
+            objective_key="increase_conversion",
+            name="Increase conversion",
+            subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="opp-42")],
+        )
+
+        def ingest_later(*, version: str, observed_at: datetime) -> BusinessMeasurement:
+            measurement, _ = BusinessUnderstandingService(verify).ingest_measurement(
+                tenant_id=tenant_id,
+                goal=goal,
+                kpis=[
+                    Kpi(
+                        kpi_id="conversion",
+                        goal_id=goal.goal_id,
+                        name="Conversion",
+                        metric="conversion",
+                        direction="increase",
+                        current_value=0.6,
+                        target_value=0.75,
+                        previous_value=0.5,
+                        unit="ratio",
+                    )
+                ],
+                subject_references=[subject],
+                source_kind="customer_attested",
+                source_reference={"source_id": f"test-fixture:later-conversion:{version}"},
+                source_version=version,
+                measurement_period_start=datetime(2026, 10, 1, tzinfo=UTC),
+                measurement_period_end=datetime(2026, 10, 31, tzinfo=UTC),
+                observed_at=observed_at,
+                successor_mission_id=mission_id,
+                limitations=[{"code": "customer_attested"}],
+                confidence=None,
+                producer="test.measurement_intake",
+            )
+            return measurement
+
+        later_one = ingest_later(version="later-1", observed_at=datetime(2026, 11, 1, tzinfo=UTC))
+        later_two = ingest_later(version="later-2", observed_at=datetime(2026, 12, 1, tzinfo=UTC))
+        verify.commit()
+        assert later_one.id != later_two.id
+        assert later_one.intended_measurement_reference is not None
+        assert later_two.intended_measurement_reference == later_one.intended_measurement_reference
+        reference = later_one.intended_measurement_reference
+        assert reference["successor_mission_id"] == str(mission_id)
+        assert reference["strategy_lineage"]["need_id"] == need_id
+        assert reference["measurement_contract"]["baseline_measurement_id"] == str(baseline.id)
+        assert reference["measurement_contract"]["metric"] == "conversion"
+        assert reference["grants_execution_authority"] is False
+        statuses = verify.scalars(
+            select(BusinessNeedRevision.status).where(BusinessNeedRevision.tenant_id == tenant_id)
+        ).all()
+        assert "impact_monitored" not in statuses
     finally:
         verify.close()

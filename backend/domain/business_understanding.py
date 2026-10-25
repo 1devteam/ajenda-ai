@@ -104,6 +104,10 @@ class BusinessMeasurement(Base):
     source_reference: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     source_version: Mapped[str] = mapped_column(String(160), nullable=False)
     source_content_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    # A later observation may claim a reviewed successor's immutable intended
+    # measurement contract. This is source-owned measurement provenance, not
+    # an outcome, comparability decision, or execution authority.
+    intended_measurement_reference: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     limitations: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     confidence: Mapped[float | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)

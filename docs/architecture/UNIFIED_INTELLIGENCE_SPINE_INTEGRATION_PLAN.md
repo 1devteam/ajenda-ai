@@ -98,11 +98,23 @@ semantic routing and planned work; the candidate is not passed into action
 selection or execution authority. Runtime evidence retains a digest of the
 same provenance package for readback.
 
-The remaining boundary is deliberately downstream: only a later measurement,
-canonical outcome evidence, and the existing measurement-comparability owner
-may invoke `record_canonical_measurement_impact()`. Neither composition nor a
-recommendation may manufacture that later measurement, assert impact, or
-promote learning. This preserves the open path to the existing outcome and
+The measurement-reference continuity boundary is now connected. A later
+measurement is independently submitted through
+`BusinessUnderstandingService.ingest_measurement()` with a successor mission
+ID. The measurement owner resolves the immutable mission snapshot server-side
+and persists a separate claim containing the strategy lineage (need,
+assessment, candidate, successor), measurement lineage (baseline, subject,
+objective, metric, intended timing), and its own source provenance. It rejects
+missing, foreign-tenant, malformed, contradictory, mismatched, or too-early
+claims. Multiple later measurements may claim the same contract; none modifies
+the baseline.
+
+This continuity claim is not a comparability decision. Only a later
+measurement, canonical outcome evidence, and the existing
+measurement/impact owner may invoke `record_canonical_measurement_impact()`.
+Neither composition, a recommendation, nor measurement ingestion may
+manufacture an outcome, assert impact, advance a need to `impact_monitored`,
+or promote learning. This preserves the open path to the existing outcome and
 learning owners without implementing it prematurely.
 
 ### Integration constraints proved by the current owners
@@ -239,6 +251,12 @@ does not waive any other quality, charter, quota, or runtime-admission check.
   proves the separate canonical outcome → decision episode → qualification →
   later applicable knowledge-decision chain. Its measurements are explicitly
   customer-attested fixtures, never asserted as independently verified facts.
+- `tests/integration/intelligence/test_business_need_composition_spine_real.py`
+  now also proves two independently ingested, source-attested later
+  measurements resolve and persist the same frozen successor measurement
+  contract after composition, confirmation, launch, and runtime readback. The
+  proof asserts no `impact_monitored` revision, outcome evaluation, or learning
+  materialization is created by that Layer 1 continuity path.
 - The full non-integration suite requires a separately captured result before
   release handoff; a detached local run must not be reported as a pass.
 - Broad business-readiness and learning-reuse mission composition now has a
