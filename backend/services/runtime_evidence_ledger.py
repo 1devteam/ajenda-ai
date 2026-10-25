@@ -145,6 +145,18 @@ def semantic_lineage_from_mission_metadata(metadata: Mapping[str, Any]) -> dict[
         "constraints": intake.get("constraints"),
         "success_criteria": intake.get("success_criteria"),
     }
+    semantic_snapshot = composition.get("semantic_snapshot")
+    semantic_snapshot = semantic_snapshot if isinstance(semantic_snapshot, dict) else {}
+    assessment_reference = semantic_snapshot.get("business_need_assessment_reference")
+    assessment_reference = assessment_reference if isinstance(assessment_reference, dict) else {}
+    response_advancement = assessment_reference.get("response_advancement")
+    if isinstance(response_advancement, dict):
+        # Keep the direct, tenant-owned identifiers in mission metadata.  The
+        # runtime ledger receives only a digest of this non-authoritative
+        # provenance package, so a later evidence reader can establish that
+        # the queued task retained the same assessment/candidate/baseline
+        # lineage without turning it into a measurement or impact claim.
+        values["response_advancement"] = response_advancement
     return {
         name: "sha256:" + hashlib.sha256(_canonical_json({name: value})).hexdigest()
         for name, value in values.items()

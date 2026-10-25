@@ -47,6 +47,10 @@ class ComposeMissionRequest(BaseModel):
     # a candidate from the referenced tenant assessment; it cannot select a
     # job or grant runtime authority by itself.
     business_need_response_key: str | None = Field(default=None, min_length=1, max_length=160)
+    # Response advancement preserves the source-owned baseline that a later
+    # outcome owner may compare.  It is not a later measurement or an impact
+    # assertion, and it cannot authorize work.
+    business_need_baseline_measurement_id: _uuid.UUID | None = None
 
     def need_reference(self) -> dict[str, Any] | None:
         if bool(self.business_need_id) != bool(self.business_need_revision):
@@ -59,12 +63,21 @@ class ComposeMissionRequest(BaseModel):
 
     def assessment_reference(self) -> dict[str, Any] | None:
         if self.business_need_assessment_id is None:
-            if self.business_need_response_key is not None:
-                raise ValueError("business_need_response_key requires a business need assessment reference")
+            if self.business_need_response_key is not None or self.business_need_baseline_measurement_id is not None:
+                raise ValueError(
+                    "business_need_response_key and business_need_baseline_measurement_id "
+                    "require a business need assessment reference"
+                )
             return None
         reference = {"assessment_id": str(self.business_need_assessment_id)}
         if self.business_need_response_key is not None:
+            if self.business_need_baseline_measurement_id is None:
+                raise ValueError("business_need_response_key requires a baseline measurement reference")
             reference["selected_candidate_response_key"] = self.business_need_response_key
+        elif self.business_need_baseline_measurement_id is not None:
+            raise ValueError("business_need_baseline_measurement_id requires a selected business need response")
+        if self.business_need_baseline_measurement_id is not None:
+            reference["baseline_measurement_id"] = str(self.business_need_baseline_measurement_id)
         return reference
 
 
@@ -202,7 +215,12 @@ def _to_compose_response(record: MissionCompositionRecord) -> ComposeMissionResp
 
 def _map_error(exc: MissionCompositionError) -> HTTPException:
     status = 400
-    if exc.code in {"PROPOSAL_NOT_FOUND", "BUSINESS_NEED_NOT_FOUND", "BUSINESS_NEED_ASSESSMENT_NOT_FOUND"}:
+    if exc.code in {
+        "PROPOSAL_NOT_FOUND",
+        "BUSINESS_NEED_NOT_FOUND",
+        "BUSINESS_NEED_ASSESSMENT_NOT_FOUND",
+        "BUSINESS_NEED_MEASUREMENT_NOT_FOUND",
+    }:
         status = 404
     elif exc.code in {"SEMANTIC_REVISION_REQUIRED"}:
         status = 409

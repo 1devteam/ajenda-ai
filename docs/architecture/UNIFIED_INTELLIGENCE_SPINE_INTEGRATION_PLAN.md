@@ -89,15 +89,21 @@ assessment-backed recommendation
 `knowledge.inform_decision` and `decision.recommend_next_action` own a
 recommendation; they do not own mission selection, composition confirmation,
 or execution. `MissionCompositionService` already owns the latter records.
-The composition ingress now accepts an optional candidate-response key only
-with the referenced assessment and validates that it occurs in that immutable,
-tenant-owned assessment. The selection is snapshotted as strategy provenance;
-it does not select a job, bypass review, or authorize execution. What remains
-is the producer that turns a later, deliberately selected response into a
-successor composition while retaining the baseline and later-measurement
-references needed by `record_canonical_measurement_impact()`. That is an
-integration boundary to build using these existing owners—not a reason to
-create a decision executor, outcome service, or learning pipeline.
+The composition ingress now accepts an explicitly selected candidate only with
+its referenced assessment and a tenant-owned baseline measurement. It validates
+both source references, snapshots the candidate and a non-authoritative intent
+to remeasure the same subject/objective/metric, then revalidates that lineage
+at confirmation and compilation. The instruction remains the sole input to
+semantic routing and planned work; the candidate is not passed into action
+selection or execution authority. Runtime evidence retains a digest of the
+same provenance package for readback.
+
+The remaining boundary is deliberately downstream: only a later measurement,
+canonical outcome evidence, and the existing measurement-comparability owner
+may invoke `record_canonical_measurement_impact()`. Neither composition nor a
+recommendation may manufacture that later measurement, assert impact, or
+promote learning. This preserves the open path to the existing outcome and
+learning owners without implementing it prematurely.
 
 ### Integration constraints proved by the current owners
 

@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from backend.api.routes.mission_composition import ComposeMissionRequest
 from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
@@ -66,6 +67,17 @@ def _assessment_context() -> dict[str, object]:
         "objective_reference": {"objective_key": "customer_acquisition"},
         "evaluated_at": "2026-10-25T04:00:00+00:00",
     }
+
+
+def _baseline_measurement() -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid.UUID("3ef674e6-b7b7-4c7e-b48a-18361ec2f9cf"),
+        objective_key="customer_acquisition",
+        metric="qualified_conversion",
+        subject_references=[{"schema_version": 1, "object_type": "organization", "object_id": "customer-1"}],
+        observed_at=datetime(2026, 10, 25, 3, 0, tzinfo=UTC),
+        source_content_fingerprint="sha256:" + "b" * 64,
+    )
 
 
 def test_referenced_need_review_is_interpretable_only_with_validated_assessment_context() -> None:
@@ -299,6 +311,8 @@ def test_validated_assessment_reference_preserves_only_a_selected_candidate() ->
     with patch("backend.services.mission_composition.service.BusinessUnderstandingRepository") as repository_cls:
         repository_cls.return_value.get_need_revision_for_tenant.return_value = need
         repository_cls.return_value.get_assessment_for_tenant.return_value = assessment
+        baseline = _baseline_measurement()
+        repository_cls.return_value.get_measurement_for_tenant.return_value = baseline
         service = MissionCompositionService(db=MagicMock())
         need_reference = service._business_need_reference(
             db=service._db,
@@ -311,6 +325,7 @@ def test_validated_assessment_reference_preserves_only_a_selected_candidate() ->
             reference={
                 "assessment_id": str(assessment_id),
                 "selected_candidate_response_key": "improve_lead_qualification",
+                "baseline_measurement_id": str(baseline.id),
             },
             need_reference=need_reference,
         )
@@ -324,4 +339,70 @@ def test_validated_assessment_reference_preserves_only_a_selected_candidate() ->
 
     assert reference is not None
     assert reference["selected_candidate_response_key"] == "improve_lead_qualification"
+    assert reference["baseline_measurement_id"] == str(baseline.id)
+    advancement = reference["response_advancement"]
+    assert advancement["baseline_measurement"]["measurement_id"] == str(baseline.id)
+    assert advancement["intended_measurement"]["comparison_required"] is True
+    assert advancement["grants_execution_authority"] is False
+    assert "selected_candidate_response_key" not in reference["assessment_context"]
     assert reference["grants_execution_authority"] is False
+
+
+def test_selected_response_fails_closed_when_baseline_measurement_is_not_tenant_owned() -> None:
+    tenant_id = "11111111-1111-1111-1111-111111111111"
+    assessment_id = uuid.UUID("0a3cfa70-1df6-4de6-a042-5e7b344b10d8")
+    need = SimpleNamespace(
+        id=uuid.uuid4(),
+        need_id="need-customer-acquisition",
+        revision=3,
+        status="recognized",
+        condition_summary="Customer acquisition is below the approved target.",
+        subject_references=[],
+        objective_reference={"objective_key": "customer_acquisition"},
+    )
+    assessment = SimpleNamespace(
+        id=assessment_id,
+        need_id=need.need_id,
+        need_revision=need.revision,
+        assessment_fingerprint="sha256:" + "a" * 64,
+        assessment_json={**_assessment_context(), "tenant_id": tenant_id},
+    )
+    with patch("backend.services.mission_composition.service.BusinessUnderstandingRepository") as repository_cls:
+        repository_cls.return_value.get_need_revision_for_tenant.return_value = need
+        repository_cls.return_value.get_assessment_for_tenant.return_value = assessment
+        repository_cls.return_value.get_measurement_for_tenant.return_value = None
+        service = MissionCompositionService(db=MagicMock())
+        need_reference = service._business_need_reference(
+            db=service._db,
+            tenant_id=tenant_id,
+            reference={"need_id": need.need_id, "revision": need.revision},
+        )
+
+        with pytest.raises(MissionCompositionError, match="baseline measurement was not found for tenant"):
+            service._business_need_assessment_reference(
+                db=service._db,
+                tenant_id=tenant_id,
+                reference={
+                    "assessment_id": str(assessment_id),
+                    "selected_candidate_response_key": "improve_lead_qualification",
+                    "baseline_measurement_id": str(_baseline_measurement().id),
+                },
+                need_reference=need_reference,
+            )
+
+
+def test_response_advancement_requires_the_complete_reference_set() -> None:
+    assessment_id = uuid.UUID("0a3cfa70-1df6-4de6-a042-5e7b344b10d8")
+
+    with pytest.raises(ValueError, match="requires a baseline measurement"):
+        ComposeMissionRequest(
+            instruction="Prepare the successor mission.",
+            business_need_assessment_id=assessment_id,
+            business_need_response_key="improve_lead_qualification",
+        ).assessment_reference()
+    with pytest.raises(ValueError, match="requires a selected business need response"):
+        ComposeMissionRequest(
+            instruction="Prepare the successor mission.",
+            business_need_assessment_id=assessment_id,
+            business_need_baseline_measurement_id=_baseline_measurement().id,
+        ).assessment_reference()

@@ -787,6 +787,7 @@ export async function composeMission(
     business_need_revision?: number;
     business_need_assessment_id?: string;
     business_need_response_key?: string;
+    business_need_baseline_measurement_id?: string;
   },
 ): Promise<MissionComposeResponse> {
   return withAuthedRuntime(caller, (config) =>

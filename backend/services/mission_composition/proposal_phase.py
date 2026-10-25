@@ -103,7 +103,7 @@ class MissionCompositionProposalPhase:
             profile_context=profile_context,
             business_need_assessment_available=business_need_assessment_reference is not None,
         )
-        if business_need_assessment_reference is not None:
+        if business_need_assessment_reference is not None and "review_business_need" in intent.requested_outcomes:
             # An explicit, tenant-validated assessment makes the existing
             # decision-support path meaningful without altering the customer
             # instruction or treating the assessment as execution authority.

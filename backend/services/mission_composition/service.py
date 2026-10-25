@@ -430,6 +430,8 @@ class MissionCompositionService(
             "objective_reference": need_reference.get("objective_reference", {}),
         }
         selected_candidate_response_key = reference.get("selected_candidate_response_key")
+        baseline_measurement_id = reference.get("baseline_measurement_id")
+        response_advancement: dict[str, Any] | None = None
         if selected_candidate_response_key is not None:
             if not isinstance(selected_candidate_response_key, str) or not selected_candidate_response_key.strip():
                 raise MissionCompositionError(
@@ -446,6 +448,53 @@ class MissionCompositionService(
                     code="BUSINESS_NEED_ASSESSMENT_INVALID",
                     message="selected business need response is not a candidate from the referenced assessment",
                 )
+            try:
+                baseline_id = uuid.UUID(str(baseline_measurement_id))
+            except (TypeError, ValueError) as exc:
+                raise MissionCompositionError(
+                    code="BUSINESS_NEED_ASSESSMENT_INVALID",
+                    message="selected business need response requires a valid baseline measurement reference",
+                ) from exc
+            baseline = BusinessUnderstandingRepository(db).get_measurement_for_tenant(
+                tenant_id=tenant_id,
+                measurement_id=baseline_id,
+            )
+            if baseline is None:
+                raise MissionCompositionError(
+                    code="BUSINESS_NEED_MEASUREMENT_NOT_FOUND",
+                    message="baseline measurement was not found for tenant",
+                )
+            # This is intentionally a stable reference to the source-owned
+            # baseline, not a comparability decision.  The existing business
+            # understanding impact owner remains solely responsible for
+            # deciding whether a later measurement may be compared to it.
+            response_advancement = {
+                "schema_version": 1,
+                "selected_candidate_response_key": selected_candidate_response_key,
+                "baseline_measurement": {
+                    "measurement_id": str(baseline.id),
+                    "objective_key": baseline.objective_key,
+                    "metric": baseline.metric,
+                    "subject_references": list(baseline.subject_references),
+                    "observed_at": baseline.observed_at.isoformat(),
+                    "source_content_fingerprint": baseline.source_content_fingerprint,
+                },
+                "intended_measurement": {
+                    "owner": "business_understanding.measurement",
+                    "comparison_required": True,
+                    "baseline_measurement_id": str(baseline.id),
+                    "objective_key": baseline.objective_key,
+                    "metric": baseline.metric,
+                    "subject_references": list(baseline.subject_references),
+                    "not_before": baseline.observed_at.isoformat(),
+                },
+                "grants_execution_authority": False,
+            }
+        elif baseline_measurement_id is not None:
+            raise MissionCompositionError(
+                code="BUSINESS_NEED_ASSESSMENT_INVALID",
+                message="baseline measurement requires a selected business need response",
+            )
         context_digest = (
             "sha256:"
             + hashlib.sha256(
@@ -466,6 +515,14 @@ class MissionCompositionService(
             # assessment digest. This link is provenance only: catalog routing
             # still depends on the customer instruction and existing resolver.
             result["selected_candidate_response_key"] = selected_candidate_response_key
+            # Keep the source identifier at the reference boundary as well as
+            # in its explanatory projection. Confirmation and compilation
+            # revalidate this reference from persisted proposal metadata, so
+            # they must never need to trust or reconstruct a nested display
+            # projection to locate the tenant-owned baseline.
+            result["baseline_measurement_id"] = str(baseline_id)
+        if response_advancement is not None:
+            result["response_advancement"] = response_advancement
         return result
 
     def _mission_repository(self, db: Session) -> Any:

@@ -18,7 +18,8 @@ from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_ses
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.principal import Principal, PrincipalType
 from backend.db.tenant_session import activate_tenant_session
-from backend.domain.business_understanding import BusinessNeedAssessment, BusinessNeedRevision
+from backend.domain.audit_event import AuditEvent
+from backend.domain.business_understanding import BusinessMeasurement, BusinessNeedAssessment, BusinessNeedRevision
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
@@ -26,6 +27,7 @@ from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.mission_composition.service import MissionCompositionService
+from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
 from tests.integration.operating_charter_support import persist_test_operating_charter
@@ -56,7 +58,7 @@ def _build_app(*, tenant_id: uuid.UUID, session, queue_adapter) -> FastAPI:
     return app
 
 
-def _persist_assessed_need(*, session, tenant_id: str) -> tuple[str, BusinessNeedAssessment]:
+def _persist_assessed_need(*, session, tenant_id: str) -> tuple[str, BusinessNeedAssessment, BusinessMeasurement]:
     """Persist a bounded tenant need using the same source contracts as the service."""
 
     need_id = "need-conversion-gap"
@@ -115,7 +117,27 @@ def _persist_assessed_need(*, session, tenant_id: str) -> tuple[str, BusinessNee
     )
     session.add(assessment)
     session.flush()
-    return need_id, assessment
+    baseline = BusinessMeasurement(
+        tenant_id=tenant_id,
+        subject_references=[subject],
+        objective_key="increase_conversion",
+        metric="conversion",
+        values=[],
+        value=0.5,
+        unit="ratio",
+        period_start=datetime(2026, 9, 1, tzinfo=UTC),
+        period_end=datetime(2026, 9, 30, tzinfo=UTC),
+        observed_at=datetime(2026, 9, 30, 12, tzinfo=UTC),
+        source_kind="customer_attested",
+        source_reference={"source_id": "test-fixture:baseline-conversion"},
+        source_version="baseline-1",
+        source_content_fingerprint="sha256:" + "b" * 64,
+        limitations=[{"code": "customer_attested"}],
+        confidence=None,
+    )
+    session.add(baseline)
+    session.flush()
+    return need_id, assessment, baseline
 
 
 def test_tenant_assessment_composes_to_existing_knowledge_decision_with_immutable_snapshots(pg_engine) -> None:
@@ -247,7 +269,7 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
         setup.flush()
         activate_tenant_session(setup, tenant_id)
         persist_test_operating_charter(setup, tenant_id=tenant_id)
-        need_id, assessment = _persist_assessed_need(session=setup, tenant_id=tenant_id)
+        need_id, assessment, baseline = _persist_assessed_need(session=setup, tenant_id=tenant_id)
         setup.commit()
 
         app = _build_app(tenant_id=tenant_uuid, session=setup, queue_adapter=queue_adapter)
@@ -268,6 +290,7 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
                     "business_need_revision": 1,
                     "business_need_assessment_id": str(assessment.id),
                     "business_need_response_key": "inspect_funnel",
+                    "business_need_baseline_measurement_id": str(baseline.id),
                 },
             )
             assert composed.status_code == 200, composed.text
@@ -275,6 +298,7 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
             assert composition["allowed_actions"] == ["knowledge.inform_decision"]
             selected = composition["composition"]["semantic_snapshot"]["business_need_assessment_reference"]
             assert selected["selected_candidate_response_key"] == "inspect_funnel"
+            assert selected["response_advancement"]["baseline_measurement"]["measurement_id"] == str(baseline.id)
             assert selected["grants_execution_authority"] is False
 
             confirmed = client.post(
@@ -325,6 +349,12 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
                 EvidenceRecord.execution_task_id == task_id,
             )
         ).all()
+        audit_events = verify.scalars(
+            select(AuditEvent).where(
+                AuditEvent.tenant_id == tenant_id,
+                AuditEvent.mission_id == mission_id,
+            )
+        ).all()
         assert task is not None
         assert task.status == ExecutionTaskState.COMPLETED.value
         assert task.metadata_json["handler_result"]["action"] == "knowledge.inform_decision"
@@ -333,6 +363,14 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
         assert lease.status == WorkerLeaseState.RELEASED.value
         assert evidence
         assert any(item.evidence_source == "knowledge_decision_support" for item in evidence)
+        queue_fact = next(
+            RuntimeEvidenceLedger.read_envelope(item)
+            for item in audit_events
+            if (envelope := RuntimeEvidenceLedger.read_envelope(item)) is not None
+            and envelope.event_type == "runtime_evidence.queue_admission_recorded"
+        )
+        assert queue_fact is not None
+        assert "response_advancement" in queue_fact.facts["semantic_lineage"]
         assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
     finally:
         verify.close()
