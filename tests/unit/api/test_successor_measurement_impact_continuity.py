@@ -37,6 +37,7 @@ def _fixture():
         subject_references=[subject],
         objective_key="improve_service_quality",
         metric="defect_rate",
+        source_content_fingerprint="sha256:" + "d" * 64,
         values=list(baseline.values),
         observed_at=datetime(2026, 2, 16, tzinfo=UTC),
         period_start=datetime(2026, 2, 1, tzinfo=UTC),
@@ -189,6 +190,46 @@ def test_legacy_measurement_without_successor_claim_retains_existing_impact_rule
     BusinessUnderstandingService._validate_successor_measurement_impact_lineage(
         current=current, baseline=baseline, later=later
     )
+
+
+def test_accept_measurement_pairing_is_idempotent_and_has_no_outcome_effect() -> None:
+    current, baseline, later = _fixture()
+    current.id = uuid4()
+    service = BusinessUnderstandingService(MagicMock())
+    service._repository = MagicMock()
+    service._repository.get_measurement_for_tenant.side_effect = [baseline, later, baseline, later]
+    service._repository.get_measurement_pairing_by_fingerprint_for_tenant.side_effect = [None]
+    service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.add_measurement_pairing.side_effect = lambda pairing: pairing
+
+    with patch("backend.services.business_understanding.service.EvidenceRepository") as evidence_repository:
+        pairing = service.accept_measurement_pairing(
+            tenant_id="tenant-a",
+            need_id=current.need_id,
+            expected_revision=current.revision,
+            baseline_measurement_id=baseline.id,
+            observed_measurement_id=later.id,
+            producer="unit-test",
+        )
+        service._repository.get_measurement_pairing_by_fingerprint_for_tenant.side_effect = [pairing]
+        retry = service.accept_measurement_pairing(
+            tenant_id="tenant-a",
+            need_id=current.need_id,
+            expected_revision=current.revision,
+            baseline_measurement_id=baseline.id,
+            observed_measurement_id=later.id,
+            producer="unit-test",
+        )
+
+    assert pairing.status == "accepted"
+    assert pairing.outcome_evidence_id is None
+    assert pairing.outcome_evaluation_id is None
+    assert pairing.impact_revision_id is None
+    assert pairing.need_revision_id == current.id
+    assert retry is pairing
+    service._repository.add_measurement_pairing.assert_called_once()
+    evidence_repository.assert_not_called()
+    service._repository.append_need_revision.assert_not_called()
 
 
 def test_superseded_need_rejects_successor_reference_before_outcome_access() -> None:

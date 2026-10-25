@@ -13,7 +13,13 @@ from typing import Any, Literal
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from backend.domain.business_understanding import BusinessMeasurement, BusinessNeedRevision, BusinessObservation, utcnow
+from backend.domain.business_understanding import (
+    BusinessMeasurement,
+    BusinessMeasurementPairing,
+    BusinessNeedRevision,
+    BusinessObservation,
+    utcnow,
+)
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.business_understanding_repository import (
     BusinessNeedRevisionConflict,
@@ -535,6 +541,7 @@ class BusinessUnderstandingService:
         baseline_measurement_id: uuid.UUID,
         observed_measurement_id: uuid.UUID,
         outcome_evidence_id: uuid.UUID,
+        accepted_measurement_pairing_id: uuid.UUID | None = None,
         producer: str,
         mission_reference: dict[str, Any] | None = None,
     ) -> tuple[BusinessNeedRevision, OutcomeEvaluation]:
@@ -545,6 +552,21 @@ class BusinessUnderstandingService:
         durable baseline and later measurement; it never manufactures outcome
         or causal evidence from mission completion.
         """
+        pairing = None
+        if accepted_measurement_pairing_id is not None:
+            pairing = self._repository.lock_measurement_pairing_for_tenant(
+                tenant_id=tenant_id, pairing_id=accepted_measurement_pairing_id
+            )
+            if pairing is None:
+                raise BusinessUnderstandingValidationError("accepted measurement pairing was not found for tenant")
+            if (
+                pairing.need_id != need_id
+                or pairing.baseline_measurement_id != baseline_measurement_id
+                or pairing.observed_measurement_id != observed_measurement_id
+            ):
+                raise BusinessUnderstandingValidationError("impact request contradicts the accepted measurement pairing")
+            if pairing.status == "evaluated" and pairing.outcome_evidence_id != outcome_evidence_id:
+                raise BusinessUnderstandingValidationError("accepted measurement pairing is already evaluated")
         current = self._repository.get_need_revision_for_tenant(
             tenant_id=tenant_id, need_id=need_id, revision=expected_revision
         )
@@ -556,6 +578,8 @@ class BusinessUnderstandingService:
         later = self._repository.get_measurement_for_tenant(tenant_id=tenant_id, measurement_id=observed_measurement_id)
         if baseline is None or later is None:
             raise BusinessUnderstandingValidationError("impact measurement was not found for tenant")
+        if later.intended_measurement_reference is not None and pairing is None:
+            raise BusinessUnderstandingValidationError("successor measurement impact requires an accepted pairing")
         self._validate_measurement_comparability(current=current, baseline=baseline, later=later)
         self._validate_successor_measurement_impact_lineage(current=current, baseline=baseline, later=later)
         evidence = EvidenceRepository(self._session).get_for_tenant(
@@ -570,6 +594,17 @@ class BusinessUnderstandingService:
             outcome = OutcomeEvaluation.model_validate(evidence.structured_payload)
         except ValueError as exc:
             raise BusinessUnderstandingValidationError("canonical outcome evidence is invalid") from exc
+        if pairing is not None and outcome.accepted_measurement_pairing_id != pairing.id:
+            raise BusinessUnderstandingValidationError("canonical outcome evaluation does not reference the accepted pairing")
+        if pairing is not None and pairing.status == "evaluated":
+            if pairing.outcome_evaluation_id != outcome.outcome_evaluation_id or pairing.impact_revision_id is None:
+                raise BusinessUnderstandingValidationError("accepted measurement pairing evaluation identity is invalid")
+            revision = self._repository.get_need_revision_by_id_for_tenant(
+                tenant_id=tenant_id, revision_id=pairing.impact_revision_id
+            )
+            if revision is None:
+                raise BusinessUnderstandingValidationError("accepted measurement pairing impact revision is unavailable")
+            return revision, outcome
         self._validate_outcome_matches_measurements(outcome=outcome, baseline=baseline, later=later)
         observation = self._repository.get_observation_by_source_fingerprint_for_tenant(
             tenant_id=tenant_id,
@@ -640,6 +675,80 @@ class BusinessUnderstandingService:
             producer=producer,
         )
         return revision, outcome
+
+    def accept_measurement_pairing(
+        self,
+        *,
+        tenant_id: str,
+        need_id: str,
+        expected_revision: int,
+        baseline_measurement_id: uuid.UUID,
+        observed_measurement_id: uuid.UUID,
+        producer: str,
+    ) -> BusinessMeasurementPairing:
+        """Persist an accepted comparable pair without evaluating business impact.
+
+        The stable fingerprint makes a repeated acceptance request idempotent.
+        A pairing remains ``accepted`` until a separately persisted canonical
+        outcome evaluation is bound to it by the impact recorder.
+        """
+        baseline = self._repository.get_measurement_for_tenant(
+            tenant_id=tenant_id, measurement_id=baseline_measurement_id
+        )
+        later = self._repository.get_measurement_for_tenant(tenant_id=tenant_id, measurement_id=observed_measurement_id)
+        if baseline is None or later is None:
+            raise BusinessUnderstandingValidationError("impact measurement was not found for tenant")
+        successor_contract_id = (
+            later.intended_measurement_reference.get("contract_id")
+            if isinstance(later.intended_measurement_reference, dict)
+            else None
+        )
+        pairing_fingerprint = self.source_fingerprint(
+            {
+                "schema_version": 1,
+                "need_id": need_id,
+                "baseline_measurement_id": str(baseline.id),
+                "baseline_source_content_fingerprint": baseline.source_content_fingerprint,
+                "observed_measurement_id": str(later.id),
+                "observed_source_content_fingerprint": later.source_content_fingerprint,
+                "successor_contract_id": successor_contract_id,
+            }
+        )
+        existing = self._repository.get_measurement_pairing_by_fingerprint_for_tenant(
+            tenant_id=tenant_id, fingerprint=pairing_fingerprint
+        )
+        if existing is not None:
+            return existing
+        current = self._repository.get_need_revision_for_tenant(
+            tenant_id=tenant_id, need_id=need_id, revision=expected_revision
+        )
+        if current is None:
+            raise BusinessUnderstandingValidationError("need revision was not found for tenant")
+        if current.status == "superseded":
+            raise BusinessUnderstandingValidationError("measurement pairing references a superseded need")
+        self._validate_measurement_comparability(current=current, baseline=baseline, later=later)
+        self._validate_successor_measurement_impact_lineage(current=current, baseline=baseline, later=later)
+        pairing = BusinessMeasurementPairing(
+            tenant_id=tenant_id,
+            need_id=need_id,
+            need_revision=current.revision,
+            need_revision_id=current.id,
+            baseline_measurement_id=baseline.id,
+            observed_measurement_id=later.id,
+            successor_contract_id=successor_contract_id,
+            pairing_fingerprint=pairing_fingerprint,
+            status="accepted",
+            producer=producer,
+        )
+        try:
+            return self._repository.add_measurement_pairing(pairing)
+        except IntegrityError as exc:
+            concurrent = self._repository.get_measurement_pairing_by_fingerprint_for_tenant(
+                tenant_id=tenant_id, fingerprint=pairing_fingerprint
+            )
+            if concurrent is not None:
+                return concurrent
+            raise BusinessUnderstandingValidationError("measurement pairing could not be persisted") from exc
 
     def append_need_revision(
         self,

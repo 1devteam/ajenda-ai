@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from backend.domain.business_understanding import (
     BusinessMeasurement,
+    BusinessMeasurementPairing,
     BusinessNeedAssessment,
     BusinessNeedRevision,
     BusinessObservation,
@@ -61,6 +62,55 @@ class BusinessUnderstandingRepository:
             select(BusinessMeasurement).where(
                 BusinessMeasurement.tenant_id == tenant_id,
                 BusinessMeasurement.id == measurement_id,
+            )
+        )
+
+    def add_measurement_pairing(self, pairing: BusinessMeasurementPairing) -> BusinessMeasurementPairing:
+        with self._session.begin_nested():
+            self._session.add(pairing)
+            self._session.flush()
+        self._session.refresh(pairing)
+        return pairing
+
+    def get_measurement_pairing_for_tenant(
+        self, *, tenant_id: str, pairing_id: uuid.UUID
+    ) -> BusinessMeasurementPairing | None:
+        return self._session.scalar(
+            select(BusinessMeasurementPairing).where(
+                BusinessMeasurementPairing.tenant_id == tenant_id,
+                BusinessMeasurementPairing.id == pairing_id,
+            )
+        )
+
+    def lock_measurement_pairing_for_tenant(
+        self, *, tenant_id: str, pairing_id: uuid.UUID
+    ) -> BusinessMeasurementPairing | None:
+        return self._session.scalar(
+            select(BusinessMeasurementPairing)
+            .where(
+                BusinessMeasurementPairing.tenant_id == tenant_id,
+                BusinessMeasurementPairing.id == pairing_id,
+            )
+            .with_for_update()
+        )
+
+    def get_need_revision_by_id_for_tenant(
+        self, *, tenant_id: str, revision_id: uuid.UUID
+    ) -> BusinessNeedRevision | None:
+        return self._session.scalar(
+            select(BusinessNeedRevision).where(
+                BusinessNeedRevision.tenant_id == tenant_id,
+                BusinessNeedRevision.id == revision_id,
+            )
+        )
+
+    def get_measurement_pairing_by_fingerprint_for_tenant(
+        self, *, tenant_id: str, fingerprint: str
+    ) -> BusinessMeasurementPairing | None:
+        return self._session.scalar(
+            select(BusinessMeasurementPairing).where(
+                BusinessMeasurementPairing.tenant_id == tenant_id,
+                BusinessMeasurementPairing.pairing_fingerprint == fingerprint,
             )
         )
 
