@@ -572,6 +572,15 @@ class BusinessUnderstandingService:
         )
         if current is None:
             raise BusinessUnderstandingValidationError("need revision was not found for tenant")
+        if pairing is not None:
+            if pairing.need_revision_id != current.id or pairing.need_revision != current.revision:
+                raise BusinessUnderstandingValidationError("accepted pairing does not belong to the requested need revision")
+            # Retrying an already-evaluated pairing is handled below. A new
+            # impact must never be appended to a superseded need.
+            if pairing.status == "accepted":
+                latest = self._repository.get_latest_need_for_tenant(tenant_id=tenant_id, need_id=need_id)
+                if latest is None or latest.id != current.id or latest.status == "superseded":
+                    raise BusinessUnderstandingValidationError("accepted pairing references a superseded need")
         baseline = self._repository.get_measurement_for_tenant(
             tenant_id=tenant_id, measurement_id=baseline_measurement_id
         )
@@ -596,8 +605,21 @@ class BusinessUnderstandingService:
             raise BusinessUnderstandingValidationError("canonical outcome evidence is invalid") from exc
         if pairing is not None and outcome.accepted_measurement_pairing_id != pairing.id:
             raise BusinessUnderstandingValidationError("canonical outcome evaluation does not reference the accepted pairing")
+        if pairing is not None and (
+            pairing.status not in {"accepted", "evaluated"}
+            or (pairing.status == "accepted" and any((
+                pairing.outcome_evidence_id is not None,
+                pairing.outcome_evaluation_id is not None,
+                pairing.impact_revision_id is not None,
+            )))
+        ):
+            raise BusinessUnderstandingValidationError("accepted pairing has inconsistent evaluation state")
         if pairing is not None and pairing.status == "evaluated":
-            if pairing.outcome_evaluation_id != outcome.outcome_evaluation_id or pairing.impact_revision_id is None:
+            if (
+                pairing.outcome_evaluation_id != outcome.outcome_evaluation_id
+                or pairing.outcome_evidence_id != evidence.id
+                or pairing.impact_revision_id is None
+            ):
                 raise BusinessUnderstandingValidationError("accepted measurement pairing evaluation identity is invalid")
             revision = self._repository.get_need_revision_by_id_for_tenant(
                 tenant_id=tenant_id, revision_id=pairing.impact_revision_id
@@ -641,6 +663,9 @@ class BusinessUnderstandingService:
             "observed_measurement_id": str(later.id),
             "outcome_evidence_id": str(evidence.id),
         }
+        if pairing is not None:
+            impact["accepted_measurement_pairing_id"] = str(pairing.id)
+            impact["outcome_evaluation_id"] = outcome.outcome_evaluation_id
         if outcome.status == OutcomeStatus.INCONCLUSIVE:
             impact["status"] = "uncertain"
         revision = self.append_need_revision(
@@ -674,6 +699,16 @@ class BusinessUnderstandingService:
             ],
             producer=producer,
         )
+        if pairing is not None:
+            # The caller owns the transaction. The revision append and pairing
+            # finalization must commit (or roll back) together; the pairing row
+            # remains locked against competing recorder attempts until then.
+            pairing.outcome_evidence_id = evidence.id
+            pairing.outcome_evaluation_id = outcome.outcome_evaluation_id
+            pairing.impact_revision_id = revision.id
+            pairing.status = "evaluated"
+            pairing.evaluated_at = utcnow()
+            self._session.flush()
         return revision, outcome
 
     def accept_measurement_pairing(
