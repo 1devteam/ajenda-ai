@@ -989,8 +989,7 @@ class BusinessUnderstandingService:
         if (
             reference["contract_id"] != expected_id
             or not_before.tzinfo is None
-            or not_before.utcoffset()
-            is None
+            or not_before.utcoffset() is None
         ):
             raise BusinessUnderstandingValidationError("successor measurement contract identity is invalid")
         if (
