@@ -313,7 +313,9 @@ class BusinessUnderstandingService:
         if observed_at <= not_before or (
             measurement_period_start is not None and measurement_period_start <= not_before
         ):
-            raise BusinessUnderstandingValidationError("measurement period must follow the successor measurement baseline")
+            raise BusinessUnderstandingValidationError(
+                "measurement period must follow the successor measurement baseline"
+            )
         required_strings = {
             "need_id": need.get("need_id"),
             "assessment_id": assessment.get("assessment_id"),
@@ -939,9 +941,15 @@ class BusinessUnderstandingService:
         if reference is None:
             return
         required = {
-            "schema_version", "successor_mission_id", "successor_proposal_id",
-            "semantic_snapshot_id", "semantic_snapshot_sha256", "strategy_lineage",
-            "measurement_contract", "grants_execution_authority", "contract_id",
+            "schema_version",
+            "successor_mission_id",
+            "successor_proposal_id",
+            "semantic_snapshot_id",
+            "semantic_snapshot_sha256",
+            "strategy_lineage",
+            "measurement_contract",
+            "grants_execution_authority",
+            "contract_id",
         }
         if not isinstance(reference, dict) or set(reference) != required:
             raise BusinessUnderstandingValidationError("successor measurement lineage is invalid")
@@ -952,14 +960,23 @@ class BusinessUnderstandingService:
             or reference["schema_version"] != 1
             or reference["grants_execution_authority"] is not False
             or not isinstance(strategy, dict)
-            or set(strategy) != {
-                "need_id", "need_revision", "assessment_id",
-                "assessment_fingerprint", "selected_candidate_response_key",
+            or set(strategy)
+            != {
+                "need_id",
+                "need_revision",
+                "assessment_id",
+                "assessment_fingerprint",
+                "selected_candidate_response_key",
             }
             or not isinstance(contract, dict)
-            or set(contract) != {
-                "baseline_measurement_id", "baseline_source_content_fingerprint",
-                "subject_references", "objective_key", "metric", "not_before",
+            or set(contract)
+            != {
+                "baseline_measurement_id",
+                "baseline_source_content_fingerprint",
+                "subject_references",
+                "objective_key",
+                "metric",
+                "not_before",
             }
             or any(
                 not isinstance(reference.get(key), str) or not reference[key]
@@ -967,16 +984,20 @@ class BusinessUnderstandingService:
             )
             or any(
                 not isinstance(strategy.get(key), str) or not strategy[key]
-                for key in ("need_id", "assessment_id", "assessment_fingerprint",
-                            "selected_candidate_response_key")
+                for key in ("need_id", "assessment_id", "assessment_fingerprint", "selected_candidate_response_key")
             )
             or type(strategy.get("need_revision")) is not int
             or strategy["need_revision"] < 1
             or not isinstance(contract.get("subject_references"), list)
             or any(
                 not isinstance(contract.get(key), str) or not contract[key]
-                for key in ("baseline_measurement_id", "baseline_source_content_fingerprint",
-                            "objective_key", "metric", "not_before")
+                for key in (
+                    "baseline_measurement_id",
+                    "baseline_source_content_fingerprint",
+                    "objective_key",
+                    "metric",
+                    "not_before",
+                )
             )
         ):
             raise BusinessUnderstandingValidationError("successor measurement lineage is invalid")
@@ -986,11 +1007,7 @@ class BusinessUnderstandingService:
             subjects = canonical_subject_keys(contract["subject_references"])
         except (TypeError, ValueError) as exc:
             raise BusinessUnderstandingValidationError("successor measurement lineage is malformed") from exc
-        if (
-            reference["contract_id"] != expected_id
-            or not_before.tzinfo is None
-            or not_before.utcoffset() is None
-        ):
+        if reference["contract_id"] != expected_id or not_before.tzinfo is None or not_before.utcoffset() is None:
             raise BusinessUnderstandingValidationError("successor measurement contract identity is invalid")
         if (
             strategy["need_id"] != current.need_id
