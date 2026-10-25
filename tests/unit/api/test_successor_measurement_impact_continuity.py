@@ -46,6 +46,7 @@ def _fixture():
     current = SimpleNamespace(
         need_id="need-a",
         revision=3,
+        status="recognized",
         subject_references=[subject],
     )
     reference = {
@@ -188,6 +189,29 @@ def test_legacy_measurement_without_successor_claim_retains_existing_impact_rule
     BusinessUnderstandingService._validate_successor_measurement_impact_lineage(
         current=current, baseline=baseline, later=later
     )
+
+
+def test_superseded_need_rejects_successor_reference_before_outcome_access() -> None:
+    current, baseline, later = _fixture()
+    current.status = "superseded"
+    service = BusinessUnderstandingService(MagicMock())
+    service._repository = MagicMock()
+    service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
+
+    with patch("backend.services.business_understanding.service.EvidenceRepository") as evidence_repository:
+        with pytest.raises(BusinessUnderstandingValidationError, match="superseded need"):
+            service.record_canonical_measurement_impact(
+                tenant_id="tenant-a",
+                need_id=current.need_id,
+                expected_revision=current.revision,
+                baseline_measurement_id=baseline.id,
+                observed_measurement_id=later.id,
+                outcome_evidence_id=uuid4(),
+                producer="unit-test",
+            )
+        evidence_repository.assert_not_called()
+    service._repository.append_need_revision.assert_not_called()
 
 
 def test_successor_resolver_rejects_backdated_measurement_period() -> None:

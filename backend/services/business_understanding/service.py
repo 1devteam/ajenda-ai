@@ -1013,6 +1013,13 @@ class BusinessUnderstandingService:
             raise BusinessUnderstandingValidationError("successor measurement lineage is malformed") from exc
         if reference["contract_id"] != expected_id or not_before.tzinfo is None or not_before.utcoffset() is None:
             raise BusinessUnderstandingValidationError("successor measurement contract identity is invalid")
+        # A later active revision can retain the original strategy lineage, but
+        # an explicitly superseded need is no longer an admissible target for
+        # successor-linked impact evidence.  Lifecycle status remains owned by
+        # the need revision; this check neither rewrites it nor evaluates an
+        # outcome.
+        if current.status == "superseded":
+            raise BusinessUnderstandingValidationError("successor measurement lineage references a superseded need")
         if (
             strategy["need_id"] != current.need_id
             or strategy["need_revision"] > current.revision
