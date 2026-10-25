@@ -165,6 +165,7 @@ class BusinessUnderstandingService:
             objective_key=goal.objective_key or goal.goal_id,
             metric=metric,
             observed_at=observed_at,
+            measurement_period_start=measurement_period_start,
         )
         payload = {
             "goal_id": goal.goal_id,
@@ -240,6 +241,7 @@ class BusinessUnderstandingService:
         objective_key: str,
         metric: str,
         observed_at: datetime,
+        measurement_period_start: datetime | None = None,
     ) -> dict[str, Any] | None:
         """Resolve a frozen successor contract for an independently ingested measurement.
 
@@ -308,8 +310,10 @@ class BusinessUnderstandingService:
             raise BusinessUnderstandingValidationError(
                 "measurement metric does not match successor measurement contract"
             )
-        if observed_at <= not_before:
-            raise BusinessUnderstandingValidationError("measurement must follow the successor measurement baseline")
+        if observed_at <= not_before or (
+            measurement_period_start is not None and measurement_period_start <= not_before
+        ):
+            raise BusinessUnderstandingValidationError("measurement period must follow the successor measurement baseline")
         required_strings = {
             "need_id": need.get("need_id"),
             "assessment_id": assessment.get("assessment_id"),
@@ -547,6 +551,7 @@ class BusinessUnderstandingService:
         if baseline is None or later is None:
             raise BusinessUnderstandingValidationError("impact measurement was not found for tenant")
         self._validate_measurement_comparability(current=current, baseline=baseline, later=later)
+        self._validate_successor_measurement_impact_lineage(current=current, baseline=baseline, later=later)
         evidence = EvidenceRepository(self._session).get_for_tenant(
             evidence_id=outcome_evidence_id, tenant_id=tenant_id
         )
@@ -917,6 +922,90 @@ class BusinessUnderstandingService:
         later_start = later.period_start or later.observed_at
         if later_start <= baseline_end or later.observed_at <= baseline.observed_at:
             raise BusinessUnderstandingValidationError("impact measurement chronology is invalid")
+
+    @classmethod
+    def _validate_successor_measurement_impact_lineage(
+        cls, *, current: BusinessNeedRevision, baseline: BusinessMeasurement, later: BusinessMeasurement
+    ) -> None:
+        """Honor a later measurement's frozen successor contract at impact admission.
+
+        A reference is provenance, NOT a comparison or outcome evaluation.
+        This validates identity/chronology only; canonical outcome evidence
+        and the existing impact owner are still independently required.
+        Historical later measurements without a successor claim retain the
+        existing measurement-comparability rules.
+        """
+        reference = later.intended_measurement_reference
+        if reference is None:
+            return
+        required = {
+            "schema_version", "successor_mission_id", "successor_proposal_id",
+            "semantic_snapshot_id", "semantic_snapshot_sha256", "strategy_lineage",
+            "measurement_contract", "grants_execution_authority", "contract_id",
+        }
+        if not isinstance(reference, dict) or set(reference) != required:
+            raise BusinessUnderstandingValidationError("successor measurement lineage is invalid")
+        strategy = reference.get("strategy_lineage")
+        contract = reference.get("measurement_contract")
+        if (
+            type(reference["schema_version"]) is not int
+            or reference["schema_version"] != 1
+            or reference["grants_execution_authority"] is not False
+            or not isinstance(strategy, dict)
+            or set(strategy) != {
+                "need_id", "need_revision", "assessment_id",
+                "assessment_fingerprint", "selected_candidate_response_key",
+            }
+            or not isinstance(contract, dict)
+            or set(contract) != {
+                "baseline_measurement_id", "baseline_source_content_fingerprint",
+                "subject_references", "objective_key", "metric", "not_before",
+            }
+            or any(
+                not isinstance(reference.get(key), str) or not reference[key]
+                for key in ("successor_mission_id", "semantic_snapshot_id", "semantic_snapshot_sha256")
+            )
+            or any(
+                not isinstance(strategy.get(key), str) or not strategy[key]
+                for key in ("need_id", "assessment_id", "assessment_fingerprint",
+                            "selected_candidate_response_key")
+            )
+            or type(strategy.get("need_revision")) is not int
+            or strategy["need_revision"] < 1
+            or not isinstance(contract.get("subject_references"), list)
+            or any(
+                not isinstance(contract.get(key), str) or not contract[key]
+                for key in ("baseline_measurement_id", "baseline_source_content_fingerprint",
+                            "objective_key", "metric", "not_before")
+            )
+        ):
+            raise BusinessUnderstandingValidationError("successor measurement lineage is invalid")
+        try:
+            expected_id = cls.source_fingerprint({k: v for k, v in reference.items() if k != "contract_id"})
+            not_before = datetime.fromisoformat(contract["not_before"].replace("Z", "+00:00"))
+            subjects = canonical_subject_keys(contract["subject_references"])
+        except (TypeError, ValueError) as exc:
+            raise BusinessUnderstandingValidationError("successor measurement lineage is malformed") from exc
+        if (
+            reference["contract_id"] != expected_id
+            or not_before.tzinfo is None
+            or not_before.utcoffset()
+            is None
+        ):
+            raise BusinessUnderstandingValidationError("successor measurement contract identity is invalid")
+        if (
+            strategy["need_id"] != current.need_id
+            or strategy["need_revision"] > current.revision
+            or contract["baseline_measurement_id"] != str(baseline.id)
+            or contract["baseline_source_content_fingerprint"] != baseline.source_content_fingerprint
+            or contract["objective_key"] != later.objective_key
+            or contract["metric"] != later.metric
+            or subjects != canonical_subject_keys(later.subject_references)
+            or (later.period_start or later.observed_at) <= not_before
+        ):
+            raise BusinessUnderstandingValidationError(
+                "impact measurements contradict the frozen successor measurement contract"
+            )
 
     @staticmethod
     def _validate_outcome_matches_measurements(
