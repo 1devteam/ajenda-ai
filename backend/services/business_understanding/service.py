@@ -29,6 +29,7 @@ from backend.repositories.knowledge_repository import KnowledgeRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
+from backend.services.business_understanding.measurement_source import resolve_runtime_measurement
 from backend.services.business_understanding.subject_identity import canonical_subject_keys
 from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.ontology.commercial_state import Goal, Kpi
@@ -139,8 +140,9 @@ class BusinessUnderstandingService:
         limitations: list[dict[str, Any]],
         confidence: float | None,
         producer: str,
+        runtime_source_evidence_id: uuid.UUID | None = None,
     ) -> tuple[BusinessMeasurement, BusinessNeedRevision | None]:
-        """Persist an attributed measurement and feed existing recognition."""
+        """Persist source-bounded measurement; verified mode requires a real runtime read."""
         if not source_version.strip():
             raise BusinessUnderstandingValidationError("source_version must be non-empty")
         self._validate_measurement_timing(
@@ -150,6 +152,36 @@ class BusinessUnderstandingService:
         )
         if not kpis or any(kpi.goal_id != goal.goal_id for kpi in kpis):
             raise BusinessUnderstandingValidationError("all KPI values must belong to the supplied goal")
+        if source_kind == "source_verified":
+            if runtime_source_evidence_id is None:
+                raise BusinessUnderstandingValidationError(
+                    "source_verified measurements require an authorized internal adapter"
+                )
+            verified = resolve_runtime_measurement(
+                session=self._session, tenant_id=tenant_id, evidence_id=runtime_source_evidence_id
+            )
+            snapshot = verified.snapshot
+            if (
+                goal.model_dump(mode="json") != snapshot.goal.model_dump(mode="json")
+                or [item.model_dump(mode="json") for item in kpis]
+                != [item.model_dump(mode="json") for item in snapshot.kpis]
+                or canonical_subject_keys(subject_references) != canonical_subject_keys(snapshot.goal.subject_refs)
+                or source_reference != verified.source_reference
+                or source_version != snapshot.source_version
+                or measurement_period_start != snapshot.measurement_period_start
+                or measurement_period_end != snapshot.measurement_period_end
+                or observed_at != snapshot.observed_at
+                or successor_mission_id != snapshot.successor_mission_id
+                or limitations != verified.limitations
+                or confidence is not None
+            ):
+                raise BusinessUnderstandingValidationError(
+                    "source_verified measurement contradicts canonical runtime snapshot"
+                )
+        elif runtime_source_evidence_id is not None:
+            raise BusinessUnderstandingValidationError(
+                "customer-attested measurements cannot claim canonical verified-source evidence"
+            )
         expected_subjects = canonical_subject_keys(goal.subject_refs)
         supplied_subjects = canonical_subject_keys(subject_references)
         if expected_subjects != supplied_subjects:
@@ -169,7 +201,14 @@ class BusinessUnderstandingService:
             "goal_id": goal.goal_id,
             "objective_key": goal.objective_key,
             "subjects": subject_references,
-            "source": source_reference,
+            # The immutable source snapshot, not each read task's evidence ID,
+            # owns ingestion identity. Separate runtime reads of identical
+            # source content must not manufacture new measurements.
+            "source": (
+                {key: value for key, value in source_reference.items() if key != "evidence_id"}
+                if source_kind == "source_verified"
+                else source_reference
+            ),
             "source_kind": source_kind,
             "source_version": source_version,
             "period_start": measurement_period_start.isoformat() if measurement_period_start else None,
@@ -180,11 +219,22 @@ class BusinessUnderstandingService:
                 intended_measurement_reference.get("contract_id") if intended_measurement_reference else None
             ),
         }
-        if source_kind == "source_verified":
-            raise BusinessUnderstandingValidationError(
-                "source_verified measurements require an authorized internal adapter"
-            )
         fingerprint = self.source_fingerprint(payload)
+        if source_kind == "source_verified":
+            # A source revision cannot legitimately claim two different
+            # commercial snapshots. The tenant/revision advisory transaction
+            # lock also rejects competing writers when no row yet exists.
+            previous_revision = self._repository.lock_verified_source_revision(
+                tenant_id=tenant_id,
+                source_system=source_reference["source_system"],
+                record_type=source_reference["record_type"],
+                record_id=source_reference["record_id"],
+                source_version=source_version,
+            )
+            if previous_revision is not None and previous_revision.source_content_fingerprint != fingerprint:
+                raise BusinessUnderstandingValidationError(
+                    "source revision conflicts with previously accepted measurement content"
+                )
         measurement = self._repository.get_measurement_by_fingerprint_for_tenant(
             tenant_id=tenant_id, fingerprint=fingerprint
         )
@@ -222,13 +272,48 @@ class BusinessUnderstandingService:
             goal=goal,
             kpis=kpis,
             source=SourceReference(
-                source_kind="customer_instruction",
-                reference={"source_id": str(measurement.id)},
+                source_kind="evidence" if source_kind == "source_verified" else "customer_instruction",
+                reference=(
+                    {"evidence_id": str(measurement.source_reference["evidence_id"])}
+                    if source_kind == "source_verified"
+                    else {"source_id": str(measurement.id)}
+                ),
             ),
             observed_at=observed_at,
             producer=producer,
         )
         return measurement, need
+
+    def ingest_runtime_record_measurement(
+        self, *, tenant_id: str, source_evidence_id: uuid.UUID, producer: str
+    ) -> tuple[BusinessMeasurement, BusinessNeedRevision | None]:
+        """Internal owner-only ingress; all commercial values come from a verified read.
+
+        A runtime record read proves that the tenant record store returned a
+        particular snapshot. It does not independently prove its business truth.
+        The public API never calls this method or authorizes source_verified.
+        """
+        verified = resolve_runtime_measurement(
+            session=self._session, tenant_id=tenant_id, evidence_id=source_evidence_id
+        )
+        snapshot = verified.snapshot
+        return self.ingest_measurement(
+            tenant_id=tenant_id,
+            goal=snapshot.goal,
+            kpis=list(snapshot.kpis),
+            subject_references=[item.model_dump(mode="json") for item in snapshot.goal.subject_refs],
+            source_kind="source_verified",
+            source_reference=verified.source_reference,
+            source_version=snapshot.source_version,
+            measurement_period_start=snapshot.measurement_period_start,
+            measurement_period_end=snapshot.measurement_period_end,
+            observed_at=snapshot.observed_at,
+            successor_mission_id=snapshot.successor_mission_id,
+            limitations=verified.limitations,
+            confidence=None,
+            producer=producer,
+            runtime_source_evidence_id=source_evidence_id,
+        )
 
     def _resolve_intended_measurement_reference(
         self,

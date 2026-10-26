@@ -136,6 +136,55 @@ knowledge, and actual later-decision reuse. The existing
 `associated_with_favorable_outcome` intervention relationship must not be
 reused for a merely selected response.
 
+## October 26, 2026 — Canonical source-read measurement ingress (PR #632)
+
+PR #631 is merged as observational recurrence, not as independent
+measurement verification or Knowledge qualification. The public
+`/measurements` endpoint remains `customer_attested` only.
+
+PR #632 introduces an internal, narrowly scoped path through the existing
+Business Understanding service and the existing EvidenceBridge validator:
+
+1. A successful `record.read` must be a uniquely projected, completed,
+   tenant-owned canonical runtime action and must carry resolved
+   `tenant_record_store` source-observation lineage. Caller-created
+   lookalike Evidence records and cross-tenant identities fail closed.
+2. The read record must declare an explicit versioned
+   `operating_measurement` snapshot. Only supported `account`, `contact`,
+   and `opportunity` source records are eligible, and the goal subject
+   must be precisely that read record instance (not a neighboring account).
+3. The typed snapshot owns goal, KPI definitions and values, source revision,
+   observation/reporting chronology, and any successor mission reference.
+   Every persisted `source_verified` field is compared against that snapshot
+   and the canonical evidence identity before insertion.
+4. Existing measurement fingerprints, need recognition, tenant scoping,
+   append-only history, and replay protections remain the persistence
+   authorities. Verified read evidence becomes the need's observation
+   source, not an invented customer instruction. Multiple canonical reads of
+   identical source content and version reuse one measurement fingerprint,
+   with the first canonical evidence ID retained as the stable origin.
+   A source record that reuses the same revision name with contradictory
+   content is rejected. The tenant-scoped advisory transaction lock ensures
+   concurrent first writes cannot bypass this version conflict check.
+5. Source provenance **is not KPI truth**. Tenant records can themselves be
+   customer-authored or contain mistakes. The ingress records explicit
+   `source_read_proved_not_kpi_truth`, `source_independence_not_established`,
+   and related limitations; confidence is not inflated.
+6. This method is a bounded **internal admission capability**, not a
+   registered self-authorizing runtime write action. Scheduling it requires
+   a later separately reviewed and authorized workflow/ability boundary.
+
+**PR #632 acceptance required:** real worker/queue/lease/runtime-source
+EvidenceBridge proof, exact immutable replay, caller KPI mismatch,
+cross-tenant rejection, missing snapshot rejection, source/subject
+disagreement, and mutated evidence projection rejection. Full CI and
+architecture tests must pass before merge.
+
+**Unfinished:** separately authorized measurement-ingestion task handoff,
+source-provider independence and trustworthy observation sampling,
+dedicated observational proposition/qualification, Knowledge retrieval
+with explicit noncausal relationship semantics, and later-decision reuse.
+
 ## Purpose
 
 Ajenda already has the principal owners needed for a complete intelligence

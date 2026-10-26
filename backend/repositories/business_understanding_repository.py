@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from typing import Any
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -54,6 +56,39 @@ class BusinessUnderstandingRepository:
             select(BusinessMeasurement).where(
                 BusinessMeasurement.tenant_id == tenant_id,
                 BusinessMeasurement.source_content_fingerprint == fingerprint,
+            )
+        )
+
+    def lock_verified_source_revision(
+        self,
+        *,
+        tenant_id: str,
+        source_system: str,
+        record_type: str,
+        record_id: str,
+        source_version: str,
+    ) -> BusinessMeasurement | None:
+        """Serialize one source revision across concurrent canonical read tasks.
+
+        This lock is scoped to the calling transaction and protects the
+        source-identity/version invariant even when no row exists yet. It is
+        separate from the existing content-fingerprint uniqueness index.
+        """
+        canonical = json.dumps(
+            [tenant_id, source_system, record_type, record_id, source_version],
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        lock_id = int.from_bytes(hashlib.sha256(canonical.encode("utf-8")).digest()[:8], "big", signed=True)
+        self._session.execute(text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id})
+        return self._session.scalar(
+            select(BusinessMeasurement).where(
+                BusinessMeasurement.tenant_id == tenant_id,
+                BusinessMeasurement.source_kind == "source_verified",
+                BusinessMeasurement.source_version == source_version,
+                BusinessMeasurement.source_reference["source_system"].astext == source_system,
+                BusinessMeasurement.source_reference["record_type"].astext == record_type,
+                BusinessMeasurement.source_reference["record_id"].astext == record_id,
             )
         )
 
