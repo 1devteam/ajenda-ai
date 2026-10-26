@@ -18,6 +18,11 @@ from sqlalchemy.orm import Session
 
 from backend.domain.business_understanding import BusinessMeasurement, BusinessMeasurementPairing, BusinessNeedRevision
 from backend.domain.evidence import EvidenceRecord
+from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
+from backend.services.business_understanding.service import (
+    BusinessUnderstandingService,
+    BusinessUnderstandingValidationError,
+)
 from backend.services.ontology.business_impact_observation import BusinessImpactObservation
 from backend.domain.execution_task import ExecutionTask
 from backend.services.ontology.decision_feedback import (
@@ -478,6 +483,36 @@ class DecisionEpisodeMaterializationService:
         candidate = strategy.get("selected_candidate_response_key")
         if not isinstance(candidate, str) or not candidate:
             raise ValueError("business impact episode lacks selected candidate provenance")
+
+        # Reconstruct the successor contract from the immutable persisted mission
+        # snapshot, rather than trusting a copy embedded in the later measurement.
+        try:
+            BusinessUnderstandingService(self._session).require_frozen_successor_reference(
+                tenant_id=tenant_id, measurement=observed
+            )
+        except BusinessUnderstandingValidationError as exc:
+            raise ValueError("business impact episode contradicts persisted successor mission authority") from exc
+
+        try:
+            assessment_id = self._uuid(strategy.get("assessment_id"))
+        except ValueError as exc:
+            raise ValueError("business impact episode has no valid originating assessment identity") from exc
+        assessment = BusinessUnderstandingRepository(self._session).get_assessment_for_tenant(
+            tenant_id=tenant_id, assessment_id=assessment_id
+        )
+        if (
+            assessment is None
+            or assessment.need_id != impact_revision.need_id
+            or assessment.need_revision != pairing.need_revision
+            or assessment.assessment_fingerprint != strategy.get("assessment_fingerprint")
+            or not isinstance(assessment.assessment_json, dict)
+            or not any(
+                isinstance(item, dict) and item.get("response_key") == candidate
+                for item in assessment.assessment_json.get("candidate_responses", [])
+                if isinstance(assessment.assessment_json.get("candidate_responses"), list)
+            )
+        ):
+            raise ValueError("business impact episode contradicts its originating assessment authority")
 
         outcome_record = self._required_evidence(tenant_id=tenant_id, evidence_id=evidence_id, role="outcome")
         self._require_action(outcome_record, OUTCOME_ACTION)

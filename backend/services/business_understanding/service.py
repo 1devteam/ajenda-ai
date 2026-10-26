@@ -378,6 +378,36 @@ class BusinessUnderstandingService:
         reference["contract_id"] = self.source_fingerprint(reference)
         return reference
 
+    def require_frozen_successor_reference(
+        self, *, tenant_id: str, measurement: BusinessMeasurement
+    ) -> None:
+        """Reconstruct the frozen measurement contract from its mission owner.
+
+        Callers must not treat a copied later-measurement JSON reference as
+        proof of the original persisted semantic snapshot.
+        """
+        reference = measurement.intended_measurement_reference
+        if not isinstance(reference, dict):
+            raise BusinessUnderstandingValidationError("successor measurement reference is absent")
+        try:
+            mission_id = uuid.UUID(str(reference.get("successor_mission_id")))
+        except (TypeError, ValueError) as exc:
+            raise BusinessUnderstandingValidationError("successor mission identity is invalid") from exc
+        reconstructed = self._resolve_intended_measurement_reference(
+            tenant_id=tenant_id,
+            successor_mission_id=mission_id,
+            subject_references=list(measurement.subject_references),
+            objective_key=measurement.objective_key,
+            metric=measurement.metric,
+            observed_at=measurement.observed_at,
+            measurement_period_start=measurement.period_start,
+            measurement_period_end=measurement.period_end,
+        )
+        if reconstructed != reference:
+            raise BusinessUnderstandingValidationError(
+                "successor measurement contradicts the persisted frozen mission snapshot"
+            )
+
     def recognize_goal_gap(
         self,
         *,

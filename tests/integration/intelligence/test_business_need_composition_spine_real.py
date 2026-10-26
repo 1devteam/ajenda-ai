@@ -604,6 +604,23 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
         assert provenance["impact_revision_id"] == str(impact_revision.id)
         assert provenance["outcome_evidence_id"] == str(outcome.id)
         assert provenance["frozen_successor_contract"] == later_one.intended_measurement_reference
+        strategy = provenance["frozen_successor_contract"]["strategy_lineage"]
+        assessment_row = readback.get(BusinessNeedAssessment, uuid.UUID(strategy["assessment_id"]))
+        assert assessment_row is not None
+        original_fingerprint = assessment_row.assessment_fingerprint
+        assessment_row.assessment_fingerprint = "sha256:" + "0" * 64
+        readback.flush()
+        with pytest.raises(ValueError, match="originating assessment authority"):
+            DecisionEpisodeMaterializationService(
+                session=readback,
+                evidence=EvidenceRepository(readback),
+                tasks=ExecutionTaskRepository(readback),
+            ).materialize(
+                tenant_id=tenant_id,
+                request=DecisionEpisodeMaterializationRequest(impact_revision_id=impact_revision.id),
+            )
+        readback.rollback()
+        assert assessment_row.assessment_fingerprint == original_fingerprint
     finally:
         readback.close()
 
