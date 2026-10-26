@@ -194,9 +194,7 @@ def _knowledge_status(
 class BusinessNeedReasoningService:
     """Produces a durable assessment using existing ontology and catalog owners."""
 
-    def __init__(
-        self, repository: BusinessUnderstandingRepository, *, evidence_session: Session | None = None
-    ) -> None:
+    def __init__(self, repository: BusinessUnderstandingRepository, *, evidence_session: Session | None = None) -> None:
         self._repository = repository
         self._evidence_session = evidence_session
 

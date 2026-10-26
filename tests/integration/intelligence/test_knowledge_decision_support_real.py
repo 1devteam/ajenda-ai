@@ -353,9 +353,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
             }
         )
         with pytest.raises(ValueError, match="assessment goal subjects"):
-            BusinessNeedReasoningService(
-                BusinessUnderstandingRepository(scoped), evidence_session=scoped
-            ).assess(
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
                 tenant_id=tenant,
                 need_id=need.need_id,
                 revision=1,
@@ -364,9 +362,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
             )
         foreign_evidence = req.model_copy(update={"knowledge_support_evidence_id": uuid.uuid4()})
         with pytest.raises(ValueError, match="inaccessible for tenant"):
-            BusinessNeedReasoningService(
-                BusinessUnderstandingRepository(scoped), evidence_session=scoped
-            ).assess(
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
                 tenant_id=tenant,
                 need_id=need.need_id,
                 revision=1,
@@ -374,14 +370,10 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
                 request=foreign_evidence,
             )
         mismatched_response = req.model_copy(
-            update={
-                "candidate_responses": (NeedCandidateResponse(response_key="discovery", summary="Only discovery"),)
-            }
+            update={"candidate_responses": (NeedCandidateResponse(response_key="discovery", summary="Only discovery"),)}
         )
         with pytest.raises(ValueError, match="not bound to the assessed responses"):
-            BusinessNeedReasoningService(
-                BusinessUnderstandingRepository(scoped), evidence_session=scoped
-            ).assess(
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
                 tenant_id=tenant,
                 need_id=need.need_id,
                 revision=1,
@@ -389,29 +381,19 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
                 request=mismatched_response,
             )
         goal_instance_mismatch = req.model_copy(
-            update={
-                "goal": assessment_goal.model_copy(
-                    update={"goal_id": "different-instance"}
-                )
-            }
+            update={"goal": assessment_goal.model_copy(update={"goal_id": "different-instance"})}
         )
         with pytest.raises(ValueError, match="goal semantics disagree"):
-            BusinessNeedReasoningService(
-                BusinessUnderstandingRepository(scoped), evidence_session=scoped
-            ).assess(
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
                 tenant_id=tenant,
                 need_id=need.need_id,
                 revision=1,
                 producer="knowledge-integration-proof",
                 request=goal_instance_mismatch,
             )
-        future_knowledge = req.model_copy(
-            update={"evaluated_at": datetime(2020, 1, 1, tzinfo=UTC)}
-        )
+        future_knowledge = req.model_copy(update={"evaluated_at": datetime(2020, 1, 1, tzinfo=UTC)})
         with pytest.raises(ValueError, match="future knowledge evidence"):
-            BusinessNeedReasoningService(
-                BusinessUnderstandingRepository(scoped), evidence_session=scoped
-            ).assess(
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
                 tenant_id=tenant,
                 need_id=need.need_id,
                 revision=1,
@@ -422,9 +404,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
             update={"knowledge_support": first.output["support"] | {"support_id": "caller-forged"}}
         )
         with pytest.raises(ValueError, match="differs from canonical runtime evidence"):
-            BusinessNeedReasoningService(
-                BusinessUnderstandingRepository(scoped), evidence_session=scoped
-            ).assess(
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
                 tenant_id=tenant,
                 need_id=need.need_id,
                 revision=1,
@@ -543,9 +523,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
         activate_tenant_session(scoped, tenant)
         forged_request = req.model_copy(update={"knowledge_support_evidence_id": forged_composed_id})
         with pytest.raises(CanonicalToolEvidenceError, match="materialization reference"):
-            BusinessNeedReasoningService(
-                BusinessUnderstandingRepository(scoped), evidence_session=scoped
-            ).assess(
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
                 tenant_id=tenant,
                 need_id=need.need_id,
                 revision=1,
