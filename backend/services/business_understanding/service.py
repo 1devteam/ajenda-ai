@@ -1084,6 +1084,7 @@ class BusinessUnderstandingService:
             raise BusinessUnderstandingValidationError("impact measurements do not match the need subject")
         if baseline.objective_key != later.objective_key:
             raise BusinessUnderstandingValidationError("impact measurements concern different objectives")
+
         # KPI meaning is stable across the comparison, not merely its display key.
         # Direction, required status and maintain tolerance affect Outcome's
         # conclusion even when the numeric before/after values are identical.
@@ -1221,16 +1222,10 @@ class BusinessUnderstandingService:
     def _validate_outcome_matches_measurements(
         *, outcome: OutcomeEvaluation, baseline: BusinessMeasurement, later: BusinessMeasurement
     ) -> None:
-        baseline_values = {
-            str(item.get("kpi_id")): item for item in baseline.values
-        }
-        later_values = {
-            str(item.get("kpi_id")): item for item in later.values
-        }
+        baseline_values = {str(item.get("kpi_id")): item for item in baseline.values}
+        later_values = {str(item.get("kpi_id")): item for item in later.values}
         deltas = {
-            item.kpi_id: (
-                item.before, item.after, item.target, item.metric, item.direction.value, item.required
-            )
+            item.kpi_id: (item.before, item.after, item.target, item.metric, item.direction.value, item.required)
             for item in outcome.kpi_deltas
         }
         expected = {
