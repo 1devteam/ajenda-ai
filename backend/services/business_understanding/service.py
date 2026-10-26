@@ -767,18 +767,25 @@ class BusinessUnderstandingService:
                 "successor_contract_id": successor_contract_id,
             }
         )
-        existing = self._repository.get_measurement_pairing_by_fingerprint_for_tenant(
-            tenant_id=tenant_id, fingerprint=pairing_fingerprint
-        )
-        if existing is not None:
-            return existing
         current = self._repository.get_need_revision_for_tenant(
             tenant_id=tenant_id, need_id=need_id, revision=expected_revision
         )
         if current is None:
             raise BusinessUnderstandingValidationError("need revision was not found for tenant")
-        if current.status == "superseded":
-            raise BusinessUnderstandingValidationError("measurement pairing references a superseded need")
+        existing = self._repository.get_measurement_pairing_by_fingerprint_for_tenant(
+            tenant_id=tenant_id, fingerprint=pairing_fingerprint
+        )
+        if existing is not None:
+            if existing.need_revision_id != current.id or existing.need_revision != expected_revision:
+                raise BusinessUnderstandingValidationError(
+                    "accepted measurement pairing replay contradicts originating need revision"
+                )
+            return existing
+        latest = self._repository.get_latest_need_for_tenant(
+            tenant_id=tenant_id, need_id=need_id, for_update=True
+        )
+        if latest is None or latest.id != current.id or latest.status == "superseded":
+            raise BusinessUnderstandingValidationError("measurement pairing requires the latest active need revision")
         self._validate_measurement_comparability(current=current, baseline=baseline, later=later)
         self._validate_successor_measurement_impact_lineage(current=current, baseline=baseline, later=later)
         pairing = BusinessMeasurementPairing(
@@ -800,6 +807,10 @@ class BusinessUnderstandingService:
                 tenant_id=tenant_id, fingerprint=pairing_fingerprint
             )
             if concurrent is not None:
+                if concurrent.need_revision_id != current.id or concurrent.need_revision != expected_revision:
+                    raise BusinessUnderstandingValidationError(
+                        "concurrent measurement pairing contradicts originating need revision"
+                    ) from exc
                 return concurrent
             raise BusinessUnderstandingValidationError("measurement pairing could not be persisted") from exc
 
