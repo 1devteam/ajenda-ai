@@ -387,14 +387,13 @@ class BusinessNeedReasoningService:
                 "objective or KPI measurement after the response",
             ),
             "knowledge_support_id": verified_support.support_id if verified_support else None,
-            "knowledge_support_evidence_id": (
-                str(request.knowledge_support_evidence_id) if verified_support else None
-            ),
             "knowledge_epistemic_limits": verified_support.epistemic_limits if verified_support else (),
             "evaluated_at": request.evaluated_at.isoformat(),
             "producer": producer.strip(),
             "grants_execution_authority": False,
         }
+        if verified_support is not None:
+            payload["knowledge_support_evidence_id"] = str(request.knowledge_support_evidence_id)
         fingerprint = (
             "sha256:"
             + hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
