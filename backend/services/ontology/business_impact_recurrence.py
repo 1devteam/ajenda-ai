@@ -179,10 +179,7 @@ def _lineage_tokens(observation: BusinessImpactObservation) -> frozenset[str]:
         "baseline:" + str(observation.baseline_measurement_id),
         "observed:" + str(observation.observed_measurement_id),
         "evaluation:" + observation.outcome_evaluation_id,
-        *(
-            "subject:" + ref.object_type.value + ":" + ref.object_id
-            for ref in observation.subject_refs
-        ),
+        *("subject:" + ref.object_type.value + ":" + ref.object_id for ref in observation.subject_refs),
     }
     if isinstance(mission_id, str) and mission_id:
         tokens.add("successor_mission:" + mission_id)
