@@ -23,5 +23,3 @@ def canonical_subject_keys(subjects: Sequence[BusinessObjectRef | dict[str, Any]
         reference = item if isinstance(item, BusinessObjectRef) else BusinessObjectRef.model_validate(item)
         canonical.add((reference.object_type.value, reference.object_id))
     return frozenset(canonical)
-
-

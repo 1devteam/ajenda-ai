@@ -360,9 +360,7 @@ class BusinessUnderstandingService:
         reference["contract_id"] = self.source_fingerprint(reference)
         return reference
 
-    def require_frozen_successor_reference(
-        self, *, tenant_id: str, measurement: BusinessMeasurement
-    ) -> None:
+    def require_frozen_successor_reference(self, *, tenant_id: str, measurement: BusinessMeasurement) -> None:
         """Reconstruct the frozen measurement contract from its mission owner.
 
         Callers must not treat a copied later-measurement JSON reference as

@@ -197,7 +197,6 @@ def test_materializes_authoritative_signal_and_preserves_weak_attribution(_canon
     ]
 
 
-
 def test_business_impact_observation_cannot_be_relabelled_as_decision_learning() -> None:
     from backend.services.ontology.decision_feedback import DecisionEpisodeReference, DecisionLearningSignal
 
@@ -216,6 +215,7 @@ def test_business_impact_observation_cannot_be_relabelled_as_decision_learning()
         DecisionLearningSignal.model_validate(
             {**signal.model_dump(mode="json"), "episode_reference": forged_reference.model_dump(mode="json")}
         )
+
 
 def test_same_artifacts_materialize_the_same_episode_and_learning_identity() -> None:
     service, request, _ = _fixture()

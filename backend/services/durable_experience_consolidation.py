@@ -146,7 +146,10 @@ class DurableExperienceConsolidationService:
                     observations.append((record, BusinessImpactObservation.model_validate(record.structured_payload)))
                 else:
                     signal = DecisionLearningSignal.model_validate(record.structured_payload)
-                    if signal.episode_reference is not None and signal.episode_reference.episode_kind != "mission_decision":
+                    if (
+                        signal.episode_reference is not None
+                        and signal.episode_reference.episode_kind != "mission_decision"
+                    ):
                         raise ValueError("observational business impact must not be Decision learning evidence")
                     parsed.append((record, signal))
             except DurableLearningHistoryError:
