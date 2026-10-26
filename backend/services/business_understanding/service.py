@@ -1257,7 +1257,7 @@ class BusinessUnderstandingService:
                 (
                     item.get("metric"),
                     item.get("direction", "increase"),
-                    item.get("unit", "") or None,
+                    str(item.get("unit") or "").strip() or None,
                 )
                 for item in baseline.values
             }
