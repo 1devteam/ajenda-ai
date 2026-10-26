@@ -163,6 +163,15 @@ def test_runtime_read_without_exact_measurement_contract_does_not_create_a_measu
             record_id="no-measurement",
             data={"name": "Ordinary opportunity"},
         )
+        TenantInternalRecordRepository(setup).write_record(
+            tenant_id=tenant,
+            record_type="opportunity",
+            record_id="wrong-subject",
+            data={
+                "name": "Unrelated source record",
+                "operating_measurement": _snapshot(subject_id="different-subject"),
+            },
+        )
         setup.commit()
 
     evidence = execute_canonical_action(
@@ -174,9 +183,23 @@ def test_runtime_read_without_exact_measurement_contract_does_not_create_a_measu
         action_input={"record_type": "opportunity", "record_id": "no-measurement"},
         worker_label="missing-measurement",
     )
+    wrong_subject = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
+        action="record.read",
+        action_input={"record_type": "opportunity", "record_id": "wrong-subject"},
+        worker_label="wrong-subject-source",
+    )
     with factory() as scoped:
         activate_tenant_session(scoped, tenant)
+        service = BusinessUnderstandingService(scoped)
         with pytest.raises(ValueError, match="no explicit operating_measurement"):
-            BusinessUnderstandingService(scoped).ingest_runtime_record_measurement(
+            service.ingest_runtime_record_measurement(
                 tenant_id=tenant, source_evidence_id=evidence.id, producer="missing-snapshot"
+            )
+        with pytest.raises(ValueError, match="exact read record identity"):
+            service.ingest_runtime_record_measurement(
+                tenant_id=tenant, source_evidence_id=wrong_subject.id, producer="wrong-source-instance"
             )
