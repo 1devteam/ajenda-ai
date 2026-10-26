@@ -258,7 +258,6 @@ def test_accept_measurement_pairing_is_idempotent_and_has_no_outcome_effect() ->
     service._repository.append_need_revision.assert_not_called()
 
 
-
 def test_pairing_replay_requires_the_exact_originating_need_revision() -> None:
     current, baseline, later = _fixture()
     earlier = _accepted_pairing(current=current, baseline=baseline, later=later)
@@ -305,7 +304,6 @@ def test_pairing_new_acceptance_rejects_a_stale_need_revision() -> None:
         tenant_id="tenant-a", need_id=current.need_id, for_update=True
     )
     service._repository.add_measurement_pairing.assert_not_called()
-
 
 
 def test_superseded_need_rejects_successor_reference_before_outcome_access() -> None:
