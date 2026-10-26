@@ -85,7 +85,9 @@ def _identity(value: object) -> str:
     return "business-impact-pattern-v1:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _context(observation: BusinessImpactObservation) -> tuple[str, str, tuple[str, ...], tuple[KpiSemanticSignature, ...]] | None:
+def _context(
+    observation: BusinessImpactObservation,
+) -> tuple[str, str, tuple[str, ...], tuple[KpiSemanticSignature, ...]] | None:
     provenance = observation.episode_reference.business_impact_provenance
     if not isinstance(provenance, dict):
         return None
@@ -123,7 +125,12 @@ def _context(observation: BusinessImpactObservation) -> tuple[str, str, tuple[st
     observed_subjects = {(ref.object_type.value, ref.object_id) for ref in observation.subject_refs}
     if exact != observed_subjects:
         return None
-    kpis = tuple(sorted(set(observation.kpi_semantic_signatures), key=lambda item: (item.metric, item.direction.value, item.normalized_unit or "")))
+    kpis = tuple(
+        sorted(
+            set(observation.kpi_semantic_signatures),
+            key=lambda item: (item.metric, item.direction.value, item.normalized_unit or ""),
+        )
+    )
     if metric not in {item.metric for item in kpis}:
         return None
     return response, objective, tuple(sorted({item.object_type.value for item in observation.subject_refs})), kpis
@@ -151,10 +158,15 @@ def _direction(observation: BusinessImpactObservation) -> ObservedChangeDirectio
         return ObservedChangeDirection.FAVORABLE
     if regressed and observation.outcome_status == OutcomeStatus.REGRESSED:
         return ObservedChangeDirection.REGRESSION
-    if not improved and not regressed and observation.outcome_status in {
-        OutcomeStatus.ACHIEVED,
-        OutcomeStatus.NO_MATERIAL_CHANGE,
-    }:
+    if (
+        not improved
+        and not regressed
+        and observation.outcome_status
+        in {
+            OutcomeStatus.ACHIEVED,
+            OutcomeStatus.NO_MATERIAL_CHANGE,
+        }
+    ):
         return ObservedChangeDirection.NO_MATERIAL_CHANGE
     return ObservedChangeDirection.INDETERMINATE
 
@@ -214,7 +226,9 @@ def evaluate_business_impact_recurrence(
             raise ValueError("business impact recurrence has a conflicting logical episode")
         by_episode[episode_id] = observation
 
-    partitions: dict[tuple[str, str, tuple[str, ...], tuple[KpiSemanticSignature, ...]], list[BusinessImpactObservation]] = defaultdict(list)
+    partitions: dict[
+        tuple[str, str, tuple[str, ...], tuple[KpiSemanticSignature, ...]], list[BusinessImpactObservation]
+    ] = defaultdict(list)
     unknown: list[str] = []
     for episode_id, observation in sorted(by_episode.items()):
         key = _context(observation)
@@ -225,15 +239,41 @@ def evaluate_business_impact_recurrence(
 
     candidates: list[BusinessImpactPatternCandidate] = []
     singletons: list[str] = []
-    for key, entries in sorted(partitions.items(), key=lambda pair: (pair[0][0], pair[0][1], pair[0][2], str(pair[0][3]))):
+    for key, entries in sorted(
+        partitions.items(), key=lambda pair: (pair[0][0], pair[0][1], pair[0][2], str(pair[0][3]))
+    ):
         if len(entries) == 1:
             singletons.append(entries[0].episode_reference.episode_id)
             continue
         groups = _groups(entries)
-        favorable = tuple(sorted(item.episode_reference.episode_id for item in entries if _direction(item) == ObservedChangeDirection.FAVORABLE))
-        regression = tuple(sorted(item.episode_reference.episode_id for item in entries if _direction(item) == ObservedChangeDirection.REGRESSION))
-        neutral = tuple(sorted(item.episode_reference.episode_id for item in entries if _direction(item) == ObservedChangeDirection.NO_MATERIAL_CHANGE))
-        inconclusive = tuple(sorted(item.episode_reference.episode_id for item in entries if _direction(item) == ObservedChangeDirection.INDETERMINATE))
+        favorable = tuple(
+            sorted(
+                item.episode_reference.episode_id
+                for item in entries
+                if _direction(item) == ObservedChangeDirection.FAVORABLE
+            )
+        )
+        regression = tuple(
+            sorted(
+                item.episode_reference.episode_id
+                for item in entries
+                if _direction(item) == ObservedChangeDirection.REGRESSION
+            )
+        )
+        neutral = tuple(
+            sorted(
+                item.episode_reference.episode_id
+                for item in entries
+                if _direction(item) == ObservedChangeDirection.NO_MATERIAL_CHANGE
+            )
+        )
+        inconclusive = tuple(
+            sorted(
+                item.episode_reference.episode_id
+                for item in entries
+                if _direction(item) == ObservedChangeDirection.INDETERMINATE
+            )
+        )
         favorable_groups = sum(bool(set(group) & set(favorable)) for group in groups)
         regression_groups = sum(bool(set(group) & set(regression)) for group in groups)
         if len(groups) < 2:
@@ -248,33 +288,40 @@ def evaluate_business_impact_recurrence(
             status = ObservationalRecurrenceStatus.INSUFFICIENT
         times = sorted(item.evaluated_at.isoformat() for item in entries)
         response, objective, subject_types, kpis = key
-        identity = _identity({
-            "response": response,
-            "objective": objective,
-            "subject_types": subject_types,
-            "kpis": [item.model_dump(mode="json") for item in kpis],
-        })
-        candidates.append(BusinessImpactPatternCandidate(
-            pattern_id=identity,
-            selected_candidate_response_key=response,
-            objective_key=objective,
-            subject_types=subject_types,
-            kpi_semantic_signatures=kpis,
-            status=status,
-            episode_ids=tuple(sorted(item.episode_reference.episode_id for item in entries)),
-            non_overlapping_lineage_groups=groups,
-            favorable_episode_ids=favorable,
-            regression_episode_ids=regression,
-            neutral_episode_ids=neutral,
-            inconclusive_episode_ids=inconclusive,
-            customer_attested_episode_ids=tuple(sorted(
-                item.episode_reference.episode_id
-                for item in entries
-                if item.baseline_source_kind == "customer_attested" or item.observed_source_kind == "customer_attested"
-            )),
-            earliest_evaluated_at=times[0],
-            latest_evaluated_at=times[-1],
-        ))
+        identity = _identity(
+            {
+                "response": response,
+                "objective": objective,
+                "subject_types": subject_types,
+                "kpis": [item.model_dump(mode="json") for item in kpis],
+            }
+        )
+        candidates.append(
+            BusinessImpactPatternCandidate(
+                pattern_id=identity,
+                selected_candidate_response_key=response,
+                objective_key=objective,
+                subject_types=subject_types,
+                kpi_semantic_signatures=kpis,
+                status=status,
+                episode_ids=tuple(sorted(item.episode_reference.episode_id for item in entries)),
+                non_overlapping_lineage_groups=groups,
+                favorable_episode_ids=favorable,
+                regression_episode_ids=regression,
+                neutral_episode_ids=neutral,
+                inconclusive_episode_ids=inconclusive,
+                customer_attested_episode_ids=tuple(
+                    sorted(
+                        item.episode_reference.episode_id
+                        for item in entries
+                        if item.baseline_source_kind == "customer_attested"
+                        or item.observed_source_kind == "customer_attested"
+                    )
+                ),
+                earliest_evaluated_at=times[0],
+                latest_evaluated_at=times[-1],
+            )
+        )
     return BusinessImpactRecurrenceResult(
         pattern_candidates=tuple(sorted(candidates, key=lambda item: item.pattern_id)),
         singleton_episode_ids=tuple(sorted(singletons)),
