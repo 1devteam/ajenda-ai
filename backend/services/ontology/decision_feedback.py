@@ -275,6 +275,8 @@ class DecisionLearningSignal(BaseModel):
 
     @model_validator(mode="after")
     def validate_subject_semantic_consistency(self) -> DecisionLearningSignal:
+        if self.episode_reference is not None and self.episode_reference.episode_kind != "mission_decision":
+            raise ValueError("business impact observations cannot be Decision learning signals")
         if self.subject_refs and self.subject_semantic_signatures:
             exact_classes = {ref.object_type for ref in self.subject_refs}
             semantic_classes = {signature.object_type for signature in self.subject_semantic_signatures}
