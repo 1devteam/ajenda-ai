@@ -144,6 +144,37 @@ def test_canonical_record_read_admits_exact_source_measurement_without_claiming_
         assert replay_from_another_task.source_reference["evidence_id"] == str(evidence.id)
         scoped.commit()
 
+    # A source that reuses the same revision name for changed commercial
+    # values must not create another measurement identity or need history.
+    changed_snapshot = _snapshot(subject_id=record_id)
+    changed_kpi = dict(changed_snapshot["kpis"][0])
+    changed_kpi["current_value"] = 0.75
+    changed_snapshot["kpis"] = [changed_kpi]
+    with factory() as setup:
+        TenantInternalRecordRepository(setup).write_record(
+            tenant_id=tenant,
+            record_type="opportunity",
+            record_id=record_id,
+            data={"name": "Conflicting source revision", "operating_measurement": changed_snapshot},
+        )
+        setup.commit()
+    conflicting_read = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
+        action="record.read",
+        action_input={"record_type": "opportunity", "record_id": record_id},
+        worker_label="same-version-different-content",
+    )
+    with factory() as scoped:
+        activate_tenant_session(scoped, tenant)
+        with pytest.raises(BusinessUnderstandingValidationError, match="source revision conflicts"):
+            BusinessUnderstandingService(scoped).ingest_runtime_record_measurement(
+                tenant_id=tenant, source_evidence_id=conflicting_read.id, producer="changed-source"
+            )
+        scoped.rollback()
+
     with factory() as outside:
         activate_tenant_session(outside, foreign)
         with pytest.raises(ValueError, match="inaccessible for tenant"):

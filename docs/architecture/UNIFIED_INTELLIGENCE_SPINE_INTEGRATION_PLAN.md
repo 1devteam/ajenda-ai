@@ -163,6 +163,9 @@ Business Understanding service and the existing EvidenceBridge validator:
    source, not an invented customer instruction. Multiple canonical reads of
    identical source content and version reuse one measurement fingerprint,
    with the first canonical evidence ID retained as the stable origin.
+   A source record that reuses the same revision name with contradictory
+   content is rejected. The tenant-scoped advisory transaction lock ensures
+   concurrent first writes cannot bypass this version conflict check.
 5. Source provenance **is not KPI truth**. Tenant records can themselves be
    customer-authored or contain mistakes. The ingress records explicit
    `source_read_proved_not_kpi_truth`, `source_independence_not_established`,

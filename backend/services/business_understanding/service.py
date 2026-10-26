@@ -220,6 +220,21 @@ class BusinessUnderstandingService:
             ),
         }
         fingerprint = self.source_fingerprint(payload)
+        if source_kind == "source_verified":
+            # A source revision cannot legitimately claim two different
+            # commercial snapshots. The tenant/revision advisory transaction
+            # lock also rejects competing writers when no row yet exists.
+            previous_revision = self._repository.lock_verified_source_revision(
+                tenant_id=tenant_id,
+                source_system=source_reference["source_system"],
+                record_type=source_reference["record_type"],
+                record_id=source_reference["record_id"],
+                source_version=source_version,
+            )
+            if previous_revision is not None and previous_revision.source_content_fingerprint != fingerprint:
+                raise BusinessUnderstandingValidationError(
+                    "source revision conflicts with previously accepted measurement content"
+                )
         measurement = self._repository.get_measurement_by_fingerprint_for_tenant(
             tenant_id=tenant_id, fingerprint=fingerprint
         )
