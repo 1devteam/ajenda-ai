@@ -388,6 +388,49 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
                 producer="knowledge-integration-proof",
                 request=mismatched_response,
             )
+        goal_instance_mismatch = req.model_copy(
+            update={
+                "goal": assessment_goal.model_copy(
+                    update={"goal_id": "different-instance"}
+                )
+            }
+        )
+        with pytest.raises(ValueError, match="goal semantics disagree"):
+            BusinessNeedReasoningService(
+                BusinessUnderstandingRepository(scoped), evidence_session=scoped
+            ).assess(
+                tenant_id=tenant,
+                need_id=need.need_id,
+                revision=1,
+                producer="knowledge-integration-proof",
+                request=goal_instance_mismatch,
+            )
+        future_knowledge = req.model_copy(
+            update={"evaluated_at": datetime(2020, 1, 1, tzinfo=UTC)}
+        )
+        with pytest.raises(ValueError, match="future knowledge evidence"):
+            BusinessNeedReasoningService(
+                BusinessUnderstandingRepository(scoped), evidence_session=scoped
+            ).assess(
+                tenant_id=tenant,
+                need_id=need.need_id,
+                revision=1,
+                producer="knowledge-integration-proof",
+                request=future_knowledge,
+            )
+        mismatched_caller_support = req.model_copy(
+            update={"knowledge_support": first.output["support"] | {"support_id": "caller-forged"}}
+        )
+        with pytest.raises(ValueError, match="differs from canonical runtime evidence"):
+            BusinessNeedReasoningService(
+                BusinessUnderstandingRepository(scoped), evidence_session=scoped
+            ).assess(
+                tenant_id=tenant,
+                need_id=need.need_id,
+                revision=1,
+                producer="knowledge-integration-proof",
+                request=mismatched_caller_support,
+            )
         scoped.commit()
 
     execution_authority = seed_execution_authority(factory=factory, tenant_id=tenant)
@@ -494,6 +537,22 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
             )
         )
         setup.commit()
+    # A public Evidence row with copied Knowledge JSON still cannot authorize
+    # an assessment, even when a genuine Knowledge support artifact exists.
+    with factory() as scoped:
+        activate_tenant_session(scoped, tenant)
+        forged_request = req.model_copy(update={"knowledge_support_evidence_id": forged_composed_id})
+        with pytest.raises(CanonicalToolEvidenceError, match="materialization reference"):
+            BusinessNeedReasoningService(
+                BusinessUnderstandingRepository(scoped), evidence_session=scoped
+            ).assess(
+                tenant_id=tenant,
+                need_id=need.need_id,
+                revision=1,
+                producer="knowledge-integration-proof",
+                request=forged_request,
+            )
+
     with pytest.raises(CanonicalToolEvidenceError, match="materialization reference"):
         registry.invoke(
             ToolInvocation(
