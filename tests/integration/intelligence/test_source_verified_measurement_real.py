@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from threading import Barrier
 
 import pytest
 from sqlalchemy.orm import sessionmaker
@@ -255,3 +257,73 @@ def test_runtime_read_without_exact_measurement_contract_does_not_create_a_measu
             service.ingest_runtime_record_measurement(
                 tenant_id=tenant, source_evidence_id=wrong_subject.id, producer="wrong-source-instance"
             )
+
+
+def test_two_competing_source_reads_cannot_commit_contradictory_first_revision(
+    pg_engine, queue_adapter
+) -> None:
+    tenant = str(uuid.uuid4())
+    mission_id = uuid.uuid4()
+    record_id = "concurrent-source"
+    factory = sessionmaker(bind=pg_engine, expire_on_commit=False)
+    with factory() as setup:
+        setup.add(Tenant(id=uuid.UUID(tenant), name="Concurrent source", slug=f"concurrent-{tenant[:8]}", plan="free"))
+        setup.add(Mission(id=mission_id, tenant_id=tenant, objective="Competing immutable source revisions"))
+        setup.flush()
+        TenantInternalRecordRepository(setup).write_record(
+            tenant_id=tenant,
+            record_type="opportunity",
+            record_id=record_id,
+            data={"name": "First source revision", "operating_measurement": _snapshot(subject_id=record_id)},
+        )
+        setup.commit()
+    first = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
+        action="record.read",
+        action_input={"record_type": "opportunity", "record_id": record_id},
+        worker_label="first-revision-observer",
+    )
+    changed = _snapshot(subject_id=record_id)
+    kpi = dict(changed["kpis"][0])
+    kpi["current_value"] = 0.75
+    changed["kpis"] = [kpi]
+    with factory() as setup:
+        TenantInternalRecordRepository(setup).write_record(
+            tenant_id=tenant,
+            record_type="opportunity",
+            record_id=record_id,
+            data={"name": "Conflicting source content", "operating_measurement": changed},
+        )
+        setup.commit()
+    second = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
+        action="record.read",
+        action_input={"record_type": "opportunity", "record_id": record_id},
+        worker_label="second-revision-observer",
+    )
+    ready = Barrier(2)
+
+    def write(evidence_id: uuid.UUID) -> str:
+        with factory() as scoped:
+            activate_tenant_session(scoped, tenant)
+            ready.wait(timeout=20)
+            try:
+                BusinessUnderstandingService(scoped).ingest_runtime_record_measurement(
+                    tenant_id=tenant, source_evidence_id=evidence_id, producer="competing-source"
+                )
+                scoped.commit()
+                return "committed"
+            except BusinessUnderstandingValidationError as exc:
+                scoped.rollback()
+                assert "source revision conflicts" in str(exc)
+                return "conflict_rejected"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(write, (first.id, second.id)))
+    assert sorted(results) == ["committed", "conflict_rejected"]
