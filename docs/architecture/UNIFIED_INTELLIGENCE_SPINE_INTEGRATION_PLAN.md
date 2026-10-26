@@ -97,6 +97,45 @@ composition consumption of bounded applicability, and production scheduling
 of the complete measurement-to-learning loop. These require independent
 acceptance rather than weakening existing intervention semantics.
 
+## October 26, 2026 — Noncausal business-impact recurrence (PR #631)
+
+PR #630 merged a source-proven Knowledge influence boundary; neither it nor
+PR #629 establishes recurrence or Knowledge from observational business impact.
+
+The next bounded layer connects canonical `BusinessImpactObservation` history
+to an **inspect-only** recurrence result without entering the existing
+mission-decision Experience or intervention Knowledge qualification path.
+
+- Partition by the frozen selected response, originating objective, canonical
+  business-object classes, and KPI semantic meaning. A response key remains
+  strategy provenance, not an executed intervention identity.
+- Collapse shared business-object instances, source measurements, selected
+  successor mission, accepted pairing, and outcome evidence into dependent
+  lineage groups. Replayed or correlated observations cannot create
+  independent recurrence.
+- Preserve favorable, regressed, unchanged, and inconclusive observations
+  separately. Classify movement from KPI before/after gap deltas, not a goal's
+  `achieved` status by itself (the baseline may already have been at target).
+  Repeated favorable observations describe correlation only, even when
+  observed source kinds are recorded as `source_verified`.
+- Preserve customer-attested trust limitations. A source-kind label is not
+  external verification, and timestamp provenance is not evidence that the
+  KPI source was independently verified.
+- Do not generate Decision-learning signals, Knowledge propositions, policy,
+  authorization, or execution from observation-only recurrence.
+
+**Acceptance pending PR #631 CI:** deterministic ordering, stable identities,
+replay deduplication, contradictory/overlapping history, tenant and canonical
+runtime provenance, and evidence that observational candidates never reach the
+Knowledge Ledger writer.
+
+**Unfinished beyond this milestone:** scientifically defensible independence
+of source providers, a dedicated observational Knowledge relationship and
+qualification protocol, retrieval and applicability semantics for observational
+knowledge, and actual later-decision reuse. The existing
+`associated_with_favorable_outcome` intervention relationship must not be
+reused for a merely selected response.
+
 ## Purpose
 
 Ajenda already has the principal owners needed for a complete intelligence

@@ -16,6 +16,10 @@ from backend.services.knowledge.knowledge_ledger import (
     record_knowledge_qualification,
 )
 from backend.services.ontology.business_impact_observation import BusinessImpactObservation
+from backend.services.ontology.business_impact_recurrence import (
+    BusinessImpactRecurrenceResult,
+    evaluate_business_impact_recurrence,
+)
 from backend.services.ontology.decision_feedback import DecisionLearningSignal
 from backend.services.ontology.experience_intelligence import (
     ExperienceEpisodeInput,
@@ -66,6 +70,7 @@ class ExperienceConsolidationResult(BaseModel):
     authoritative_episode_ids: tuple[str, ...] = ()
     legacy_signal_ids: tuple[str, ...] = ()
     observational_episode_ids: tuple[str, ...] = ()
+    observational_recurrence: BusinessImpactRecurrenceResult = Field(default_factory=BusinessImpactRecurrenceResult)
     duplicate_evidence_record_ids: tuple[str, ...] = ()
     malformed_signal_ids: tuple[str, ...] = ()
     experience: ExperienceIntelligenceResult
@@ -213,6 +218,9 @@ class DurableExperienceConsolidationService:
                 )
             ),
             observational_episode_ids=tuple(sorted(by_observation)),
+            observational_recurrence=evaluate_business_impact_recurrence(
+                [item[1] for _, item in sorted(by_observation.items())]
+            ),
             legacy_signal_ids=tuple(
                 sorted(signal.signal_id for _, signal in parsed if signal.episode_reference is None)
             ),

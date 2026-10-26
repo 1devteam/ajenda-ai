@@ -17,6 +17,7 @@ from backend.services.ontology.decision_feedback import DecisionEpisodeReference
 from backend.services.ontology.observation_attribution import ObservationVerificationBasis
 from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError
+from tests.unit.ontology.test_business_impact_recurrence import observation
 from tests.unit.ontology.test_experience_intelligence import signal
 
 
@@ -182,4 +183,22 @@ def test_declarative_learning_signal_cannot_reach_experience_or_knowledge(
 
     experience.assert_not_called()
     qualification.assert_not_called()
+    writer.assert_not_called()
+
+
+def test_observational_history_is_not_promoted_to_intervention_knowledge(monkeypatch) -> None:
+    obs = observation(index=19)
+    candidate = record(1, obs.model_dump(mode="json"))
+    candidate.provenance_metadata["evidence_role"] = "business_impact_observation"
+    writer = Mock(side_effect=AssertionError("observation may not enter Knowledge Ledger"))
+    monkeypatch.setattr("backend.services.durable_experience_consolidation.record_knowledge_qualification", writer)
+
+    result = DurableExperienceConsolidationService(history=History([candidate])).consolidate(
+        Mock(), tenant_id="tenant-A"
+    )
+
+    assert result.observational_episode_ids == (obs.episode_reference.episode_id,)
+    assert result.observational_recurrence.singleton_episode_ids == result.observational_episode_ids
+    assert result.valid_learning_signal_ids == ()
+    assert result.qualifications == ()
     writer.assert_not_called()
