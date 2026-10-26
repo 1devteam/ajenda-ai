@@ -11,7 +11,7 @@ def test_provider_runtime_credential_migration_is_current_head_and_short_revisio
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0061_measurement_contract_ref"]
+    assert heads == ["0062_measurement_pairings"]
     assert len(heads[0]) <= 32
 
 

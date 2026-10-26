@@ -45,6 +45,7 @@ def _fixture():
         intended_measurement_reference=None,
     )
     current = SimpleNamespace(
+        id=uuid4(),
         need_id="need-a",
         revision=3,
         status="recognized",
@@ -84,6 +85,22 @@ def _resign(reference: dict) -> None:
     )
 
 
+def _accepted_pairing(*, current, baseline, later):
+    return SimpleNamespace(
+        id=uuid4(),
+        need_id=current.need_id,
+        need_revision=current.revision,
+        need_revision_id=current.id,
+        baseline_measurement_id=baseline.id,
+        observed_measurement_id=later.id,
+        successor_contract_id=later.intended_measurement_reference["contract_id"],
+        status="accepted",
+        outcome_evidence_id=None,
+        outcome_evaluation_id=None,
+        impact_revision_id=None,
+    )
+
+
 def test_valid_successor_reference_does_not_replace_outcome_evidence() -> None:
     current, baseline, later = _fixture()
     BusinessUnderstandingService._validate_measurement_comparability(current=current, baseline=baseline, later=later)
@@ -95,6 +112,8 @@ def test_valid_successor_reference_does_not_replace_outcome_evidence() -> None:
     service._repository = MagicMock()
     service._repository.get_need_revision_for_tenant.return_value = current
     service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
+    pairing = _accepted_pairing(current=current, baseline=baseline, later=later)
+    service._repository.lock_measurement_pairing_for_tenant.return_value = pairing
     with patch("backend.services.business_understanding.service.EvidenceRepository") as evidence_repository:
         evidence_repository.return_value.get_for_tenant.return_value = None
         with pytest.raises(BusinessUnderstandingValidationError, match="canonical outcome evidence"):
@@ -105,6 +124,7 @@ def test_valid_successor_reference_does_not_replace_outcome_evidence() -> None:
                 baseline_measurement_id=baseline.id,
                 observed_measurement_id=later.id,
                 outcome_evidence_id=uuid4(),
+                accepted_measurement_pairing_id=pairing.id,
                 producer="unit-test",
             )
         evidence_repository.return_value.get_for_tenant.assert_called_once()
@@ -159,6 +179,8 @@ def test_contradictory_successor_reference_rejected_before_outcome_access(field:
     service._repository = MagicMock()
     service._repository.get_need_revision_for_tenant.return_value = current
     service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
+    pairing = _accepted_pairing(current=current, baseline=baseline, later=later)
+    service._repository.lock_measurement_pairing_for_tenant.return_value = pairing
     with patch("backend.services.business_understanding.service.EvidenceRepository") as evidence_repository:
         with pytest.raises(BusinessUnderstandingValidationError):
             service.record_canonical_measurement_impact(
@@ -168,6 +190,7 @@ def test_contradictory_successor_reference_rejected_before_outcome_access(field:
                 baseline_measurement_id=baseline.id,
                 observed_measurement_id=later.id,
                 outcome_evidence_id=uuid4(),
+                accepted_measurement_pairing_id=pairing.id,
                 producer="unit-test",
             )
         evidence_repository.assert_not_called()
@@ -239,6 +262,8 @@ def test_superseded_need_rejects_successor_reference_before_outcome_access() -> 
     service._repository = MagicMock()
     service._repository.get_need_revision_for_tenant.return_value = current
     service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
+    pairing = _accepted_pairing(current=current, baseline=baseline, later=later)
+    service._repository.lock_measurement_pairing_for_tenant.return_value = pairing
 
     with patch("backend.services.business_understanding.service.EvidenceRepository") as evidence_repository:
         with pytest.raises(BusinessUnderstandingValidationError, match="superseded need"):
@@ -249,6 +274,7 @@ def test_superseded_need_rejects_successor_reference_before_outcome_access() -> 
                 baseline_measurement_id=baseline.id,
                 observed_measurement_id=later.id,
                 outcome_evidence_id=uuid4(),
+                accepted_measurement_pairing_id=pairing.id,
                 producer="unit-test",
             )
         evidence_repository.assert_not_called()

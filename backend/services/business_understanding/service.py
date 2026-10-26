@@ -564,7 +564,9 @@ class BusinessUnderstandingService:
                 or pairing.baseline_measurement_id != baseline_measurement_id
                 or pairing.observed_measurement_id != observed_measurement_id
             ):
-                raise BusinessUnderstandingValidationError("impact request contradicts the accepted measurement pairing")
+                raise BusinessUnderstandingValidationError(
+                    "impact request contradicts the accepted measurement pairing"
+                )
             if pairing.status == "evaluated" and pairing.outcome_evidence_id != outcome_evidence_id:
                 raise BusinessUnderstandingValidationError("accepted measurement pairing is already evaluated")
         current = self._repository.get_need_revision_for_tenant(
@@ -572,6 +574,16 @@ class BusinessUnderstandingService:
         )
         if current is None:
             raise BusinessUnderstandingValidationError("need revision was not found for tenant")
+        if (
+            pairing is not None
+            and pairing.status == "accepted"
+            and (pairing.need_revision != current.revision or pairing.need_revision_id != current.id)
+        ):
+            # Acceptance freezes the exact need revision that established
+            # comparability.  A later revision may be independently valid,
+            # but it cannot be silently evaluated as though it were the
+            # condition that accepted this pairing.
+            raise BusinessUnderstandingValidationError("accepted measurement pairing need revision is stale")
         baseline = self._repository.get_measurement_for_tenant(
             tenant_id=tenant_id, measurement_id=baseline_measurement_id
         )
@@ -595,15 +607,25 @@ class BusinessUnderstandingService:
         except ValueError as exc:
             raise BusinessUnderstandingValidationError("canonical outcome evidence is invalid") from exc
         if pairing is not None and outcome.accepted_measurement_pairing_id != pairing.id:
-            raise BusinessUnderstandingValidationError("canonical outcome evaluation does not reference the accepted pairing")
+            raise BusinessUnderstandingValidationError(
+                "canonical outcome evaluation does not reference the accepted pairing"
+            )
         if pairing is not None and pairing.status == "evaluated":
-            if pairing.outcome_evaluation_id != outcome.outcome_evaluation_id or pairing.impact_revision_id is None:
-                raise BusinessUnderstandingValidationError("accepted measurement pairing evaluation identity is invalid")
+            if (
+                pairing.outcome_evidence_id != evidence.id
+                or pairing.outcome_evaluation_id != outcome.outcome_evaluation_id
+                or pairing.impact_revision_id is None
+            ):
+                raise BusinessUnderstandingValidationError(
+                    "accepted measurement pairing evaluation identity is invalid"
+                )
             revision = self._repository.get_need_revision_by_id_for_tenant(
                 tenant_id=tenant_id, revision_id=pairing.impact_revision_id
             )
             if revision is None:
-                raise BusinessUnderstandingValidationError("accepted measurement pairing impact revision is unavailable")
+                raise BusinessUnderstandingValidationError(
+                    "accepted measurement pairing impact revision is unavailable"
+                )
             return revision, outcome
         self._validate_outcome_matches_measurements(outcome=outcome, baseline=baseline, later=later)
         observation = self._repository.get_observation_by_source_fingerprint_for_tenant(
@@ -640,40 +662,56 @@ class BusinessUnderstandingService:
             "baseline_measurement_id": str(baseline.id),
             "observed_measurement_id": str(later.id),
             "outcome_evidence_id": str(evidence.id),
+            "outcome_evaluation_id": outcome.outcome_evaluation_id,
         }
+        if pairing is not None:
+            impact["accepted_measurement_pairing_id"] = str(pairing.id)
         if outcome.status == OutcomeStatus.INCONCLUSIVE:
             impact["status"] = "uncertain"
-        revision = self.append_need_revision(
-            tenant_id=tenant_id,
-            need_id=need_id,
-            expected_revision=expected_revision,
-            origin="observed",
-            status=status,
-            subject_references=list(current.subject_references),
-            objective_reference=dict(current.objective_reference or {}),
-            condition_summary=current.condition_summary,
-            uncertainty=[*current.uncertainty, {"code": "impact_causation_requires_attribution"}],
-            priority=current.priority,
-            confidence=current.confidence,
-            observation_ids=[*([uuid.UUID(item) for item in prior_ids]), observation.id],
-            related_need_references=list(current.related_need_references),
-            candidate_responses=list(current.candidate_responses),
-            proposal_references=list(current.proposal_references),
-            mission_references=list(
-                {
-                    str(item["mission_id"]): item
-                    for item in [*current.mission_references, canonical_mission_reference]
-                    if isinstance(item, dict) and item.get("mission_id")
-                }.values()
-            ),
-            impact_assessment=self._append_impact_history(current.impact_assessment, impact),
-            resolution_observation_ids=[
-                uuid.UUID(str(item["observation_id"]))
-                for item in current.resolution_observation_references
-                if isinstance(item, dict) and item.get("observation_id")
-            ],
-            producer=producer,
-        )
+        # The route/service caller owns the outer transaction.  This nested
+        # boundary is deliberately *not* the durability mechanism: it makes a
+        # pairing-finalization failure roll back the just-appended revision,
+        # while the caller's commit (or rollback) publishes (or discards) both
+        # records together.  No commit is performed here.
+        with self._session.begin_nested():
+            revision = self.append_need_revision(
+                tenant_id=tenant_id,
+                need_id=need_id,
+                expected_revision=expected_revision,
+                origin="observed",
+                status=status,
+                subject_references=list(current.subject_references),
+                objective_reference=dict(current.objective_reference or {}),
+                condition_summary=current.condition_summary,
+                uncertainty=[*current.uncertainty, {"code": "impact_causation_requires_attribution"}],
+                priority=current.priority,
+                confidence=current.confidence,
+                observation_ids=[*([uuid.UUID(item) for item in prior_ids]), observation.id],
+                related_need_references=list(current.related_need_references),
+                candidate_responses=list(current.candidate_responses),
+                proposal_references=list(current.proposal_references),
+                mission_references=list(
+                    {
+                        str(item["mission_id"]): item
+                        for item in [*current.mission_references, canonical_mission_reference]
+                        if isinstance(item, dict) and item.get("mission_id")
+                    }.values()
+                ),
+                impact_assessment=self._append_impact_history(current.impact_assessment, impact),
+                resolution_observation_ids=[
+                    uuid.UUID(str(item["observation_id"]))
+                    for item in current.resolution_observation_references
+                    if isinstance(item, dict) and item.get("observation_id")
+                ],
+                producer=producer,
+            )
+            if pairing is not None:
+                pairing.status = "evaluated"
+                pairing.outcome_evidence_id = evidence.id
+                pairing.outcome_evaluation_id = outcome.outcome_evaluation_id
+                pairing.impact_revision_id = revision.id
+                pairing.evaluated_at = outcome.evaluated_at
+                self._session.flush()
         return revision, outcome
 
     def accept_measurement_pairing(
@@ -938,6 +976,8 @@ class BusinessUnderstandingService:
                 "baseline_measurement_id",
                 "observed_measurement_id",
                 "outcome_evidence_id",
+                "outcome_evaluation_id",
+                "accepted_measurement_pairing_id",
             }
         }
         result["condition_fingerprint"] = expected
