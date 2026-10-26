@@ -1084,9 +1084,27 @@ class BusinessUnderstandingService:
             raise BusinessUnderstandingValidationError("impact measurements do not match the need subject")
         if baseline.objective_key != later.objective_key:
             raise BusinessUnderstandingValidationError("impact measurements concern different objectives")
-        baseline_metrics = {(item.get("kpi_id"), item.get("metric"), item.get("unit", "")) for item in baseline.values}
-        later_metrics = {(item.get("kpi_id"), item.get("metric"), item.get("unit", "")) for item in later.values}
-        if baseline_metrics != later_metrics:
+        # KPI meaning is stable across the comparison, not merely its display key.
+        # Direction, required status and maintain tolerance affect Outcome's
+        # conclusion even when the numeric before/after values are identical.
+        def definition(item: dict[str, Any]) -> tuple[Any, ...]:
+            return (
+                item.get("kpi_id"),
+                item.get("goal_id"),
+                item.get("metric"),
+                item.get("unit", ""),
+                item.get("direction", "increase"),
+                item.get("required", True),
+                item.get("maintain_tolerance"),
+            )
+
+        baseline_metrics = {definition(item) for item in baseline.values}
+        later_metrics = {definition(item) for item in later.values}
+        if (
+            baseline_metrics != later_metrics
+            or len(baseline_metrics) != len(baseline.values)
+            or len(later_metrics) != len(later.values)
+        ):
             raise BusinessUnderstandingValidationError("impact measurements are not comparable")
         baseline_end = baseline.period_end or baseline.observed_at
         later_start = later.period_start or later.observed_at
@@ -1204,16 +1222,26 @@ class BusinessUnderstandingService:
         *, outcome: OutcomeEvaluation, baseline: BusinessMeasurement, later: BusinessMeasurement
     ) -> None:
         baseline_values = {
-            str(item.get("kpi_id")): (item.get("current_value"), item.get("target_value"), item.get("metric"))
-            for item in baseline.values
+            str(item.get("kpi_id")): item for item in baseline.values
         }
         later_values = {
-            str(item.get("kpi_id")): (item.get("current_value"), item.get("target_value"), item.get("metric"))
-            for item in later.values
+            str(item.get("kpi_id")): item for item in later.values
         }
-        deltas = {item.kpi_id: (item.before, item.after, item.target, item.metric) for item in outcome.kpi_deltas}
+        deltas = {
+            item.kpi_id: (
+                item.before, item.after, item.target, item.metric, item.direction.value, item.required
+            )
+            for item in outcome.kpi_deltas
+        }
         expected = {
-            kpi_id: (before[0], later_values[kpi_id][0], later_values[kpi_id][1], before[2])
+            kpi_id: (
+                before.get("current_value"),
+                later_values[kpi_id].get("current_value"),
+                later_values[kpi_id].get("target_value"),
+                before.get("metric"),
+                before.get("direction", "increase"),
+                before.get("required", True),
+            )
             for kpi_id, before in baseline_values.items()
             if kpi_id in later_values
         }
