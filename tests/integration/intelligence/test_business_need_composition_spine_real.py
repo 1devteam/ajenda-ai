@@ -597,7 +597,7 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
         observation = episode.business_impact_observation
         assert observation is not None
         assert observation.execution_status == "unknown"
-        assert observation.selected_candidate_response_key == "improve_lead_qualification"
+        assert observation.selected_candidate_response_key == "inspect_funnel"
         provenance = episode.episode_reference.business_impact_provenance
         assert provenance is not None
         assert provenance["accepted_measurement_pairing_id"] == str(pairing.id)
