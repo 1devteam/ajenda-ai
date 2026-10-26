@@ -781,9 +781,7 @@ class BusinessUnderstandingService:
                     "accepted measurement pairing replay contradicts originating need revision"
                 )
             return existing
-        latest = self._repository.get_latest_need_for_tenant(
-            tenant_id=tenant_id, need_id=need_id, for_update=True
-        )
+        latest = self._repository.get_latest_need_for_tenant(tenant_id=tenant_id, need_id=need_id, for_update=True)
         if latest is None or latest.id != current.id or latest.status == "superseded":
             raise BusinessUnderstandingValidationError("measurement pairing requires the latest active need revision")
         self._validate_measurement_comparability(current=current, baseline=baseline, later=later)
