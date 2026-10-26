@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.services.business_understanding.subject_identity import canonical_subject_keys
 from backend.services.knowledge.knowledge_decision_support import KnowledgeDecisionSupportResult
+from backend.services.knowledge.knowledge_retrieval import retrieve_current_knowledge
 from backend.services.ontology.commercial_state import Goal, Kpi, goal_semantic_signature
 from backend.services.ontology.types import BusinessObjectRef, business_object_semantic_signature
 from backend.services.tools.evidence_bridge import require_canonical_tool_action_evidence
@@ -65,6 +66,9 @@ def resolve_verified_assessment_knowledge_support(
     ):
         raise ValueError("assessment knowledge support belongs to different subject instances")
     query = support.applicability.retrieval.query
+    current_retrieval = retrieve_current_knowledge(session, tenant_id=tenant_id, query=query)
+    if current_retrieval.retrieval_id != support.applicability.retrieval.retrieval_id:
+        raise ValueError("assessment knowledge support references superseded Knowledge authority")
     expected_goal = goal_semantic_signature(goal, kpis)
     if (
         scoring_input.goal_ref is None
