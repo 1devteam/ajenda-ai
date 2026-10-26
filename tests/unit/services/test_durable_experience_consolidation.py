@@ -185,6 +185,7 @@ def test_declarative_learning_signal_cannot_reach_experience_or_knowledge(
     qualification.assert_not_called()
     writer.assert_not_called()
 
+
 def test_observational_history_is_not_promoted_to_intervention_knowledge(monkeypatch) -> None:
     obs = observation(index=19)
     candidate = record(1, obs.model_dump(mode="json"))
