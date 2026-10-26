@@ -13,10 +13,9 @@ import uuid
 from datetime import UTC, datetime
 from typing import Literal
 
-from sqlalchemy.orm import Session
-
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from backend.domain.business_understanding import BusinessNeedAssessment, BusinessNeedRevision
 from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
