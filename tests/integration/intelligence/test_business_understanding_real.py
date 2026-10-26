@@ -1148,3 +1148,41 @@ def test_upgrade_from_original_published_0057_creates_secured_measurement_schema
             )
             is True
         )
+
+
+def test_measurement_pairing_migration_round_trip_preserves_single_head_and_rls(pg_engine) -> None:
+    """0062 can be removed and reapplied without leaving a partial pairing schema."""
+
+    config = AlembicConfig("alembic.ini")
+    config.set_main_option("sqlalchemy.url", str(pg_engine.url))
+
+    alembic_command.downgrade(config, "0061_measurement_contract_ref")
+    assert not inspect(pg_engine).has_table("business_measurement_pairings")
+
+    alembic_command.upgrade(config, "head")
+    inspector = inspect(pg_engine)
+    assert inspector.has_table("business_measurement_pairings")
+    assert {item["name"] for item in inspector.get_indexes("business_measurement_pairings")} >= {
+        "ix_business_measurement_pairings_tenant_id",
+        "ix_business_measurement_pairings_tenant_need",
+    }
+    assert {item["name"] for item in inspector.get_unique_constraints("business_measurement_pairings")} >= {
+        "uq_business_measurement_pairings_retry",
+        "uq_business_measurement_pairings_outcome_evidence",
+        "uq_business_measurement_pairings_outcome_evaluation",
+        "uq_business_measurement_pairings_impact_revision",
+    }
+    with pg_engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT relrowsecurity AND relforcerowsecurity FROM pg_class "
+                    "WHERE oid = 'business_measurement_pairings'::regclass"
+                )
+            )
+            is True
+        )
+        policies = connection.scalars(
+            text("SELECT policyname FROM pg_policies WHERE tablename = 'business_measurement_pairings'")
+        ).all()
+    assert {"tenant_business_measurement_pairings_isolation", "admin_bypass"}.issubset(policies)

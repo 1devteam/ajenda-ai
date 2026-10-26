@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -103,6 +104,11 @@ class EvaluateOutcomeInput(BaseModel):
     missing_evidence_codes: list[str] = Field(default_factory=list)
     attribution: AttributionAssessment = AttributionAssessment.NOT_ASSESSED
     attribution_evidence: AttributionEvidenceInput | None = None
+    # This is lineage supplied by the measurement/impact owner.  The analysis
+    # action remains deterministic and read-only; the impact recorder later
+    # verifies that the persisted pairing really owns this evidence.
+    accepted_measurement_pairing_id: UUID | None = None
+    outcome_evaluation_id: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class AssessAttributionIntegrityInput(BaseModel):
@@ -296,6 +302,8 @@ def analysis_evaluate_outcome(invocation: ToolInvocation, context: ActionRuntime
         observed=observed,
         attribution=payload.attribution,
         attribution_evidence=payload.attribution_evidence,
+        accepted_measurement_pairing_id=payload.accepted_measurement_pairing_id,
+        outcome_evaluation_id=payload.outcome_evaluation_id,
     )
     output = result.model_dump(mode="json")
     summary = (

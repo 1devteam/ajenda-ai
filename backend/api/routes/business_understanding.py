@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from backend.api.routes._authorization import require_route_permission
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.auth.permissions import Permission
-from backend.domain.business_understanding import BusinessNeedRevision, BusinessObservation
+from backend.domain.business_understanding import BusinessMeasurementPairing, BusinessNeedRevision, BusinessObservation
 from backend.repositories.business_understanding_repository import (
     BusinessNeedRevisionConflict,
     BusinessUnderstandingRepository,
@@ -192,7 +192,52 @@ class MeasurementImpactCreate(BaseModel):
     baseline_measurement_id: UUID
     observed_measurement_id: UUID
     outcome_evidence_id: UUID
+    accepted_measurement_pairing_id: UUID | None = None
     mission_id: UUID | None = None
+
+
+class MeasurementPairingCreate(BaseModel):
+    """Request acceptance of two independently persisted measurements."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+    baseline_measurement_id: UUID
+    observed_measurement_id: UUID
+
+
+class MeasurementPairingRead(BaseModel):
+    pairing_id: UUID
+    need_id: str
+    need_revision: int
+    need_revision_id: UUID
+    baseline_measurement_id: UUID
+    observed_measurement_id: UUID
+    successor_contract_id: str | None
+    status: str
+    outcome_evidence_id: UUID | None
+    outcome_evaluation_id: str | None
+    impact_revision_id: UUID | None
+    accepted_at: datetime
+    evaluated_at: datetime | None
+
+
+def _measurement_pairing_read(row: BusinessMeasurementPairing) -> MeasurementPairingRead:
+    return MeasurementPairingRead(
+        pairing_id=row.id,
+        need_id=row.need_id,
+        need_revision=row.need_revision,
+        need_revision_id=row.need_revision_id,
+        baseline_measurement_id=row.baseline_measurement_id,
+        observed_measurement_id=row.observed_measurement_id,
+        successor_contract_id=row.successor_contract_id,
+        status=row.status,
+        outcome_evidence_id=row.outcome_evidence_id,
+        outcome_evaluation_id=row.outcome_evaluation_id,
+        impact_revision_id=row.impact_revision_id,
+        accepted_at=row.accepted_at,
+        evaluated_at=row.evaluated_at,
+    )
 
 
 class ObservationRead(BaseModel):
@@ -543,12 +588,62 @@ def record_measurement_impact(
             baseline_measurement_id=body.baseline_measurement_id,
             observed_measurement_id=body.observed_measurement_id,
             outcome_evidence_id=body.outcome_evidence_id,
+            accepted_measurement_pairing_id=body.accepted_measurement_pairing_id,
             mission_reference={"mission_id": str(body.mission_id)} if body.mission_id is not None else None,
             producer=_actor_id(request),
         )
         return _need_read(revision)
     except Exception as exc:
         raise _map_error(exc) from exc
+
+
+@router.post(
+    "/needs/{need_id}/measurement-pairings",
+    response_model=MeasurementPairingRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def accept_measurement_pairing(
+    need_id: str,
+    body: MeasurementPairingCreate,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> MeasurementPairingRead:
+    """Accept a comparable pair; this is not an outcome or impact conclusion."""
+
+    require_route_permission(
+        request=request, db=db, permission=Permission.BUSINESS_UNDERSTANDING_MANAGE, tenant_id=tenant_id
+    )
+    try:
+        pairing = BusinessUnderstandingService(db).accept_measurement_pairing(
+            tenant_id=str(tenant_id),
+            need_id=need_id,
+            expected_revision=body.expected_revision,
+            baseline_measurement_id=body.baseline_measurement_id,
+            observed_measurement_id=body.observed_measurement_id,
+            producer=_actor_id(request),
+        )
+        return _measurement_pairing_read(pairing)
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
+@router.get("/measurement-pairings/{pairing_id}", response_model=MeasurementPairingRead)
+def get_measurement_pairing(
+    pairing_id: UUID,
+    request: Request,
+    tenant_id: _uuid.UUID = Depends(get_request_tenant_id),
+    db: Session = Depends(get_tenant_db_session),
+) -> MeasurementPairingRead:
+    require_route_permission(
+        request=request, db=db, permission=Permission.BUSINESS_UNDERSTANDING_READ, tenant_id=tenant_id
+    )
+    pairing = BusinessUnderstandingRepository(db).get_measurement_pairing_for_tenant(
+        tenant_id=str(tenant_id), pairing_id=pairing_id
+    )
+    if pairing is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="measurement pairing not found")
+    return _measurement_pairing_read(pairing)
 
 
 @router.get("/observations", response_model=ObservationListRead)

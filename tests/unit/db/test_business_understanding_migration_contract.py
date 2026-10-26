@@ -9,7 +9,7 @@ from alembic.script import ScriptDirectory
 def test_business_understanding_migration_is_current_head_and_short_revision_id() -> None:
     heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
 
-    assert heads == ["0061_measurement_contract_ref"]
+    assert heads == ["0062_measurement_pairings"]
     assert len(heads[0]) <= 32
 
 
@@ -34,3 +34,20 @@ def test_business_understanding_migration_persists_append_only_tenant_contracts(
         and "tenant_business_understanding_isolation" in assessment
     )
     assert "def downgrade" in foundation and "def downgrade" in assessment
+
+
+def test_measurement_pairing_migration_has_tenant_identity_constraints_and_rls() -> None:
+    migration = Path("alembic/versions/0062_measurement_pairings.py").read_text(encoding="utf-8")
+
+    assert "business_measurement_pairings" in migration
+    assert "uq_business_measurement_pairings_retry" in migration
+    assert "uq_business_measurement_pairings_outcome_evidence" in migration
+    assert "uq_business_measurement_pairings_outcome_evaluation" in migration
+    assert "uq_business_measurement_pairings_impact_revision" in migration
+    assert "fk_business_measurement_pairings_need_revision_tenant" in migration
+    assert "ck_business_measurement_pairings_status" in migration
+    assert "ENABLE ROW LEVEL SECURITY" in migration
+    assert "FORCE ROW LEVEL SECURITY" in migration
+    assert "tenant_business_measurement_pairings_isolation" in migration
+    assert "admin_bypass" in migration
+    assert "def downgrade" in migration

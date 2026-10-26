@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -193,6 +193,7 @@ class OutcomeEvaluation(BaseModel):
 
     schema_version: Literal[1] = 1
     outcome_evaluation_id: str
+    accepted_measurement_pairing_id: UUID | None = None
     subject_refs: list[BusinessObjectRef] = Field(default_factory=list)
     goal_id: str | None = None
     goal_semantic_signature: GoalSemanticSignature | None = None
@@ -471,6 +472,7 @@ def evaluate_outcome(
     observed: ObservedOutcome,
     attribution: AttributionAssessment = AttributionAssessment.NOT_ASSESSED,
     attribution_evidence: AttributionEvidenceInput | None = None,
+    accepted_measurement_pairing_id: UUID | None = None,
     outcome_evaluation_id: str | None = None,
     evaluated_at: datetime | None = None,
 ) -> OutcomeEvaluation:
@@ -631,6 +633,7 @@ def evaluate_outcome(
     semantic_signature = goal_semantic_signature(goal, owned_baseline_kpis)
     return OutcomeEvaluation(
         outcome_evaluation_id=outcome_evaluation_id or f"out_{uuid4().hex[:12]}",
+        accepted_measurement_pairing_id=accepted_measurement_pairing_id,
         subject_refs=subject_refs,
         goal_id=goal.goal_id,
         goal_semantic_signature=semantic_signature,

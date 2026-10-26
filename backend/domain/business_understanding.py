@@ -113,6 +113,56 @@ class BusinessMeasurement(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
+class BusinessMeasurementPairing(Base):
+    """Accepted comparable measurements, distinct from outcome and impact.
+
+    The pairing owner records only that two durable measurements are comparable
+    under one tenant-scoped need and (where supplied) one frozen successor
+    measurement contract.  It neither evaluates an outcome nor asserts a
+    causal relationship.  Evaluation and impact references are attached only
+    after their existing owners have independently succeeded.
+    """
+
+    __tablename__ = "business_measurement_pairings"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="uq_business_measurement_pairings_tenant_id"),
+        UniqueConstraint("tenant_id", "pairing_fingerprint", name="uq_business_measurement_pairings_retry"),
+        UniqueConstraint("tenant_id", "outcome_evidence_id", name="uq_business_measurement_pairings_outcome_evidence"),
+        UniqueConstraint(
+            "tenant_id", "outcome_evaluation_id", name="uq_business_measurement_pairings_outcome_evaluation"
+        ),
+        UniqueConstraint("tenant_id", "impact_revision_id", name="uq_business_measurement_pairings_impact_revision"),
+        ForeignKeyConstraint(
+            ["tenant_id", "need_revision_id"],
+            ["business_need_revisions.tenant_id", "business_need_revisions.id"],
+            name="fk_business_measurement_pairings_need_revision_tenant",
+        ),
+        CheckConstraint(
+            "status IN ('accepted', 'evaluated')",
+            name="ck_business_measurement_pairings_status",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    need_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    need_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    need_revision_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    baseline_measurement_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    observed_measurement_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    successor_contract_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    pairing_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="accepted")
+    outcome_evidence_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    outcome_evaluation_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    impact_revision_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    producer: Mapped[str] = mapped_column(String(160), nullable=False)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=BUSINESS_UNDERSTANDING_SCHEMA_VERSION)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
 class BusinessNeedRevision(Base):
     """Immutable revision of a business need hypothesis.
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from unittest.mock import patch
 
@@ -19,12 +20,18 @@ from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.principal import Principal, PrincipalType
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.audit_event import AuditEvent
-from backend.domain.business_understanding import BusinessMeasurement, BusinessNeedAssessment, BusinessNeedRevision
+from backend.domain.business_understanding import (
+    BusinessMeasurement,
+    BusinessMeasurementPairing,
+    BusinessNeedAssessment,
+    BusinessNeedRevision,
+)
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
+from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
 from backend.services.business_understanding.service import BusinessUnderstandingService
 from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.mission_composition.service import MissionCompositionService
@@ -33,6 +40,7 @@ from backend.services.ontology.types import BusinessObjectRef, BusinessObjectTyp
 from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
+from tests.integration.intelligence.canonical_decision_runtime import execute_canonical_action
 from tests.integration.operating_charter_support import persist_test_operating_charter
 
 pytestmark = pytest.mark.integration
@@ -125,7 +133,18 @@ def _persist_assessed_need(*, session, tenant_id: str) -> tuple[str, BusinessNee
         subject_references=[subject],
         objective_key="increase_conversion",
         metric="conversion",
-        values=[],
+        values=[
+            {
+                "kpi_id": "conversion",
+                "goal_id": "goal-increase-conversion",
+                "name": "Conversion",
+                "metric": "conversion",
+                "direction": "increase",
+                "current_value": 0.5,
+                "target_value": 0.75,
+                "unit": "ratio",
+            }
+        ],
         value=0.5,
         unit="ratio",
         period_start=datetime(2026, 9, 1, tzinfo=UTC),
@@ -431,5 +450,199 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
             select(BusinessNeedRevision.status).where(BusinessNeedRevision.tenant_id == tenant_id)
         ).all()
         assert "impact_monitored" not in statuses
+
+        current = BusinessUnderstandingRepository(verify).get_latest_need_for_tenant(
+            tenant_id=tenant_id, need_id=need_id
+        )
+        assert current is not None
+        pairing = BusinessUnderstandingService(verify).accept_measurement_pairing(
+            tenant_id=tenant_id,
+            need_id=need_id,
+            expected_revision=current.revision,
+            baseline_measurement_id=baseline.id,
+            observed_measurement_id=later_one.id,
+            producer="test.accepted_measurement_pairing",
+        )
+        verify.commit()
     finally:
         verify.close()
+
+    outcome = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        action="analysis.evaluate_outcome",
+        action_input={
+            "goal": {
+                "goal_id": "goal-increase-conversion",
+                "objective_key": "increase_conversion",
+                "name": "Increase conversion",
+                "subject_refs": [subject],
+            },
+            "subject_refs": [subject],
+            "baseline_kpis": baseline.values,
+            "observed_kpis": later_one.values,
+            "source_observed_at": later_one.observed_at.isoformat(),
+            "accepted_measurement_pairing_id": str(pairing.id),
+            "outcome_evaluation_id": "assessment-spine-conversion-v1",
+            "evidence_ids": [str(evidence[0].id)],
+        },
+        worker_label="assessment-spine-outcome",
+    )
+    impact = factory()
+    try:
+        activate_tenant_session(impact, tenant_id)
+        current = BusinessUnderstandingRepository(impact).get_latest_need_for_tenant(
+            tenant_id=tenant_id, need_id=need_id
+        )
+        assert current is not None
+        impact_revision, evaluation = BusinessUnderstandingService(impact).record_canonical_measurement_impact(
+            tenant_id=tenant_id,
+            need_id=need_id,
+            expected_revision=current.revision,
+            baseline_measurement_id=baseline.id,
+            observed_measurement_id=later_one.id,
+            outcome_evidence_id=outcome.id,
+            accepted_measurement_pairing_id=pairing.id,
+            producer="test.accepted_measurement_impact",
+        )
+        impact.commit()
+    finally:
+        impact.close()
+
+    readback = factory()
+    try:
+        activate_tenant_session(readback, tenant_id)
+        persisted_pairing = readback.get(BusinessMeasurementPairing, pairing.id)
+        persisted_impact = readback.get(BusinessNeedRevision, impact_revision.id)
+        assert persisted_pairing is not None
+        assert persisted_pairing.status == "evaluated"
+        assert persisted_pairing.outcome_evidence_id == outcome.id
+        assert persisted_pairing.outcome_evaluation_id == evaluation.outcome_evaluation_id
+        assert persisted_pairing.impact_revision_id == impact_revision.id
+        assert persisted_impact is not None
+        assert persisted_impact.status == "impact_monitored"
+        assert persisted_impact.impact_assessment is not None
+        assert persisted_impact.impact_assessment["accepted_measurement_pairing_id"] == str(pairing.id), (
+            persisted_impact.impact_assessment
+        )
+        assert persisted_impact.impact_assessment["outcome_evidence_id"] == str(outcome.id)
+        assert persisted_pairing.successor_contract_id == later_one.intended_measurement_reference["contract_id"]
+    finally:
+        readback.close()
+
+    def retry_from_independent_session() -> uuid.UUID:
+        session = factory()
+        try:
+            activate_tenant_session(session, tenant_id)
+            revision, _ = BusinessUnderstandingService(session).record_canonical_measurement_impact(
+                tenant_id=tenant_id,
+                need_id=need_id,
+                # An evaluated pairing is idempotently addressable by the
+                # frozen revision it accepted, even after the impact append.
+                expected_revision=pairing.need_revision,
+                baseline_measurement_id=baseline.id,
+                observed_measurement_id=later_one.id,
+                outcome_evidence_id=outcome.id,
+                accepted_measurement_pairing_id=pairing.id,
+                producer="test.concurrent_retry",
+            )
+            session.commit()
+            return revision.id
+        finally:
+            session.close()
+
+    # Each worker owns an independent PostgreSQL session and transaction.  The
+    # repository's SELECT .. FOR UPDATE serializes the pairing read; both see
+    # the same finalized impact revision rather than appending another one.
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        retry_ids = list(executor.map(lambda _: retry_from_independent_session(), range(2)))
+    assert retry_ids == [impact_revision.id, impact_revision.id]
+
+    accepted = factory()
+    try:
+        activate_tenant_session(accepted, tenant_id)
+        latest = BusinessUnderstandingRepository(accepted).get_latest_need_for_tenant(
+            tenant_id=tenant_id, need_id=need_id
+        )
+        assert latest is not None
+        rollback_pairing = BusinessUnderstandingService(accepted).accept_measurement_pairing(
+            tenant_id=tenant_id,
+            need_id=need_id,
+            expected_revision=latest.revision,
+            baseline_measurement_id=baseline.id,
+            observed_measurement_id=later_two.id,
+            producer="test.rollback_pairing",
+        )
+        accepted.commit()
+    finally:
+        accepted.close()
+
+    rollback_outcome = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        action="analysis.evaluate_outcome",
+        action_input={
+            "goal": {
+                "goal_id": "goal-increase-conversion",
+                "objective_key": "increase_conversion",
+                "name": "Increase conversion",
+                "subject_refs": [subject],
+            },
+            "subject_refs": [subject],
+            "baseline_kpis": baseline.values,
+            "observed_kpis": later_two.values,
+            "source_observed_at": later_two.observed_at.isoformat(),
+            "accepted_measurement_pairing_id": str(rollback_pairing.id),
+            "outcome_evaluation_id": "assessment-spine-conversion-rollback-v1",
+            "evidence_ids": [str(evidence[0].id)],
+        },
+        worker_label="assessment-spine-rollback-outcome",
+    )
+    interrupted = factory()
+    try:
+        activate_tenant_session(interrupted, tenant_id)
+        latest = BusinessUnderstandingRepository(interrupted).get_latest_need_for_tenant(
+            tenant_id=tenant_id, need_id=need_id
+        )
+        assert latest is not None
+        BusinessUnderstandingService(interrupted).record_canonical_measurement_impact(
+            tenant_id=tenant_id,
+            need_id=need_id,
+            expected_revision=latest.revision,
+            baseline_measurement_id=baseline.id,
+            observed_measurement_id=later_two.id,
+            outcome_evidence_id=rollback_outcome.id,
+            accepted_measurement_pairing_id=rollback_pairing.id,
+            producer="test.interrupted_outer_transaction",
+        )
+        # Simulate an outer transaction failure after both the append and the
+        # pairing update have flushed; no service-level commit is allowed.
+        interrupted.rollback()
+    finally:
+        interrupted.close()
+
+    rollback_readback = factory()
+    try:
+        activate_tenant_session(rollback_readback, tenant_id)
+        persisted_rollback_pairing = rollback_readback.get(BusinessMeasurementPairing, rollback_pairing.id)
+        assert persisted_rollback_pairing is not None
+        assert persisted_rollback_pairing.status == "accepted"
+        assert persisted_rollback_pairing.outcome_evidence_id is None
+        assert persisted_rollback_pairing.outcome_evaluation_id is None
+        assert persisted_rollback_pairing.impact_revision_id is None
+        revisions = rollback_readback.scalars(
+            select(BusinessNeedRevision).where(
+                BusinessNeedRevision.tenant_id == tenant_id, BusinessNeedRevision.need_id == need_id
+            )
+        ).all()
+        assert all(
+            row.impact_assessment is None
+            or row.impact_assessment.get("outcome_evidence_id") != str(rollback_outcome.id)
+            for row in revisions
+        )
+    finally:
+        rollback_readback.close()
