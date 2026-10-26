@@ -163,7 +163,12 @@ def analysis_materialize_decision_learning_signal(
         ).materialize(tenant_id=context.tenant_id, request=payload)
     finally:
         session.close()
-    if context.mission_id is None or str(context.mission_id) != materialized.episode_reference.mission_id:
+    if context.mission_id is None:
+        raise ValueError("materialization requires a durable runtime mission")
+    if (
+        materialized.episode_reference.episode_kind == "mission_decision"
+        and str(context.mission_id) != materialized.episode_reference.mission_id
+    ):
         raise ValueError("materialization task mission must match the durable decision episode mission")
     signal = materialized.feedback.learning_signal
     records_inspected = materialized.inspection_trace.resource_references()
@@ -178,6 +183,7 @@ def analysis_materialize_decision_learning_signal(
             EvidenceItem(
                 evidence_type="action_result_evidence",
                 evidence_source="decision_episode_materialization",
+                logical_identity=materialized.episode_reference.episode_id,
                 action_name="analysis.materialize_decision_learning_signal",
                 tool_provider="ajenda_analysis",
                 tenant_id=context.tenant_id,

@@ -12,15 +12,18 @@ import uuid
 from datetime import datetime
 from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.domain.business_understanding import BusinessMeasurement, BusinessMeasurementPairing, BusinessNeedRevision
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.services.ontology.decision_feedback import (
     DecisionEpisodeReference,
     DecisionExecutionObservation,
     DecisionFeedbackResult,
+    DecisionSnapshot,
     ExecutionFidelity,
     evaluate_decision_feedback,
 )
@@ -41,9 +44,23 @@ class DecisionEpisodeMaterializationRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    recommendation_evidence_id: uuid.UUID
-    outcome_evaluation_evidence_id: uuid.UUID
+    recommendation_evidence_id: uuid.UUID | None = None
+    outcome_evaluation_evidence_id: uuid.UUID | None = None
     execution_evidence_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
+    impact_revision_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_materialization_mode(self) -> DecisionEpisodeMaterializationRequest:
+        legacy = self.recommendation_evidence_id is not None or self.outcome_evaluation_evidence_id is not None
+        impact = self.impact_revision_id is not None
+        if legacy == impact:
+            raise ValueError("materialization requires exactly one episode provenance mode")
+        if legacy:
+            if self.recommendation_evidence_id is None or self.outcome_evaluation_evidence_id is None:
+                raise ValueError("mission decision materialization requires recommendation and outcome evidence")
+        elif self.execution_evidence_ids:
+            raise ValueError("business impact materialization must not claim execution evidence")
+        return self
 
 
 class DecisionEpisodeInspectionTrace(BaseModel):
@@ -51,26 +68,42 @@ class DecisionEpisodeInspectionTrace(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    recommendation_evidence_id: str
-    recommendation_execution_task_id: str
+    recommendation_evidence_id: str | None = None
+    recommendation_execution_task_id: str | None = None
     supporting_evidence_ids: tuple[str, ...] = ()
-    outcome_evaluation_evidence_id: str
+    outcome_evaluation_evidence_id: str | None = None
     execution_evidence_ids: tuple[str, ...] = ()
+    impact_revision_id: str | None = None
+    accepted_measurement_pairing_id: str | None = None
+    baseline_measurement_id: str | None = None
+    observed_measurement_id: str | None = None
 
     def resource_references(self) -> list[str]:
         """Return deterministic, typed, de-duplicated inspection references."""
 
         evidence_ids = sorted(
             {
-                self.recommendation_evidence_id,
+                *([self.recommendation_evidence_id] if self.recommendation_evidence_id else []),
                 *self.supporting_evidence_ids,
-                self.outcome_evaluation_evidence_id,
+                *([self.outcome_evaluation_evidence_id] if self.outcome_evaluation_evidence_id else []),
                 *self.execution_evidence_ids,
             }
         )
         return [
             *(f"evidence:{evidence_id}" for evidence_id in evidence_ids),
-            f"execution_task:{self.recommendation_execution_task_id}",
+            *(
+                [f"execution_task:{self.recommendation_execution_task_id}"]
+                if self.recommendation_execution_task_id
+                else []
+            ),
+            *([f"business_need_revision:{self.impact_revision_id}"] if self.impact_revision_id else []),
+            *(
+                [f"business_measurement_pairing:{self.accepted_measurement_pairing_id}"]
+                if self.accepted_measurement_pairing_id
+                else []
+            ),
+            *([f"business_measurement:{self.baseline_measurement_id}"] if self.baseline_measurement_id else []),
+            *([f"business_measurement:{self.observed_measurement_id}"] if self.observed_measurement_id else []),
         ]
 
 
@@ -141,6 +174,10 @@ class DecisionEpisodeMaterializationService:
         tenant_id: str,
         request: DecisionEpisodeMaterializationRequest,
     ) -> DecisionEpisodeMaterializationResult:
+        if request.impact_revision_id is not None:
+            return self._materialize_business_impact(tenant_id=tenant_id, impact_revision_id=request.impact_revision_id)
+        assert request.recommendation_evidence_id is not None
+        assert request.outcome_evaluation_evidence_id is not None
         recommendation = self._required_evidence(
             tenant_id=tenant_id,
             evidence_id=request.recommendation_evidence_id,
@@ -360,6 +397,156 @@ class DecisionEpisodeMaterializationService:
             feedback=feedback,
         )
 
+    def _materialize_business_impact(
+        self,
+        *,
+        tenant_id: str,
+        impact_revision_id: uuid.UUID,
+    ) -> DecisionEpisodeMaterializationResult:
+        """Materialize one verified Layer-2 impact episode without inventing work.
+
+        This is deliberately not a recommendation-task reconstruction.  The
+        selected candidate and frozen successor contract come from the later
+        measurement's immutable reference; the outcome comes from canonical
+        evidence; and execution remains explicitly unknown.
+        """
+
+        impact_revision = self._session.scalar(
+            select(BusinessNeedRevision).where(
+                BusinessNeedRevision.id == impact_revision_id,
+                BusinessNeedRevision.tenant_id == tenant_id,
+                BusinessNeedRevision.status == "impact_monitored",
+            )
+        )
+        if impact_revision is None or not isinstance(impact_revision.impact_assessment, dict):
+            raise ValueError("business impact revision is inaccessible or incomplete")
+        impact = impact_revision.impact_assessment
+        pairing_id = self._uuid(impact.get("accepted_measurement_pairing_id"))
+        evidence_id = self._uuid(impact.get("outcome_evidence_id"))
+        evaluation_id = impact.get("outcome_evaluation_id")
+        baseline_id = self._uuid(impact.get("baseline_measurement_id"))
+        observed_id = self._uuid(impact.get("observed_measurement_id"))
+        if not isinstance(evaluation_id, str) or not evaluation_id:
+            raise ValueError("business impact revision lacks an outcome evaluation identity")
+
+        pairing = self._session.scalar(
+            select(BusinessMeasurementPairing).where(
+                BusinessMeasurementPairing.id == pairing_id,
+                BusinessMeasurementPairing.tenant_id == tenant_id,
+            )
+        )
+        if (
+            pairing is None
+            or pairing.status != "evaluated"
+            or pairing.impact_revision_id != impact_revision.id
+            or pairing.outcome_evidence_id != evidence_id
+            or pairing.outcome_evaluation_id != evaluation_id
+            or pairing.baseline_measurement_id != baseline_id
+            or pairing.observed_measurement_id != observed_id
+            or pairing.need_id != impact_revision.need_id
+            or pairing.need_revision_id != impact_revision.previous_revision_id
+        ):
+            raise ValueError("business impact revision contradicts its accepted measurement pairing")
+
+        baseline = self._measurement_for_tenant(tenant_id=tenant_id, measurement_id=baseline_id)
+        observed = self._measurement_for_tenant(tenant_id=tenant_id, measurement_id=observed_id)
+        reference = observed.intended_measurement_reference
+        if not isinstance(reference, dict):
+            raise ValueError("business impact episode requires a frozen successor measurement contract")
+        strategy = reference.get("strategy_lineage")
+        contract = reference.get("measurement_contract")
+        if (
+            pairing.successor_contract_id != reference.get("contract_id")
+            or not isinstance(strategy, dict)
+            or not isinstance(contract, dict)
+            or strategy.get("need_id") != impact_revision.need_id
+            or strategy.get("need_revision") != pairing.need_revision
+            or contract.get("baseline_measurement_id") != str(baseline.id)
+        ):
+            raise ValueError("business impact episode contradicts its frozen successor contract")
+        candidate = strategy.get("selected_candidate_response_key")
+        if not isinstance(candidate, str) or not candidate:
+            raise ValueError("business impact episode lacks selected candidate provenance")
+
+        outcome_record = self._required_evidence(tenant_id=tenant_id, evidence_id=evidence_id, role="outcome")
+        self._require_action(outcome_record, OUTCOME_ACTION)
+        require_canonical_tool_action_evidence(
+            session=self._session,
+            record=outcome_record,
+            expected_action=OUTCOME_ACTION,
+            expected_role=None,
+        )
+        outcome = OutcomeEvaluation.model_validate(outcome_record.structured_payload)
+        if outcome.outcome_evaluation_id != evaluation_id or outcome.accepted_measurement_pairing_id != pairing.id:
+            raise ValueError("canonical outcome evidence contradicts the accepted pairing")
+        if pairing.evaluated_at != outcome.evaluated_at:
+            raise ValueError("accepted pairing evaluation timestamp contradicts canonical outcome evidence")
+
+        episode_id = _stable_identity(
+            "bip",
+            tenant_id,
+            str(impact_revision.id),
+            str(pairing.id),
+            str(outcome_record.id),
+            outcome.outcome_evaluation_id,
+        )
+        decision_id = _stable_identity("bid", tenant_id, str(impact_revision.id), str(pairing.id))
+        provenance = {
+            "impact_revision_id": str(impact_revision.id),
+            "need_id": impact_revision.need_id,
+            "accepted_measurement_pairing_id": str(pairing.id),
+            "baseline_measurement_id": str(baseline.id),
+            "observed_measurement_id": str(observed.id),
+            "outcome_evidence_id": str(outcome_record.id),
+            "outcome_evaluation_id": outcome.outcome_evaluation_id,
+            "frozen_successor_contract": reference,
+        }
+        episode_reference = DecisionEpisodeReference(
+            schema_version=2,
+            episode_id=episode_id,
+            decision_id=decision_id,
+            episode_kind="business_impact",
+            outcome_evaluation_evidence_id=str(outcome_record.id),
+            business_impact_provenance=provenance,
+        )
+        snapshot = DecisionSnapshot(
+            decision_id=decision_id,
+            goal_id=outcome.goal_id,
+            subject_refs=list(outcome.subject_refs),
+            recommendation=candidate,
+            intervention_key=candidate,
+            original_confidence=0.0,
+            supporting_evidence_ids=[str(outcome_record.id)],
+            known_evidence_gaps=[
+                "business-impact episode has no recommendation-task evidence",
+                "business-impact episode has no execution evidence",
+            ],
+            constraints=["selected candidate is provenance only; it does not prove execution"],
+            uncertainty=["causation remains unresolved unless the canonical outcome proves otherwise"],
+            decided_at=pairing.accepted_at,
+        )
+        feedback = evaluate_decision_feedback(
+            snapshot=snapshot,
+            execution=DecisionExecutionObservation(fidelity=ExecutionFidelity.EXECUTION_UNKNOWN),
+            outcome=outcome,
+            feedback_id=_stable_identity("bif", episode_id),
+            signal_id=_stable_identity("bis", episode_id),
+            episode_reference=episode_reference,
+            evaluated_at=outcome.evaluated_at,
+        )
+        trace = DecisionEpisodeInspectionTrace(
+            outcome_evaluation_evidence_id=str(outcome_record.id),
+            impact_revision_id=str(impact_revision.id),
+            accepted_measurement_pairing_id=str(pairing.id),
+            baseline_measurement_id=str(baseline.id),
+            observed_measurement_id=str(observed.id),
+        )
+        return DecisionEpisodeMaterializationResult(
+            episode_reference=episode_reference,
+            inspection_trace=trace,
+            feedback=feedback,
+        )
+
     @staticmethod
     def _validate_composed_decision_input(
         owner_input: DecisionRecommendInput,
@@ -447,6 +634,17 @@ class DecisionEpisodeMaterializationService:
         if record is None:
             raise ValueError(f"decision episode {role} artifact is inaccessible")
         return record
+
+    def _measurement_for_tenant(self, *, tenant_id: str, measurement_id: uuid.UUID) -> BusinessMeasurement:
+        measurement = self._session.scalar(
+            select(BusinessMeasurement).where(
+                BusinessMeasurement.id == measurement_id,
+                BusinessMeasurement.tenant_id == tenant_id,
+            )
+        )
+        if measurement is None:
+            raise ValueError("business impact measurement is inaccessible")
+        return measurement
 
     @staticmethod
     def _require_action(record: EvidenceRecord, expected: str) -> None:

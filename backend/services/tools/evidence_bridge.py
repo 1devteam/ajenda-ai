@@ -231,6 +231,7 @@ def _build_tool_action_evidence_record(
         capability_adapter_id=_reference_uuid(task.metadata_json.get("adapter_reference"), "adapter_id"),
         evidence_type=_durable_evidence_type(evidence_item.evidence_type),
         evidence_source=evidence_item.evidence_source,
+        logical_identity=evidence_item.logical_identity,
         summary=evidence_item.summary,
         structured_payload=evidence_item.structured_payload,
         artifact_references=[
@@ -275,6 +276,7 @@ def _require_exact_bridge_projection(*, record: EvidenceRecord, expected: Eviden
         "capability_adapter_id",
         "evidence_type",
         "evidence_source",
+        "logical_identity",
         "summary",
         "structured_payload",
         "artifact_references",
