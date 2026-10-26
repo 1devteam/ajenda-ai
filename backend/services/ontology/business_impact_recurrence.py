@@ -14,10 +14,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from backend.services.business_understanding.subject_identity import canonical_subject_keys
 from backend.services.ontology.business_impact_observation import BusinessImpactObservation
 from backend.services.ontology.commercial_state import KpiSemanticSignature
 from backend.services.ontology.outcome import OutcomeStatus
+from backend.services.ontology.types import BusinessObjectRef
 
 
 class ObservedChangeDirection(StrEnum):
@@ -114,10 +114,14 @@ def _context(observation: BusinessImpactObservation) -> tuple[str, str, tuple[st
     ):
         return None
     try:
-        exact = canonical_subject_keys(subjects)
+        exact = {
+            (ref.object_type.value, ref.object_id)
+            for ref in (BusinessObjectRef.model_validate(item) for item in subjects)
+        }
     except ValueError:
         return None
-    if exact != canonical_subject_keys(observation.subject_refs):
+    observed_subjects = {(ref.object_type.value, ref.object_id) for ref in observation.subject_refs}
+    if exact != observed_subjects:
         return None
     kpis = tuple(sorted(set(observation.kpi_semantic_signatures), key=lambda item: (item.metric, item.direction.value, item.normalized_unit or "")))
     if metric not in {item.metric for item in kpis}:
@@ -163,7 +167,10 @@ def _lineage_tokens(observation: BusinessImpactObservation) -> frozenset[str]:
         "baseline:" + str(observation.baseline_measurement_id),
         "observed:" + str(observation.observed_measurement_id),
         "evaluation:" + observation.outcome_evaluation_id,
-        *("subject:" + typ + ":" + identity for typ, identity in canonical_subject_keys(observation.subject_refs)),
+        *(
+            "subject:" + ref.object_type.value + ":" + ref.object_id
+            for ref in observation.subject_refs
+        ),
     }
     if isinstance(mission_id, str) and mission_id:
         tokens.add("successor_mission:" + mission_id)
