@@ -524,9 +524,7 @@ def test_runtime_owned_evidence_cannot_be_patched_by_client() -> None:
     tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
     evidence_id = uuid.uuid4()
-    evidence = _evidence_record(
-        tenant_id=str(tenant_id), mission_id=mission_id, evidence_id=evidence_id
-    )
+    evidence = _evidence_record(tenant_id=str(tenant_id), mission_id=mission_id, evidence_id=evidence_id)
     evidence.materialization_reference = {
         "schema_version": 1,
         "source": "tool.invoke.task_output",
