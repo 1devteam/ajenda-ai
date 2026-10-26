@@ -63,7 +63,7 @@ def test_governed_runtime_measurement_ingress_holds_without_approval_and_commits
             authority,
             tenant_id=tenant,
             action_name=ACTION,
-            side_effect_classification="internal_write",
+            side_effect_classification="idempotent_write",
         )
         authority.commit()
 

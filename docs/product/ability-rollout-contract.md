@@ -96,8 +96,12 @@ contradictory snapshots bearing the same revision. Retries return the same
 measurement identity; source data truth and source independence are not
 established by a successful read.
 
-The action is explicitly `internal_write`, disabled by default in the
-manifest, and subject to three independent worker admission controls:
+The action is explicitly `internal_write` in ActionRegistry/ability
+semantics, while capability-adapter declarations use the existing
+`idempotent_write` persistence classification. These are distinct schema
+vocabularies, bridged by the existing runtime capability validator.
+It is disabled by default in the manifest and subject to three independent
+worker admission controls:
 persisted operating charter, tenant-visible capability/adapter promotion,
 and task-bound approval/side-effect authorization. The handler never
 initiates `record.read` or grants its own authority. Readback verifies
