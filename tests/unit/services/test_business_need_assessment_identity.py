@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from backend.services.business_understanding.service import canonical_subject_keys
 from backend.services.business_understanding.reasoning import (
     BusinessNeedReasoningService,
     NeedAssessmentRequest,
@@ -40,3 +41,11 @@ def test_goal_identity_is_owned_by_the_originating_need(mismatch: str) -> None:
             producer="unit-test",
         )
     repository.add_assessment.assert_not_called()
+
+def test_historical_and_typed_subject_refs_have_exactly_the_same_identity() -> None:
+    historical = [{"kind": "organization", "id": "self"}]
+    typed = [{"schema_version": 1, "object_type": "organization", "object_id": "self"}]
+    assert canonical_subject_keys(historical) == canonical_subject_keys(typed)
+    assert canonical_subject_keys([{"kind": "organization", "id": "other"}]) != canonical_subject_keys(typed)
+    with pytest.raises(ValueError):
+        canonical_subject_keys([{"kind": "organization", "id": "self", "untrusted": "additional"}])
