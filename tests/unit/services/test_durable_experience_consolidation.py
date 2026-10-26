@@ -13,11 +13,11 @@ from backend.services.durable_experience_consolidation import (
 )
 from backend.services.knowledge.knowledge_ledger import KnowledgeLedgerWriteResult, KnowledgeLedgerWriteStatus
 from backend.services.ontology.commercial_state import GoalSemanticSignature
-from tests.unit.ontology.test_business_impact_recurrence import observation
 from backend.services.ontology.decision_feedback import DecisionEpisodeReference
 from backend.services.ontology.observation_attribution import ObservationVerificationBasis
 from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError
+from tests.unit.ontology.test_business_impact_recurrence import observation
 from tests.unit.ontology.test_experience_intelligence import signal
 
 
