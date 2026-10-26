@@ -132,7 +132,6 @@ def test_valid_successor_reference_does_not_replace_outcome_evidence() -> None:
     service._repository.append_need_revision.assert_not_called()
 
 
-
 def test_impact_rejects_action_label_without_canonical_runtime_evidence() -> None:
     """A caller-authored EvidenceRecord must not earn outcome authority."""
     from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError
