@@ -114,8 +114,10 @@ mission-decision Experience or intervention Knowledge qualification path.
   lineage groups. Replayed or correlated observations cannot create
   independent recurrence.
 - Preserve favorable, regressed, unchanged, and inconclusive observations
-  separately. Repeated favorable observations describe correlation only,
-  even when observed source kinds are recorded as `source_verified`.
+  separately. Classify movement from KPI before/after gap deltas, not a goal's
+  `achieved` status by itself (the baseline may already have been at target).
+  Repeated favorable observations describe correlation only, even when
+  observed source kinds are recorded as `source_verified`.
 - Preserve customer-attested trust limitations. A source-kind label is not
   external verification, and timestamp provenance is not evidence that the
   KPI source was independently verified.

@@ -20,6 +20,12 @@ def observation(
     subject = {"object_type": "opportunity", "object_id": subject_id or f"opp-{index}"}
     baseline_id, observed_id = uuid4(), uuid4()
     observed_at = datetime(2026, 10, 21, tzinfo=UTC) + timedelta(days=index)
+    if status == "regressed":
+        before, after = 0.5, 0.4
+    elif status == "no_material_change":
+        before, after = 0.5, 0.5
+    else:
+        before, after = 0.5, 1.0
     episode_id = f"business-impact-{index}"
     evaluation_id = f"evaluation-{index}"
     return BusinessImpactObservation.model_validate(
@@ -57,7 +63,23 @@ def observation(
             "goal_id": "conversion-goal",
             "subject_refs": [subject],
             "kpi_semantic_signatures": [{"metric": "conversion", "direction": "increase"}],
-            "kpi_deltas": [],
+            "kpi_deltas": [
+                {
+                    "kpi_id": "conversion",
+                    "metric": "conversion",
+                    "direction": "increase",
+                    "required": True,
+                    "before": before,
+                    "after": after,
+                    "target": 1.0,
+                    "gap_closed": after - before,
+                    "direction_assessment": (
+                        "away_from_target" if status == "regressed"
+                        else "unchanged" if status == "no_material_change"
+                        else "target_reached"
+                    ),
+                }
+            ],
             "outcome_evaluation_id": evaluation_id,
             "outcome_status": status,
             "measured_outcome_attribution": "not_assessed",
@@ -115,3 +137,32 @@ def test_different_selected_response_and_objective_are_never_merged() -> None:
     result = evaluate_business_impact_recurrence([first, different_response])
     assert result.pattern_candidates == ()
     assert result.singleton_episode_ids == ("business-impact-1", "business-impact-2")
+
+
+def test_achieved_goal_without_kpi_improvement_is_not_favorable_recurrence() -> None:
+    first = observation(index=1, status="achieved")
+    second = observation(index=2, status="achieved")
+    unchanged_delta = first.kpi_deltas[0].model_copy(
+        update={"before": 1.0, "after": 1.0, "gap_closed": 0.0}
+    )
+    unchanged = first.model_copy(update={"kpi_deltas": (unchanged_delta,)})
+    result = evaluate_business_impact_recurrence([unchanged, second])
+    candidate = result.pattern_candidates[0]
+    assert candidate.favorable_episode_ids == ("business-impact-2",)
+    assert candidate.neutral_episode_ids == ("business-impact-1",)
+    assert candidate.status == ObservationalRecurrenceStatus.INSUFFICIENT
+
+
+def test_missing_or_mixed_kpi_deltas_are_not_labeled_favorable() -> None:
+    first = observation(index=1)
+    no_deltas = first.model_copy(update={"kpi_deltas": ()})
+    second = observation(index=2)
+    mixed_delta = second.kpi_deltas[0].model_copy(
+        update={"kpi_id": "other", "gap_closed": -0.1}
+    )
+    mixed = second.model_copy(update={"kpi_deltas": (*second.kpi_deltas, mixed_delta)})
+    result = evaluate_business_impact_recurrence([no_deltas, mixed])
+    candidate = result.pattern_candidates[0]
+    assert candidate.favorable_episode_ids == ()
+    assert candidate.inconclusive_episode_ids == ("business-impact-1", "business-impact-2")
+    assert candidate.status == ObservationalRecurrenceStatus.INSUFFICIENT

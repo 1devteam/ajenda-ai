@@ -126,11 +126,31 @@ def _context(observation: BusinessImpactObservation) -> tuple[str, str, tuple[st
 
 
 def _direction(observation: BusinessImpactObservation) -> ObservedChangeDirection:
-    if observation.outcome_status in {OutcomeStatus.ACHIEVED, OutcomeStatus.PARTIAL_PROGRESS}:
+    """Observed goal status alone never establishes before/after movement.
+
+    ACHIEVED may mean the baseline was already at target; PARTIAL_PROGRESS
+    may hide mixed KPI directions. Never classify an incomplete or
+    contradictory set of outcome deltas as favorable recurrence.
+    """
+
+    if not observation.kpi_deltas:
+        return ObservedChangeDirection.INDETERMINATE
+    gaps = [delta.gap_closed for delta in observation.kpi_deltas]
+    if any(gap is None for gap in gaps):
+        return ObservedChangeDirection.INDETERMINATE
+
+    improved = any(gap is not None and gap > 0 for gap in gaps)
+    regressed = any(gap is not None and gap < 0 for gap in gaps)
+    if improved and regressed:
+        return ObservedChangeDirection.INDETERMINATE
+    if improved and observation.outcome_status in {OutcomeStatus.ACHIEVED, OutcomeStatus.PARTIAL_PROGRESS}:
         return ObservedChangeDirection.FAVORABLE
-    if observation.outcome_status == OutcomeStatus.REGRESSED:
+    if regressed and observation.outcome_status == OutcomeStatus.REGRESSED:
         return ObservedChangeDirection.REGRESSION
-    if observation.outcome_status == OutcomeStatus.NO_MATERIAL_CHANGE:
+    if not improved and not regressed and observation.outcome_status in {
+        OutcomeStatus.ACHIEVED,
+        OutcomeStatus.NO_MATERIAL_CHANGE,
+    }:
         return ObservedChangeDirection.NO_MATERIAL_CHANGE
     return ObservedChangeDirection.INDETERMINATE
 
