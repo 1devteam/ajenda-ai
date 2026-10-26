@@ -111,6 +111,7 @@ def test_valid_successor_reference_does_not_replace_outcome_evidence() -> None:
     service = BusinessUnderstandingService(MagicMock())
     service._repository = MagicMock()
     service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_latest_need_for_tenant.return_value = current
     service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
     pairing = _accepted_pairing(current=current, baseline=baseline, later=later)
     service._repository.lock_measurement_pairing_for_tenant.return_value = pairing
@@ -178,6 +179,7 @@ def test_contradictory_successor_reference_rejected_before_outcome_access(field:
     service = BusinessUnderstandingService(MagicMock())
     service._repository = MagicMock()
     service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_latest_need_for_tenant.return_value = current
     service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
     pairing = _accepted_pairing(current=current, baseline=baseline, later=later)
     service._repository.lock_measurement_pairing_for_tenant.return_value = pairing
@@ -261,6 +263,7 @@ def test_superseded_need_rejects_successor_reference_before_outcome_access() -> 
     service = BusinessUnderstandingService(MagicMock())
     service._repository = MagicMock()
     service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_latest_need_for_tenant.return_value = current
     service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
     pairing = _accepted_pairing(current=current, baseline=baseline, later=later)
     service._repository.lock_measurement_pairing_for_tenant.return_value = pairing
@@ -356,3 +359,71 @@ def test_successor_resolver_rejects_backdated_measurement_period() -> None:
         )
         assert resolved is not None
         assert resolved["measurement_contract"]["baseline_measurement_id"] == str(baseline.id)
+
+
+@pytest.mark.parametrize("defect", ["foreign_need", "wrong_baseline", "wrong_later"])
+def test_impact_rejects_pairing_identity_mismatch_before_evidence_access(defect: str) -> None:
+    current, baseline, later = _fixture()
+    pairing = SimpleNamespace(
+        id=uuid4(),
+        need_id=current.need_id,
+        baseline_measurement_id=baseline.id,
+        observed_measurement_id=later.id,
+        status="accepted",
+    )
+    if defect == "foreign_need":
+        pairing.need_id = "another-need"
+    elif defect == "wrong_baseline":
+        pairing.baseline_measurement_id = uuid4()
+    else:
+        pairing.observed_measurement_id = uuid4()
+
+    service = BusinessUnderstandingService(MagicMock())
+    service._repository = MagicMock()
+    service._repository.lock_measurement_pairing_for_tenant.return_value = pairing
+    with patch("backend.services.business_understanding.service.EvidenceRepository") as evidence_repository:
+        with pytest.raises(BusinessUnderstandingValidationError, match="contradicts"):
+            service.record_canonical_measurement_impact(
+                tenant_id="tenant-a",
+                need_id=current.need_id,
+                expected_revision=current.revision,
+                baseline_measurement_id=baseline.id,
+                observed_measurement_id=later.id,
+                outcome_evidence_id=uuid4(),
+                accepted_measurement_pairing_id=pairing.id,
+                producer="unit-test",
+            )
+        evidence_repository.assert_not_called()
+    service._repository.append_need_revision.assert_not_called()
+
+
+def test_impact_rejects_accepted_pairing_from_different_need_revision() -> None:
+    current, baseline, later = _fixture()
+    current.id = uuid4()
+    pairing = SimpleNamespace(
+        id=uuid4(),
+        need_id=current.need_id,
+        baseline_measurement_id=baseline.id,
+        observed_measurement_id=later.id,
+        need_revision_id=uuid4(),
+        need_revision=current.revision,
+        status="accepted",
+    )
+    service = BusinessUnderstandingService(MagicMock())
+    service._repository = MagicMock()
+    service._repository.lock_measurement_pairing_for_tenant.return_value = pairing
+    service._repository.get_need_revision_for_tenant.return_value = current
+    with patch("backend.services.business_understanding.service.EvidenceRepository") as evidence_repository:
+        with pytest.raises(BusinessUnderstandingValidationError, match="requested need revision"):
+            service.record_canonical_measurement_impact(
+                tenant_id="tenant-a",
+                need_id=current.need_id,
+                expected_revision=current.revision,
+                baseline_measurement_id=baseline.id,
+                observed_measurement_id=later.id,
+                outcome_evidence_id=uuid4(),
+                accepted_measurement_pairing_id=pairing.id,
+                producer="unit-test",
+            )
+        evidence_repository.assert_not_called()
+    service._repository.append_need_revision.assert_not_called()
