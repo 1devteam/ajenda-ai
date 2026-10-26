@@ -600,7 +600,7 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
         assert observation.selected_candidate_response_key == "inspect_funnel"
         assert observation.baseline_source_kind == "customer_attested"
         assert observation.observed_source_kind == "customer_attested"
-        assert observation.outcome_timing_verification_basis == outcome_evaluation.observation_timing.verification_basis
+        assert observation.outcome_timing_verification_basis.value == outcome.structured_payload["observation_timing"]["verification_basis"]
         provenance = episode.episode_reference.business_impact_provenance
         assert provenance is not None
         assert provenance["accepted_measurement_pairing_id"] == str(pairing.id)
