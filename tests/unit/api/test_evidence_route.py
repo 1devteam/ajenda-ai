@@ -518,6 +518,38 @@ def test_update_evidence_status_and_metadata_works() -> None:
     evidence_repo.update.assert_called_once_with(evidence)
 
 
+
+
+def test_runtime_owned_evidence_cannot_be_patched_by_client() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    evidence_id = uuid.uuid4()
+    evidence = _evidence_record(
+        tenant_id=str(tenant_id), mission_id=mission_id, evidence_id=evidence_id
+    )
+    evidence.materialization_reference = {
+        "schema_version": 1,
+        "source": "tool.invoke.task_output",
+        "execution_task_id": str(uuid.uuid4()),
+        "worker_lease_id": str(uuid.uuid4()),
+        "lineage_record_id": str(uuid.uuid4()),
+        "evidence_index": 0,
+    }
+    evidence_repo = MagicMock()
+    evidence_repo.get_for_tenant.return_value = evidence
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    with patch("backend.api.routes.evidence.EvidenceRepository", return_value=evidence_repo):
+        for update in (
+            {"structured_payload": {"forged_outcome": True}},
+            {"provenance_metadata": {"action_name": "analysis.evaluate_outcome"}},
+            {"collection_status": "verified"},
+        ):
+            response = client.patch(f"/v1/evidence/{evidence_id}", json=update)
+            assert response.status_code == 409
+    evidence_repo.update.assert_not_called()
+
+
 def test_update_evidence_allows_clearing_nullable_confidence() -> None:
     tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
