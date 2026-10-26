@@ -518,8 +518,6 @@ def test_update_evidence_status_and_metadata_works() -> None:
     evidence_repo.update.assert_called_once_with(evidence)
 
 
-
-
 def test_runtime_owned_evidence_cannot_be_patched_by_client() -> None:
     tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
