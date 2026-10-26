@@ -18,6 +18,8 @@ from backend.services.business_understanding.service import (
     BusinessUnderstandingService,
     BusinessUnderstandingValidationError,
 )
+from backend.services.ontology.commercial_state import KpiDirection, KpiSemanticSignature
+from backend.services.ontology.outcome import KpiOutcomeDelta
 
 
 def _fixture():
@@ -132,6 +134,53 @@ def test_valid_successor_reference_does_not_replace_outcome_evidence() -> None:
     service._repository.append_need_revision.assert_not_called()
 
 
+def test_impact_rejects_action_label_without_canonical_runtime_evidence() -> None:
+    """A caller-authored EvidenceRecord must not earn outcome authority."""
+    from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError
+
+    current, baseline, later = _fixture()
+    service = BusinessUnderstandingService(MagicMock())
+    service._repository = MagicMock()
+    service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_latest_need_for_tenant.return_value = current
+    service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
+    pairing = _accepted_pairing(current=current, baseline=baseline, later=later)
+    service._repository.lock_measurement_pairing_for_tenant.return_value = pairing
+    evidence_id = uuid4()
+    alleged_outcome = SimpleNamespace(
+        id=evidence_id,
+        mission_id=uuid4(),
+        provenance_metadata={"action_name": "analysis.evaluate_outcome"},
+        structured_payload={},
+    )
+    with (
+        patch("backend.services.business_understanding.service.EvidenceRepository") as evidence_repository,
+        patch(
+            "backend.services.business_understanding.service.require_canonical_tool_action_evidence",
+            side_effect=CanonicalToolEvidenceError("no completed runtime lineage"),
+        ) as canonical_proof,
+    ):
+        evidence_repository.return_value.get_for_tenant.return_value = alleged_outcome
+        with pytest.raises(BusinessUnderstandingValidationError, match="authorized runtime provenance"):
+            service.record_canonical_measurement_impact(
+                tenant_id="tenant-a",
+                need_id=current.need_id,
+                expected_revision=current.revision,
+                baseline_measurement_id=baseline.id,
+                observed_measurement_id=later.id,
+                outcome_evidence_id=evidence_id,
+                accepted_measurement_pairing_id=pairing.id,
+                producer="unit-test",
+            )
+        canonical_proof.assert_called_once_with(
+            session=service._session,
+            record=alleged_outcome,
+            expected_action="analysis.evaluate_outcome",
+            expected_role=None,
+        )
+    service._repository.append_need_revision.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "field, value",
     [
@@ -217,6 +266,74 @@ def test_legacy_measurement_without_successor_claim_retains_existing_impact_rule
     )
 
 
+@pytest.mark.parametrize(
+    "field, different",
+    [
+        ("goal_id", "unrelated-goal"),
+        ("direction", "increase"),
+        ("required", False),
+        ("maintain_tolerance", 0.5),
+    ],
+)
+def test_impact_pairing_requires_stable_kpi_meaning(field: str, different: object) -> None:
+    current, baseline, later = _fixture()
+    baseline.values[0].update(
+        goal_id="quality-goal",
+        direction="decrease",
+        required=True,
+        maintain_tolerance=None,
+    )
+    later.values = deepcopy(baseline.values)
+    later.values[0][field] = different
+
+    with pytest.raises(BusinessUnderstandingValidationError, match="not comparable"):
+        BusinessUnderstandingService._validate_measurement_comparability(
+            current=current, baseline=baseline, later=later
+        )
+
+
+@pytest.mark.parametrize("defect", ["direction", "required", "goal", "subject", "semantic_signature"])
+def test_outcome_must_preserve_durable_kpi_meaning(defect: str) -> None:
+    _, baseline, later = _fixture()
+    baseline.values[0].update(
+        goal_id="quality-goal",
+        direction="decrease",
+        required=True,
+        current_value=10,
+        target_value=5,
+    )
+    later.values = deepcopy(baseline.values)
+    later.values[0]["current_value"] = 8
+    delta = KpiOutcomeDelta(
+        kpi_id="defect-rate",
+        metric="defect_rate",
+        direction=KpiDirection.INCREASE if defect == "direction" else KpiDirection.DECREASE,
+        required=defect != "required",
+        before=10,
+        after=8,
+        target=5,
+    )
+    outcome = SimpleNamespace(
+        goal_id="unrelated-goal" if defect == "goal" else "quality-goal",
+        subject_refs=(
+            [{"schema_version": 1, "object_type": "organization", "object_id": "another-business"}]
+            if defect == "subject"
+            else baseline.subject_references
+        ),
+        kpi_deltas=[delta],
+        kpi_semantic_signatures=(
+            (KpiSemanticSignature(metric="defect_rate", direction=KpiDirection.INCREASE, normalized_unit="ratio"),)
+            if defect == "semantic_signature"
+            else ()
+        ),
+        observation_timing=SimpleNamespace(resolved_observed_at=later.observed_at),
+    )
+    with pytest.raises(BusinessUnderstandingValidationError, match="canonical outcome"):
+        BusinessUnderstandingService._validate_outcome_matches_measurements(
+            outcome=outcome, baseline=baseline, later=later
+        )
+
+
 def test_accept_measurement_pairing_is_idempotent_and_has_no_outcome_effect() -> None:
     current, baseline, later = _fixture()
     current.id = uuid4()
@@ -225,6 +342,7 @@ def test_accept_measurement_pairing_is_idempotent_and_has_no_outcome_effect() ->
     service._repository.get_measurement_for_tenant.side_effect = [baseline, later, baseline, later]
     service._repository.get_measurement_pairing_by_fingerprint_for_tenant.side_effect = [None]
     service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_latest_need_for_tenant.return_value = current
     service._repository.add_measurement_pairing.side_effect = lambda pairing: pairing
 
     with patch("backend.services.business_understanding.service.EvidenceRepository") as evidence_repository:
@@ -255,6 +373,54 @@ def test_accept_measurement_pairing_is_idempotent_and_has_no_outcome_effect() ->
     service._repository.add_measurement_pairing.assert_called_once()
     evidence_repository.assert_not_called()
     service._repository.append_need_revision.assert_not_called()
+
+
+def test_pairing_replay_requires_the_exact_originating_need_revision() -> None:
+    current, baseline, later = _fixture()
+    earlier = _accepted_pairing(current=current, baseline=baseline, later=later)
+    earlier.need_revision = current.revision - 1
+    earlier.need_revision_id = uuid4()
+    service = BusinessUnderstandingService(MagicMock())
+    service._repository = MagicMock()
+    service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
+    service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_measurement_pairing_by_fingerprint_for_tenant.return_value = earlier
+
+    with pytest.raises(BusinessUnderstandingValidationError, match="replay contradicts"):
+        service.accept_measurement_pairing(
+            tenant_id="tenant-a",
+            need_id=current.need_id,
+            expected_revision=current.revision,
+            baseline_measurement_id=baseline.id,
+            observed_measurement_id=later.id,
+            producer="unit-test",
+        )
+    service._repository.add_measurement_pairing.assert_not_called()
+
+
+def test_pairing_new_acceptance_rejects_a_stale_need_revision() -> None:
+    current, baseline, later = _fixture()
+    newer = SimpleNamespace(id=uuid4(), revision=current.revision + 1, status="monitoring")
+    service = BusinessUnderstandingService(MagicMock())
+    service._repository = MagicMock()
+    service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
+    service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_measurement_pairing_by_fingerprint_for_tenant.return_value = None
+    service._repository.get_latest_need_for_tenant.return_value = newer
+
+    with pytest.raises(BusinessUnderstandingValidationError, match="latest active need revision"):
+        service.accept_measurement_pairing(
+            tenant_id="tenant-a",
+            need_id=current.need_id,
+            expected_revision=current.revision,
+            baseline_measurement_id=baseline.id,
+            observed_measurement_id=later.id,
+            producer="unit-test",
+        )
+    service._repository.get_latest_need_for_tenant.assert_called_once_with(
+        tenant_id="tenant-a", need_id=current.need_id, for_update=True
+    )
+    service._repository.add_measurement_pairing.assert_not_called()
 
 
 def test_superseded_need_rejects_successor_reference_before_outcome_access() -> None:

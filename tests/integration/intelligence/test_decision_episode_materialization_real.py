@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from sqlalchemy import func, select
@@ -13,6 +14,7 @@ from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
+from backend.repositories.evidence_repository import EvidenceRepository
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError
 from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
@@ -160,3 +162,61 @@ def test_materialization_uses_real_runtime_artifacts_and_rejects_declarative_for
     for forged_request, expected_failure in forged_requests:
         with pytest.raises(CanonicalToolEvidenceError, match=expected_failure):
             registry.invoke(ToolInvocation(action=MATERIALIZATION_ACTION, input=forged_request), context)
+
+
+def test_logical_episode_evidence_identity_serializes_concurrent_replay(pg_engine) -> None:
+    """The EvidenceRecord owner, not readback reconciliation, prevents duplicates."""
+
+    tenant_id = str(uuid.uuid4())
+    mission_id = uuid.uuid4()
+    factory = sessionmaker(bind=pg_engine, expire_on_commit=False)
+    with factory() as setup:
+        setup.add(
+            Tenant(id=uuid.UUID(tenant_id), name="Episode identity", slug=f"episode-id-{tenant_id[:8]}", plan="free")
+        )
+        # Evidence retains a mission FK; the identity test does not need a
+        # runnable mission, only an existing tenant-owned mission record.
+        setup.add(Mission(id=mission_id, tenant_id=tenant_id, objective="Episode evidence identity", status="planned"))
+        setup.commit()
+
+    logical_identity = f"bip_{uuid.uuid4().hex}"
+
+    def write() -> uuid.UUID:
+        session = factory()
+        try:
+            activate_tenant_session(session, tenant_id)
+            stored = EvidenceRepository(session).add(
+                EvidenceRecord(
+                    tenant_id=tenant_id,
+                    mission_id=mission_id,
+                    evidence_type="execution_trace",
+                    evidence_source="decision_episode_materialization",
+                    logical_identity=logical_identity,
+                    summary="Canonical business-impact learning signal",
+                    structured_payload={"signal_id": "signal-1", "episode_id": logical_identity},
+                    provenance_metadata={
+                        "action_name": MATERIALIZATION_ACTION,
+                        "evidence_role": "decision_learning_signal",
+                    },
+                )
+            )
+            session.commit()
+            return stored.id
+        finally:
+            session.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        stored_ids = list(executor.map(lambda _: write(), range(2)))
+
+    with factory() as readback:
+        activate_tenant_session(readback, tenant_id)
+        records = list(
+            readback.scalars(
+                select(EvidenceRecord).where(
+                    EvidenceRecord.tenant_id == tenant_id,
+                    EvidenceRecord.logical_identity == logical_identity,
+                )
+            )
+        )
+        assert len(records) == 1
+        assert stored_ids == [records[0].id, records[0].id]

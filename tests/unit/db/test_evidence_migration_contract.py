@@ -11,7 +11,7 @@ def test_evidence_migration_has_single_head_and_short_revision_id() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0062_measurement_pairings"]
+    assert heads == ["0063_evidence_logical_identity"]
     assert len(heads[0]) <= 32
 
 
@@ -27,3 +27,14 @@ def test_evidence_migration_contains_tenant_indexes_and_rls_policies() -> None:
     assert "ENABLE ROW LEVEL SECURITY" in migration
     assert "tenant_evidence_isolation" in migration
     assert "def downgrade" in migration
+
+
+def test_logical_evidence_identity_migration_is_additive_and_reversible() -> None:
+    migration = Path("alembic/versions/0063_evidence_logical_identity.py").read_text(encoding="utf-8")
+
+    assert 'revision = "0063_evidence_logical_identity"' in migration
+    assert 'down_revision = "0062_measurement_pairings"' in migration
+    assert "logical_identity" in migration
+    assert "uq_evidence_records_tenant_logical_identity" in migration
+    assert "logical_identity IS NOT NULL" in migration
+    assert "def upgrade" in migration and "def downgrade" in migration

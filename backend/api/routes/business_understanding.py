@@ -33,8 +33,8 @@ from backend.services.business_understanding.service import (
     BusinessUnderstandingService,
     BusinessUnderstandingValidationError,
     SourceReference,
-    canonical_subject_keys,
 )
+from backend.services.business_understanding.subject_identity import canonical_subject_keys
 from backend.services.ontology.commercial_state import Goal, Kpi
 
 router = APIRouter(prefix="/business-understanding", tags=["business-understanding"])

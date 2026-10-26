@@ -189,14 +189,47 @@ class DecisionEpisodeReference(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     episode_id: str = Field(min_length=1, max_length=160)
-    decision_id: str = Field(min_length=1, max_length=160)
-    recommendation_evidence_id: str = Field(min_length=1, max_length=160)
-    mission_id: str = Field(min_length=1, max_length=160)
-    recommendation_execution_task_id: str = Field(min_length=1, max_length=160)
-    outcome_evaluation_evidence_id: str = Field(min_length=1, max_length=160)
+    decision_id: str | None = Field(default=None, min_length=1, max_length=160)
+    episode_kind: Literal["mission_decision", "business_impact"] = "mission_decision"
+    recommendation_evidence_id: str | None = Field(default=None, min_length=1, max_length=160)
+    mission_id: str | None = Field(default=None, min_length=1, max_length=160)
+    recommendation_execution_task_id: str | None = Field(default=None, min_length=1, max_length=160)
+    outcome_evaluation_evidence_id: str | None = Field(default=None, min_length=1, max_length=160)
     execution_evidence_ids: tuple[str, ...] = ()
+    business_impact_provenance: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def validate_episode_kind(self) -> DecisionEpisodeReference:
+        if self.episode_kind == "mission_decision":
+            if (
+                not all(
+                    (
+                        self.decision_id,
+                        self.recommendation_evidence_id,
+                        self.mission_id,
+                        self.recommendation_execution_task_id,
+                        self.outcome_evaluation_evidence_id,
+                    )
+                )
+                or self.business_impact_provenance is not None
+            ):
+                raise ValueError("mission decision episodes require recommendation and outcome provenance")
+        elif (
+            self.schema_version != 2
+            or self.business_impact_provenance is None
+            or any(
+                (
+                    self.decision_id,
+                    self.recommendation_evidence_id,
+                    self.mission_id,
+                    self.recommendation_execution_task_id,
+                )
+            )
+        ):
+            raise ValueError("business impact episodes require only verified business-impact provenance")
+        return self
 
 
 class DecisionLearningSignal(BaseModel):
@@ -244,6 +277,8 @@ class DecisionLearningSignal(BaseModel):
 
     @model_validator(mode="after")
     def validate_subject_semantic_consistency(self) -> DecisionLearningSignal:
+        if self.episode_reference is not None and self.episode_reference.episode_kind != "mission_decision":
+            raise ValueError("business impact observations cannot be Decision learning signals")
         if self.subject_refs and self.subject_semantic_signatures:
             exact_classes = {ref.object_type for ref in self.subject_refs}
             semantic_classes = {signature.object_type for signature in self.subject_semantic_signatures}

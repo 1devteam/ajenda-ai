@@ -32,7 +32,18 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
-from backend.services.business_understanding.service import BusinessUnderstandingService
+from backend.repositories.durable_learning_signal_repository import DurableLearningSignalRepository
+from backend.repositories.evidence_repository import EvidenceRepository
+from backend.repositories.execution_task_repository import ExecutionTaskRepository
+from backend.services.business_understanding.service import (
+    BusinessUnderstandingService,
+    BusinessUnderstandingValidationError,
+)
+from backend.services.decision_episode_materialization import (
+    DecisionEpisodeMaterializationRequest,
+    DecisionEpisodeMaterializationService,
+)
+from backend.services.durable_experience_consolidation import DurableExperienceConsolidationService
 from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.mission_composition.service import MissionCompositionService
 from backend.services.ontology.commercial_state import Goal, Kpi
@@ -490,6 +501,41 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
         },
         worker_label="assessment-spine-outcome",
     )
+    # A tenant-owned declarative row may copy the valid outcome payload and
+    # advertise the expected action name. It must not acquire runtime authority.
+    with factory() as forged_session:
+        activate_tenant_session(forged_session, tenant_id)
+        forged = EvidenceRecord(
+            tenant_id=tenant_id,
+            mission_id=mission_id,
+            evidence_type="artifact",
+            evidence_source="customer_declared",
+            summary="Alleged canonical outcome without runtime lineage",
+            structured_payload=outcome.structured_payload,
+            provenance_metadata={"action_name": "analysis.evaluate_outcome"},
+            trust_signal={},
+            collection_status="collected",
+        )
+        forged_session.add(forged)
+        forged_session.commit()
+    with factory() as forged_attempt:
+        activate_tenant_session(forged_attempt, tenant_id)
+        current = BusinessUnderstandingRepository(forged_attempt).get_latest_need_for_tenant(
+            tenant_id=tenant_id, need_id=need_id
+        )
+        assert current is not None
+        with pytest.raises(BusinessUnderstandingValidationError, match="authorized runtime provenance"):
+            BusinessUnderstandingService(forged_attempt).record_canonical_measurement_impact(
+                tenant_id=tenant_id,
+                need_id=need_id,
+                expected_revision=current.revision,
+                baseline_measurement_id=baseline.id,
+                observed_measurement_id=later_one.id,
+                outcome_evidence_id=forged.id,
+                accepted_measurement_pairing_id=pairing.id,
+                producer="test.forged_outcome_denied",
+            )
+        forged_attempt.rollback()
     impact = factory()
     try:
         activate_tenant_session(impact, tenant_id)
@@ -529,8 +575,88 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
         )
         assert persisted_impact.impact_assessment["outcome_evidence_id"] == str(outcome.id)
         assert persisted_pairing.successor_contract_id == later_one.intended_measurement_reference["contract_id"]
+        episode = DecisionEpisodeMaterializationService(
+            session=readback,
+            evidence=EvidenceRepository(readback),
+            tasks=ExecutionTaskRepository(readback),
+        ).materialize(
+            tenant_id=tenant_id,
+            request=DecisionEpisodeMaterializationRequest(impact_revision_id=impact_revision.id),
+        )
+        replay = DecisionEpisodeMaterializationService(
+            session=readback,
+            evidence=EvidenceRepository(readback),
+            tasks=ExecutionTaskRepository(readback),
+        ).materialize(
+            tenant_id=tenant_id,
+            request=DecisionEpisodeMaterializationRequest(impact_revision_id=impact_revision.id),
+        )
+        assert episode.episode_reference.episode_kind == "business_impact"
+        assert episode.episode_reference.episode_id == replay.episode_reference.episode_id
+        assert episode.feedback is None
+        observation = episode.business_impact_observation
+        assert observation is not None
+        assert observation.execution_status == "unknown"
+        assert observation.selected_candidate_response_key == "inspect_funnel"
+        assert observation.baseline_source_kind == "customer_attested"
+        assert observation.observed_source_kind == "customer_attested"
+        assert (
+            observation.outcome_timing_verification_basis.value
+            == outcome.structured_payload["observation_timing"]["verification_basis"]
+        )
+        provenance = episode.episode_reference.business_impact_provenance
+        assert provenance is not None
+        assert provenance["accepted_measurement_pairing_id"] == str(pairing.id)
+        assert provenance["impact_revision_id"] == str(impact_revision.id)
+        assert provenance["outcome_evidence_id"] == str(outcome.id)
+        assert provenance["frozen_successor_contract"] == later_one.intended_measurement_reference
+        strategy = provenance["frozen_successor_contract"]["strategy_lineage"]
+        assessment_row = readback.get(BusinessNeedAssessment, uuid.UUID(strategy["assessment_id"]))
+        assert assessment_row is not None
+        original_fingerprint = assessment_row.assessment_fingerprint
+        assessment_row.assessment_fingerprint = "sha256:" + "0" * 64
+        readback.flush()
+        with pytest.raises(ValueError, match="originating assessment authority"):
+            DecisionEpisodeMaterializationService(
+                session=readback,
+                evidence=EvidenceRepository(readback),
+                tasks=ExecutionTaskRepository(readback),
+            ).materialize(
+                tenant_id=tenant_id,
+                request=DecisionEpisodeMaterializationRequest(impact_revision_id=impact_revision.id),
+            )
+        readback.rollback()
+        assert assessment_row.assessment_fingerprint == original_fingerprint
     finally:
         readback.close()
+
+    # This is the canonical write boundary: the analysis action derives the
+    # signal from Layer 2 records and the worker persists it through
+    # EvidenceBridge.  No recommendation or execution artifact is supplied.
+    business_impact_signal = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        action="analysis.materialize_decision_learning_signal",
+        action_input={"impact_revision_id": str(impact_revision.id)},
+        worker_label="assessment-spine-business-impact",
+    )
+    assert business_impact_signal.logical_identity == episode.episode_reference.episode_id
+    assert business_impact_signal.structured_payload["episode_reference"]["episode_kind"] == "business_impact"
+    assert business_impact_signal.structured_payload["episode_reference"]["business_impact_provenance"] == provenance
+    learning_readback = factory()
+    try:
+        activate_tenant_session(learning_readback, tenant_id)
+        history = DurableExperienceConsolidationService(
+            history=DurableLearningSignalRepository(learning_readback)
+        ).consolidate(learning_readback, tenant_id=tenant_id)
+        assert episode.episode_reference.episode_id in history.authoritative_episode_ids
+        assert episode.episode_reference.episode_id in history.observational_episode_ids
+        assert observation.signal_id not in history.valid_learning_signal_ids
+        assert business_impact_signal.provenance_metadata["evidence_role"] == "business_impact_observation"
+    finally:
+        learning_readback.close()
 
     def retry_from_independent_session() -> uuid.UUID:
         session = factory()

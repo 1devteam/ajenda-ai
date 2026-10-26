@@ -111,6 +111,7 @@ class EvidenceItem(BaseModel):
 
     evidence_type: str = Field(min_length=1, max_length=120)
     evidence_source: str = Field(min_length=1, max_length=240)
+    logical_identity: str | None = Field(default=None, min_length=1, max_length=192)
     action_name: str = Field(min_length=1, max_length=160)
     tool_provider: str = Field(min_length=1, max_length=160)
     tenant_id: str = Field(min_length=1)

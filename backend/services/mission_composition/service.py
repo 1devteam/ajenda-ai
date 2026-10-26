@@ -21,6 +21,7 @@ from backend.repositories.mission_plan_repository import MissionPlanRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.provider_runtime_credential_repository import ProviderRuntimeCredentialRepository
 from backend.services.business_profile.record_sync import build_profile_brief
+from backend.services.business_understanding.subject_identity import canonical_subject_keys
 from backend.services.mission_composition.compile_phase import MissionCompositionCompilePhase
 from backend.services.mission_composition.confirmation_phase import MissionCompositionConfirmationPhase
 from backend.services.mission_composition.contracts import MissionIntent, is_ranking_only_instruction
@@ -463,6 +464,18 @@ class MissionCompositionService(
                 raise MissionCompositionError(
                     code="BUSINESS_NEED_MEASUREMENT_NOT_FOUND",
                     message="baseline measurement was not found for tenant",
+                )
+            need_subjects = need_reference.get("subject_references")
+            objective_reference = need_reference.get("objective_reference")
+            if (
+                not isinstance(need_subjects, list)
+                or not isinstance(objective_reference, dict)
+                or baseline.objective_key != objective_reference.get("objective_key")
+                or canonical_subject_keys(baseline.subject_references) != canonical_subject_keys(need_subjects)
+            ):
+                raise MissionCompositionError(
+                    code="BUSINESS_NEED_ASSESSMENT_INVALID",
+                    message="baseline measurement does not match the originating business need",
                 )
             # This is intentionally a stable reference to the source-owned
             # baseline, not a comparability decision.  The existing business

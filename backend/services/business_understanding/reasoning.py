@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 
 from backend.domain.business_understanding import BusinessNeedAssessment, BusinessNeedRevision
 from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
+from backend.services.business_understanding.subject_identity import canonical_subject_keys
 from backend.services.knowledge.knowledge_decision_support import (
     KnowledgeDecisionSupportResult,
     KnowledgeInfluenceDirection,
@@ -208,6 +209,19 @@ class BusinessNeedReasoningService:
             references = set(response.supporting_observation_ids) | set(response.contradicting_observation_ids)
             if not references.issubset(allowed_observation_ids):
                 raise ValueError("assessment evidence must be attributed to the assessed need revision")
+
+        if request.goal is not None:
+            originating_subjects = canonical_subject_keys(need.subject_references)
+            goal_subjects = canonical_subject_keys(request.goal.subject_refs)
+            if originating_subjects != goal_subjects:
+                raise ValueError("assessment goal subjects must match the originating business need")
+            originating_objective = need.objective_reference
+            if not isinstance(originating_objective, dict):
+                raise ValueError("originating business need has an invalid objective reference")
+            expected_objective = originating_objective.get("objective_key")
+            actual_objective = request.goal.objective_key or request.goal.goal_id
+            if not isinstance(expected_objective, str) or expected_objective != actual_objective:
+                raise ValueError("assessment goal objective must match the originating business need")
 
         goal_evaluation = (
             evaluate_goal_progress(goal=request.goal, kpis=list(request.kpis), evaluated_at=request.evaluated_at)

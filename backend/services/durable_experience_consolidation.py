@@ -15,6 +15,7 @@ from backend.services.knowledge.knowledge_ledger import (
     KnowledgeLedgerWriteResult,
     record_knowledge_qualification,
 )
+from backend.services.ontology.business_impact_observation import BusinessImpactObservation
 from backend.services.ontology.decision_feedback import DecisionLearningSignal
 from backend.services.ontology.experience_intelligence import (
     ExperienceEpisodeInput,
@@ -32,6 +33,7 @@ from backend.services.ontology.observation_attribution import (
 from backend.services.tools.evidence_bridge import require_canonical_tool_action_evidence
 
 LEARNING_SIGNAL_EVIDENCE_ROLE = "decision_learning_signal"
+BUSINESS_IMPACT_OBSERVATION_ROLE = "business_impact_observation"
 
 
 class DurableLearningHistoryError(RuntimeError):
@@ -63,6 +65,7 @@ class ExperienceConsolidationResult(BaseModel):
     valid_learning_signal_ids: tuple[str, ...] = ()
     authoritative_episode_ids: tuple[str, ...] = ()
     legacy_signal_ids: tuple[str, ...] = ()
+    observational_episode_ids: tuple[str, ...] = ()
     duplicate_evidence_record_ids: tuple[str, ...] = ()
     malformed_signal_ids: tuple[str, ...] = ()
     experience: ExperienceIntelligenceResult
@@ -73,6 +76,7 @@ class ExperienceConsolidationResult(BaseModel):
             "experience_remains_semantic_authority",
             "non_causal_consolidation",
             "no_applicability_or_runtime_execution",
+            "observational_impact_is_not_intervention_qualification",
         )
     )
 
@@ -120,6 +124,7 @@ class DurableExperienceConsolidationService:
     def consolidate(self, session: Session, *, tenant_id: str) -> ExperienceConsolidationResult:
         records = self._history.list_candidates_for_tenant(tenant_id=tenant_id)
         parsed: list[tuple[EvidenceRecord, DecisionLearningSignal]] = []
+        observations: list[tuple[EvidenceRecord, BusinessImpactObservation]] = []
         malformed: list[uuid.UUID] = []
         for record in records:
             try:
@@ -128,15 +133,25 @@ class DurableExperienceConsolidationService:
                         "history reader returned foreign-tenant evidence", evidence_ids=[record.id]
                     )
                 _artifact_action(record)
-                if record.provenance_metadata.get("evidence_role") != LEARNING_SIGNAL_EVIDENCE_ROLE:
-                    raise ValueError("canonical learning artifact role is absent")
+                role = record.provenance_metadata.get("evidence_role")
+                if role not in {LEARNING_SIGNAL_EVIDENCE_ROLE, BUSINESS_IMPACT_OBSERVATION_ROLE}:
+                    raise ValueError("canonical materialization evidence role is absent")
                 require_canonical_tool_action_evidence(
                     session=session,
                     record=record,
                     expected_action=MATERIALIZATION_ACTION,
-                    expected_role=LEARNING_SIGNAL_EVIDENCE_ROLE,
+                    expected_role=role,
                 )
-                parsed.append((record, DecisionLearningSignal.model_validate(record.structured_payload)))
+                if role == BUSINESS_IMPACT_OBSERVATION_ROLE:
+                    observations.append((record, BusinessImpactObservation.model_validate(record.structured_payload)))
+                else:
+                    signal = DecisionLearningSignal.model_validate(record.structured_payload)
+                    if (
+                        signal.episode_reference is not None
+                        and signal.episode_reference.episode_kind != "mission_decision"
+                    ):
+                        raise ValueError("observational business impact must not be Decision learning evidence")
+                    parsed.append((record, signal))
             except DurableLearningHistoryError:
                 raise
             except Exception:
@@ -160,7 +175,27 @@ class DurableExperienceConsolidationService:
                 continue
             by_episode[episode.episode_id] = (record, signal)
 
+        by_observation: dict[str, tuple[EvidenceRecord, BusinessImpactObservation]] = {}
+        for record, observation in sorted(observations, key=lambda item: (item[1].evaluated_at, str(item[0].id))):
+            episode_id = observation.episode_reference.episode_id
+            previous_observation = by_observation.get(episode_id)
+            if previous_observation is not None:
+                if previous_observation[1] != observation:
+                    raise DurableLearningHistoryError(
+                        "observational episode identity has conflicting payloads",
+                        evidence_ids=[previous_observation[0].id, record.id],
+                    )
+                duplicate_record_ids.append(str(record.id))
+                continue
+            if episode_id in by_episode:
+                raise DurableLearningHistoryError(
+                    "observational and Decision episodes share an identity",
+                    evidence_ids=[record.id, by_episode[episode_id][0].id],
+                )
+            by_observation[episode_id] = (record, observation)
+
         episodes = [_episode_input(item[1]) for item in by_episode.values()]
+
         experience = evaluate_experience_set(episodes)
         qualifications: list[ConsolidatedQualification] = []
         for candidate in experience.pattern_candidates:
@@ -172,8 +207,12 @@ class DurableExperienceConsolidationService:
             records_inspected=tuple(str(record.id) for record in records),
             valid_learning_signal_ids=tuple(sorted(signal.signal_id for _, signal in parsed)),
             authoritative_episode_ids=tuple(
-                sorted(signal.episode_reference.episode_id for _, signal in parsed if signal.episode_reference)
+                sorted(
+                    {signal.episode_reference.episode_id for _, signal in parsed if signal.episode_reference}
+                    | set(by_observation)
+                )
             ),
+            observational_episode_ids=tuple(sorted(by_observation)),
             legacy_signal_ids=tuple(
                 sorted(signal.signal_id for _, signal in parsed if signal.episode_reference is None)
             ),

@@ -9,7 +9,7 @@ from alembic.script import ScriptDirectory
 def test_business_understanding_migration_is_current_head_and_short_revision_id() -> None:
     heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
 
-    assert heads == ["0062_measurement_pairings"]
+    assert heads == ["0063_evidence_logical_identity"]
     assert len(heads[0]) <= 32
 
 

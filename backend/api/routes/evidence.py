@@ -295,6 +295,13 @@ def update_evidence(
     if evidence is None:
         raise HTTPException(status_code=404, detail="evidence not found for tenant")
 
+    # Canonical tool evidence is an exact projection of committed runtime lineage.
+    # Even a metadata/status PATCH would make the bridge validator reject it.
+    # Client-authored declarative evidence retains its existing update contract.
+    reference = evidence.materialization_reference
+    if isinstance(reference, dict) and reference.get("source") == "tool.invoke.task_output":
+        raise HTTPException(status_code=409, detail="runtime-owned canonical evidence is immutable")
+
     updates = body.model_dump(exclude_unset=True)
     for field_name, value in updates.items():
         setattr(evidence, field_name, value)
