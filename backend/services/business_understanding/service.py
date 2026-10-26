@@ -29,8 +29,8 @@ from backend.repositories.knowledge_repository import KnowledgeRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
-from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.business_understanding.subject_identity import canonical_subject_keys
+from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.ontology.commercial_state import Goal, Kpi
 from backend.services.ontology.evaluation import GoalProgressStatus, evaluate_goal_progress
 from backend.services.ontology.outcome import OutcomeEvaluation, OutcomeStatus
