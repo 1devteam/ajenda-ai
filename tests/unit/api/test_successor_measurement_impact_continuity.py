@@ -225,6 +225,7 @@ def test_accept_measurement_pairing_is_idempotent_and_has_no_outcome_effect() ->
     service._repository.get_measurement_for_tenant.side_effect = [baseline, later, baseline, later]
     service._repository.get_measurement_pairing_by_fingerprint_for_tenant.side_effect = [None]
     service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_latest_need_for_tenant.return_value = current
     service._repository.add_measurement_pairing.side_effect = lambda pairing: pairing
 
     with patch("backend.services.business_understanding.service.EvidenceRepository") as evidence_repository:
@@ -255,6 +256,56 @@ def test_accept_measurement_pairing_is_idempotent_and_has_no_outcome_effect() ->
     service._repository.add_measurement_pairing.assert_called_once()
     evidence_repository.assert_not_called()
     service._repository.append_need_revision.assert_not_called()
+
+
+
+def test_pairing_replay_requires_the_exact_originating_need_revision() -> None:
+    current, baseline, later = _fixture()
+    earlier = _accepted_pairing(current=current, baseline=baseline, later=later)
+    earlier.need_revision = current.revision - 1
+    earlier.need_revision_id = uuid4()
+    service = BusinessUnderstandingService(MagicMock())
+    service._repository = MagicMock()
+    service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
+    service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_measurement_pairing_by_fingerprint_for_tenant.return_value = earlier
+
+    with pytest.raises(BusinessUnderstandingValidationError, match="replay contradicts"):
+        service.accept_measurement_pairing(
+            tenant_id="tenant-a",
+            need_id=current.need_id,
+            expected_revision=current.revision,
+            baseline_measurement_id=baseline.id,
+            observed_measurement_id=later.id,
+            producer="unit-test",
+        )
+    service._repository.add_measurement_pairing.assert_not_called()
+
+
+def test_pairing_new_acceptance_rejects_a_stale_need_revision() -> None:
+    current, baseline, later = _fixture()
+    newer = SimpleNamespace(id=uuid4(), revision=current.revision + 1, status="monitoring")
+    service = BusinessUnderstandingService(MagicMock())
+    service._repository = MagicMock()
+    service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
+    service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_measurement_pairing_by_fingerprint_for_tenant.return_value = None
+    service._repository.get_latest_need_for_tenant.return_value = newer
+
+    with pytest.raises(BusinessUnderstandingValidationError, match="latest active need revision"):
+        service.accept_measurement_pairing(
+            tenant_id="tenant-a",
+            need_id=current.need_id,
+            expected_revision=current.revision,
+            baseline_measurement_id=baseline.id,
+            observed_measurement_id=later.id,
+            producer="unit-test",
+        )
+    service._repository.get_latest_need_for_tenant.assert_called_once_with(
+        tenant_id="tenant-a", need_id=current.need_id, for_update=True
+    )
+    service._repository.add_measurement_pairing.assert_not_called()
+
 
 
 def test_superseded_need_rejects_successor_reference_before_outcome_access() -> None:
