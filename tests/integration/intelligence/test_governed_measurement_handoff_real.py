@@ -84,9 +84,7 @@ def test_governed_runtime_measurement_ingress_holds_without_approval_and_commits
             )
         )
         blocked.flush()
-        result = ExecutionCoordinator(blocked, queue_adapter).queue_task(
-            tenant_id=tenant, task_id=blocked_task_id
-        )
+        result = ExecutionCoordinator(blocked, queue_adapter).queue_task(tenant_id=tenant, task_id=blocked_task_id)
         assert result.ok is False
         assert "independent human approval" in result.reason
         blocked.commit()
