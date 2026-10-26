@@ -473,6 +473,7 @@ def assess_decision_effectiveness(
     execution: DecisionExecutionObservation,
     outcome: OutcomeEvaluation,
     quality: DecisionQualityAssessment,
+    business_impact_mode: bool = False,
 ) -> DecisionEffectivenessEvaluation:
     """decision_effectiveness_v1 — explicit dimension rules, fail closed."""
 
@@ -494,6 +495,33 @@ def assess_decision_effectiveness(
         )
 
     if fidelity == ExecutionFidelity.EXECUTION_UNKNOWN:
+        if business_impact_mode:
+            # A Layer-2 accepted pairing proves a comparable observation, not
+            # that the selected response was executed or caused the result.
+            # Preserve that distinction while letting repeated independently
+            # observed associations reach the existing Experience authority.
+            status_by_outcome = {
+                OutcomeStatus.ACHIEVED: DecisionEffectivenessStatus.EFFECTIVE,
+                OutcomeStatus.PARTIAL_PROGRESS: DecisionEffectivenessStatus.PARTIALLY_EFFECTIVE,
+                OutcomeStatus.REGRESSED: DecisionEffectivenessStatus.INEFFECTIVE,
+            }
+            status = status_by_outcome.get(outcome.status, DecisionEffectivenessStatus.INSUFFICIENT_EVIDENCE)
+            return DecisionEffectivenessEvaluation(
+                status=status,
+                confidence=0.5 if status != DecisionEffectivenessStatus.INSUFFICIENT_EVIDENCE else 0.35,
+                dimensions=EffectivenessDimensions(
+                    goal_progress=outcome.status.value,
+                    execution_fidelity=fidelity,
+                    attribution_strength=attribution,
+                    evidence_completeness="accepted_pairing_observed_association",
+                    regression_observed=outcome.status == OutcomeStatus.REGRESSED,
+                ),
+                explanation_codes=[
+                    "accepted_pairing_observed_association",
+                    "execution_not_asserted",
+                    "causation_not_asserted",
+                ],
+            )
         return DecisionEffectivenessEvaluation(
             status=DecisionEffectivenessStatus.INSUFFICIENT_EVIDENCE,
             confidence=0.35,
@@ -834,12 +862,24 @@ def extract_decision_learning_signal(
     information_learned_after: list[str] | None = None,
     signal_id: str | None = None,
     evaluated_at: datetime | None = None,
+    business_impact_mode: bool = False,
 ) -> DecisionLearningSignal:
     """decision_learning_signal_v1 — candidate lesson from one episode only."""
 
     attribution = outcome.attribution
 
-    if effectiveness.status in {
+    if business_impact_mode and effectiveness.status in {
+        DecisionEffectivenessStatus.HIGHLY_EFFECTIVE,
+        DecisionEffectivenessStatus.EFFECTIVE,
+        DecisionEffectivenessStatus.PARTIALLY_EFFECTIVE,
+        DecisionEffectivenessStatus.INEFFECTIVE,
+        DecisionEffectivenessStatus.COUNTERPRODUCTIVE,
+    }:
+        # This remains a candidate observation.  Experience, not Feedback,
+        # decides whether independent recurrence is sufficient for reusable
+        # association knowledge.
+        strength = LearningSignalStrength.CANDIDATE
+    elif effectiveness.status in {
         DecisionEffectivenessStatus.INSUFFICIENT_EVIDENCE,
         DecisionEffectivenessStatus.NOT_EVALUABLE,
         DecisionEffectivenessStatus.NOT_EXECUTED,
@@ -994,6 +1034,7 @@ def evaluate_decision_feedback(
         execution=execution,
         outcome=outcome,
         quality=quality,
+        business_impact_mode=(episode_reference is not None and episode_reference.episode_kind == "business_impact"),
     )
     consequences = inventory_consequences(snapshot=snapshot, outcome=outcome)
     effectiveness.dimensions.unexpected_consequence_count = len(consequences.unexpected_positive_changes) + len(
@@ -1018,6 +1059,7 @@ def evaluate_decision_feedback(
         information_learned_after=information_learned_after,
         signal_id=signal_id,
         evaluated_at=now,
+        business_impact_mode=(episode_reference is not None and episode_reference.episode_kind == "business_impact"),
     )
     if episode_reference is not None:
         if episode_reference.decision_id != snapshot.decision_id:

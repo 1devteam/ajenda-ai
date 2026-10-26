@@ -655,6 +655,9 @@ def _eligibility(
     active_scope_conditions: tuple[str, ...],
 ) -> _Eligibility:
     codes: list[str] = []
+    business_impact = bool(
+        signal.episode_reference is not None and signal.episode_reference.episode_kind == "business_impact"
+    )
     if partition_key is None:
         if sig.intervention_semantic_conflict:
             codes.append("intervention_semantic_conflict")
@@ -706,15 +709,22 @@ def _eligibility(
             excluded=True,
         )
     if sig.execution_fidelity == ExecutionFidelity.EXECUTION_UNKNOWN:
-        codes.append("execution_unknown_blocks_recurrence_evidence")
-        return _Eligibility(
-            episode_id=sig.episode_id,
-            tier=EvidenceContributionTier.INELIGIBLE,
-            direction=EvidenceUnitDirection.NEUTRAL,
-            reason_codes=tuple(codes),
-            partition_key=partition_key,
-            excluded=True,
-        )
+        if business_impact:
+            # The accepted pairing is a separate, verified observation
+            # contract.  It supplies neither an execution claim nor causal
+            # attribution, but repeated independent observations may be
+            # assessed by this existing Experience owner as association.
+            codes.append("business_impact_execution_not_asserted")
+        else:
+            codes.append("execution_unknown_blocks_recurrence_evidence")
+            return _Eligibility(
+                episode_id=sig.episode_id,
+                tier=EvidenceContributionTier.INELIGIBLE,
+                direction=EvidenceUnitDirection.NEUTRAL,
+                reason_codes=tuple(codes),
+                partition_key=partition_key,
+                excluded=True,
+            )
     if sig.execution_fidelity == ExecutionFidelity.EXECUTED_WITH_MATERIAL_VARIATION:
         codes.append("material_variation_not_same_intervention")
         return _Eligibility(
@@ -734,15 +744,18 @@ def _eligibility(
         AttributionAssessment.INSUFFICIENT_EVIDENCE,
         AttributionAssessment.NOT_ASSESSED,
     }:
-        codes.append("attribution_insufficient_or_conflicting_excluded")
-        return _Eligibility(
-            episode_id=sig.episode_id,
-            tier=EvidenceContributionTier.INELIGIBLE,
-            direction=EvidenceUnitDirection.NEUTRAL,
-            reason_codes=tuple(codes),
-            partition_key=partition_key,
-            excluded=True,
-        )
+        if business_impact and sig.attribution_assessment == AttributionAssessment.NOT_ASSESSED:
+            codes.append("business_impact_non_causal_association")
+        else:
+            codes.append("attribution_insufficient_or_conflicting_excluded")
+            return _Eligibility(
+                episode_id=sig.episode_id,
+                tier=EvidenceContributionTier.INELIGIBLE,
+                direction=EvidenceUnitDirection.NEUTRAL,
+                reason_codes=tuple(codes),
+                partition_key=partition_key,
+                excluded=True,
+            )
     if sig.attribution_assessment == AttributionAssessment.TEMPORAL_ASSOCIATION:
         tier = EvidenceContributionTier.LIMITED
         codes.append("temporal_association_limited_evidence")
@@ -759,8 +772,11 @@ def _eligibility(
         tier = EvidenceContributionTier.LIMITED
         codes.append("weak_learning_signal_limited_evidence")
     elif sig.learning_signal_strength == LearningSignalStrength.CANDIDATE:
-        tier = EvidenceContributionTier.LIMITED
-        codes.append("candidate_learning_signal_limited_evidence")
+        if business_impact:
+            codes.append("business_impact_candidate_association")
+        else:
+            tier = EvidenceContributionTier.LIMITED
+            codes.append("candidate_learning_signal_limited_evidence")
 
     return _Eligibility(
         episode_id=sig.episode_id,

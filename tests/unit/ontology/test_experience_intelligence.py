@@ -14,6 +14,7 @@ from backend.services.ontology.decision_feedback import (
     ConsequenceInventory,
     DecisionEffectivenessEvaluation,
     DecisionEffectivenessStatus,
+    DecisionEpisodeReference,
     DecisionLearningSignal,
     DecisionQualityAssessment,
     DecisionQualityStatus,
@@ -140,6 +141,49 @@ def semantic_goal_episode(
             }
         ),
         observation_time_provenance=ObservationTimeProvenance.SOURCE_VERIFIED,
+    )
+
+
+def test_business_impact_associations_can_recur_without_claiming_execution_or_causation() -> None:
+    goal = GoalSemanticSignature(objective_key="increase_conversion")
+    episodes = []
+    for index in range(3):
+        business_signal = signal(
+            index,
+            fidelity=ExecutionFidelity.EXECUTION_UNKNOWN,
+            attr=AttributionAssessment.NOT_ASSESSED,
+            strength=LearningSignalStrength.CANDIDATE,
+        ).model_copy(
+            update={
+                "intervention_key": "inspect_funnel",
+                "goal_semantic_signature": goal,
+                "episode_reference": DecisionEpisodeReference(
+                    schema_version=2,
+                    episode_id=f"business-impact-{index}",
+                    decision_id=f"business-decision-{index}",
+                    episode_kind="business_impact",
+                    outcome_evaluation_evidence_id=f"outcome-{index}",
+                    business_impact_provenance={"accepted_measurement_pairing_id": f"pairing-{index}"},
+                ),
+            }
+        )
+        episodes.append(
+            ExperienceEpisodeInput(
+                episode_id=f"business-impact-{index}",
+                signal=business_signal,
+                observation_time_provenance=ObservationTimeProvenance.SOURCE_VERIFIED,
+            )
+        )
+
+    result = evaluate_experience_set(episodes)
+
+    assert len(result.pattern_candidates) == 1
+    candidate = result.pattern_candidates[0]
+    assert candidate.recurrence.strength == RecurrenceStrength.SUPPORTED
+    assert candidate.recurrence.independent_support_count == 3
+    assert all(
+        "business_impact_execution_not_asserted" in result.episode_explanations[episode.episode_id]
+        for episode in episodes
     )
 
 

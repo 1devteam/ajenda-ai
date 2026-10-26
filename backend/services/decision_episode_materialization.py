@@ -28,7 +28,11 @@ from backend.services.ontology.decision_feedback import (
     evaluate_decision_feedback,
 )
 from backend.services.ontology.decision_snapshot_builder import build_decision_snapshot_from_recommendation
-from backend.services.ontology.evidence_lineage import EvidenceOriginType
+from backend.services.ontology.evidence_lineage import (
+    EvidenceLineage,
+    EvidenceLineageResolution,
+    EvidenceOriginType,
+)
 from backend.services.ontology.outcome import OutcomeEvaluation
 from backend.services.tools.evidence_bridge import require_canonical_tool_action_evidence
 from backend.services.tools.schemas import ActionResult, DecisionRecommendInput, EvidenceFact, SideEffectClass
@@ -515,8 +519,18 @@ class DecisionEpisodeMaterializationService:
             subject_refs=list(outcome.subject_refs),
             recommendation=candidate,
             intervention_key=candidate,
-            original_confidence=0.0,
+            goal_semantic_signature=outcome.goal_semantic_signature,
+            original_confidence=0.4,
             supporting_evidence_ids=[str(outcome_record.id)],
+            evidence_lineages=(
+                EvidenceLineage(
+                    artifact_evidence_id=str(outcome_record.id),
+                    origin_type=EvidenceOriginType.SYSTEM_COMPUTATION,
+                    root_evidence_ids=tuple(sorted(outcome.supporting_evidence_ids)),
+                    parent_evidence_ids=tuple(sorted(outcome.supporting_evidence_ids)),
+                    resolution=EvidenceLineageResolution.KNOWN,
+                ),
+            ),
             known_evidence_gaps=[
                 "business-impact episode has no recommendation-task evidence",
                 "business-impact episode has no execution evidence",
