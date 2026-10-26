@@ -817,9 +817,8 @@ def test_inapplicable_qualified_knowledge_cannot_justify_a_response(pg_session) 
     activate_tenant_session(pg_session, tenant_id)
     observation = _record_acquisition_observation(pg_session, tenant_id=tenant_id, source_id="stale-knowledge")
     need = _initial_need(BusinessUnderstandingService(pg_session), tenant_id=tenant_id, observation_id=observation.id)
-    # The knowledge subsystem emits UNRESOLVED when an otherwise relevant
-    # proposition is stale or inapplicable.  The need layer consumes that
-    # bounded result; it does not reinterpret it as support.
+    # A caller-constructed result is no authority, even if its influence says
+    # unresolved rather than supports. Only a canonical runtime artifact qualifies.
     knowledge_support = KnowledgeDecisionSupportResult.model_construct(
         support_id="knowledge-support:inapplicable",
         decision_id="need-response-evaluation",
@@ -833,44 +832,45 @@ def test_inapplicable_qualified_knowledge_cannot_justify_a_response(pg_session) 
         epistemic_limits=("knowledge_inapplicable",),
     )
 
+    request_fields = {
+        "goal": Goal(
+            goal_id="customer-acquisition",
+            objective_key="customer_acquisition",
+            name="Acquire customers",
+            subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.ORGANIZATION, object_id="self")],
+        ),
+        "kpis": (
+            Kpi(
+                kpi_id="qualified-leads",
+                goal_id="customer-acquisition",
+                name="Qualified leads",
+                metric="qualified_leads",
+                direction=KpiDirection.INCREASE,
+                current_value=2,
+                target_value=10,
+                previous_value=3,
+            ),
+        ),
+        "candidate_responses": (
+            NeedCandidateResponse(
+                response_key="run_outreach",
+                summary="A catalog response that stale knowledge cannot justify.",
+                requested_outcomes=("prepare_outreach",),
+            ),
+        ),
+    }
+    with pytest.raises(ValueError, match="canonical evidence identity"):
+        NeedAssessmentRequest(**request_fields, knowledge_support=knowledge_support)
     assessment = BusinessNeedReasoningService(BusinessUnderstandingRepository(pg_session)).assess(
         tenant_id=tenant_id,
         need_id=need.need_id,
         revision=need.revision,
         producer="integration-test",
-        request=NeedAssessmentRequest(
-            goal=Goal(
-                goal_id="customer-acquisition",
-                objective_key="customer_acquisition",
-                name="Acquire customers",
-                subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.ORGANIZATION, object_id="self")],
-            ),
-            kpis=(
-                Kpi(
-                    kpi_id="qualified-leads",
-                    goal_id="customer-acquisition",
-                    name="Qualified leads",
-                    metric="qualified_leads",
-                    direction=KpiDirection.INCREASE,
-                    current_value=2,
-                    target_value=10,
-                    previous_value=3,
-                ),
-            ),
-            candidate_responses=(
-                NeedCandidateResponse(
-                    response_key="run_outreach",
-                    summary="A catalog response that stale knowledge cannot justify.",
-                    requested_outcomes=("prepare_outreach",),
-                ),
-            ),
-            knowledge_support=knowledge_support,
-        ),
+        request=NeedAssessmentRequest(**request_fields),
     )
-
     response = assessment.candidate_responses[0]
     assert response.capability_status == "catalog_supported"
-    assert response.knowledge_support_status == "unresolved"
+    assert response.knowledge_support_status == "not_provided"
     assert response.evidence_status == "unresolved"
     assert assessment.recommended_next_step == "seek_clarification"
 

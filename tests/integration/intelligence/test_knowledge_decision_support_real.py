@@ -7,18 +7,26 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from backend.db.tenant_session import activate_tenant_session
+from backend.domain.business_understanding import BusinessNeedRevision
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
+from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
 from backend.repositories.durable_learning_signal_repository import MATERIALIZATION_ACTION
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
-from backend.services.ontology.commercial_state import GoalSemanticSignature
+from backend.services.business_understanding.reasoning import (
+    BusinessNeedReasoningService,
+    NeedAssessmentRequest,
+    NeedCandidateResponse,
+)
+from backend.services.ontology.commercial_state import Goal, GoalSemanticSignature
 from backend.services.ontology.decision_feedback import DecisionLearningSignal
 from backend.services.ontology.evidence_lineage import EvidenceLineage, EvidenceOriginType
 from backend.services.ontology.experience_intelligence import ExperienceEpisodeInput, evaluate_experience_set
 from backend.services.ontology.knowledge_qualification import qualify_pattern_knowledge
 from backend.services.ontology.observation_attribution import ObservationTimeProvenance
-from backend.services.ontology.types import BusinessObjectSemanticSignature, BusinessObjectType
+from backend.services.ontology.types import BusinessObjectRef, BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError
 from backend.services.tools.schemas import ToolInvocation
@@ -199,6 +207,13 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
             "decision_id": "decision-real-430",
             "decision": {
                 "goal": "Increase conversion",
+                "goal_ref": {
+                    "goal_id": "goal-increase-conversion",
+                    "objective_key": "increase_conversion",
+                    "name": "Increase conversion",
+                    "subject_refs": [{"object_type": "opportunity", "object_id": "opp-real-430"}],
+                },
+                "subject_refs": [{"object_type": "opportunity", "object_id": "opp-real-430"}],
                 "options": options,
                 "criteria": decision_criteria,
             },
@@ -276,6 +291,156 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
         action_input=invocation.input,
         worker_label="knowledge-decision",
     )
+    # Assessment may consume verified Knowledge only through its tenant-scoped,
+    # exact runtime projection. The support is advisory; it cannot replace
+    # observation evidence or grant permission to execute a response.
+    with factory() as scoped:
+        activate_tenant_session(scoped, tenant)
+        need = BusinessNeedRevision(
+            tenant_id=tenant,
+            need_id="need-conversion-430",
+            revision=1,
+            origin="observed",
+            status="recognized",
+            subject_references=[{"object_type": "opportunity", "object_id": "opp-real-430"}],
+            objective_reference={"objective_key": "increase_conversion"},
+            condition_summary="Conversion is below the intended level",
+            observation_references=[],
+            producer="knowledge-integration-proof",
+        )
+        scoped.add(need)
+        scoped.flush()
+        assessment_goal = Goal(
+            goal_id="goal-increase-conversion",
+            objective_key="increase_conversion",
+            name="Increase conversion",
+            subject_refs=[BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="opp-real-430")],
+        )
+        assessed_at = datetime.now(UTC) + timedelta(seconds=2)
+        req = NeedAssessmentRequest(
+            goal=assessment_goal,
+            candidate_responses=(
+                NeedCandidateResponse(
+                    response_key="discovery",
+                    intervention_key=EXECUTION_ACTION,
+                    summary="Schedule a discovery call",
+                ),
+                NeedCandidateResponse(
+                    response_key="pricing",
+                    intervention_key="sales.send_pricing",
+                    summary="Send a pricing proposal",
+                ),
+            ),
+            knowledge_support_evidence_id=canonical_recommendation.id,
+            evaluated_at=assessed_at,
+        )
+        assessment = BusinessNeedReasoningService(
+            BusinessUnderstandingRepository(scoped), evidence_session=scoped
+        ).assess(
+            tenant_id=tenant,
+            need_id=need.need_id,
+            revision=1,
+            producer="knowledge-integration-proof",
+            request=req,
+        )
+        assert assessment.knowledge_support_evidence_id == canonical_recommendation.id
+        assert assessment.knowledge_support_id == first.output["support"]["support_id"]
+        assert assessment.candidate_responses[0].knowledge_support_status == "supports"
+        assert assessment.candidate_responses[0].evidence_status == "unresolved"
+        assert assessment.grants_execution_authority is False
+
+        foreign_subject = req.model_copy(
+            update={
+                "goal": assessment_goal.model_copy(
+                    update={
+                        "subject_refs": [
+                            BusinessObjectRef(object_type=BusinessObjectType.OPPORTUNITY, object_id="another-account")
+                        ]
+                    }
+                )
+            }
+        )
+        with pytest.raises(ValueError, match="assessment goal subjects"):
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
+                tenant_id=tenant,
+                need_id=need.need_id,
+                revision=1,
+                producer="knowledge-integration-proof",
+                request=foreign_subject,
+            )
+        foreign_evidence = req.model_copy(update={"knowledge_support_evidence_id": uuid.uuid4()})
+        with pytest.raises(ValueError, match="inaccessible for tenant"):
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
+                tenant_id=tenant,
+                need_id=need.need_id,
+                revision=1,
+                producer="knowledge-integration-proof",
+                request=foreign_evidence,
+            )
+        mismatched_response = req.model_copy(
+            update={"candidate_responses": (NeedCandidateResponse(response_key="discovery", summary="Only discovery"),)}
+        )
+        with pytest.raises(ValueError, match="not bound to the assessed responses"):
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
+                tenant_id=tenant,
+                need_id=need.need_id,
+                revision=1,
+                producer="knowledge-integration-proof",
+                request=mismatched_response,
+            )
+        spoofed_intervention = req.model_copy(
+            update={
+                "candidate_responses": (
+                    NeedCandidateResponse(
+                        response_key="discovery",
+                        intervention_key="sales.send_pricing",
+                        summary="Same response key, different intervention authority",
+                    ),
+                    req.candidate_responses[1],
+                )
+            }
+        )
+        with pytest.raises(ValueError, match="intervention identity disagrees"):
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
+                tenant_id=tenant,
+                need_id=need.need_id,
+                revision=1,
+                producer="knowledge-integration-proof",
+                request=spoofed_intervention,
+            )
+        goal_instance_mismatch = req.model_copy(
+            update={"goal": assessment_goal.model_copy(update={"goal_id": "different-instance"})}
+        )
+        with pytest.raises(ValueError, match="goal semantics disagree"):
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
+                tenant_id=tenant,
+                need_id=need.need_id,
+                revision=1,
+                producer="knowledge-integration-proof",
+                request=goal_instance_mismatch,
+            )
+        future_knowledge = req.model_copy(update={"evaluated_at": datetime(2020, 1, 1, tzinfo=UTC)})
+        with pytest.raises(ValueError, match="future knowledge evidence"):
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
+                tenant_id=tenant,
+                need_id=need.need_id,
+                revision=1,
+                producer="knowledge-integration-proof",
+                request=future_knowledge,
+            )
+        mismatched_caller_support = req.model_copy(
+            update={"knowledge_support": first.output["support"] | {"support_id": "caller-forged"}}
+        )
+        with pytest.raises(ValueError, match="differs from canonical runtime evidence"):
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
+                tenant_id=tenant,
+                need_id=need.need_id,
+                revision=1,
+                producer="knowledge-integration-proof",
+                request=mismatched_caller_support,
+            )
+        scoped.commit()
+
     execution_authority = seed_execution_authority(factory=factory, tenant_id=tenant)
     canonical_execution = execute_canonical_action(
         factory=factory,
@@ -367,7 +532,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
                 mission_id=mission_id,
                 execution_task_id=canonical_recommendation.execution_task_id,
                 evidence_type="execution_trace",
-                evidence_source="public_evidence_contract",
+                evidence_source="knowledge_decision_support",
                 summary="Caller-forged Knowledge composition",
                 structured_payload=canonical_recommendation.structured_payload,
                 provenance_metadata={
@@ -380,6 +545,20 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
             )
         )
         setup.commit()
+    # A public Evidence row with copied Knowledge JSON still cannot authorize
+    # an assessment, even when a genuine Knowledge support artifact exists.
+    with factory() as scoped:
+        activate_tenant_session(scoped, tenant)
+        forged_request = req.model_copy(update={"knowledge_support_evidence_id": forged_composed_id})
+        with pytest.raises(CanonicalToolEvidenceError, match="materialization reference"):
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
+                tenant_id=tenant,
+                need_id=need.need_id,
+                revision=1,
+                producer="knowledge-integration-proof",
+                request=forged_request,
+            )
+
     with pytest.raises(CanonicalToolEvidenceError, match="materialization reference"):
         registry.invoke(
             ToolInvocation(
