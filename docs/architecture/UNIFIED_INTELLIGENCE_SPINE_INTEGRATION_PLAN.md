@@ -73,7 +73,10 @@ runtime authority. PR #630 changes admission as follows:
 3. Admission compares the original Decision input's exact business-object
    instance identities, goal instance and full goal/KPI semantic signature
    against the assessed need. The Knowledge retrieval query must agree, and
-   Decision option identities must equal the candidate response identities.
+   Decision option identities must equal the candidate response identities;
+   directional Knowledge influences additionally require an explicit matching
+   canonical intervention key. A reused response key cannot transfer a
+   recommendation to a different intervention.
 4. Support cannot be observed or admitted before its canonical evidence was
    created. Knowledge retrieval is re-resolved from its current ledger state;
    previously accepted support fails closed if its qualification lifecycle

@@ -8,14 +8,17 @@ Decision-owned input and Knowledge query address this precise need revision.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.services.business_understanding.subject_identity import canonical_subject_keys
-from backend.services.knowledge.knowledge_decision_support import KnowledgeDecisionSupportResult
+from backend.services.knowledge.knowledge_decision_support import (
+    KnowledgeDecisionSupportResult,
+    KnowledgeInfluenceDirection,
+)
 from backend.services.knowledge.knowledge_retrieval import retrieve_current_knowledge
 from backend.services.ontology.commercial_state import Goal, Kpi, goal_semantic_signature
 from backend.services.ontology.types import BusinessObjectRef, business_object_semantic_signature
@@ -31,7 +34,7 @@ def resolve_verified_assessment_knowledge_support(
     need_subjects: Sequence[BusinessObjectRef | dict[str, object]],
     goal: Goal,
     kpis: tuple[Kpi, ...],
-    candidate_response_keys: tuple[str, ...],
+    candidate_response_interventions: Mapping[str, str | None],
     assessed_at: datetime,
 ) -> KnowledgeDecisionSupportResult:
     """Read canonical tenant evidence and prohibit cross-need or future reuse."""
@@ -84,8 +87,7 @@ def resolve_verified_assessment_knowledge_support(
     option_ids = [option.option_id for option in scoring_input.options]
     if (
         len(option_ids) != len(set(option_ids))
-        or set(option_ids) != set(candidate_response_keys)
-        or len(candidate_response_keys) != len(set(candidate_response_keys))
+        or set(option_ids) != set(candidate_response_interventions)
         or any(
             influence.option_id not in option_ids
             or influence.decision_id != support.decision_id
@@ -94,6 +96,22 @@ def resolve_verified_assessment_knowledge_support(
         )
     ):
         raise ValueError("assessment knowledge support is not bound to the assessed responses")
+    owner_options = {option.option_id: option for option in scoring_input.options}
+    directional = {
+        KnowledgeInfluenceDirection.SUPPORTS,
+        KnowledgeInfluenceDirection.OPPOSES,
+        KnowledgeInfluenceDirection.CONDITIONAL,
+    }
+    if any(
+        influence.direction in directional
+        and (
+            owner_options[influence.option_id].intervention_key is None
+            or candidate_response_interventions[influence.option_id]
+            != owner_options[influence.option_id].intervention_key
+        )
+        for influence in support.influences
+    ):
+        raise ValueError("assessment knowledge intervention identity disagrees with candidate response")
     if scoring_input.context.get("knowledge_decision_support", {}).get("support_id") != support.support_id:
         raise ValueError("assessment knowledge support identity contradicts Decision input")
     return support

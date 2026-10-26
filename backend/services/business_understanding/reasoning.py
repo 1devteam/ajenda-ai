@@ -43,6 +43,7 @@ class NeedCandidateResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     response_key: str = Field(min_length=1, max_length=160)
+    intervention_key: str | None = Field(default=None, min_length=1, max_length=160)
     summary: str = Field(min_length=1, max_length=2000)
     requested_outcomes: tuple[str, ...] = ()
     dependencies: tuple[str, ...] = ()
@@ -105,6 +106,7 @@ class AssessedResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     response_key: str
+    intervention_key: str | None = None
     summary: str
     requested_outcomes: tuple[str, ...] = ()
     catalog_job_keys: tuple[str, ...] = ()
@@ -292,7 +294,9 @@ class BusinessNeedReasoningService:
                 need_subjects=need.subject_references,
                 goal=request.goal,
                 kpis=request.kpis,
-                candidate_response_keys=tuple(item.response_key for item in request.candidate_responses),
+                candidate_response_interventions={
+                    item.response_key: item.intervention_key for item in request.candidate_responses
+                },
                 assessed_at=request.evaluated_at,
             )
             if request.knowledge_support is not None and request.knowledge_support != verified_support:
@@ -322,6 +326,7 @@ class BusinessNeedReasoningService:
             responses.append(
                 AssessedResponse(
                     response_key=response.response_key,
+                    intervention_key=response.intervention_key,
                     summary=response.summary,
                     requested_outcomes=response.requested_outcomes,
                     catalog_job_keys=catalog_jobs,
@@ -377,7 +382,7 @@ class BusinessNeedReasoningService:
             "supporting_observation_ids": sorted(str(item) for item in supporting_observation_ids),
             "contradictory_observation_ids": sorted(str(item) for item in contradictory_observation_ids),
             "causes": [item.model_dump(mode="json") for item in causes],
-            "candidate_responses": [item.model_dump(mode="json") for item in responses],
+            "candidate_responses": [item.model_dump(mode="json", exclude_none=True) for item in responses],
             "information_gaps": sorted(set(gaps)),
             "recommended_next_step": next_step,
             "improvement_evidence_requirements": (

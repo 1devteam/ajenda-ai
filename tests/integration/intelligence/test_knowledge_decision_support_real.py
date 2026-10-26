@@ -320,8 +320,16 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
         req = NeedAssessmentRequest(
             goal=assessment_goal,
             candidate_responses=(
-                NeedCandidateResponse(response_key="discovery", summary="Schedule a discovery call"),
-                NeedCandidateResponse(response_key="pricing", summary="Send a pricing proposal"),
+                NeedCandidateResponse(
+                    response_key="discovery",
+                    intervention_key=EXECUTION_ACTION,
+                    summary="Schedule a discovery call",
+                ),
+                NeedCandidateResponse(
+                    response_key="pricing",
+                    intervention_key="sales.send_pricing",
+                    summary="Send a pricing proposal",
+                ),
             ),
             knowledge_support_evidence_id=canonical_recommendation.id,
             evaluated_at=assessed_at,
@@ -379,6 +387,26 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
                 revision=1,
                 producer="knowledge-integration-proof",
                 request=mismatched_response,
+            )
+        spoofed_intervention = req.model_copy(
+            update={
+                "candidate_responses": (
+                    NeedCandidateResponse(
+                        response_key="discovery",
+                        intervention_key="sales.send_pricing",
+                        summary="Same response key, different intervention authority",
+                    ),
+                    req.candidate_responses[1],
+                )
+            }
+        )
+        with pytest.raises(ValueError, match="intervention identity disagrees"):
+            BusinessNeedReasoningService(BusinessUnderstandingRepository(scoped), evidence_session=scoped).assess(
+                tenant_id=tenant,
+                need_id=need.need_id,
+                revision=1,
+                producer="knowledge-integration-proof",
+                request=spoofed_intervention,
             )
         goal_instance_mismatch = req.model_copy(
             update={"goal": assessment_goal.model_copy(update={"goal_id": "different-instance"})}
