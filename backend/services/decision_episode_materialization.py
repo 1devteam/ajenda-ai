@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
@@ -551,14 +551,17 @@ class DecisionEpisodeMaterializationService:
             outcome_evaluation_evidence_id=str(outcome_record.id),
             business_impact_provenance=provenance,
         )
+        source_kinds = {"customer_attested", "source_verified"}
+        if baseline.source_kind not in source_kinds or observed.source_kind not in source_kinds:
+            raise ValueError("business impact has an unrecognized measurement source trust class")
         observation = BusinessImpactObservation(
             signal_id=_stable_identity("bio", episode_id),
             episode_reference=episode_reference,
             selected_candidate_response_key=candidate,
             baseline_measurement_id=baseline.id,
             observed_measurement_id=observed.id,
-            baseline_source_kind=baseline.source_kind,
-            observed_source_kind=observed.source_kind,
+            baseline_source_kind=cast(Literal["customer_attested", "source_verified"], baseline.source_kind),
+            observed_source_kind=cast(Literal["customer_attested", "source_verified"], observed.source_kind),
             goal_id=outcome.goal_id,
             subject_refs=tuple(outcome.subject_refs),
             kpi_semantic_signatures=outcome.kpi_semantic_signatures,

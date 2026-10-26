@@ -178,12 +178,12 @@ class DurableExperienceConsolidationService:
         by_observation: dict[str, tuple[EvidenceRecord, BusinessImpactObservation]] = {}
         for record, observation in sorted(observations, key=lambda item: (item[1].evaluated_at, str(item[0].id))):
             episode_id = observation.episode_reference.episode_id
-            previous = by_observation.get(episode_id)
-            if previous is not None:
-                if previous[1] != observation:
+            previous_observation = by_observation.get(episode_id)
+            if previous_observation is not None:
+                if previous_observation[1] != observation:
                     raise DurableLearningHistoryError(
                         "observational episode identity has conflicting payloads",
-                        evidence_ids=[previous[0].id, record.id],
+                        evidence_ids=[previous_observation[0].id, record.id],
                     )
                 duplicate_record_ids.append(str(record.id))
                 continue
