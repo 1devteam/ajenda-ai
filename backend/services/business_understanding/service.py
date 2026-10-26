@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
@@ -31,10 +30,10 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.mission_composition.proposal_store import get_proposal
+from backend.services.business_understanding.subject_identity import canonical_subject_keys
 from backend.services.ontology.commercial_state import Goal, Kpi
 from backend.services.ontology.evaluation import GoalProgressStatus, evaluate_goal_progress
 from backend.services.ontology.outcome import OutcomeEvaluation, OutcomeStatus
-from backend.services.ontology.types import BusinessObjectRef
 from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError, require_canonical_tool_action_evidence
 
 ObservationSourceKind = Literal[
@@ -56,23 +55,6 @@ class BusinessUnderstandingValidationError(ValueError):
 class SourceReference:
     source_kind: ObservationSourceKind
     reference: dict[str, Any]
-
-
-def canonical_subject_keys(subjects: Sequence[BusinessObjectRef | dict[str, Any]]) -> frozenset[tuple[str, str]]:
-    """Compare source-owned subject identities across canonical and historical need records.
-
-    Historical BusinessNeedRevision records use {"kind", "id"}; typed
-    measurement/goal references use {"object_type", "object_id"}. Only these
-    two exact schemas are accepted. Never infer an identity from display text.
-    """
-
-    canonical: set[tuple[str, str]] = set()
-    for item in subjects:
-        if isinstance(item, dict) and set(item) == {"kind", "id"}:
-            item = {"object_type": item["kind"], "object_id": item["id"]}
-        reference = item if isinstance(item, BusinessObjectRef) else BusinessObjectRef.model_validate(item)
-        canonical.add((reference.object_type.value, reference.object_id))
-    return frozenset(canonical)
 
 
 class BusinessUnderstandingService:
