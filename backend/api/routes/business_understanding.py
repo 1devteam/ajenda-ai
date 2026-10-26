@@ -552,7 +552,9 @@ def assess_need(
         request=request, db=db, permission=Permission.BUSINESS_UNDERSTANDING_MANAGE, tenant_id=tenant_id
     )
     try:
-        return BusinessNeedReasoningService(BusinessUnderstandingRepository(db)).assess(
+        return BusinessNeedReasoningService(
+            BusinessUnderstandingRepository(db), evidence_session=db
+        ).assess(
             tenant_id=str(tenant_id),
             need_id=need_id,
             revision=revision,

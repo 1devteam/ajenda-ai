@@ -13,11 +13,14 @@ import uuid
 from datetime import UTC, datetime
 from typing import Literal
 
+from sqlalchemy.orm import Session
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.exc import IntegrityError
 
 from backend.domain.business_understanding import BusinessNeedAssessment, BusinessNeedRevision
 from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
+from backend.services.business_understanding.knowledge_support import resolve_verified_assessment_knowledge_support
 from backend.services.business_understanding.subject_identity import canonical_subject_keys
 from backend.services.knowledge.knowledge_decision_support import (
     KnowledgeDecisionSupportResult,
@@ -59,8 +62,9 @@ class NeedAssessmentRequest(BaseModel):
     kpis: tuple[Kpi, ...] = ()
     hypotheses: tuple[NeedCauseHypothesis, ...] = ()
     candidate_responses: tuple[NeedCandidateResponse, ...] = ()
-    # This is a previously produced, bounded decision-support result.  The
-    # assessment does not retrieve, qualify, or promote knowledge itself.
+    # A caller can select a durable support artifact, but cannot establish
+    # Knowledge truth by supplying the result JSON alone.
+    knowledge_support_evidence_id: uuid.UUID | None = None
     knowledge_support: KnowledgeDecisionSupportResult | None = None
     evaluated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -77,6 +81,13 @@ class NeedAssessmentRequest(BaseModel):
             raise ValueError("kpis require a goal")
         if self.goal is not None and any(kpi.goal_id != self.goal.goal_id for kpi in self.kpis):
             raise ValueError("all kpis must belong to the supplied goal")
+        if self.knowledge_support is not None and self.knowledge_support_evidence_id is None:
+            raise ValueError("knowledge support requires canonical evidence identity")
+        if self.knowledge_support_evidence_id is not None and self.goal is None:
+            raise ValueError("knowledge support requires an explicit assessed goal")
+        keys = [item.response_key for item in self.candidate_responses]
+        if len(keys) != len(set(keys)):
+            raise ValueError("candidate response keys must be unique")
         return self
 
 
@@ -129,6 +140,7 @@ class BusinessNeedAssessmentResult(BaseModel):
     ]
     improvement_evidence_requirements: tuple[str, ...]
     knowledge_support_id: str | None = None
+    knowledge_support_evidence_id: uuid.UUID | None = None
     knowledge_epistemic_limits: tuple[str, ...] = ()
     evaluated_at: datetime
     producer: str
@@ -183,8 +195,11 @@ def _knowledge_status(
 class BusinessNeedReasoningService:
     """Produces a durable assessment using existing ontology and catalog owners."""
 
-    def __init__(self, repository: BusinessUnderstandingRepository) -> None:
+    def __init__(
+        self, repository: BusinessUnderstandingRepository, *, evidence_session: Session | None = None
+    ) -> None:
         self._repository = repository
+        self._evidence_session = evidence_session
 
     def assess(
         self,
@@ -269,13 +284,28 @@ class BusinessNeedReasoningService:
             for response in request.candidate_responses
             for outcome in response.requested_outcomes
         }
+        verified_support: KnowledgeDecisionSupportResult | None = None
+        if request.knowledge_support_evidence_id is not None:
+            if self._evidence_session is None or request.goal is None:
+                raise ValueError("canonical assessment knowledge evidence resolver is unavailable")
+            verified_support = resolve_verified_assessment_knowledge_support(
+                session=self._evidence_session,
+                tenant_id=tenant_id,
+                evidence_id=request.knowledge_support_evidence_id,
+                need_subjects=need.subject_references,
+                goal=request.goal,
+                kpis=request.kpis,
+                candidate_response_keys=tuple(item.response_key for item in request.candidate_responses),
+                assessed_at=request.evaluated_at,
+            )
+            if request.knowledge_support is not None and request.knowledge_support != verified_support:
+                raise ValueError("caller knowledge support differs from canonical runtime evidence")
+        elif request.knowledge_support is not None:
+            raise ValueError("caller knowledge support requires canonical runtime evidence")
         knowledge_by_response: dict[str, tuple[str, ...]] = {}
         knowledge_directions_by_response: dict[str, set[KnowledgeInfluenceDirection]] = {}
-        if request.knowledge_support is not None:
-            response_keys = {item.response_key for item in request.candidate_responses}
-            for influence in request.knowledge_support.influences:
-                if influence.option_id not in response_keys:
-                    continue
+        if verified_support is not None:
+            for influence in verified_support.influences:
                 knowledge_by_response[influence.option_id] = tuple(
                     sorted({*knowledge_by_response.get(influence.option_id, ()), influence.influence_id})
                 )
@@ -357,10 +387,11 @@ class BusinessNeedReasoningService:
                 "independent follow-up business observation",
                 "objective or KPI measurement after the response",
             ),
-            "knowledge_support_id": request.knowledge_support.support_id if request.knowledge_support else None,
-            "knowledge_epistemic_limits": (
-                request.knowledge_support.epistemic_limits if request.knowledge_support is not None else ()
+            "knowledge_support_id": verified_support.support_id if verified_support else None,
+            "knowledge_support_evidence_id": (
+                str(request.knowledge_support_evidence_id) if verified_support else None
             ),
+            "knowledge_epistemic_limits": verified_support.epistemic_limits if verified_support else (),
             "evaluated_at": request.evaluated_at.isoformat(),
             "producer": producer.strip(),
             "grants_execution_authority": False,
