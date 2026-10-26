@@ -36,7 +36,9 @@ class BusinessImpactObservation(BaseModel):
     outcome_evaluation_id: str
     outcome_status: OutcomeStatus
     measured_outcome_attribution: AttributionAssessment
-    observation_verification_basis: ObservationVerificationBasis
+    outcome_timing_verification_basis: ObservationVerificationBasis = Field(
+        description="Provenance of the outcome evaluator's timestamp, not verification of KPI measurement truth."
+    )
     observed_at: datetime
     evaluated_at: datetime
     execution_status: Literal["unknown"] = "unknown"

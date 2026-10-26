@@ -569,7 +569,7 @@ class DecisionEpisodeMaterializationService:
             outcome_evaluation_id=outcome.outcome_evaluation_id,
             outcome_status=outcome.status,
             measured_outcome_attribution=outcome.attribution,
-            observation_verification_basis=outcome.observation_timing.verification_basis,
+            outcome_timing_verification_basis=outcome.observation_timing.verification_basis,
             observed_at=observed.observed_at,
             evaluated_at=outcome.evaluated_at,
         )

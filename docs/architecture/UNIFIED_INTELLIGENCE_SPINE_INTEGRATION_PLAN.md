@@ -13,8 +13,9 @@ and canonical impact revision linkage. The Layer 3 checkpoint
 and a runtime materialization path; it is **not** proof of observational
 knowledge qualification or later-decision reuse.
 
-The reconciliation branch `fix/intelligence-spine-unified-integrity` implements
-the corrections below, pending combined CI/integration acceptance and merge:
+PR #629 (`fix/intelligence-spine-unified-integrity`) supplies the bounded
+source-integrity corrections below. Its GitHub CI and merge record determine
+acceptance; they do not confer observational knowledge qualification:
 
 1. **Admit only runtime-authoritative outcome evidence** using
    `require_canonical_tool_action_evidence()`. Client updates may not mutate
@@ -47,9 +48,11 @@ explicit observational proposition/retrieval semantics and real integration
 tests. Do not weaken execution-fidelity, intervention authority or provenance
 checks to satisfy those goals.
 
-This implementation is a corrective PR in progress, **not a completed spine
-milestone**. Keep existing mission-decision learning and Knowledge ledger
-owners intact until the new branch's combined gates pass.
+This is a bounded source-integrity milestone, **not a completed spine
+milestone**. Existing mission-decision learning and Knowledge ledger owners
+retain their established authority; business-impact observations remain
+explicitly non-qualifying until an observational qualification contract
+and actual later-decision acceptance proof exist.
 
 ## Purpose
 
