@@ -160,7 +160,9 @@ Business Understanding service and the existing EvidenceBridge validator:
 4. Existing measurement fingerprints, need recognition, tenant scoping,
    append-only history, and replay protections remain the persistence
    authorities. Verified read evidence becomes the need's observation
-   source, not an invented customer instruction.
+   source, not an invented customer instruction. Multiple canonical reads of
+   identical source content and version reuse one measurement fingerprint,
+   with the first canonical evidence ID retained as the stable origin.
 5. Source provenance **is not KPI truth**. Tenant records can themselves be
    customer-authored or contain mistakes. The ingress records explicit
    `source_read_proved_not_kpi_truth`, `source_independence_not_established`,

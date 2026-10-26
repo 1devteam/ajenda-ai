@@ -123,6 +123,27 @@ def test_canonical_record_read_admits_exact_source_measurement_without_claiming_
             )
         scoped.commit()
 
+    # A second canonical runtime read of unchanged source content is not an
+    # independent measurement or another need-originating observation.
+    second_read = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant,
+        mission_id=mission_id,
+        action="record.read",
+        action_input={"record_type": "opportunity", "record_id": record_id},
+        worker_label="measurement-source-recheck",
+    )
+    assert second_read.id != evidence.id
+    with factory() as scoped:
+        activate_tenant_session(scoped, tenant)
+        replay_from_another_task, _ = BusinessUnderstandingService(scoped).ingest_runtime_record_measurement(
+            tenant_id=tenant, source_evidence_id=second_read.id, producer="source-recheck"
+        )
+        assert replay_from_another_task.id == row.id
+        assert replay_from_another_task.source_reference["evidence_id"] == str(evidence.id)
+        scoped.commit()
+
     with factory() as outside:
         activate_tenant_session(outside, foreign)
         with pytest.raises(ValueError, match="inaccessible for tenant"):

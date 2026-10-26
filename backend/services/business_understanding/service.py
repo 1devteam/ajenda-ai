@@ -201,7 +201,14 @@ class BusinessUnderstandingService:
             "goal_id": goal.goal_id,
             "objective_key": goal.objective_key,
             "subjects": subject_references,
-            "source": source_reference,
+            # The immutable source snapshot, not each read task's evidence ID,
+            # owns ingestion identity. Separate runtime reads of identical
+            # source content must not manufacture new measurements.
+            "source": (
+                {key: value for key, value in source_reference.items() if key != "evidence_id"}
+                if source_kind == "source_verified"
+                else source_reference
+            ),
             "source_kind": source_kind,
             "source_version": source_version,
             "period_start": measurement_period_start.isoformat() if measurement_period_start else None,
@@ -252,7 +259,7 @@ class BusinessUnderstandingService:
             source=SourceReference(
                 source_kind="evidence" if source_kind == "source_verified" else "customer_instruction",
                 reference=(
-                    {"evidence_id": str(runtime_source_evidence_id)}
+                    {"evidence_id": str(measurement.source_reference["evidence_id"])}
                     if source_kind == "source_verified"
                     else {"source_id": str(measurement.id)}
                 ),
