@@ -504,7 +504,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
                 mission_id=mission_id,
                 execution_task_id=canonical_recommendation.execution_task_id,
                 evidence_type="execution_trace",
-                evidence_source="public_evidence_contract",
+                evidence_source="knowledge_decision_support",
                 summary="Caller-forged Knowledge composition",
                 structured_payload=canonical_recommendation.structured_payload,
                 provenance_metadata={
