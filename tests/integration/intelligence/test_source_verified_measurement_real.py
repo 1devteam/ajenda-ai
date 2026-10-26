@@ -259,9 +259,7 @@ def test_runtime_read_without_exact_measurement_contract_does_not_create_a_measu
             )
 
 
-def test_two_competing_source_reads_cannot_commit_contradictory_first_revision(
-    pg_engine, queue_adapter
-) -> None:
+def test_two_competing_source_reads_cannot_commit_contradictory_first_revision(pg_engine, queue_adapter) -> None:
     tenant = str(uuid.uuid4())
     mission_id = uuid.uuid4()
     record_id = "concurrent-source"
