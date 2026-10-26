@@ -35,7 +35,10 @@ from backend.repositories.business_understanding_repository import BusinessUnder
 from backend.repositories.durable_learning_signal_repository import DurableLearningSignalRepository
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
-from backend.services.business_understanding.service import BusinessUnderstandingService
+from backend.services.business_understanding.service import (
+    BusinessUnderstandingService,
+    BusinessUnderstandingValidationError,
+)
 from backend.services.decision_episode_materialization import (
     DecisionEpisodeMaterializationRequest,
     DecisionEpisodeMaterializationService,
@@ -498,6 +501,41 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
         },
         worker_label="assessment-spine-outcome",
     )
+    # A tenant-owned declarative row may copy the valid outcome payload and
+    # advertise the expected action name. It must not acquire runtime authority.
+    with factory() as forged_session:
+        activate_tenant_session(forged_session, tenant_id)
+        forged = EvidenceRecord(
+            tenant_id=tenant_id,
+            mission_id=mission_id,
+            evidence_type="artifact",
+            evidence_source="customer_declared",
+            summary="Alleged canonical outcome without runtime lineage",
+            structured_payload=outcome.structured_payload,
+            provenance_metadata={"action_name": "analysis.evaluate_outcome"},
+            trust_signal={},
+            collection_status="collected",
+        )
+        forged_session.add(forged)
+        forged_session.commit()
+    with factory() as forged_attempt:
+        activate_tenant_session(forged_attempt, tenant_id)
+        current = BusinessUnderstandingRepository(forged_attempt).get_latest_need_for_tenant(
+            tenant_id=tenant_id, need_id=need_id
+        )
+        assert current is not None
+        with pytest.raises(BusinessUnderstandingValidationError, match="authorized runtime provenance"):
+            BusinessUnderstandingService(forged_attempt).record_canonical_measurement_impact(
+                tenant_id=tenant_id,
+                need_id=need_id,
+                expected_revision=current.revision,
+                baseline_measurement_id=baseline.id,
+                observed_measurement_id=later_one.id,
+                outcome_evidence_id=forged.id,
+                accepted_measurement_pairing_id=pairing.id,
+                producer="test.forged_outcome_denied",
+            )
+        forged_attempt.rollback()
     impact = factory()
     try:
         activate_tenant_session(impact, tenant_id)

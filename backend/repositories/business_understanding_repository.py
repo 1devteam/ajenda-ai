@@ -143,13 +143,18 @@ class BusinessUnderstandingRepository:
             )
         )
 
-    def get_latest_need_for_tenant(self, *, need_id: str, tenant_id: str) -> BusinessNeedRevision | None:
-        return self._session.scalar(
+    def get_latest_need_for_tenant(
+        self, *, need_id: str, tenant_id: str, for_update: bool = False
+    ) -> BusinessNeedRevision | None:
+        statement = (
             select(BusinessNeedRevision)
             .where(BusinessNeedRevision.tenant_id == tenant_id, BusinessNeedRevision.need_id == need_id)
             .order_by(desc(BusinessNeedRevision.revision))
             .limit(1)
         )
+        if for_update:
+            statement = statement.with_for_update()
+        return self._session.scalar(statement)
 
     def list_latest_needs_for_tenant(self, *, tenant_id: str, limit: int = 100) -> list[BusinessNeedRevision]:
         rows = list(

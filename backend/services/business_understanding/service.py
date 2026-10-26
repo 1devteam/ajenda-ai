@@ -35,6 +35,7 @@ from backend.services.ontology.commercial_state import Goal, Kpi
 from backend.services.ontology.evaluation import GoalProgressStatus, evaluate_goal_progress
 from backend.services.ontology.outcome import OutcomeEvaluation, OutcomeStatus
 from backend.services.ontology.types import BusinessObjectRef
+from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError, require_canonical_tool_action_evidence
 
 ObservationSourceKind = Literal[
     "business_profile",
@@ -600,6 +601,17 @@ class BusinessUnderstandingService:
         )
         if evidence is None or evidence.provenance_metadata.get("action_name") != "analysis.evaluate_outcome":
             raise BusinessUnderstandingValidationError("canonical outcome evidence was not found for tenant")
+        try:
+            require_canonical_tool_action_evidence(
+                session=self._session,
+                record=evidence,
+                expected_action="analysis.evaluate_outcome",
+                expected_role=None,
+            )
+        except CanonicalToolEvidenceError as exc:
+            raise BusinessUnderstandingValidationError(
+                "canonical outcome evidence lacks authorized runtime provenance"
+            ) from exc
         canonical_mission_reference = {"mission_id": str(evidence.mission_id)}
         if mission_reference is not None and mission_reference != canonical_mission_reference:
             raise BusinessUnderstandingValidationError("mission reference does not own canonical outcome evidence")
@@ -767,18 +779,23 @@ class BusinessUnderstandingService:
                 "successor_contract_id": successor_contract_id,
             }
         )
-        existing = self._repository.get_measurement_pairing_by_fingerprint_for_tenant(
-            tenant_id=tenant_id, fingerprint=pairing_fingerprint
-        )
-        if existing is not None:
-            return existing
         current = self._repository.get_need_revision_for_tenant(
             tenant_id=tenant_id, need_id=need_id, revision=expected_revision
         )
         if current is None:
             raise BusinessUnderstandingValidationError("need revision was not found for tenant")
-        if current.status == "superseded":
-            raise BusinessUnderstandingValidationError("measurement pairing references a superseded need")
+        existing = self._repository.get_measurement_pairing_by_fingerprint_for_tenant(
+            tenant_id=tenant_id, fingerprint=pairing_fingerprint
+        )
+        if existing is not None:
+            if existing.need_revision_id != current.id or existing.need_revision != expected_revision:
+                raise BusinessUnderstandingValidationError(
+                    "accepted measurement pairing replay contradicts originating need revision"
+                )
+            return existing
+        latest = self._repository.get_latest_need_for_tenant(tenant_id=tenant_id, need_id=need_id, for_update=True)
+        if latest is None or latest.id != current.id or latest.status == "superseded":
+            raise BusinessUnderstandingValidationError("measurement pairing requires the latest active need revision")
         self._validate_measurement_comparability(current=current, baseline=baseline, later=later)
         self._validate_successor_measurement_impact_lineage(current=current, baseline=baseline, later=later)
         pairing = BusinessMeasurementPairing(
@@ -800,6 +817,10 @@ class BusinessUnderstandingService:
                 tenant_id=tenant_id, fingerprint=pairing_fingerprint
             )
             if concurrent is not None:
+                if concurrent.need_revision_id != current.id or concurrent.need_revision != expected_revision:
+                    raise BusinessUnderstandingValidationError(
+                        "concurrent measurement pairing contradicts originating need revision"
+                    ) from exc
                 return concurrent
             raise BusinessUnderstandingValidationError("measurement pairing could not be persisted") from exc
 
@@ -1084,9 +1105,28 @@ class BusinessUnderstandingService:
             raise BusinessUnderstandingValidationError("impact measurements do not match the need subject")
         if baseline.objective_key != later.objective_key:
             raise BusinessUnderstandingValidationError("impact measurements concern different objectives")
-        baseline_metrics = {(item.get("kpi_id"), item.get("metric"), item.get("unit", "")) for item in baseline.values}
-        later_metrics = {(item.get("kpi_id"), item.get("metric"), item.get("unit", "")) for item in later.values}
-        if baseline_metrics != later_metrics:
+
+        # KPI meaning is stable across the comparison, not merely its display key.
+        # Direction, required status and maintain tolerance affect Outcome's
+        # conclusion even when the numeric before/after values are identical.
+        def definition(item: dict[str, Any]) -> tuple[Any, ...]:
+            return (
+                item.get("kpi_id"),
+                item.get("goal_id"),
+                item.get("metric"),
+                item.get("unit", ""),
+                item.get("direction", "increase"),
+                item.get("required", True),
+                item.get("maintain_tolerance"),
+            )
+
+        baseline_metrics = {definition(item) for item in baseline.values}
+        later_metrics = {definition(item) for item in later.values}
+        if (
+            baseline_metrics != later_metrics
+            or len(baseline_metrics) != len(baseline.values)
+            or len(later_metrics) != len(later.values)
+        ):
             raise BusinessUnderstandingValidationError("impact measurements are not comparable")
         baseline_end = baseline.period_end or baseline.observed_at
         later_start = later.period_start or later.observed_at
@@ -1203,22 +1243,49 @@ class BusinessUnderstandingService:
     def _validate_outcome_matches_measurements(
         *, outcome: OutcomeEvaluation, baseline: BusinessMeasurement, later: BusinessMeasurement
     ) -> None:
-        baseline_values = {
-            str(item.get("kpi_id")): (item.get("current_value"), item.get("target_value"), item.get("metric"))
-            for item in baseline.values
+        baseline_values = {str(item.get("kpi_id")): item for item in baseline.values}
+        later_values = {str(item.get("kpi_id")): item for item in later.values}
+        deltas = {
+            item.kpi_id: (item.before, item.after, item.target, item.metric, item.direction.value, item.required)
+            for item in outcome.kpi_deltas
         }
-        later_values = {
-            str(item.get("kpi_id")): (item.get("current_value"), item.get("target_value"), item.get("metric"))
-            for item in later.values
-        }
-        deltas = {item.kpi_id: (item.before, item.after, item.target, item.metric) for item in outcome.kpi_deltas}
         expected = {
-            kpi_id: (before[0], later_values[kpi_id][0], later_values[kpi_id][1], before[2])
+            kpi_id: (
+                before.get("current_value"),
+                later_values[kpi_id].get("current_value"),
+                later_values[kpi_id].get("target_value"),
+                before.get("metric"),
+                before.get("direction", "increase"),
+                before.get("required", True),
+            )
             for kpi_id, before in baseline_values.items()
             if kpi_id in later_values
         }
         if deltas != expected:
             raise BusinessUnderstandingValidationError("canonical outcome does not match durable measurements")
+        goal_ids = {str(item.get("goal_id")) for item in baseline.values if item.get("goal_id")}
+        if goal_ids and (len(goal_ids) != 1 or outcome.goal_id not in goal_ids):
+            raise BusinessUnderstandingValidationError("canonical outcome goal does not match durable measurements")
+        if outcome.subject_refs and canonical_subject_keys(outcome.subject_refs) != canonical_subject_keys(
+            later.subject_references
+        ):
+            raise BusinessUnderstandingValidationError("canonical outcome subject does not match durable measurements")
+        if outcome.kpi_semantic_signatures:
+            reported_semantics = {
+                (item.metric, item.direction.value, item.normalized_unit) for item in outcome.kpi_semantic_signatures
+            }
+            durable_semantics = {
+                (
+                    item.get("metric"),
+                    item.get("direction", "increase"),
+                    str(item.get("unit") or "").strip() or None,
+                )
+                for item in baseline.values
+            }
+            if reported_semantics != durable_semantics:
+                raise BusinessUnderstandingValidationError(
+                    "canonical outcome KPI semantics do not match durable measurements"
+                )
         resolved_observed_at = outcome.observation_timing.resolved_observed_at
         if resolved_observed_at is None or resolved_observed_at != later.observed_at:
             raise BusinessUnderstandingValidationError("canonical outcome chronology does not match measurement")
