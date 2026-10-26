@@ -654,6 +654,8 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
         assert episode.episode_reference.episode_id in history.authoritative_episode_ids
         assert episode.episode_reference.episode_id in history.observational_episode_ids
         assert observation.signal_id not in history.valid_learning_signal_ids
+        assert history.observational_recurrence.pattern_candidates == ()
+        assert history.observational_recurrence.singleton_episode_ids == (episode.episode_reference.episode_id,)
         assert business_impact_signal.provenance_metadata["evidence_role"] == "business_impact_observation"
     finally:
         learning_readback.close()
