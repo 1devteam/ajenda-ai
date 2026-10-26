@@ -207,13 +207,15 @@ def evaluate_business_impact_recurrence(
         regression = tuple(sorted(item.episode_reference.episode_id for item in entries if _direction(item) == ObservedChangeDirection.REGRESSION))
         neutral = tuple(sorted(item.episode_reference.episode_id for item in entries if _direction(item) == ObservedChangeDirection.NO_MATERIAL_CHANGE))
         inconclusive = tuple(sorted(item.episode_reference.episode_id for item in entries if _direction(item) == ObservedChangeDirection.INDETERMINATE))
+        favorable_groups = sum(bool(set(group) & set(favorable)) for group in groups)
+        regression_groups = sum(bool(set(group) & set(regression)) for group in groups)
         if len(groups) < 2:
             status = ObservationalRecurrenceStatus.CORRELATED_ONLY
         elif favorable and regression:
             status = ObservationalRecurrenceStatus.CONFLICTING
-        elif len(favorable) >= 2:
+        elif favorable_groups >= 2:
             status = ObservationalRecurrenceStatus.REPEATED_FAVORABLE
-        elif len(regression) >= 2:
+        elif regression_groups >= 2:
             status = ObservationalRecurrenceStatus.REPEATED_REGRESSION
         else:
             status = ObservationalRecurrenceStatus.INSUFFICIENT
