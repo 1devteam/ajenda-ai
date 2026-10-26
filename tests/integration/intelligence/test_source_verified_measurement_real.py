@@ -51,9 +51,7 @@ def _snapshot(*, subject_id: str, source_version: str = "rev-1") -> dict[str, ob
     }
 
 
-def test_canonical_record_read_admits_exact_source_measurement_without_claiming_truth(
-    pg_engine, queue_adapter
-) -> None:
+def test_canonical_record_read_admits_exact_source_measurement_without_claiming_truth(pg_engine, queue_adapter) -> None:
     tenant, foreign = str(uuid.uuid4()), str(uuid.uuid4())
     mission_id = uuid.uuid4()
     record_id = "verified-source-opportunity"
@@ -87,9 +85,7 @@ def test_canonical_record_read_admits_exact_source_measurement_without_claiming_
 
     with factory() as scoped:
         activate_tenant_session(scoped, tenant)
-        verified = resolve_runtime_measurement(
-            session=scoped, tenant_id=tenant, evidence_id=evidence.id
-        )
+        verified = resolve_runtime_measurement(session=scoped, tenant_id=tenant, evidence_id=evidence.id)
         assert verified.source_reference["record_id"] == record_id
         service = BusinessUnderstandingService(scoped)
         row, need = service.ingest_runtime_record_measurement(
@@ -140,9 +136,7 @@ def test_canonical_record_read_admits_exact_source_measurement_without_claiming_
         assert row is not None
         changed = dict(row.structured_payload)
         record = dict(changed["record"])
-        record["operating_measurement"] = _snapshot(
-            subject_id=record_id, source_version="forged-later-version"
-        )
+        record["operating_measurement"] = _snapshot(subject_id=record_id, source_version="forged-later-version")
         changed["record"] = record
         row.structured_payload = changed
         tampered.flush()
