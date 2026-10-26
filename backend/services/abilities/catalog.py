@@ -25,6 +25,27 @@ ACTION_RESULT_SCHEMA_REF = "backend.services.tools.schemas.ActionResult"
 
 INTERNAL_ABILITY_MANIFESTS: tuple[AbilityManifest, ...] = (
     AbilityManifest(
+        ability_id="business-ingest-runtime-measurement",
+        display_name="Ingest Canonical Runtime Measurement",
+        action_name="business.ingest_runtime_measurement",
+        provider="ajenda_business_understanding",
+        capability_name="business_understanding",
+        capability_version="1",
+        adapter_name="business-measurement-ingress",
+        adapter_version="1",
+        input_schema_ref="backend.services.tools.business_measurement_actions.IngestRuntimeMeasurementInput",
+        output_schema_ref=ACTION_RESULT_SCHEMA_REF,
+        side_effect_class=SideEffectClass.INTERNAL_WRITE,
+        risk_level=AbilityRiskLevel.MEDIUM,
+        approval_required=True,
+        idempotency_required=True,
+        idempotency_contract_ref="docs/product/ability-rollout-contract.md#runtime-measurement-ingestion-idempotency",
+        evidence_required=True,
+        evidence_expectations=("action_result_evidence",),
+        readback_required=True,
+        enabled_by_default=False,
+    ),
+    AbilityManifest(
         ability_id="crm-observe",
         display_name="Observe Internal CRM",
         action_name="crm.observe",

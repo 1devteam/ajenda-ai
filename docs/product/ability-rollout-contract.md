@@ -80,6 +80,29 @@ Ability rollout may require a non-secret `credential_reference`, but the referen
 
 `webhook.dispatch` requires an event id and dispatch attempt metadata so retries can be correlated without silently duplicating sends. Recipient-side readback remains deferred to provider-specific verification and this contract does not activate durable third-party webhook clients beyond the existing governed dispatch path.
 
+### Runtime measurement ingestion idempotency
+
+<a id="runtime-measurement-ingestion-idempotency"></a>
+
+`business.ingest_runtime_measurement` is an `internal_write` ability. Its only
+caller-supplied business datum is the UUID of an already canonical
+`record.read` EvidenceBridge artifact. The Business Understanding owner
+resolves and validates the entire source snapshot from tenant-scoped runtime
+evidence before persisting any measurement. The existing content fingerprint
+deduplicates exact observations even when separate read tasks create new
+EvidenceRecord IDs. A PostgreSQL transaction-scoped advisory lock on tenant,
+source system, record type/ID and declared version rejects concurrent
+contradictory snapshots bearing the same revision. Retries return the same
+measurement identity; source data truth and source independence are not
+established by a successful read.
+
+The action is explicitly `internal_write`, disabled by default in the
+manifest, and subject to three independent worker admission controls:
+persisted operating charter, tenant-visible capability/adapter promotion,
+and task-bound approval/side-effect authorization. The handler never
+initiates `record.read` or grants its own authority. Readback verifies
+the row in the owner transaction before commit.
+
 ### Record write idempotency
 
 <a id="record-write-idempotency"></a>

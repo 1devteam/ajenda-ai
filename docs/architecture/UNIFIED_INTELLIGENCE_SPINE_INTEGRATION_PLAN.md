@@ -185,6 +185,26 @@ source-provider independence and trustworthy observation sampling,
 dedicated observational proposition/qualification, Knowledge retrieval
 with explicit noncausal relationship semantics, and later-decision reuse.
 
+## October 26, 2026 — Governed measurement handoff (PR #633)
+
+PR #632 is merged. The source adapter previously existed only as an
+internal service; its caller was not yet a registered tool action.
+PR #633 adds a separate `business.ingest_runtime_measurement` runtime
+ability with an exact `source_evidence_id` input and `internal_write`
+classification. It reuses the existing ActionRegistry, TaskDispatcher,
+ToolRuntimeAuthority, business charter, human approval, tenant-visible
+capability/adapter, and EvidenceBridge authorities; it creates no
+self-authorizing ingestion route or provider side effect on `record.read`.
+
+The emitted readback identifies the persisted measurement and any recognized
+need but does not claim independently verified KPI truth or causal effect.
+The ability defaults to disabled. Worker execution and negative
+authorization tests are required before this becomes an accepted milestone.
+
+**Still missing:** autonomous scheduling/proposal of the governed handoff,
+independent provider-source verification and dependence resolution,
+observational Knowledge qualification, and safe later-decision reuse.
+
 ## Purpose
 
 Ajenda already has the principal owners needed for a complete intelligence
