@@ -132,6 +132,55 @@ def test_valid_successor_reference_does_not_replace_outcome_evidence() -> None:
     service._repository.append_need_revision.assert_not_called()
 
 
+
+def test_impact_rejects_action_label_without_canonical_runtime_evidence() -> None:
+    """A caller-authored EvidenceRecord must not earn outcome authority."""
+    from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError
+
+    current, baseline, later = _fixture()
+    service = BusinessUnderstandingService(MagicMock())
+    service._repository = MagicMock()
+    service._repository.get_need_revision_for_tenant.return_value = current
+    service._repository.get_latest_need_for_tenant.return_value = current
+    service._repository.get_measurement_for_tenant.side_effect = [baseline, later]
+    pairing = _accepted_pairing(current=current, baseline=baseline, later=later)
+    service._repository.lock_measurement_pairing_for_tenant.return_value = pairing
+    evidence_id = uuid4()
+    alleged_outcome = SimpleNamespace(
+        id=evidence_id,
+        mission_id=uuid4(),
+        provenance_metadata={"action_name": "analysis.evaluate_outcome"},
+        structured_payload={},
+    )
+    with (
+        patch("backend.services.business_understanding.service.EvidenceRepository") as evidence_repository,
+        patch(
+            "backend.services.business_understanding.service.require_canonical_tool_action_evidence",
+            side_effect=CanonicalToolEvidenceError("no completed runtime lineage"),
+        ) as canonical_proof,
+    ):
+        evidence_repository.return_value.get_for_tenant.return_value = alleged_outcome
+        with pytest.raises(BusinessUnderstandingValidationError, match="authorized runtime provenance"):
+            service.record_canonical_measurement_impact(
+                tenant_id="tenant-a",
+                need_id=current.need_id,
+                expected_revision=current.revision,
+                baseline_measurement_id=baseline.id,
+                observed_measurement_id=later.id,
+                outcome_evidence_id=evidence_id,
+                accepted_measurement_pairing_id=pairing.id,
+                producer="unit-test",
+            )
+        canonical_proof.assert_called_once_with(
+            session=service._session,
+            record=alleged_outcome,
+            expected_action="analysis.evaluate_outcome",
+            expected_role=None,
+        )
+    service._repository.append_need_revision.assert_not_called()
+
+
+
 @pytest.mark.parametrize(
     "field, value",
     [
