@@ -3,6 +3,54 @@
 **Status:** implementation plan grounded in the current source and runtime
 findings. This document assigns no execution authority.
 
+## October 26, 2026 — Source reconciliation and admission correction (PR #629)
+
+This section supersedes the plan's older claims that accepted-pairing and
+canonical business-impact persistence were entirely absent. Merged PRs #621–622
+provide frozen successor contract checks, durable accepted measurement pairing,
+and canonical impact revision linkage. The Layer 3 checkpoint
+`3ebe2d4e03fa0b7c9a694b38b1f95b86729ef02a` adds logical episode identity
+and a runtime materialization path; it is **not** proof of observational
+knowledge qualification or later-decision reuse.
+
+The reconciliation branch `fix/intelligence-spine-unified-integrity` implements
+the corrections below, pending combined CI/integration acceptance and merge:
+
+1. **Admit only runtime-authoritative outcome evidence** using
+   `require_canonical_tool_action_evidence()`. Client updates may not mutate
+   evidence projected from a completed runtime task.
+2. **Bind measurement pairing and impact to authoritative need revisions**;
+   retain exact historical replays without treating a wrong originating
+   revision as idempotent.
+3. **Compare complete KPI meaning** at measurement and outcome boundaries;
+   direction, required status, goal, unit and maintain tolerance cannot be
+   silently changed between snapshots.
+4. **Bind assessments and selected baseline measurements to originating
+   subjects and objectives**. Historical `{"kind","id"}` need subjects and
+   typed ontology `{"object_type","object_id"}` references are compared by
+   their canonical identity, not assumed interchangeable by display string.
+5. **Keep observational business impact separate from Decision feedback.**
+   BusinessImpactObservation retains selected strategy, source attestation,
+   measured KPI outcome and runtime-evidence lineage without asserting
+   that a Decision recommendation or intervention execution occurred.
+   The durable consolidation owner reports observational episodes but does
+   not feed them into intervention recurrence/knowledge qualification.
+6. **Preserve existing intervention-specific qualification gates**. An
+   observed favorable KPI change is not evidence that the selected response
+   was performed or caused the change.
+
+**Not yet accepted:** qualification and later-decision reuse of repeated
+observational patterns; verified assessment knowledge-support sourcing;
+conditional applicability assertions at composition; production automation of
+measurement-to-learning; adversarial end-to-end runtime proof. These require
+explicit observational proposition/retrieval semantics and real integration
+tests. Do not weaken execution-fidelity, intervention authority or provenance
+checks to satisfy those goals.
+
+This implementation is a corrective PR in progress, **not a completed spine
+milestone**. Keep existing mission-decision learning and Knowledge ledger
+owners intact until the new branch's combined gates pass.
+
 ## Purpose
 
 Ajenda already has the principal owners needed for a complete intelligence
