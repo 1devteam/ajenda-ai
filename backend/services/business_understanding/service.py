@@ -35,6 +35,7 @@ from backend.services.ontology.commercial_state import Goal, Kpi
 from backend.services.ontology.evaluation import GoalProgressStatus, evaluate_goal_progress
 from backend.services.ontology.outcome import OutcomeEvaluation, OutcomeStatus
 from backend.services.ontology.types import BusinessObjectRef
+from backend.services.tools.evidence_bridge import CanonicalToolEvidenceError, require_canonical_tool_action_evidence
 
 ObservationSourceKind = Literal[
     "business_profile",
@@ -600,6 +601,17 @@ class BusinessUnderstandingService:
         )
         if evidence is None or evidence.provenance_metadata.get("action_name") != "analysis.evaluate_outcome":
             raise BusinessUnderstandingValidationError("canonical outcome evidence was not found for tenant")
+        try:
+            require_canonical_tool_action_evidence(
+                session=self._session,
+                record=evidence,
+                expected_action="analysis.evaluate_outcome",
+                expected_role=None,
+            )
+        except CanonicalToolEvidenceError as exc:
+            raise BusinessUnderstandingValidationError(
+                "canonical outcome evidence lacks authorized runtime provenance"
+            ) from exc
         canonical_mission_reference = {"mission_id": str(evidence.mission_id)}
         if mission_reference is not None and mission_reference != canonical_mission_reference:
             raise BusinessUnderstandingValidationError("mission reference does not own canonical outcome evidence")
