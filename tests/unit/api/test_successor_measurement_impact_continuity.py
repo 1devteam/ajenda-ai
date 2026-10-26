@@ -180,7 +180,6 @@ def test_impact_rejects_action_label_without_canonical_runtime_evidence() -> Non
     service._repository.append_need_revision.assert_not_called()
 
 
-
 @pytest.mark.parametrize(
     "field, value",
     [
