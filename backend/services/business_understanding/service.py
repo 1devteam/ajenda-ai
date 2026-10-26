@@ -1247,6 +1247,29 @@ class BusinessUnderstandingService:
         }
         if deltas != expected:
             raise BusinessUnderstandingValidationError("canonical outcome does not match durable measurements")
+        goal_ids = {str(item.get("goal_id")) for item in baseline.values if item.get("goal_id")}
+        if goal_ids and (len(goal_ids) != 1 or outcome.goal_id not in goal_ids):
+            raise BusinessUnderstandingValidationError("canonical outcome goal does not match durable measurements")
+        if outcome.subject_refs and canonical_subject_keys(outcome.subject_refs) != canonical_subject_keys(
+            later.subject_references
+        ):
+            raise BusinessUnderstandingValidationError("canonical outcome subject does not match durable measurements")
+        if outcome.kpi_semantic_signatures:
+            reported_semantics = {
+                (item.metric, item.direction.value, item.normalized_unit) for item in outcome.kpi_semantic_signatures
+            }
+            durable_semantics = {
+                (
+                    item.get("metric"),
+                    item.get("direction", "increase"),
+                    item.get("unit", "") or None,
+                )
+                for item in baseline.values
+            }
+            if reported_semantics != durable_semantics:
+                raise BusinessUnderstandingValidationError(
+                    "canonical outcome KPI semantics do not match durable measurements"
+                )
         resolved_observed_at = outcome.observation_timing.resolved_observed_at
         if resolved_observed_at is None or resolved_observed_at != later.observed_at:
             raise BusinessUnderstandingValidationError("canonical outcome chronology does not match measurement")
