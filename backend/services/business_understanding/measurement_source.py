@@ -117,9 +117,9 @@ def resolve_runtime_measurement(
     if snapshot.observed_at > evidence.created_at:
         raise ValueError("source measurement observed_at is later than canonical source read")
     expected_type = BusinessObjectType(record_type)
-    if {
-        (subject.object_type, subject.object_id) for subject in snapshot.goal.subject_refs
-    } != {(expected_type, record_id)}:
+    if {(subject.object_type, subject.object_id) for subject in snapshot.goal.subject_refs} != {
+        (expected_type, record_id)
+    }:
         raise ValueError("source measurement must be scoped to the exact read record identity")
     return RuntimeVerifiedMeasurement(
         snapshot=snapshot,

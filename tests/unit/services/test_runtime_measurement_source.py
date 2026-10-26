@@ -62,6 +62,4 @@ def test_source_snapshot_rejects_duplicate_kpi_identity_and_wrong_goal() -> None
     with pytest.raises(ValidationError, match="identities must be unique"):
         RuntimeMeasurementSnapshot.model_validate({**values, "kpis": [single, single]})
     with pytest.raises(ValidationError, match="does not belong"):
-        RuntimeMeasurementSnapshot.model_validate(
-            {**values, "kpis": [{**single, "goal_id": "unrelated"}]}
-        )
+        RuntimeMeasurementSnapshot.model_validate({**values, "kpis": [{**single, "goal_id": "unrelated"}]})
