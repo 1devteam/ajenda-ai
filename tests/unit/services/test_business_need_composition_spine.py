@@ -297,7 +297,7 @@ def test_validated_assessment_reference_preserves_only_a_selected_candidate() ->
         revision=3,
         status="recognized",
         condition_summary="Customer acquisition is below the approved target.",
-        subject_references=[],
+        subject_references=_baseline_measurement().subject_references,
         objective_reference={"objective_key": "customer_acquisition"},
     )
     payload = _assessment_context()
@@ -406,3 +406,53 @@ def test_response_advancement_requires_the_complete_reference_set() -> None:
             business_need_assessment_id=assessment_id,
             business_need_baseline_measurement_id=_baseline_measurement().id,
         ).assessment_reference()
+
+
+@pytest.mark.parametrize("mismatch", ["subject", "objective"])
+def test_selected_response_rejects_baseline_from_another_need(mismatch: str) -> None:
+    tenant_id = "11111111-1111-1111-1111-111111111111"
+    assessment_id = uuid.UUID("0a3cfa70-1df6-4de6-a042-5e7b344b10d8")
+    baseline = _baseline_measurement()
+    need_subjects = list(baseline.subject_references)
+    objective_key = baseline.objective_key
+    if mismatch == "subject":
+        need_subjects = [{"schema_version": 1, "object_type": "organization", "object_id": "different"}]
+    else:
+        objective_key = "different_objective"
+    need = SimpleNamespace(
+        id=uuid.uuid4(),
+        need_id="need-customer-acquisition",
+        revision=3,
+        status="recognized",
+        condition_summary="Customer acquisition is below the approved target.",
+        subject_references=need_subjects,
+        objective_reference={"objective_key": objective_key},
+    )
+    assessment = SimpleNamespace(
+        id=assessment_id,
+        need_id=need.need_id,
+        need_revision=need.revision,
+        assessment_fingerprint="sha256:" + "a" * 64,
+        assessment_json={**_assessment_context(), "tenant_id": tenant_id},
+    )
+    with patch("backend.services.mission_composition.service.BusinessUnderstandingRepository") as repository_cls:
+        repository_cls.return_value.get_need_revision_for_tenant.return_value = need
+        repository_cls.return_value.get_assessment_for_tenant.return_value = assessment
+        repository_cls.return_value.get_measurement_for_tenant.return_value = baseline
+        service = MissionCompositionService(db=MagicMock())
+        need_reference = service._business_need_reference(
+            db=service._db,
+            tenant_id=tenant_id,
+            reference={"need_id": need.need_id, "revision": need.revision},
+        )
+        with pytest.raises(MissionCompositionError, match="does not match the originating business need"):
+            service._business_need_assessment_reference(
+                db=service._db,
+                tenant_id=tenant_id,
+                reference={
+                    "assessment_id": str(assessment_id),
+                    "selected_candidate_response_key": "improve_lead_qualification",
+                    "baseline_measurement_id": str(baseline.id),
+                },
+                need_reference=need_reference,
+            )

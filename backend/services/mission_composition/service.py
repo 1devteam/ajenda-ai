@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
+from backend.services.business_understanding.service import canonical_subject_keys
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.mission_plan_repository import MissionPlanRepository
 from backend.repositories.mission_repository import MissionRepository
@@ -463,6 +464,18 @@ class MissionCompositionService(
                 raise MissionCompositionError(
                     code="BUSINESS_NEED_MEASUREMENT_NOT_FOUND",
                     message="baseline measurement was not found for tenant",
+                )
+            need_subjects = need_reference.get("subject_references")
+            objective_reference = need_reference.get("objective_reference")
+            if (
+                not isinstance(need_subjects, list)
+                or not isinstance(objective_reference, dict)
+                or baseline.objective_key != objective_reference.get("objective_key")
+                or canonical_subject_keys(baseline.subject_references) != canonical_subject_keys(need_subjects)
+            ):
+                raise MissionCompositionError(
+                    code="BUSINESS_NEED_ASSESSMENT_INVALID",
+                    message="baseline measurement does not match the originating business need",
                 )
             # This is intentionally a stable reference to the source-owned
             # baseline, not a comparability decision.  The existing business
