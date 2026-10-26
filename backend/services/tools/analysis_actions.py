@@ -170,10 +170,22 @@ def analysis_materialize_decision_learning_signal(
         and str(context.mission_id) != materialized.episode_reference.mission_id
     ):
         raise ValueError("materialization task mission must match the durable decision episode mission")
-    signal = materialized.feedback.learning_signal
     records_inspected = materialized.inspection_trace.resource_references()
-    output = signal.model_dump(mode="json")
-    summary = f"Materialized authoritative learning signal {signal.signal_id} for decision {signal.decision_id}."
+    if materialized.business_impact_observation is not None:
+        observation = materialized.business_impact_observation
+        output = observation.model_dump(mode="json")
+        signal_id = observation.signal_id
+        role = "business_impact_observation"
+        confidence = None
+        summary = f"Materialized source-bound observational business impact {signal_id}."
+    else:
+        assert materialized.feedback is not None
+        signal = materialized.feedback.learning_signal
+        output = signal.model_dump(mode="json")
+        signal_id = signal.signal_id
+        role = "decision_learning_signal"
+        confidence = signal.effectiveness.confidence
+        summary = f"Materialized authoritative learning signal {signal_id} for decision {signal.decision_id}."
     return ActionResult(
         action="analysis.materialize_decision_learning_signal",
         provider="ajenda_analysis",
@@ -192,11 +204,11 @@ def analysis_materialize_decision_learning_signal(
                 summary=summary,
                 structured_payload=output,
                 records_inspected=records_inspected,
-                confidence=signal.effectiveness.confidence,
+                confidence=confidence,
                 provenance={
                     "runtime_path": "TaskDispatcher -> tool.invoke -> DecisionEpisodeMaterializationService",
                     "cluster": "decision_feedback_intelligence",
-                    "evidence_role": "decision_learning_signal",
+                    "evidence_role": role,
                     "episode_id": materialized.episode_reference.episode_id,
                 },
                 side_effect_class=SideEffectClass.INTERNAL_READ,
@@ -204,7 +216,7 @@ def analysis_materialize_decision_learning_signal(
         ],
         records_inspected=records_inspected,
         summary=summary,
-        confidence=signal.effectiveness.confidence,
+        confidence=confidence,
     )
 
 

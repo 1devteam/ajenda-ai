@@ -593,7 +593,11 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
         )
         assert episode.episode_reference.episode_kind == "business_impact"
         assert episode.episode_reference.episode_id == replay.episode_reference.episode_id
-        assert episode.feedback.learning_signal.execution_fidelity.value == "execution_unknown"
+        assert episode.feedback is None
+        observation = episode.business_impact_observation
+        assert observation is not None
+        assert observation.execution_status == "unknown"
+        assert observation.selected_candidate_response_key == "improve_lead_qualification"
         provenance = episode.episode_reference.business_impact_provenance
         assert provenance is not None
         assert provenance["accepted_measurement_pairing_id"] == str(pairing.id)
@@ -625,7 +629,9 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
             history=DurableLearningSignalRepository(learning_readback)
         ).consolidate(learning_readback, tenant_id=tenant_id)
         assert episode.episode_reference.episode_id in history.authoritative_episode_ids
-        assert episode.feedback.learning_signal.signal_id in history.valid_learning_signal_ids
+        assert episode.episode_reference.episode_id in history.observational_episode_ids
+        assert observation.signal_id not in history.valid_learning_signal_ids
+        assert business_impact_signal.provenance_metadata["evidence_role"] == "business_impact_observation"
     finally:
         learning_readback.close()
 

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from backend.domain.business_understanding import BusinessMeasurement, BusinessMeasurementPairing, BusinessNeedRevision
 from backend.domain.evidence import EvidenceRecord
+from backend.services.ontology.business_impact_observation import BusinessImpactObservation
 from backend.domain.execution_task import ExecutionTask
 from backend.services.ontology.decision_feedback import (
     DecisionEpisodeReference,
@@ -114,7 +115,17 @@ class DecisionEpisodeMaterializationResult(BaseModel):
 
     episode_reference: DecisionEpisodeReference
     inspection_trace: DecisionEpisodeInspectionTrace
-    feedback: DecisionFeedbackResult
+    feedback: DecisionFeedbackResult | None = None
+    business_impact_observation: BusinessImpactObservation | None = None
+
+    @model_validator(mode="after")
+    def validate_result_kind(self) -> DecisionEpisodeMaterializationResult:
+        if self.episode_reference.episode_kind == "business_impact":
+            if self.feedback is not None or self.business_impact_observation is None:
+                raise ValueError("business impact episode cannot be presented as Decision feedback")
+        elif self.feedback is None or self.business_impact_observation is not None:
+            raise ValueError("mission decision episode requires Decision feedback only")
+        return self
 
 
 class EvidenceReader(Protocol):
@@ -490,7 +501,6 @@ class DecisionEpisodeMaterializationService:
             str(outcome_record.id),
             outcome.outcome_evaluation_id,
         )
-        decision_id = _stable_identity("bid", tenant_id, str(impact_revision.id), str(pairing.id))
         provenance = {
             "impact_revision_id": str(impact_revision.id),
             "need_id": impact_revision.need_id,
@@ -504,34 +514,28 @@ class DecisionEpisodeMaterializationService:
         episode_reference = DecisionEpisodeReference(
             schema_version=2,
             episode_id=episode_id,
-            decision_id=decision_id,
+            decision_id=_stable_identity("bid", tenant_id, str(impact_revision.id), str(pairing.id)),
             episode_kind="business_impact",
             outcome_evaluation_evidence_id=str(outcome_record.id),
             business_impact_provenance=provenance,
         )
-        snapshot = DecisionSnapshot(
-            decision_id=decision_id,
-            goal_id=outcome.goal_id,
-            subject_refs=list(outcome.subject_refs),
-            recommendation=candidate,
-            intervention_key=candidate,
-            original_confidence=0.0,
-            supporting_evidence_ids=[str(outcome_record.id)],
-            known_evidence_gaps=[
-                "business-impact episode has no recommendation-task evidence",
-                "business-impact episode has no execution evidence",
-            ],
-            constraints=["selected candidate is provenance only; it does not prove execution"],
-            uncertainty=["causation remains unresolved unless the canonical outcome proves otherwise"],
-            decided_at=pairing.accepted_at,
-        )
-        feedback = evaluate_decision_feedback(
-            snapshot=snapshot,
-            execution=DecisionExecutionObservation(fidelity=ExecutionFidelity.EXECUTION_UNKNOWN),
-            outcome=outcome,
-            feedback_id=_stable_identity("bif", episode_id),
-            signal_id=_stable_identity("bis", episode_id),
+        observation = BusinessImpactObservation(
+            signal_id=_stable_identity("bio", episode_id),
             episode_reference=episode_reference,
+            selected_candidate_response_key=candidate,
+            baseline_measurement_id=baseline.id,
+            observed_measurement_id=observed.id,
+            baseline_source_kind=baseline.source_kind,
+            observed_source_kind=observed.source_kind,
+            goal_id=outcome.goal_id,
+            subject_refs=tuple(outcome.subject_refs),
+            kpi_semantic_signatures=outcome.kpi_semantic_signatures,
+            kpi_deltas=tuple(outcome.kpi_deltas),
+            outcome_evaluation_id=outcome.outcome_evaluation_id,
+            outcome_status=outcome.status,
+            measured_outcome_attribution=outcome.attribution,
+            observation_verification_basis=outcome.observation_timing.verification_basis,
+            observed_at=observed.observed_at,
             evaluated_at=outcome.evaluated_at,
         )
         trace = DecisionEpisodeInspectionTrace(
@@ -544,7 +548,7 @@ class DecisionEpisodeMaterializationService:
         return DecisionEpisodeMaterializationResult(
             episode_reference=episode_reference,
             inspection_trace=trace,
-            feedback=feedback,
+            business_impact_observation=observation,
         )
 
     @staticmethod
