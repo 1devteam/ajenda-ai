@@ -7,11 +7,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from backend.services.business_understanding.service import canonical_subject_keys
 from backend.services.business_understanding.reasoning import (
     BusinessNeedReasoningService,
     NeedAssessmentRequest,
 )
+from backend.services.business_understanding.service import canonical_subject_keys
 from backend.services.ontology.commercial_state import Goal
 
 

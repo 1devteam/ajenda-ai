@@ -191,7 +191,7 @@ class DecisionEpisodeReference(BaseModel):
 
     schema_version: Literal[1, 2] = 1
     episode_id: str = Field(min_length=1, max_length=160)
-    decision_id: str = Field(min_length=1, max_length=160)
+    decision_id: str | None = Field(default=None, min_length=1, max_length=160)
     episode_kind: Literal["mission_decision", "business_impact"] = "mission_decision"
     recommendation_evidence_id: str | None = Field(default=None, min_length=1, max_length=160)
     mission_id: str | None = Field(default=None, min_length=1, max_length=160)
@@ -206,6 +206,7 @@ class DecisionEpisodeReference(BaseModel):
             if (
                 not all(
                     (
+                        self.decision_id,
                         self.recommendation_evidence_id,
                         self.mission_id,
                         self.recommendation_execution_task_id,
@@ -220,6 +221,7 @@ class DecisionEpisodeReference(BaseModel):
             or self.business_impact_provenance is None
             or any(
                 (
+                    self.decision_id,
                     self.recommendation_evidence_id,
                     self.mission_id,
                     self.recommendation_execution_task_id,

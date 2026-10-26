@@ -18,12 +18,12 @@ from sqlalchemy.exc import IntegrityError
 
 from backend.domain.business_understanding import BusinessNeedAssessment, BusinessNeedRevision
 from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
+from backend.services.business_understanding.service import canonical_subject_keys
 from backend.services.knowledge.knowledge_decision_support import (
     KnowledgeDecisionSupportResult,
     KnowledgeInfluenceDirection,
 )
 from backend.services.mission_composition.job_catalog import list_business_jobs
-from backend.services.business_understanding.service import canonical_subject_keys
 from backend.services.ontology.commercial_state import Goal, Kpi
 from backend.services.ontology.evaluation import EvaluationResult, GoalProgressStatus, evaluate_goal_progress
 

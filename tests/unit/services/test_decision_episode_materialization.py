@@ -208,7 +208,7 @@ def test_business_impact_observation_cannot_be_relabelled_as_decision_learning()
     forged_reference = DecisionEpisodeReference(
         schema_version=2,
         episode_id="bip_observational",
-        decision_id=signal.decision_id,
+        decision_id=None,
         episode_kind="business_impact",
         business_impact_provenance={},
     )

@@ -18,18 +18,17 @@ from sqlalchemy.orm import Session
 
 from backend.domain.business_understanding import BusinessMeasurement, BusinessMeasurementPairing, BusinessNeedRevision
 from backend.domain.evidence import EvidenceRecord
+from backend.domain.execution_task import ExecutionTask
 from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
 from backend.services.business_understanding.service import (
     BusinessUnderstandingService,
     BusinessUnderstandingValidationError,
 )
 from backend.services.ontology.business_impact_observation import BusinessImpactObservation
-from backend.domain.execution_task import ExecutionTask
 from backend.services.ontology.decision_feedback import (
     DecisionEpisodeReference,
     DecisionExecutionObservation,
     DecisionFeedbackResult,
-    DecisionSnapshot,
     ExecutionFidelity,
     evaluate_decision_feedback,
 )
@@ -500,17 +499,15 @@ class DecisionEpisodeMaterializationService:
         assessment = BusinessUnderstandingRepository(self._session).get_assessment_for_tenant(
             tenant_id=tenant_id, assessment_id=assessment_id
         )
+        assessment_payload = assessment.assessment_json if assessment is not None else None
+        candidates = assessment_payload.get("candidate_responses") if isinstance(assessment_payload, dict) else None
         if (
             assessment is None
             or assessment.need_id != impact_revision.need_id
             or assessment.need_revision != pairing.need_revision
             or assessment.assessment_fingerprint != strategy.get("assessment_fingerprint")
-            or not isinstance(assessment.assessment_json, dict)
-            or not any(
-                isinstance(item, dict) and item.get("response_key") == candidate
-                for item in assessment.assessment_json.get("candidate_responses", [])
-                if isinstance(assessment.assessment_json.get("candidate_responses"), list)
-            )
+            or not isinstance(candidates, list)
+            or not any(isinstance(item, dict) and item.get("response_key") == candidate for item in candidates)
         ):
             raise ValueError("business impact episode contradicts its originating assessment authority")
 
@@ -549,7 +546,7 @@ class DecisionEpisodeMaterializationService:
         episode_reference = DecisionEpisodeReference(
             schema_version=2,
             episode_id=episode_id,
-            decision_id=_stable_identity("bid", tenant_id, str(impact_revision.id), str(pairing.id)),
+            decision_id=None,
             episode_kind="business_impact",
             outcome_evaluation_evidence_id=str(outcome_record.id),
             business_impact_provenance=provenance,

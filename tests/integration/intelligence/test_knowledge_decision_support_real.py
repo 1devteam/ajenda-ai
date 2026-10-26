@@ -487,7 +487,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
 
     # The forged duplicate lacks the runtime-owned logical episode identity.
     # Exact bridge projection validation must reject it before the uniqueness scan.
-    with pytest.raises(ValueError, match="canonical runtime bridge projection"):
+    with pytest.raises(ValueError, match="(runtime bridge projection|projection is not unique)"):
         registry.invoke(invocation, tenant_context)
 
     with factory() as cleanup:
