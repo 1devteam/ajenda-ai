@@ -54,6 +54,46 @@ retain their established authority; business-impact observations remain
 explicitly non-qualifying until an observational qualification contract
 and actual later-decision acceptance proof exist.
 
+## October 26, 2026 — Assessment Knowledge admission (PR #630)
+
+PR #629 is merged as a **Layer 2–3 source-integrity milestone**; it does not
+qualify observational business impacts into portable Knowledge.
+
+Assessment Knowledge input had a separate trust defect: the API accepted
+a caller-constructed `KnowledgeDecisionSupportResult` whose influence
+directions could be included in an assessment without any durable Knowledge
+runtime authority. PR #630 changes admission as follows:
+
+1. `knowledge_support_evidence_id` is a tenant-scoped reference to a durable
+   `knowledge.inform_decision` EvidenceBridge projection. The verified
+   runtime `support` result is loaded from that record, never from a
+   caller-supplied copy. An optional caller copy must match exactly.
+2. The canonical runtime owner and evidence role, task/lease/lineage and
+   uniquely persisted projection are verified before parsing support.
+3. Admission compares the original Decision input's exact business-object
+   instance identities, goal instance and full goal/KPI semantic signature
+   against the assessed need. The Knowledge retrieval query must agree, and
+   Decision option identities must equal the candidate response identities.
+4. Support cannot be observed or admitted before its canonical evidence was
+   created. Knowledge retrieval is re-resolved from its current ledger state;
+   previously accepted support fails closed if its qualification lifecycle
+   has changed.
+5. The assessment remains declarative. Qualified Knowledge support does not
+   make a response's unproven evidence status `supported`, does not grant
+   execution authority, and does not create a causal intervention claim.
+
+**Acceptance evidence:** a real PostgreSQL `knowledge.inform_decision`
+runtime projection and negative tests for forged, foreign, future, mismatched
+goal and candidate-response evidence. PR CI and architectural gates must pass
+before this can be declared a merged milestone.
+
+**Still outside scope:** independent source verification of every mutable
+present-condition assertion after its original Knowledge action, observational
+pattern qualification and its separate proposition relationship, mission
+composition consumption of bounded applicability, and production scheduling
+of the complete measurement-to-learning loop. These require independent
+acceptance rather than weakening existing intervention semantics.
+
 ## Purpose
 
 Ajenda already has the principal owners needed for a complete intelligence
