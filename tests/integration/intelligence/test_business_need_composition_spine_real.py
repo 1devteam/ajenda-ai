@@ -35,12 +35,14 @@ from backend.repositories.business_understanding_repository import BusinessUnder
 from backend.repositories.durable_learning_signal_repository import DurableLearningSignalRepository
 from backend.repositories.evidence_repository import EvidenceRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
+from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.business_understanding.service import BusinessUnderstandingService
 from backend.services.decision_episode_materialization import (
     DecisionEpisodeMaterializationRequest,
     DecisionEpisodeMaterializationService,
 )
 from backend.services.durable_experience_consolidation import DurableExperienceConsolidationService
+from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
 from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.mission_composition.service import MissionCompositionService
 from backend.services.ontology.commercial_state import Goal, Kpi
@@ -77,7 +79,13 @@ def _build_app(*, tenant_id: uuid.UUID, session, queue_adapter) -> FastAPI:
     return app
 
 
-def _persist_assessed_need(*, session, tenant_id: str) -> tuple[str, BusinessNeedAssessment, BusinessMeasurement]:
+def _persist_assessed_need(
+    *,
+    session,
+    tenant_id: str,
+    candidate_response_key: str = "inspect_funnel",
+    candidate_summary: str = "Inspect funnel conversion before changing spend.",
+) -> tuple[str, BusinessNeedAssessment, BusinessMeasurement]:
     """Persist a bounded tenant need using the same source contracts as the service."""
 
     need_id = "need-conversion-gap"
@@ -117,8 +125,8 @@ def _persist_assessed_need(*, session, tenant_id: str) -> tuple[str, BusinessNee
             "condition_summary": revision.condition_summary,
             "candidate_responses": [
                 {
-                    "response_key": "inspect_funnel",
-                    "summary": "Inspect funnel conversion before changing spend.",
+                    "response_key": candidate_response_key,
+                    "summary": candidate_summary,
                     "evidence_status": "supported",
                     "knowledge_support_status": "not_provided",
                     "dependencies": [],
@@ -168,6 +176,179 @@ def _persist_assessed_need(*, session, tenant_id: str) -> tuple[str, BusinessNee
     session.add(baseline)
     session.flush()
     return need_id, assessment, baseline
+
+
+def test_selected_commercial_response_uses_composition_api_to_qualify_existing_crm_work(
+    pg_engine,
+    queue_adapter,
+) -> None:
+    """Selected strategy provenance cannot replace the commercial instruction.
+
+    This is the API-level experiment before any frontend work: the existing
+    request contract must preserve the selected response and baseline while the
+    instruction itself selects the established CRM-read/qualification
+    capabilities.
+    """
+
+    tenant_uuid = uuid.uuid4()
+    tenant_id = str(tenant_uuid)
+    factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    setup = factory()
+    try:
+        setup.add(Tenant(id=tenant_uuid, name="Commercial response", slug=f"commercial-{tenant_id[:8]}", plan="free"))
+        setup.flush()
+        activate_tenant_session(setup, tenant_id)
+        persist_test_operating_charter(setup, tenant_id=tenant_id)
+        need_id, assessment, baseline = _persist_assessed_need(
+            session=setup,
+            tenant_id=tenant_id,
+            candidate_response_key="research_and_qualify_hvac_prospects",
+            candidate_summary="Qualify HVAC prospects from tenant CRM records before changing spend.",
+        )
+        baseline_id = baseline.id
+        records = TenantInternalRecordRepository(setup)
+        for index, name in enumerate(("Dallas Comfort HVAC", "North Texas Air Pros", "Oak Cliff Cooling"), start=1):
+            records.write_record(
+                tenant_id=tenant_id,
+                record_type="account",
+                record_id=f"commercial-hvac-{index}",
+                data={
+                    "name": name,
+                    "industry": "HVAC",
+                    "location": "Dallas",
+                    "website": f"https://commercial-hvac-{index}.example",
+                    "product_description": f"{name} provides HVAC service in Dallas.",
+                    "research_summary": f"{name} is an HVAC company in Dallas.",
+                    "automation_opportunity": "Customer intake and service scheduling are manual.",
+                    "intent": "Evaluating workflow automation for service operations.",
+                    "sources": [f"https://commercial-hvac-{index}.example"],
+                },
+            )
+        setup.commit()
+
+        app = _build_app(tenant_id=tenant_uuid, session=setup, queue_adapter=queue_adapter)
+        with (
+            patch.object(composition_module, "require_route_permission", return_value=None),
+            patch.object(mission_module, "require_route_permission", return_value=None),
+        ):
+            response = TestClient(app, raise_server_exceptions=False).post(
+                "/v1/missions/compose",
+                json={
+                    "instruction": "Qualify 3 HVAC companies in Dallas from Ajenda internal CRM records.",
+                    "business_need_id": need_id,
+                    "business_need_revision": 1,
+                    "business_need_assessment_id": str(assessment.id),
+                    "business_need_response_key": "research_and_qualify_hvac_prospects",
+                    "business_need_baseline_measurement_id": str(baseline.id),
+                },
+            )
+        assert response.status_code == 200, response.text
+        composed = response.json()
+        confirmed = TestClient(app, raise_server_exceptions=False).post(
+            f"/v1/missions/proposals/{composed['proposal_id']}/confirm",
+            json={"composition": composed["composition"], "idempotency_key": "commercial-response-api-v1"},
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        mission_id = uuid.UUID(confirmed.json()["mission_id"])
+        launched = TestClient(app, raise_server_exceptions=False).post(f"/v1/missions/{mission_id}/launch")
+        assert launched.status_code == 200, launched.text
+        assert launched.json()["runtime_admitted"] is True
+        assert launched.json()["queued_task_ids"]
+        setup.commit()
+
+        # Run the actual graph through the established worker owners.  This is
+        # a controlled tenant fixture, not a claim of external market success.
+        for sequence in range(16):
+            setup.expire_all()
+            current_tasks = list(
+                setup.scalars(
+                    select(ExecutionTask).where(
+                        ExecutionTask.tenant_id == tenant_id,
+                        ExecutionTask.mission_id == mission_id,
+                    )
+                )
+            )
+            if current_tasks and all(task.status == ExecutionTaskState.COMPLETED.value for task in current_tasks):
+                break
+            runtime = WorkerRuntimeService(setup, queue_adapter)
+            claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=f"commercial-response-{sequence}")
+            if claimed is None:
+                continue
+            lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+            runtime.heartbeat(tenant_id=tenant_id, lease_id=lease_id, worker_id=f"commercial-response-{sequence}")
+            runtime.start_execution(tenant_id=tenant_id, lease_id=lease_id, worker_id=f"commercial-response-{sequence}")
+            setup.commit()
+            TaskDispatcher(
+                session_factory=factory,
+                vector_session_factory=factory,
+                queue=queue_adapter,
+                worker_id=f"commercial-response-{sequence}",
+                tenant_id=tenant_id,
+            ).execute(task_id=claimed.id, lease_id=lease_id)
+        else:
+            setup.expire_all()
+            stalled_tasks = list(
+                setup.scalars(
+                    select(ExecutionTask).where(
+                        ExecutionTask.tenant_id == tenant_id,
+                        ExecutionTask.mission_id == mission_id,
+                    )
+                )
+            )
+            raise AssertionError(
+                "commercial-response graph did not drain: "
+                + repr(
+                    [
+                        {
+                            "id": str(task.id),
+                            "status": task.status,
+                            "failure": task.metadata_json.get("failure"),
+                            "dependency_deferral": task.metadata_json.get("dependency_deferral"),
+                            "dependencies": task.metadata_json.get("dependency_keys"),
+                        }
+                        for task in stalled_tasks
+                    ]
+                )
+            )
+    finally:
+        setup.close()
+
+    assert composed["proposal_status"] == "proposal_ready"
+    assert composed["ready_to_start"] is True
+    selected = composed["composition"]["semantic_snapshot"]["business_need_assessment_reference"]
+    assert selected["selected_candidate_response_key"] == "research_and_qualify_hvac_prospects"
+    assert selected["response_advancement"]["baseline_measurement"]["measurement_id"] == str(baseline_id)
+    assert selected["grants_execution_authority"] is False
+    assert "record.search" in composed["allowed_actions"]
+    assert "sales.qualify" in composed["allowed_actions"]
+    assert "web.research" not in composed["allowed_actions"]
+    assert "knowledge.inform_decision" not in composed["allowed_actions"]
+    with factory() as verify:
+        activate_tenant_session(verify, tenant_id)
+        tasks = list(
+            verify.scalars(
+                select(ExecutionTask).where(
+                    ExecutionTask.tenant_id == tenant_id,
+                    ExecutionTask.mission_id == mission_id,
+                )
+            )
+        )
+        assert tasks
+        assert all(task.status == ExecutionTaskState.COMPLETED.value for task in tasks), [
+            {
+                "id": str(task.id),
+                "status": task.status,
+                "node_key": task.metadata_json.get("node_key"),
+                "failure": task.metadata_json.get("failure"),
+                "dependency_deferral": task.metadata_json.get("dependency_deferral"),
+            }
+            for task in tasks
+        ]
+        artifacts = collect_materialized_artifacts(tasks)
+    qualified = next((artifact for artifact in artifacts if artifact.artifact_key == "qualified_prospects"), None)
+    assert qualified is not None
+    assert isinstance(qualified.payload, list)
+    assert len(qualified.payload) == 3
 
 
 def test_tenant_assessment_composes_to_existing_knowledge_decision_with_immutable_snapshots(pg_engine) -> None:

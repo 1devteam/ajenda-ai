@@ -64,7 +64,7 @@ replace either endpoint with a new service.
 | Impact → reusable knowledge | `decision_episode_materialization.py` | `durable_experience_consolidation.py` and `knowledge_actions.py` | The canonical materializer verifies recommendation, outcome, execution evidence, tenant/mission lineage, chronology, and action ownership. Consolidation owns Experience, qualification, and ledger writes. | Measurement/observation records are not automatically runtime `EvidenceRecord`s. A source-to-runtime evidence bridge must be explicit; assessment or customer-attested measurement identifiers must never be disguised as canonical decision-support evidence. |
 | Qualified knowledge → later decision | `knowledge_retrieval.py` and `knowledge_applicability.py` | `knowledge_actions.py` / `decision.recommend_next_action` | Existing knowledge-informed decision support retrieves, evaluates applicability, appends derived facts with durable lineage, and preserves constraints. | **Connected:** a semantically complete, tenant-validated assessment supplies the existing typed decision/options/criteria/query/context payload. Incomplete assessment semantics deliberately use the assessment-only decision action instead. |
 
-### Runtime launch and the remaining decision-to-response boundary
+### Runtime launch and response-advancement boundary
 
 `frontend/src/pages/MissionDispatchPage.tsx` already owns the client-side
 handoff: **Start execution** calls `launchMission()` in
@@ -77,7 +77,8 @@ admission therefore means that this launch request has not successfully
 completed for that mission; it is not evidence that another client runtime or
 queue service is required.
 
-The next unconnected boundary is intentionally narrower:
+The response-advancement boundary is intentionally narrower than automatic
+execution:
 
 ```text
 assessment-backed recommendation
@@ -97,6 +98,16 @@ at confirmation and compilation. The instruction remains the sole input to
 semantic routing and planned work; the candidate is not passed into action
 selection or execution authority. Runtime evidence retains a digest of the
 same provenance package for readback.
+
+The existing composition API also now has a controlled PostgreSQL/Redis proof
+of this response-advancement segment: a selected assessment candidate and
+baseline are preserved while the independent instruction selects the existing
+tenant-CRM `record.search` and `sales.qualify` actions. Confirmation, launch,
+queue admission, lease-owned dispatch, and fresh artifact readback produce
+three qualified prospects from tenant-owned account records. This proves
+bounded internal commercial work and provenance continuity; it does **not**
+claim external market research, provider verification, outreach, or a
+real-world commercial result.
 
 The measurement-reference continuity boundary is now connected. A later
 measurement is independently submitted through
@@ -284,6 +295,12 @@ does not waive any other quality, charter, quota, or runtime-admission check.
   contract after composition, confirmation, launch, and runtime readback. The
   proof asserts no `impact_monitored` revision, outcome evaluation, or learning
   materialization is created by that Layer 1 continuity path.
+- The same test also proves API-first response advancement into existing
+  internal commercial work: an instruction, rather than a selected candidate,
+  composes `record.search` plus `sales.qualify`; the selected candidate and
+  baseline remain immutable provenance through confirmation, launch, and
+  queue/lease dispatch. Fresh task-artifact readback contains three qualified
+  prospects sourced only from the isolated tenant CRM fixture.
 - The full non-integration suite requires a separately captured result before
   release handoff; a detached local run must not be reported as a pass.
 - Broad business-readiness and learning-reuse mission composition now has a
