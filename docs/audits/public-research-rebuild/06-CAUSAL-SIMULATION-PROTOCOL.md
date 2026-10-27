@@ -2,18 +2,18 @@
 
 Branch: `rebuild/public-research-evidence-first`. This protocol is intentionally local and deterministic. **No independent simulator reimplements Ajenda logic.** Every scenario invokes real production modules using controlled/mock inputs at external boundaries.
 
-Executable test suite: [`tests/simulation/test_public_research_causal_invariants.py`](../../../tests/simulation/test_public_research_causal_invariants.py).
+Executable test suite: [`tests/simulation/causal_public_research_invariants.py`](../../../tests/simulation/causal_public_research_invariants.py).
 
 ## Run the new tests in isolation
 
 From the checked-out recovery branch, using Ajenda's existing Python development environment:
 
 ```bash
-python -m pytest tests/simulation/test_public_research_causal_invariants.py -q -rA \
+python -m pytest tests/simulation/causal_public_research_invariants.py -q -rA \
   --junitxml=/tmp/ajenda-public-research-simulation.xml
 ```
 
-The file is deliberately in `tests/simulation/` instead of existing `tests/unit/` to keep this **intentionally fail-first** experiment separate from ordinary unit/contract/deployment CI until corrections are in place. This is not a permanent exception: migrate accepted invariant tests to the existing unit/integration suites once the exact source owner is corrected and the test becomes green. Before changing source, archive baseline XML and failure messages; after fixes, rerun the **same** scenarios.
+The opt-in file deliberately does **not** start with `test_`, so ordinary recursive pytest collection skips these **intentionally fail-first** scenarios until repairs are complete. Explicit filename invocation above still collects the tests. This protects the existing CI baseline while producing a reproducible red failure matrix. Once fixed, promote accepted invariants into the existing unit/integration suite. This is not a permanent exception: migrate accepted invariant tests to the existing unit/integration suites once the exact source owner is corrected and the test becomes green. Before changing source, archive baseline XML and failure messages; after fixes, rerun the **same** scenarios.
 
 No test result has been claimed here; the new suite **has not been executed by the reviewer**, because the full private checkout and Python environment are not in this runtime.
 
