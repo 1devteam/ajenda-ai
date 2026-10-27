@@ -15,6 +15,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.business_understanding import BusinessMeasurement, BusinessNeedAssessment, BusinessNeedRevision
+from backend.domain.evidence import EvidenceRecord
 from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
@@ -367,3 +368,32 @@ def test_business_impact_history_qualifies_and_informs_a_later_decision(pg_engin
     assert set(influences[0]["supporting_episode_ids"]) == set(episode_ids)
     assert result.output["decision_result"]["recommendation"] == "inspect"
     assert set(result.output["decision_result"]["supporting_evidence_ids"]) == {str(item) for item in signal_ids}
+
+    # The final consumer must preserve the same result when it crosses the
+    # canonical queue/lease/dispatcher boundary; no direct registry call may
+    # stand in for durable mission evidence.
+    runtime_decision = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        action="knowledge.inform_decision",
+        action_input=input_data,
+        worker_label="business-impact-later-decision",
+    )
+    readback = factory()
+    try:
+        activate_tenant_session(readback, tenant_id)
+        persisted = readback.get(EvidenceRecord, runtime_decision.id)
+        assert persisted is not None
+        assert persisted.provenance_metadata["evidence_role"] == "decision_recommendation_result"
+        assert persisted.structured_payload["decision_result"]["recommendation"] == "inspect"
+        assert set(persisted.structured_payload["decision_result"]["supporting_evidence_ids"]) == {
+            str(item) for item in signal_ids
+        }
+        runtime_support = [
+            item for item in persisted.structured_payload["support"]["influences"] if item["direction"] == "supports"
+        ]
+        assert set(runtime_support[0]["supporting_episode_ids"]) == set(episode_ids)
+    finally:
+        readback.close()
