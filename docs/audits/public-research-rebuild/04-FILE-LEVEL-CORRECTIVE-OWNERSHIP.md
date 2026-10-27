@@ -30,6 +30,14 @@ The [full causal traces, corrective edits, and impact assessment](05-CAUSAL-TRAC
 | C11 / T03 | **Codex** | The no-contact placeholder also feeds `worker_runtime_contracts._observe_acceptance_reasons`, `worker_runtime_rollup.maybe_rollup_mission_status`, `revops_deliverable_prospects._assemble_prospects`, and evidence source identity. | Fix contact source validity **and** verify mission acceptance, lineage and operator display; positive observed phone/email + no-contact official site + internal/CRM fallback. |
 | C12 / T04 | **Codex** | Terminal-empty design crosses `standalone_actions.web_research`, `mission_input_binding.apply_input_bindings`, `worker_runtime_contracts._validate_declared_output_contract`, `artifact_schemas.validate_artifact_payload`, `deliverable_runtime_read_model` and `worker_runtime_rollup`. | True no-hit completion may produce truthful empty evidence but cannot meet requested prospect quantity; failed, missing or malformed upstream cannot qualify as valid empty. **Do not globally allow empty typed lists.** |
 
+## Simulation tooling — explicit, opt-in failure matrix
+
+Reviewer created `tests/simulation/causal_public_research_invariants.py` and [06-CAUSAL-SIMULATION-PROTOCOL.md](06-CAUSAL-SIMULATION-PROTOCOL.md). The script uses **production functions**, not a separate model. It is deliberately named **without** the `test_` prefix, so default pytest collection does not accidentally add known fail-first cases to expensive CI. Codex should invoke it by explicit path and preserve JUnit XML for a baseline-to-correction diff.
+
+Cases cover genuine and phantom contact acceptance; third-party identity promotion; industry-as-company; composition seed-as-prospect; context fact inflation; verifier-to-qualification graph dependency; direct-lead preservation; contact -> worker acceptance; and existing intermediate-artifact rejection.
+
+**Status: source-grounded scenarios committed, execution not yet performed.** These are predicted baseline failures plus positive controls, not confirmed pytest outcomes. Work owners must run them before patching; gate individual corrections on identical scenarios becoming green, then promote them to ordinary tests. Keep positive controls green throughout.
+
 ## Non-negotiable workflow
 
 1. Execute/inspect tests and demonstrate **failing behavior before repair**; reviewer A01's new test was committed first but has not yet been run locally.
