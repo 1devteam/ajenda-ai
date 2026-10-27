@@ -2,14 +2,14 @@
 
 ## Scope
 
-Rebuild the public-commercial research remediation from the current `main` implementation. Do not copy PR #634 in bulk. Its exact source and tests are archived and indexed in `01-PR634-SALVAGE-INDEX.md`; independent defects and invariants are in `02-INDEPENDENT-DEFECT-LEDGER.md`. Preserve the completed internal CRM checkpoint, core composition/runtime authorities, provider security controls, evidence persistence and artifact read models.
+Rebuild the public-commercial research remediation from the current `main` implementation. Do not copy PR #634 in bulk. **Primary architectural authority is the historical source-backed investigation reconstructed in `00-ORIGINAL-INDEPENDENT-INVESTIGATION.md`** (not the later F01–F20 shorthand). PR #634's exact source and tests are archived and indexed in `01-PR634-SALVAGE-INDEX.md`; post-PR defects and invariants are in `02-INDEPENDENT-DEFECT-LEDGER.md`. Preserve the completed internal CRM checkpoint, core composition/runtime authorities, provider security controls, evidence persistence and artifact read models.
 
-This is the reviewer's **separate proposed resolution design**, not a directive that the implementation engineer must accept without independently checking the code.
+This is the reviewer's **separate proposed resolution design**, not a directive that the implementation engineer must accept without independently checking the code. Restore the original separation: **mission authority permits work; capability strategy chooses approved providers; network security admits connections; existing runtime executes; evidence records what occurred.** Browser rollout is distinct from authorization. Do not introduce a new governance layer or use a browser risk to disallow governed general search.
 
 ## Stage 0 — establish exact baseline and behavioral ownership
 
 1. Identify current `main` SHA and existing tests for the complete paths `instruction → MissionIntent → action input → graph → admission → queue/lease → handler → provider → evidence → binder → verifier → qualify → materializer → operator readback`.
-2. Compare source against archived head `5fbc84ab`. For each original F01–F20 and R01–R20, record `base present`, `PR introduced`, `PR exposed`, `PR repaired incompletely`, or `disproved` with exact proof.
+2. Compare source against archived head `5fbc84ab`. Adjudicate **O01–O10** from the uploaded original investigation separately from **R01–R20** post-PR findings. If referencing the later F01–F20 handoff, check the actual source before claiming exact identifier equivalence. Record `base present`, `PR introduced`, `PR exposed`, `PR repaired incompletely`, or `disproved` with exact proof.
 3. Write **failing tests before repair** for at least the highest-risk invariants R01–R04, R09–R11, R13 and R16. Do not count an existing green test that encodes the wrong expected semantics.
 4. For proposed code outside this review's list, trace all consumer data contracts before touching it; avoid a new framework.
 
@@ -23,7 +23,7 @@ Owners: `network_egress.py`, `url_safety.py`, `page_read.py`, `browser_session.p
 - Page-read status must not indicate a successful observation for HTTP errors or network/provider challenge pages.
 - Browser read-only transport should deny non-GET/HEAD, WebSockets, service workers, downloads and invalid scheme/origin/port; preserve DNS pinning and allowed hostname policy. Use real Chromium + controlled local test server or authorized equivalent test harness (no public write traffic).
 
-Gate: every test proves denied and allowed destinations, unsuccessful status, bounded bytes and browser methods. **No provider chain reactivation until this boundary is demonstrably safe.**
+Gate: deny unsafe network destinations and browser actions, prove relevant response bounds and permitted destinations, and retain per-action authorization. **Do not use unrelated transport-hardening gaps as a blanket ban on governed general search.** A search provider can be selected when its actual transport satisfies the existing relevant security contract; wider shared-egress hardening can proceed in the same coordinated branch with clearly assigned test gates. Chromium rollout remains independently disabled until its interactive safety evidence passes.
 
 ## Stage 2 — effective general search with true provider provenance
 
@@ -71,7 +71,7 @@ Gate: every malformed/missing input rejects, every valid empty returns zero scor
 4. **Negative** public research: provider valid-empty; challenge/rate-limit; all rejected; no contact; malformed input; blocked navigation/POST/WebSocket.
 5. Chromium under controlled server: verify prohibited outbound method never reaches receiving endpoint; no automatic browser rollout.
 6. Run Ruff, formatting, mypy, canonical GRAFT runtime adjudication, contract drift, tenancy, CRM regression, integration/migrations and full CI.
-7. Record each F/R finding disposition and link the exact test and fresh persisted evidence. Do not claim success solely because a general pre-merge operator proof passed.
+7. Record each **O/R** finding disposition and link the exact test and fresh persisted evidence. Any later F-number must first be checked against the actual subsequent handoff. Do not claim success solely because a general pre-merge operator proof passed.
 
 ## Change management
 
@@ -84,7 +84,7 @@ Gate: every malformed/missing input rejects, every valid empty returns zero scor
 ## Milestones
 
 - **M0 — preservation secured:** exact #634 commit archived; index, defect ledger and proposed rebuild order committed on clean baseline.
-- M1 — security/observation transport proven.
+- M1 — proportionate network safety and relevant observation transport proven, without conflating provider strategy with governance.
 - M2 — provider/search provenance and real discovery proven.
 - M3 — identity and contacts evidence boundary proven.
 - M4 — empty/positive qualifications, artifact readback and CRM regression proven.
