@@ -244,6 +244,20 @@ def _propagate_research_provenance(
     bound["context"] = context
 
 
+def _completed_empty_public_research_source(
+    *, upstream: ExecutionTask, output: dict[str, Any]
+) -> dict[str, str] | None:
+    """Recognize an explicit, completed empty result without treating it as missing input."""
+
+    action = _action_name_from_metadata(upstream.metadata_json if isinstance(upstream.metadata_json, dict) else {})
+    research_gap = output.get("research_gap")
+    if action not in {"web.research", "research.verify_public_candidates", "research.observe_contacts"}:
+        return None
+    if not isinstance(research_gap, str) or not research_gap.strip():
+        return None
+    return {"from_action": action, "research_gap": research_gap.strip()[:500]}
+
+
 def collect_upstream_world_state(mission_tasks: list[ExecutionTask]) -> dict[str, Any]:
     """Merge completed ability outputs into a mission world-state document."""
     world: dict[str, Any] = {
@@ -571,6 +585,7 @@ def apply_input_bindings(
     specs = _binding_specs_from_metadata(metadata)
     by_key = index_mission_tasks_by_node_key(mission_tasks)
     applied: list[dict[str, Any]] = []
+    completed_empty_public_sources: list[dict[str, str]] = []
 
     for spec in specs:
         from_step = str(spec.get("from_step") or "").strip()
@@ -594,6 +609,10 @@ def apply_input_bindings(
         if isinstance(value, list) and isinstance(existing, list):
             value = _merge_prospect_lists(existing, value)
         _set_input_path(bound, input_path, value)
+        if isinstance(value, list) and not value:
+            empty_source = _completed_empty_public_research_source(upstream=upstream, output=upstream_output)
+            if empty_source is not None:
+                completed_empty_public_sources.append(empty_source)
         _propagate_research_provenance(
             bound=bound,
             upstream_output=upstream_output,
@@ -622,6 +641,18 @@ def apply_input_bindings(
 
     raw_context = bound.get("context")
     context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
+    if (
+        completed_empty_public_sources
+        and action_name
+        in {"research.observe_contacts", "research.verify_public_candidates", "sales.qualify", "sales.score_lead"}
+        and not bound.get("prospects")
+    ):
+        context = dict(context)
+        context["binding_required"] = False
+        context["empty_research_result"] = completed_empty_public_sources[-1]
+        bound["context"] = context
+        if "binding_required" in bound:
+            bound["binding_required"] = False
     binding_required = bool(context.get("binding_required")) or bool(bound.get("binding_required"))
 
     audit = {
@@ -629,6 +660,7 @@ def apply_input_bindings(
         "binding_required": binding_required,
         "prospect_count": len(bound.get("prospects") or []) if isinstance(bound.get("prospects"), list) else 0,
         "action": action_name,
+        "completed_empty_public_research": completed_empty_public_sources,
     }
 
     if binding_required and action_needs_prospect_world(metadata):

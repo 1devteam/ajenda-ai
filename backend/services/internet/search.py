@@ -3,25 +3,29 @@
 Priority (``AJENDA_PUBLIC_SEARCH_PROVIDER=auto``):
 1. Brave Search API when ``AJENDA_BRAVE_SEARCH_API_KEY`` is set (egress)
 2. SerpAPI when ``AJENDA_SERPAPI_API_KEY`` is set (egress)
-3. ``duckduckgo-search`` / ddgs package (free; package-owned HTTP)
-4. DuckDuckGo Instant Answer via NetworkEgressAuthority (fallback)
+3. DuckDuckGo HTML results via ``NetworkEgressAuthority`` (free; governed)
+4. DuckDuckGo Instant Answer via ``NetworkEgressAuthority`` (fallback)
 
-Brave/SerpAPI always use NetworkEgressAuthority. The ddgs package uses its own
-HTTP client — discovery-only, no user-controlled URL navigation.
+Brave, SerpAPI, and both DuckDuckGo providers use ``NetworkEgressAuthority``.
+The retained ddgs package adapter owns its own HTTP client and is deliberately
+not selected by this runtime search chain.
 """
 
 from __future__ import annotations
 
 import json
 import os
+from html import unescape
+from html.parser import HTMLParser
 from typing import Any, Protocol
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse
 
-from backend.services.internet.contracts import SearchBundle, SearchHit
+from backend.services.internet.contracts import SearchAttempt, SearchBundle, SearchHit
 from backend.services.internet.modes import InternetAccessMode
 from backend.services.network_egress import get_default_network_egress_authority
 
 DDG_INSTANT_ANSWER_HOST = "api.duckduckgo.com"
+DDG_HTML_SEARCH_HOST = "html.duckduckgo.com"
 BRAVE_SEARCH_HOST = "api.search.brave.com"
 SERPAPI_HOST = "serpapi.com"
 DEFAULT_SEARCH_PROVIDER = "duckduckgo_instant_answer"
@@ -149,6 +153,117 @@ class DuckDuckGoInstantAnswerProvider:
                 real=True,
                 results=trimmed,
                 status_code=response.status_code,
+            )
+        except Exception as exc:
+            return SearchBundle(provider=self.name, real=False, error=str(exc))
+
+
+class _DuckDuckGoHtmlResultsParser(HTMLParser):
+    """Extract DuckDuckGo HTML result rows without trusting them as identities."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.results: list[dict[str, Any]] = []
+        self._title_parts: list[str] | None = None
+        self._snippet_parts: list[str] | None = None
+        self._snippet_tag: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = {key.lower(): (value or "") for key, value in attrs if key}
+        classes = set(values.get("class", "").split())
+        if tag.lower() == "a" and "result__a" in classes:
+            self.results.append({"href": values.get("href", ""), "title_parts": [], "snippet_parts": []})
+            self._title_parts = self.results[-1]["title_parts"]
+            return
+        if "result__snippet" in classes and self.results:
+            self._snippet_parts = self.results[-1]["snippet_parts"]
+            self._snippet_tag = tag.lower()
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "a":
+            self._title_parts = None
+        if self._snippet_tag == tag.lower():
+            self._snippet_parts = None
+            self._snippet_tag = None
+
+    def handle_data(self, data: str) -> None:
+        text = " ".join(unescape(data).split())
+        if not text:
+            return
+        if self._title_parts is not None:
+            self._title_parts.append(text)
+        if self._snippet_parts is not None:
+            self._snippet_parts.append(text)
+
+
+def _duckduckgo_html_result_url(raw_url: str) -> str | None:
+    """Resolve a result href without allowing the search page to choose a scheme."""
+
+    absolute = urljoin(f"https://{DDG_HTML_SEARCH_HOST}/", unescape(raw_url).strip())
+    parsed = urlparse(absolute)
+    if parsed.hostname and parsed.hostname.lower().rstrip(".") in {DDG_HTML_SEARCH_HOST, "duckduckgo.com"}:
+        redirect_target = parse_qs(parsed.query).get("uddg", [""])[0]
+        if redirect_target:
+            absolute = redirect_target
+            parsed = urlparse(absolute)
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        return None
+    return absolute[:2048]
+
+
+class DuckDuckGoHtmlSearchProvider:
+    """Governed general-search results from DuckDuckGo's HTTPS HTML endpoint."""
+
+    name = "duckduckgo_html"
+
+    def search(self, *, query: str, limit: int, timeout_seconds: float) -> SearchBundle:
+        params = urlencode({"q": query.strip()})
+        search_url = f"https://{DDG_HTML_SEARCH_HOST}/html/?{params}"
+        try:
+            _dest, response = get_default_network_egress_authority().request(
+                method="GET",
+                url=search_url,
+                headers={
+                    "User-Agent": "AjendaInternet/1.0 (+public_search/duckduckgo_html)",
+                    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+                },
+                allowed_hosts=[DDG_HTML_SEARCH_HOST],
+                action_name="web.search",
+                timeout_seconds=min(timeout_seconds, 15.0),
+                response_text_limit=131_072,
+            )
+            if response.status_code >= 400:
+                return SearchBundle(
+                    provider=self.name,
+                    real=False,
+                    error=f"HTTP {response.status_code}",
+                    status_code=response.status_code,
+                )
+            parser = _DuckDuckGoHtmlResultsParser()
+            parser.feed(response.body_text or "")
+            parser.close()
+            hits: list[SearchHit] = []
+            for item in parser.results:
+                title = " ".join(item["title_parts"]).strip()
+                url = _duckduckgo_html_result_url(str(item["href"]))
+                if not title or url is None:
+                    continue
+                hits.append(
+                    SearchHit(
+                        title=title[:160],
+                        snippet=" ".join(item["snippet_parts"]).strip()[:800],
+                        url=url,
+                        source=self.name,
+                    )
+                )
+                if len(hits) >= limit:
+                    break
+            return SearchBundle(
+                provider=self.name,
+                real=True,
+                results=tuple(hits),
+                status_code=response.status_code,
+                error="response truncated" if response.body_truncated else None,
             )
         except Exception as exc:
             return SearchBundle(provider=self.name, real=False, error=str(exc))
@@ -364,26 +479,30 @@ def resolve_public_search_provider_chain(*, preferred: str | None = None) -> lis
     name = (preferred or _settings_provider_name() or "auto").strip().lower()
     brave_key = _brave_key()
     serp_key = _serpapi_key()
-    ddgs = DuckDuckGoSearchPackageProvider()
+    html = DuckDuckGoHtmlSearchProvider()
     instant = DuckDuckGoInstantAnswerProvider()
     brave = BraveSearchProvider(api_key=brave_key)
     serp = SerpApiSearchProvider(api_key=serp_key)
 
     if name == "brave":
-        return [brave, ddgs, instant]
+        return [brave, html, instant]
     if name == "serpapi":
-        return [serp, ddgs, instant]
+        return [serp, html, instant]
     if name == "ddgs":
-        return [ddgs, instant]
+        # Keep the legacy setting parseable without allowing package-owned
+        # transport to bypass NetworkEgressAuthority.
+        return [html, instant]
+    if name in {"duckduckgo_html", "html"}:
+        return [html, instant]
     if name in {"duckduckgo_instant_answer", "instant", DEFAULT_SEARCH_PROVIDER}:
-        return [instant, ddgs]
+        return [instant, html]
     # auto
     chain: list[PublicSearchProvider] = []
     if brave_key:
         chain.append(brave)
     if serp_key:
         chain.append(serp)
-    chain.extend([ddgs, instant])
+    chain.extend([html, instant])
     return chain
 
 
@@ -405,20 +524,18 @@ def public_search(
 
     if provider is not None:
         bundle = provider.search(query=query, limit=limit, timeout_seconds=timeout_seconds)
-        return _stamp(bundle)
+        stamped = _stamp(bundle)
+        return _with_attempts(stamped, (_attempt_for(stamped),))
 
     last: SearchBundle | None = None
-    attempts: list[str] = []
+    attempts: list[SearchAttempt] = []
     for candidate in resolve_public_search_provider_chain():
         bundle = candidate.search(query=query, limit=limit, timeout_seconds=timeout_seconds)
         stamped = _stamp(bundle)
-        attempts.append(
-            f"{stamped.provider}:real={stamped.real}:n={len(stamped.results)}"
-            + (f":err={stamped.error}" if stamped.error else "")
-        )
+        attempts.append(_attempt_for(stamped))
         # Prefer real success with results; keep trying when empty or failed.
         if stamped.real and stamped.results:
-            return stamped
+            return _with_attempts(stamped, tuple(attempts))
         if stamped.real:
             last = stamped
             continue
@@ -428,20 +545,35 @@ def public_search(
         return SearchBundle(
             provider="none",
             real=False,
-            error="no search providers available; attempts=" + " | ".join(attempts),
+            error="no search providers available",
+            attempts=tuple(attempts),
         )
     # Surface failover chain when the winning bundle is empty/failed.
     if not last.results or not last.real:
-        err = last.error or "empty results"
-        return SearchBundle(
-            provider=last.provider,
-            real=last.real,
-            results=last.results,
-            status_code=last.status_code,
-            error=f"{err}; attempts=" + " | ".join(attempts),
-            access_mode=InternetAccessMode.PUBLIC_SEARCH,
-        )
-    return last
+        return _with_attempts(last, tuple(attempts))
+    return _with_attempts(last, tuple(attempts))
+
+
+def _attempt_for(bundle: SearchBundle) -> SearchAttempt:
+    return SearchAttempt(
+        provider=bundle.provider,
+        real=bundle.real,
+        result_count=len(bundle.results),
+        status_code=bundle.status_code,
+        error=bundle.error,
+    )
+
+
+def _with_attempts(bundle: SearchBundle, attempts: tuple[SearchAttempt, ...]) -> SearchBundle:
+    return SearchBundle(
+        provider=bundle.provider,
+        real=bundle.real,
+        results=bundle.results,
+        status_code=bundle.status_code,
+        error=bundle.error,
+        access_mode=bundle.access_mode,
+        attempts=attempts,
+    )
 
 
 def _stamp(bundle: SearchBundle) -> SearchBundle:
@@ -454,6 +586,7 @@ def _stamp(bundle: SearchBundle) -> SearchBundle:
         status_code=bundle.status_code,
         error=bundle.error,
         access_mode=InternetAccessMode.PUBLIC_SEARCH,
+        attempts=bundle.attempts,
     )
 
 
@@ -469,4 +602,5 @@ def search_bundle_as_legacy_dict(bundle: SearchBundle) -> dict[str, Any]:
         "status_code": payload["status_code"],
         "error": payload["error"],
         "access_mode": payload["access_mode"],
+        "attempts": payload["attempts"],
     }

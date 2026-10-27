@@ -77,6 +77,39 @@ def test_runtime_projection_preserves_canonical_output_contract() -> None:
     assert projected[0]["payload_preview"]["expected_output_contract"] == {"artifact": "research_brief"}
 
 
+def test_runtime_projection_preserves_compiler_declared_terminal_empty_research_contract() -> None:
+    mission_id = uuid.uuid4()
+    readiness = SimpleNamespace(
+        graph_reference={
+            "graph_version": 1,
+            "graph_fingerprint": "sha256:graph",
+            "nodes": [
+                {
+                    "key": "verify-public",
+                    "name": "Verify public candidates",
+                    "intended_task_type": "tool.invoke",
+                    "output_contract": {"artifact": "verified_prospect_candidates"},
+                    "metadata": {"materialization_role": "terminal", "allow_empty": True},
+                }
+            ],
+            "edges": [],
+        },
+        materialization_reference={"materialization_version": 1},
+        admission_reference={
+            "admission_version": 1,
+            "selected_nodes": [{"node_key": "verify-public", "runtime_task_type": "tool.invoke"}],
+        },
+    )
+
+    projected = build_runtime_task_preview_items(mission_id=mission_id, readiness=readiness)
+
+    assert projected[0]["payload_preview"]["expected_output_contract"] == {
+        "artifact": "verified_prospect_candidates",
+        "materialization_role": "terminal",
+        "allow_empty": True,
+    }
+
+
 def test_preview_validation_preserves_compiler_input_bindings_for_materialization() -> None:
     mission_id = uuid.uuid4()
     readiness = SimpleNamespace(

@@ -209,7 +209,7 @@ def test_sales_qualify_joins_observed_contacts_to_prospects() -> None:
     assert result.output["qualified_prospects"][0]["email"] == "founder@austin-studio.example"
 
 
-def test_sales_qualify_applies_mission_scope_to_every_bound_prospect() -> None:
+def test_sales_qualify_preserves_mission_scope_as_targeting_not_prospect_evidence() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(
         ToolInvocation(
@@ -245,8 +245,17 @@ def test_sales_qualify_applies_mission_scope_to_every_bound_prospect() -> None:
         _context(),
     )
     assert len(result.output["scored_prospects"]) == 2
-    assert len(result.output["qualified_prospects"]) == 1
-    assert result.output["qualified_prospects"][0]["score_10"] == 5
+    assert result.output["qualified_prospects"] == []
+    assert result.output["research_gap"] == (
+        "no verified candidate has sufficient observed commercial-relevance evidence for qualification"
+    )
+    for prospect in result.output["scored_prospects"]:
+        assert "industry" not in prospect
+        assert "location" not in prospect
+        assert prospect["qualification_evidence"]["target_market_constraints"] == {
+            "industry": "HVAC",
+            "location": "Dallas",
+        }
 
 
 def test_sales_ranking_accepts_verified_identity_without_contact() -> None:

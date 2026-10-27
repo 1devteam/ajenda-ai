@@ -265,6 +265,9 @@ def route_jobs_for_intent(
     selected_keys: set[str] = set()
     available = _intent_input_sources(intent)
     knowledge_assessment_context = "business_need_knowledge_context" in set(intent.context_requirements)
+    contact_observation_required = bool(
+        {"observe_contacts", "enrich_contacts", "prepare_outreach", "send_outreach"}.intersection(outcomes)
+    )
 
     for job in list_business_jobs():
         # The knowledge-aware review owns the same semantic outcome when its
@@ -286,6 +289,15 @@ def route_jobs_for_intent(
         for binding in semantic_selection.bindings:
             for job_key in binding.expected_job_keys:
                 semantic_job = BUSINESS_JOBS_BY_KEY.get(job_key)
+                # Domain guidance can name contact observation as a possible
+                # stage. It is not an implicit prerequisite for a public
+                # identity/qualification-only mission.
+                if (
+                    semantic_job is not None
+                    and semantic_job.job_key == "research.observe_sources"
+                    and not contact_observation_required
+                ):
+                    continue
                 if semantic_job is not None and semantic_job.job_key not in selected_keys:
                     selected.append(semantic_job)
                     selected_keys.add(semantic_job.job_key)

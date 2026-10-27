@@ -904,6 +904,27 @@ def test_public_discovery_routes_through_identity_verification_not_contact_colle
     assert "sales.qualify_prospects" not in keys
 
 
+def test_public_research_graph_declares_empty_evidence_terminal_contracts() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-public-empty-research",
+        instruction="Research and qualify up to three HVAC companies in Dallas using public sources only.",
+    )
+
+    nodes = {node["metadata"]["action"]: node for node in record.task_graph_preview["nodes"]}
+    assert nodes["web.research"]["metadata"]["materialization_role"] == "intermediate"
+    assert nodes["web.research"]["metadata"]["allow_empty"] is True
+    assert nodes["research.verify_public_candidates"]["metadata"]["materialization_role"] == "terminal"
+    assert nodes["research.verify_public_candidates"]["metadata"]["allow_empty"] is True
+    assert nodes["sales.qualify"]["metadata"]["materialization_role"] == "terminal"
+    assert nodes["sales.qualify"]["metadata"]["allow_empty"] is True
+    research = next(step for step in record.planned_steps if step.action_name == "web.research")
+    assert research.tool_input["query"] == "HVAC companies in Dallas"
+    assert research.tool_input["company"] == "HVAC"
+    assert "research.observe_contacts" not in nodes
+    qualify = next(step for step in record.planned_steps if step.action_name == "sales.qualify")
+    assert qualify.depends_on == ["ability-web-research", "ability-research-verify_public_candidates"]
+
+
 def test_phoenix_public_research_does_not_insert_contact_collection() -> None:
     instruction = (
         "Research five HVAC companies in Phoenix, Arizona using public web sources. "

@@ -25,6 +25,31 @@ class SearchHit:
 
 
 @dataclass(frozen=True, slots=True)
+class SearchAttempt:
+    """One provider invocation made while resolving a public-search request.
+
+    Search results and provider transport are different pieces of evidence.  A
+    request that reaches a provider but returns no hits is still useful runtime
+    evidence, but it must not be mistaken for a discovered company.
+    """
+
+    provider: str
+    real: bool
+    result_count: int
+    status_code: int | None = None
+    error: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "real": self.real,
+            "result_count": self.result_count,
+            "status_code": self.status_code,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class SearchBundle:
     provider: str
     real: bool
@@ -32,6 +57,7 @@ class SearchBundle:
     status_code: int | None = None
     error: str | None = None
     access_mode: InternetAccessMode = InternetAccessMode.PUBLIC_SEARCH
+    attempts: tuple[SearchAttempt, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -42,6 +68,7 @@ class SearchBundle:
             "status_code": self.status_code,
             "error": self.error,
             "access_mode": self.access_mode.value,
+            "attempts": [item.as_dict() for item in self.attempts],
         }
 
 

@@ -5,7 +5,9 @@ from unittest.mock import MagicMock, patch
 
 from backend.services.internet.browser_session import (
     _assert_allowed_page_url,
+    _assert_read_only_browser_request,
     _browser_host_resolver_rules,
+    _vet_browser_request,
     assert_browser_runtime_ready,
     run_browser_session,
 )
@@ -43,8 +45,15 @@ class _FakePage:
 
 
 class _FakeContext:
+    def __init__(self) -> None:
+        self.routes: list[str] = []
+        self.websocket_routes: list[str] = []
+
     def route(self, _pattern: str, _handler) -> None:
-        return None
+        self.routes.append(_pattern)
+
+    def route_web_socket(self, _pattern: str, _handler) -> None:
+        self.websocket_routes.append(_pattern)
 
     def new_page(self) -> _FakePage:
         return _FakePage()
@@ -54,8 +63,13 @@ class _FakeContext:
 
 
 class _FakeBrowser:
-    def new_context(self, **_kwargs) -> _FakeContext:
-        return _FakeContext()
+    context_kwargs: dict = {}
+    context: _FakeContext | None = None
+
+    def new_context(self, **kwargs) -> _FakeContext:
+        self.__class__.context_kwargs = kwargs
+        self.__class__.context = _FakeContext()
+        return self.__class__.context
 
     def close(self) -> None:
         return None
@@ -168,6 +182,11 @@ def test_browser_session_runs_bounded_read_only_steps(monkeypatch) -> None:
     ]
     assert snapshot.extraction["dns_pin"] == "chromium_host_resolver_rules"
     assert _FakeChromium.launch_kwargs["args"][0].startswith("--host-resolver-rules=MAP example.com ")
+    assert _FakeBrowser.context_kwargs["accept_downloads"] is False
+    assert _FakeBrowser.context_kwargs["service_workers"] == "block"
+    assert _FakeBrowser.context is not None
+    assert _FakeBrowser.context.routes == ["**/*"]
+    assert _FakeBrowser.context.websocket_routes == ["**/*"]
 
 
 def test_browser_host_resolver_rules_use_vetted_addresses() -> None:
@@ -198,3 +217,34 @@ def test_browser_session_rejects_final_cross_origin_url() -> None:
         else:
             raise AssertionError("cross-origin final URL must fail closed")
         vet.assert_not_called()
+
+
+def test_browser_session_rejects_non_read_only_request_methods() -> None:
+    _assert_read_only_browser_request("GET")
+    _assert_read_only_browser_request("head")
+    for method in ("POST", "PUT", "PATCH", "DELETE", "", "OPTIONS"):
+        try:
+            _assert_read_only_browser_request(method)
+        except NetworkEgressError as exc:
+            assert "read-only GET/HEAD" in str(exc)
+        else:
+            raise AssertionError(f"{method or '<empty>'} should be rejected")
+
+
+def test_browser_request_guard_rejects_same_origin_post_before_destination_vetting() -> None:
+    authority = MagicMock()
+    with patch(
+        "backend.services.internet.browser_session.get_default_network_egress_authority",
+        return_value=authority,
+    ):
+        try:
+            _vet_browser_request(
+                url="https://example.com/submit",
+                method="POST",
+                allowed_hosts=("example.com",),
+            )
+        except NetworkEgressError as exc:
+            assert "read-only GET/HEAD" in str(exc)
+        else:
+            raise AssertionError("same-origin POST should be rejected")
+    authority.vet_https_url.assert_not_called()

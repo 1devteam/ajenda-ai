@@ -39,7 +39,7 @@ def test_public_search_directory_hits_are_forwarded_only_to_observation(monkeypa
 
     monkeypatch.setattr(
         standalone_actions,
-        "_fetch_duckduckgo_instant_answer",
+        "_fetch_public_search",
         lambda **_kwargs: {
             "results": [
                 {
@@ -66,9 +66,54 @@ def test_public_search_directory_hits_are_forwarded_only_to_observation(monkeypa
     assert result.output["prospect_candidates"][0]["identity_status"] == "unverified"
     assert result.output["rejected_public_candidates"] == 1
     assert result.output["research_gap"] == "public search returned no verified individual company identities"
-    assert result.output["source"] == "ddgs"
+    assert result.output["source"] == "public_search"
     assert result.output["public_prospect_candidates"][0]["source_scope"] == "public_search"
     assert result.output["public_prospect_candidates"][0]["evidence_class"] == "public_candidate_unverified"
+
+
+def test_public_research_allocates_candidate_budget_across_query_variants(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    calls: list[tuple[str, int]] = []
+
+    def search(*, query: str, limit: int, **_kwargs):  # type: ignore[no-untyped-def]
+        calls.append((query, limit))
+        return {
+            "provider": "duckduckgo_html",
+            "real": True,
+            "results": [
+                {
+                    "title": f"{query} result",
+                    "url": f"https://{len(calls)}.example/",
+                    "snippet": "Public result.",
+                }
+            ],
+            "attempts": [{"provider": "duckduckgo_html", "real": True, "result_count": 1}],
+        }
+
+    monkeypatch.setattr(standalone_actions, "_fetch_public_search", search)
+
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="web.research",
+            input={
+                "query": "HVAC companies in Dallas",
+                "include_public_search": True,
+                "exclude_internal_records": True,
+                "limit": 3,
+            },
+        ),
+        _context(),
+    )
+
+    assert [query for query, _limit in calls] == [
+        "HVAC companies in Dallas",
+        "HVAC companies in Dallas official website",
+        "HVAC companies in Dallas business website",
+    ]
+    assert {limit for _query, limit in calls} == {3}
+    assert result.output["web_result_count"] == 3
+    assert len(result.output["public_search_attempts"]) == 3
 
 
 def test_web_research_matches_market_tokens_on_tenant_accounts(monkeypatch) -> None:
@@ -99,7 +144,7 @@ def test_web_research_matches_market_tokens_on_tenant_accounts(monkeypatch) -> N
     monkeypatch.setattr(standalone_actions, "resolve_record_store", lambda _ctx: _Store())
     monkeypatch.setattr(
         standalone_actions,
-        "_fetch_duckduckgo_instant_answer",
+        "_fetch_public_search",
         lambda **_kwargs: {"results": [], "real": False, "error": None},
     )
 
@@ -127,7 +172,7 @@ def test_public_only_web_research_never_queries_tenant_or_crm_sources(monkeypatc
     monkeypatch.setattr(standalone_actions, "default_crm_client", forbidden)
     monkeypatch.setattr(
         standalone_actions,
-        "_fetch_duckduckgo_instant_answer",
+        "_fetch_public_search",
         lambda **_kwargs: {"results": [], "real": True, "error": None},
     )
 
@@ -286,7 +331,7 @@ def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> 
     )
     monkeypatch.setattr(
         standalone_actions,
-        "_fetch_duckduckgo_instant_answer",
+        "_fetch_public_search",
         lambda **_kwargs: {"results": [], "real": True, "error": None},
     )
 
@@ -305,7 +350,7 @@ def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> 
     assert result.output["domain"] is None
     assert result.output["profile_company"] == "Ajenda AI"
     assert result.output["profile_domain"] == "ajenda.ai"
-    assert result.output["source"] == "ddgs"
+    assert result.output["source"] == "public_search"
     assert result.output["candidates_real"] is False
     assert "Ajenda AI" not in str(result.output.get("query"))
 
@@ -356,58 +401,12 @@ def test_web_research_does_not_mix_explicit_company_with_profile_domain(monkeypa
     assert evidence_payload.get("profile_domain") == "ajenda.ai"
 
 
-def test_fetch_duckduckgo_parses_nested_related_topics() -> None:
-    import json
-    from unittest.mock import MagicMock, patch
-
-    from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
-    from backend.services.tools.standalone_actions import _fetch_duckduckgo_instant_answer
-
-    destination = VettedNetworkDestination(
-        original_url="https://api.duckduckgo.com/",
-        connect_url="https://1.2.3.4/",
-        pinned_ip=__import__("ipaddress").ip_address("1.2.3.4"),
-        sni_hostname="api.duckduckgo.com",
-        host_header="api.duckduckgo.com",
-    )
-    body = {
-        "Heading": "HubSpot",
-        "AbstractText": "HubSpot is a CRM platform.",
-        "AbstractURL": "https://hubspot.com",
-        "Results": [{"Text": "HubSpot CRM - Official site", "FirstURL": "https://hubspot.com/crm"}],
-        "RelatedTopics": [
-            {
-                "Name": "Products",
-                "Topics": [{"Text": "Marketing Hub - Inbound tools", "FirstURL": "https://hubspot.com/marketing"}],
-            }
-        ],
-    }
-    response = NetworkEgressResponse(
-        status_code=200,
-        headers={},
-        body_text=json.dumps(body),
-        body_truncated=False,
-    )
-    authority = MagicMock()
-    authority.request.return_value = (destination, response)
-
-    with patch(
-        "backend.services.internet.search.get_default_network_egress_authority",
-        return_value=authority,
-    ):
-        bundle = _fetch_duckduckgo_instant_answer(query="HubSpot CRM", limit=5, timeout_seconds=10.0)
-
-    assert bundle["real"] is True
-    assert bundle["result_count"] >= 3
-    assert bundle["access_mode"] == "public_search"
-
-
 def test_web_search_merges_internal_records_and_public_results(monkeypatch) -> None:
     from backend.services.tools import standalone_actions
 
     monkeypatch.setattr(
         standalone_actions,
-        "_fetch_duckduckgo_instant_answer",
+        "_fetch_public_search",
         lambda **kwargs: {
             "provider": "duckduckgo_instant_answer",
             "real": True,

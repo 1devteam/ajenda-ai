@@ -54,11 +54,10 @@ def _ajenda_relevance(*, lead: dict[str, Any], context: dict[str, Any]) -> str:
     opportunity = _first_lead_text(
         lead.get("automation_opportunity"),
         lead.get("workflow"),
-        context.get("automation_opportunity"),
     )
     if opportunity:
         return f"Ajenda may be relevant to the observed automation opportunity: {opportunity[:500]}."
-    intent = _first_lead_text(lead.get("intent"), context.get("intent"))
+    intent = _first_lead_text(lead.get("intent"))
     if intent:
         return f"Ajenda may be relevant because the observed intent signal identifies a workflow to evaluate: {intent[:500]}."
     return ""
@@ -74,7 +73,7 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
     if lead.get("role") or lead.get("title"):
         fit_points += 25
         reasons.append("buyer role context present")
-    if lead.get("intent") or context.get("intent"):
+    if lead.get("intent"):
         fit_points += 25
         reasons.append("intent signal present")
     if _has_real_contact(lead):
@@ -101,9 +100,9 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
         if (lead.get("company") or account_id)
         else 0,
         "automation_opportunity": 10
-        if lead.get("automation_opportunity") or lead.get("workflow") or context.get("automation_opportunity")
+        if lead.get("automation_opportunity") or lead.get("workflow")
         else 5
-        if lead.get("intent") or context.get("intent")
+        if lead.get("intent")
         else 0,
         "evidence_quality": 10
         if lead.get("identity_status") == "verified" and (lead.get("source_url") or lead.get("url"))
@@ -112,7 +111,7 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
         else 4
         if lead.get("signals") or lead.get("source_url") or lead.get("url")
         else 0,
-        "urgency": 10 if lead.get("urgency") else 5 if lead.get("intent") or context.get("intent") else 0,
+        "urgency": 10 if lead.get("urgency") else 5 if lead.get("intent") else 0,
     }
     score_10 = round(sum(dimensions.values()) / len(dimensions))
     mission_scoring = bool(context.get("mission_specific_scoring")) or "qualification_threshold_10" in context
@@ -165,13 +164,16 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
 
     qualified_prospects: list[dict[str, Any]] = []
     scored_prospects: list[dict[str, Any]] = []
+    target_market_constraints = {
+        field: str(payload.context[field]).strip()
+        for field in ("industry", "location")
+        if isinstance(payload.context.get(field), str) and str(payload.context[field]).strip()
+    }
     for index, prospect in enumerate(prospects_in):
         lead = _normalize_observed_lead(dict(prospect))
-        # Mission-scoped industry/location are evidence constraints for every
-        # bound prospect, not just the first seed lead.
-        for field in ("industry", "location", "intent", "automation_opportunity"):
-            if field not in lead and payload.context.get(field):
-                lead[field] = payload.context[field]
+        # Target-market criteria direct research; they are not observed
+        # attributes of each individual company and cannot become intent or
+        # operational-need evidence through qualification.
         if payload.lead and index == 0:
             # Merge seed lead fields without overwriting bound prospect identity.
             for key, value in payload.lead.items():
@@ -196,6 +198,7 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
             "qualification_dimensions": result["qualification_dimensions"],
             "qualification_reasons": result["reasons"],
             "source_references": sources,
+            "target_market_constraints": target_market_constraints,
         }
         entry = {
             **{k: v for k, v in lead.items() if k not in {"score", "qualified", "reasons"}},
@@ -250,6 +253,16 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         "qualified_prospects": qualified_prospects,
         "prospect_count": len(qualified_prospects),
         "scored_prospects": scored_prospects,
+        "research_gap": (
+            str((payload.context.get("empty_research_result") or {}).get("research_gap") or "")
+            or "no verified candidates were available for qualification"
+            if not scored_prospects
+            else (
+                "no verified candidate has sufficient observed commercial-relevance evidence for qualification"
+                if not qualified_prospects
+                else None
+            )
+        ),
     }
     summary = f"Qualified {len(qualified_prospects)} prospect(s); primary score={score}, qualified={qualified}."
     return ActionResult(

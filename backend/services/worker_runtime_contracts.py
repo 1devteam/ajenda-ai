@@ -155,6 +155,23 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
         ):
             raise ValueError("intermediate output contract is only permitted for public web discovery")
         return
+    invocation = metadata.get("tool_invocation")
+    action = invocation.get("action") if isinstance(invocation, dict) else None
+    # Empty terminal prospect artifacts are valid only when the graph was
+    # compiled from public discovery and the handler preserves the upstream
+    # explicit research gap.  This is not a general relaxation for absent,
+    # malformed, or failed world-state bindings.
+    if (
+        raw_contract.get("materialization_role") == "terminal"
+        and raw_contract.get("allow_empty") is True
+        and action
+        in {"research.observe_contacts", "research.verify_public_candidates", "sales.qualify", "sales.score_lead"}
+        and isinstance(raw_output.get(artifact_key), list)
+        and not raw_output[artifact_key]
+        and isinstance(raw_output.get("research_gap"), str)
+        and raw_output["research_gap"].strip()
+    ):
+        return
     errors = list(validate_artifact_payload(schema, raw_output[artifact_key]))
     if errors:
         artifact_payload = raw_output[artifact_key]

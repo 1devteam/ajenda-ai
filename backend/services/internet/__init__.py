@@ -8,7 +8,7 @@ All privileged I/O should go through NetworkEgressAuthority where possible.
 """
 
 from backend.services.internet.browser_session import run_browser_session
-from backend.services.internet.contracts import PageSnapshot, SearchBundle, SearchHit
+from backend.services.internet.contracts import PageSnapshot, SearchAttempt, SearchBundle, SearchHit
 from backend.services.internet.modes import (
     PROTOTYPE_INTERNET_MODES,
     RESERVED_INTERNET_MODES,
@@ -28,6 +28,7 @@ __all__ = [
     "SHIPPED_INTERNET_MODES",
     "InternetAccessMode",
     "PageSnapshot",
+    "SearchAttempt",
     "SearchBundle",
     "SearchHit",
     "execute_open_write",

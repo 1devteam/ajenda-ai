@@ -209,7 +209,9 @@ class Settings(BaseSettings):
         alias="AJENDA_NETWORK_EGRESS_TLS_VERIFY",
     )
     # --- Public internet lane (search / browser / open write) ---
-    public_search_provider: Literal["auto", "ddgs", "duckduckgo_instant_answer", "brave", "serpapi"] = Field(
+    public_search_provider: Literal[
+        "auto", "ddgs", "duckduckgo_html", "duckduckgo_instant_answer", "brave", "serpapi"
+    ] = Field(
         default="auto",
         alias="AJENDA_PUBLIC_SEARCH_PROVIDER",
     )

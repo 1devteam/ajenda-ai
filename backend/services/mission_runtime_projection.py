@@ -184,8 +184,16 @@ def build_runtime_task_preview_items(*, mission_id: UUID, readiness: Any) -> lis
         )
         raw_node_metadata = graph_node.get("metadata")
         node_metadata: dict[str, Any] = raw_node_metadata if isinstance(raw_node_metadata, dict) else {}
-        if node_metadata.get("materialization_role") == "intermediate":
-            expected_output_contract["materialization_role"] = "intermediate"
+        materialization_role = node_metadata.get("materialization_role")
+        # The compiler's terminal empty-public-research contract is meaningful
+        # only if it crosses the graph → ExecutionTask projection.  Keep the
+        # long-standing intermediate projection and preserve this additional,
+        # narrowly declared terminal contract without inferring either from an
+        # action name at runtime.
+        if materialization_role == "intermediate" or (
+            materialization_role == "terminal" and node_metadata.get("allow_empty") is True
+        ):
+            expected_output_contract["materialization_role"] = materialization_role
             expected_output_contract["allow_empty"] = node_metadata.get("allow_empty") is True
         input_bindings = node_metadata.get("input_bindings") if isinstance(node_metadata, dict) else None
         payload_preview = {

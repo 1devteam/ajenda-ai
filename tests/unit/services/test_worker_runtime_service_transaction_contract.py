@@ -334,6 +334,50 @@ def test_complete_preserves_public_research_gap_when_identity_observation_is_emp
     queue.complete_task.assert_not_called()
 
 
+def test_complete_allows_explicit_terminal_empty_public_research_outcome() -> None:
+    service, _session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=True)
+    task.metadata_json["expected_output_contract"] = {
+        "artifact": "verified_prospect_candidates",
+        "materialization_role": "terminal",
+        "allow_empty": True,
+    }
+    task.metadata_json["tool_invocation"] = {"action": "research.verify_public_candidates", "input": {}}
+
+    service.complete(
+        tenant_id=tenant_id,
+        lease_id=lease.id,
+        worker_id=worker_id,
+        task_output={
+            "handler": "tool.invoke",
+            "status": "completed",
+            "evidence": [
+                {
+                    "evidence_type": "action_result",
+                    "evidence_source": "tool.invoke.research.verify_public_candidates",
+                    "action_name": "research.verify_public_candidates",
+                    "tool_provider": "ajenda_internet",
+                    "tenant_id": tenant_id,
+                    "task_id": str(task.id),
+                    "mission_id": str(task.mission_id),
+                    "summary": "Public research completed with insufficient candidate evidence.",
+                    "structured_payload": {"research_gap": "public search returned zero candidate URLs"},
+                    "side_effect_class": "external_read",
+                }
+            ],
+            "output": {
+                "verified_prospect_candidates": [],
+                "research_gap": "public search returned zero candidate URLs",
+            },
+        },
+    )
+
+    assert task.status == ExecutionTaskState.COMPLETED.value
+    queue.complete_task.assert_called_once()
+
+
 def test_complete_allows_explicit_intermediate_public_discovery_payload() -> None:
     service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
         status=ExecutionTaskState.RUNNING.value

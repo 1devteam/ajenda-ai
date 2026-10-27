@@ -169,6 +169,24 @@ def _dependency_jobs_for_selection(
         # Public reports consume the terminal verified identity artifact, not
         # raw discovery hits. The verifier is absent for CRM-source research.
         dependencies.append("research.verify_public_candidates")
+    public_identity_lane = (
+        intent is not None
+        and "research_prospects" in set(intent.requested_outcomes)
+        and not ({"internal_crm_source", "hubspot_source"} & set(intent.context_requirements))
+        and "research.verify_public_candidates" in selected_keys
+    )
+    if job.job_key == "sales.qualify_prospects" and public_identity_lane:
+        # Public-company qualification consumes the dedicated identity
+        # verifier. Contact observation remains independently selected when
+        # the mission asks for contact evidence.
+        dependencies.append("research.verify_public_candidates")
+        if "observe_contacts" in set(intent.requested_outcomes):
+            # Preserve the established explicit-contact contract: when the
+            # instruction asks to collect contact information, qualification
+            # receives those observations as supplementary context.  An
+            # ordinary company-qualification mission still uses only the
+            # identity-verifier terminal artifact.
+            dependencies.append("research.observe_sources")
     return list(dict.fromkeys(dependencies))
 
 
@@ -375,6 +393,9 @@ def compile_task_graph_preview(
 ) -> dict[str, Any]:
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
+    public_discovery_selected = any(
+        step.action_name == "web.research" and bool(step.tool_input.get("include_public_search")) for step in steps
+    )
     for step in steps:
         # Same naming as mission_bridge_runtime_authority so confirm → execute
         # provisions against the graph without renaming nodes.
@@ -403,6 +424,12 @@ def compile_task_graph_preview(
                 for item in steps
             )
         )
+        terminal_empty_public_research = public_discovery_selected and step.action_name in {
+            "research.observe_contacts",
+            "research.verify_public_candidates",
+            "sales.qualify",
+            "sales.score_lead",
+        }
         output_contract: dict[str, Any] = {"artifact": step.output_contract}
         nodes.append(
             {
@@ -427,7 +454,11 @@ def compile_task_graph_preview(
                     "input_bindings": list(step.input_bindings),
                     "output_contract": step.output_contract,
                     "materialization_role": "intermediate" if intermediate_public_discovery else "terminal",
-                    "allow_empty": intermediate_public_discovery,
+                    # A valid public provider response can contain no candidate
+                    # URLs or no verified identities.  Those terminal stages
+                    # may persist an explicit insufficient-evidence artifact;
+                    # malformed or missing bindings remain failures.
+                    "allow_empty": intermediate_public_discovery or terminal_empty_public_research,
                 },
             }
         )

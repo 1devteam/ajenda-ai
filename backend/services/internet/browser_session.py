@@ -23,6 +23,7 @@ from backend.services.network_egress import NetworkEgressError, get_default_netw
 
 WaitUntil = Literal["domcontentloaded", "load", "networkidle"]
 DEFAULT_TEXT_LIMIT = 4_000
+_READ_ONLY_BROWSER_METHODS = frozenset({"GET", "HEAD"})
 
 
 def browser_session_enabled() -> bool:
@@ -104,6 +105,28 @@ def _assert_allowed_page_url(page_url: str, allowed_hosts: Sequence[str]) -> str
     return normalized_url
 
 
+def _assert_read_only_browser_request(method: str) -> None:
+    """Reject browser transport that could mutate an external origin."""
+
+    normalized = method.strip().upper()
+    if normalized not in _READ_ONLY_BROWSER_METHODS:
+        raise NetworkEgressError(
+            f"web.browser_session only allows read-only GET/HEAD requests, got {normalized or '<empty>'}"
+        )
+
+
+def _vet_browser_request(*, url: str, method: str, allowed_hosts: Sequence[str]) -> None:
+    """Apply the browser contract to every HTTP request Chromium attempts."""
+
+    _assert_read_only_browser_request(method)
+    reject_credentialed_url(url, action_name="web.browser_session")
+    get_default_network_egress_authority().vet_https_url(
+        url,
+        allowed_hosts=list(allowed_hosts),
+        action_name="web.browser_session",
+    )
+
+
 def _step_text(page: Any, selector: str, limit: int, timeout_ms: int) -> str:
     value = page.locator(selector).inner_text(timeout=min(timeout_ms, 10_000))
     return " ".join((value or "").split())[:limit]
@@ -164,13 +187,9 @@ def run_browser_session(
 
     def _route_handler(route: Any) -> None:
         request_url = str(getattr(route.request, "url", "") or "")
+        request_method = str(getattr(route.request, "method", "") or "")
         try:
-            reject_credentialed_url(request_url, action_name="web.browser_session")
-            get_default_network_egress_authority().vet_https_url(
-                request_url,
-                allowed_hosts=list(allowed_hosts),
-                action_name="web.browser_session",
-            )
+            _vet_browser_request(url=request_url, method=request_method, allowed_hosts=allowed_hosts)
         except (ValueError, NetworkEgressError) as exc:
             blocked.append(f"{request_url[:160]} ({exc})")
             route.abort()
@@ -189,10 +208,16 @@ def run_browser_session(
                     user_agent="AjendaInternet/1.0 (+browser_session)",
                     java_script_enabled=True,
                     ignore_https_errors=False,
+                    accept_downloads=False,
+                    service_workers="block",
                 )
                 try:
                     # Intercept redirects, frames, and subresources — not only the first hop.
                     context.route("**/*", _route_handler)
+                    # A read-only observation must not open an independent
+                    # full-duplex channel beyond the HTTP route guard.
+                    if hasattr(context, "route_web_socket"):
+                        context.route_web_socket("**/*", lambda websocket: websocket.close())
                     page = context.new_page()
                     response = page.goto(page_url, wait_until=wait_until, timeout=timeout_ms)
                     final_url = _assert_allowed_page_url(page.url or page_url, allowed_hosts)

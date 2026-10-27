@@ -472,6 +472,27 @@ _LEADING_QUANTITY_WORDS = frozenset(
         "many",
     }
 )
+
+
+def _strip_leading_industry_scope_tokens(tokens: list[str]) -> list[str]:
+    """Remove imperative and bounded-quantity prefixes from industry captures.
+
+    The industry/location grammar deliberately captures a few preceding words so
+    that it can understand ordinary instructions such as ``find three roofing
+    companies``.  A bounded phrase such as ``up to three HVAC companies`` must
+    not turn ``up to three HVAC`` into the industry carried to search and
+    qualification inputs.
+    """
+
+    while tokens and tokens[0].lower() in _LEADING_VERB_WORDS:
+        tokens.pop(0)
+    if len(tokens) >= 2 and tokens[0].lower() == "up" and tokens[1].lower() == "to":
+        del tokens[:2]
+    while tokens and (tokens[0].lower() in _LEADING_QUANTITY_WORDS or tokens[0].isdigit()):
+        tokens.pop(0)
+    return tokens
+
+
 _FRAGMENT_HINTS = (
     r"^complete when\b",
     r"^when the email is sent\b",
@@ -670,12 +691,7 @@ def _extract_industry_location_entities(text: str) -> list[TargetEntity]:
     entities: list[TargetEntity] = []
     for match in matches:
         industry_tokens = [token for token in match.group("industry").strip().split() if token]
-        while industry_tokens and industry_tokens[0].lower() in _LEADING_VERB_WORDS:
-            industry_tokens.pop(0)
-        while industry_tokens and (
-            industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()
-        ):
-            industry_tokens.pop(0)
+        _strip_leading_industry_scope_tokens(industry_tokens)
         industry = " ".join(industry_tokens).strip(" ,.;:")
         location = _trim_location(match.group("location"))
         # Drop trailing source qualifiers ("from HubSpot CRM records").
@@ -705,12 +721,7 @@ def _extract_industry_audience_entities(text: str) -> list[TargetEntity]:
     entities: list[TargetEntity] = []
     for match in _INDUSTRY_AUDIENCE.finditer(text):
         industry_tokens = [token for token in match.group("industry").strip().split() if token]
-        while industry_tokens and industry_tokens[0].lower() in _LEADING_VERB_WORDS:
-            industry_tokens.pop(0)
-        while industry_tokens and (
-            industry_tokens[0].lower() in _LEADING_QUANTITY_WORDS or industry_tokens[0].isdigit()
-        ):
-            industry_tokens.pop(0)
+        _strip_leading_industry_scope_tokens(industry_tokens)
         industry = " ".join(industry_tokens).strip(" ,.;:")
         audience = re.sub(r"\s+", " ", match.group("audience").strip(" ,;:"))
         if not industry or not audience:

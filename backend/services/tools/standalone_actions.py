@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from backend.services.business_profile.context_resolver import default_company_and_domain, resolve_business_context
-from backend.services.internet import fetch_public_page, search_bundle_as_legacy_dict
-from backend.services.internet.search import DuckDuckGoInstantAnswerProvider
+from backend.services.internet import fetch_public_page, public_search, search_bundle_as_legacy_dict
 from backend.services.network_egress import NetworkEgressError, get_default_network_egress_authority
 from backend.services.plugins.crm_client import CrmSearchResult, default_crm_client
 from backend.services.retry_policy import RetryPolicy
@@ -87,18 +86,10 @@ def _fetch_public_page_snippet(
     }
 
 
-def _fetch_duckduckgo_instant_answer(*, query: str, limit: int, timeout_seconds: float) -> dict[str, Any]:
-    """Return the governed DuckDuckGo Instant Answer compatibility payload."""
+def _fetch_public_search(*, query: str, limit: int, timeout_seconds: float) -> dict[str, Any]:
+    """Run the configured, governed public-search provider chain."""
 
-    # This compatibility helper promises the Instant Answer contract.  Calling
-    # the auto provider chain here made its result depend on whether the
-    # optional ``ddgs`` package was installed, bypassing the governed egress
-    # path that callers and tests expect to exercise.
-    bundle = DuckDuckGoInstantAnswerProvider().search(
-        query=query,
-        limit=limit,
-        timeout_seconds=timeout_seconds,
-    )
+    bundle = public_search(query=query, limit=limit, timeout_seconds=timeout_seconds)
     return search_bundle_as_legacy_dict(bundle)
 
 
@@ -403,6 +394,8 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     web_results: list[dict[str, Any]] = []
     search_error: str | None = None
     public_search_real = False
+    public_search_attempts: list[dict[str, Any]] = []
+    public_search_providers: list[str] = []
     side_effect = SideEffectClass.INTERNAL_READ
     public_query = (payload.query or "").strip()
     public_search_limit = payload.limit
@@ -420,19 +413,48 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                 for query in (
                     public_query,
                     f"{public_query} official website",
-                    f"{public_query} local contractor",
+                    f"{public_query} business website",
                 )
                 if query.strip()
             )
         )
+        # Allocate the bounded candidate pool across query perspectives.  A
+        # broad local-market query is often directory-heavy; letting it consume
+        # every slot prevents the existing official-site query from surfacing
+        # company-owned domains for later identity verification.
+        per_variant_limit = max(
+            payload.limit,
+            (public_search_limit + max(1, len(query_variants)) - 1) // max(1, len(query_variants)),
+        )
         seen_result_urls: set[str] = set()
         search_errors: list[str] = []
         for query_variant in query_variants:
-            search_bundle = _fetch_duckduckgo_instant_answer(
+            search_bundle = _fetch_public_search(
                 query=query_variant,
-                limit=public_search_limit,
+                limit=per_variant_limit,
                 timeout_seconds=payload.timeout_seconds,
             )
+            raw_attempts = search_bundle.get("attempts")
+            attempts = (
+                [dict(item) for item in raw_attempts if isinstance(item, dict)]
+                if isinstance(raw_attempts, list)
+                else []
+            )
+            if not attempts:
+                attempts = [
+                    {
+                        "provider": search_bundle.get("provider"),
+                        "real": bool(search_bundle.get("real")),
+                        "result_count": len(search_bundle.get("results") or []),
+                        "status_code": search_bundle.get("status_code"),
+                        "error": search_bundle.get("error"),
+                    }
+                ]
+            for attempt in attempts:
+                provider = attempt.get("provider")
+                if isinstance(provider, str) and provider and provider not in public_search_providers:
+                    public_search_providers.append(provider)
+                public_search_attempts.append({"query": query_variant, **attempt})
             raw_results = search_bundle.get("results") or []
             if isinstance(raw_results, list):
                 for item in raw_results:
@@ -450,8 +472,6 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             err = search_bundle.get("error")
             if err:
                 search_errors.append(str(err))
-            if len(web_results) >= public_search_limit:
-                break
         search_error = "; ".join(dict.fromkeys(search_errors)) or None
 
     prospect_candidates: list[dict[str, Any]] = []
@@ -550,6 +570,15 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
 
     business_context = resolve_business_context(context)
     tenant_internal_records = internal_matches + list(crm_search.results or [])
+    public_provider: str | None = public_search_providers[0] if len(public_search_providers) == 1 else "multiple"
+    if not public_search_providers:
+        public_provider = None
+    if payload.include_public_search and not web_results:
+        research_gap = "public search returned zero candidate URLs"
+    elif payload.include_public_search and verified_public_candidate_count == 0:
+        research_gap = "public search returned no verified individual company identities"
+    else:
+        research_gap = None
     output = {
         "query": payload.query,
         "company": company,
@@ -571,6 +600,8 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "web_results": web_results,
         "web_result_count": len(web_results),
         "search_queries": list(query_variants) if payload.include_public_search else [],
+        "public_search_attempts": public_search_attempts if payload.include_public_search else [],
+        "public_search_provider": public_provider,
         "rejected_public_candidates": rejected_public_candidates,
         "verified_public_candidate_count": verified_public_candidate_count,
         "source_partitions": {
@@ -592,13 +623,10 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                 "evidence_class": "public_observed" if public_search_real else "public_candidate",
                 "provider_observed": public_search_real,
                 "authority": "external_search_provider",
+                "provider_attempts": public_search_attempts,
             },
         },
-        "research_gap": (
-            "public search returned no verified individual company identities"
-            if payload.include_public_search and verified_public_candidate_count == 0 and web_results
-            else None
-        ),
+        "research_gap": research_gap,
         "web_snippet": web_snippet,
         "include_public_search": payload.include_public_search,
         "local_fixture_only": payload.local_fixture_only,
@@ -615,7 +643,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             # unambiguous provenance contract for new consumers.
             else "ajenda_brain"
             if internal_matches or crm_search.results
-            else "ddgs"
+            else "public_search"
             if public_search_real
             else "ajenda_brain"
         ),
@@ -623,7 +651,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         # Local fixtures remain explicit synthetic proof data.
         "real": not payload.local_fixture_only,
         "candidates_real": not payload.local_fixture_only
-        and bool(internal_matches or crm_search.results)
+        and bool(internal_matches or crm_search.results or verified_public_candidate_count)
         and bool(prospect_candidates),
         "data_class": "fixture" if payload.local_fixture_only else "observed",
         "plugin_required": False,
@@ -671,7 +699,7 @@ def web_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> Act
             limit=payload.limit,
         )
 
-    search_bundle = _fetch_duckduckgo_instant_answer(
+    search_bundle = _fetch_public_search(
         query=payload.query,
         limit=payload.limit,
         timeout_seconds=payload.timeout_seconds,

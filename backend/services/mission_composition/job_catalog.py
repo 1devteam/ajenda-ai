@@ -295,7 +295,10 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         display_name="Qualify prospects",
         vertical_role="vertical.sales",
         supported_outcomes=("qualify_prospects",),
-        required_inputs=("prospect_candidates", "observed_contacts"),
+        # Qualification ranks evidence-backed company candidates. Contacts are
+        # needed later for enrichment or outreach, not to preserve an explicit
+        # commercial-relevance gap for a verified public identity.
+        required_inputs=("prospect_candidates",),
         produced_outputs=("qualified_prospects",),
         candidate_actions=("sales.qualify", "sales.score_lead"),
         risk_level="low",
@@ -308,12 +311,6 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
                 kind="conditional",
                 required_when_missing=("prospect_candidates",),
                 satisfied_by=("explicit_company", "crm_record", "prior_artifact"),
-            ),
-            JobDependency(
-                job_key="research.observe_sources",
-                kind="conditional",
-                required_when_missing=("observed_contacts",),
-                satisfied_by=("explicit_email", "crm_record"),
             ),
         ),
         depends_on_jobs=(),
