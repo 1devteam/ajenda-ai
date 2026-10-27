@@ -180,7 +180,7 @@ def _dependency_jobs_for_selection(
         # verifier. Contact observation remains independently selected when
         # the mission asks for contact evidence.
         dependencies.append("research.verify_public_candidates")
-        if "observe_contacts" in set(intent.requested_outcomes):
+        if intent is not None and "observe_contacts" in set(intent.requested_outcomes):
             # Preserve the established explicit-contact contract: when the
             # instruction asks to collect contact information, qualification
             # receives those observations as supplementary context.  An
