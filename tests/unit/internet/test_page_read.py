@@ -63,6 +63,7 @@ def test_fetch_public_page_uses_egress_and_extracts() -> None:
     assert snapshot.browser_ready is False
     assert "Example body" in (snapshot.text_preview or "")
 
+
 def test_fetch_public_page_does_not_promote_http_error_or_redirect_into_real_page() -> None:
     """Transport response alone is not a successful public-page observation."""
     authority = MagicMock()
