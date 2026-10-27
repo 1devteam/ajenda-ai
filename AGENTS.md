@@ -2,6 +2,14 @@
 
 These instructions apply to AI agents, Codex sessions, connector-assisted edits, and local automation working in this repository.
 
+## Public research recovery branch — handoff entry point
+
+When working on **issue #635** or branch `rebuild/public-research-evidence-first`, first read `docs/audits/public-research-rebuild/07-CODEX-EXECUTION-BRIEF.md` **in full**. It is the **file/function-level implementation handoff** for Codex, with exact source findings, owned corrections, controlled simulation scenarios, existing-system consumers and evidence gates.
+
+Then follow its ordered source reading list (original investigation O01–O10, causal traces T01–T06, ownership C01–C12 and simulation). Perform the UPG/LAP and GRAFT+ gates below before editing. **Do not** merge or wholesale cherry-pick archived draft PR #634. The first code changes on this branch already include a reviewer-owned `page_read.py` HTTP-status fix whose tests have **not yet been executed**.
+
+This handoff is branch/issue scoped. It does not supersede the repository-wide safety, runtime authority, or test requirements below.
+
 ## Operating doctrine
 
 - Treat implementation files, tests, migrations, and runtime proof as the source of truth.
