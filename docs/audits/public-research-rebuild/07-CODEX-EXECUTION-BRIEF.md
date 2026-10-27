@@ -6,6 +6,28 @@
 **Original closed PR (DO NOT MERGE):** https://github.com/1devteam/ajenda-ai/pull/634
 **Read-only salvage snapshot:** `archive/public-research-pr634-5fbc84ab` at `5fbc84ab5b46f7cc6358f842f55a77072efedffb`.
 
+## STOP: superseded Codex branch and PR context
+
+**Check the facts before editing:** `1devteam/ajenda-ai#634` is **closed / unmerged**. Its last head was `5fbc84ab5b46f7cc6358f842f55a77072efedffb`; there is no live remediation PR #634 to update, rebase, merge, or complete. **Issue #635 is the current work tracker, not PR #634.**
+
+**Required operator check at the terminal (non-destructive):**
+
+```bash
+git fetch origin
+git branch --show-current
+git status --short
+git rev-parse HEAD
+git rev-parse origin/rebuild/public-research-evidence-first
+```
+
+1. If the checkout belongs to the original #634 branch or the agent is continuing a PR #634 plan, **stop old work** and discard those assumptions. **Preserve any user edits**; no automatic `git reset --hard`, `git clean -fd`, force-push, or rebasing/cherry-picking old PR history.
+2. With a clean worktree, `git switch rebuild/public-research-evidence-first` (or `git switch --track origin/rebuild/public-research-evidence-first` if the local branch is absent); `git pull --ff-only`. If local state prevents an ordinary switch, create a separate clean worktree or request local attention while leaving old changes untouched.
+3. Confirm `git branch --show-current` prints **`rebuild/public-research-evidence-first`**, and `HEAD` includes the current remote handoff commits. Before writing source code, report the branch and exact SHA. If the existing local Codex thread cannot drop the outdated #634 assumptions, use a fresh Codex CLI session from the correct worktree.
+4. **No rebase is needed or authorized** for the abandoned #634 branch. The clean recovery branch is already derived from `main`. Ordinary `git pull --ff-only` is appropriate to synchronize that branch; if a non-fast-forward occurs, stop and inspect divergence, don't silently merge or rebase.
+5. Execute the bounded C01/C02/C03/C09 assignments below. Archive #634 is reference material only. The independent reviewer must inspect the actual correction diffs and test outcomes before suggesting a new PR or merge.
+
+This instruction supersedes any older conversational statement treating PR #634 as open or expecting work to be pushed to its original head. It does not authorize destroying prior local work.
+
 ## Why this handoff exists
 
 **Codex does not inherit the ChatGPT conversation.** The following are factual source-trace inputs, not a preapproved patch. You are to *read the code yourself*, contest incorrect findings with evidence, run the intentionally red deterministic simulation, implement owned corrections at existing code owners, and rerun the same tests and affected consumers. No broad "make research work" task and no cherry-picking the full abandoned 26-file PR.
