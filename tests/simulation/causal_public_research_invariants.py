@@ -1,7 +1,7 @@
 """Deterministic causal simulations for public research correction review.
 
 Run intentionally, not as ordinary CI:
-    python -m pytest tests/simulation/test_public_research_causal_invariants.py -q
+    python -m pytest tests/simulation/causal_public_research_invariants.py -q
 
 These tests assert the *desired* behavior, not the currently observed behavior.
 Some must fail on the main-derived recovery baseline until their owners are repaired.
