@@ -62,3 +62,29 @@ def test_fetch_public_page_uses_egress_and_extracts() -> None:
     assert snapshot.access_mode.value == "page_read"
     assert snapshot.browser_ready is False
     assert "Example body" in (snapshot.text_preview or "")
+
+def test_fetch_public_page_does_not_promote_http_error_or_redirect_into_real_page() -> None:
+    """Transport response alone is not a successful public-page observation."""
+    authority = MagicMock()
+    for status_code in (301, 403, 404, 503):
+        authority.request.return_value = (
+            None,
+            NetworkEgressResponse(
+                status_code=status_code,
+                headers={"content-type": "text/html"},
+                body_text="<html><title>Acme HVAC Dallas</title><body>Acme HVAC Dallas</body></html>",
+                body_truncated=False,
+            ),
+        )
+        with patch(
+            "backend.services.internet.page_read.get_default_network_egress_authority",
+            return_value=authority,
+        ):
+            snapshot = fetch_public_page(url_or_domain="example.com", timeout_seconds=5.0)
+
+        assert snapshot.real is False
+        assert snapshot.status_code == status_code
+        assert snapshot.error == f"HTTP {status_code}"
+        assert snapshot.title is None
+        assert not snapshot.extraction
+        assert snapshot.browser_ready is False
