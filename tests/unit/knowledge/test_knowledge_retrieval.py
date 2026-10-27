@@ -357,3 +357,11 @@ def test_retrieval_trace_includes_non_active_and_semantically_rejected_candidate
     assert result.inspection_trace.artifact_knowledge_ids_loaded == tuple(
         sorted(("knowledge:rejected", matched.knowledge_id))
     )
+    assert [
+        (item.proposition_key, item.lifecycle_status.value, item.lifecycle_projection_id)
+        for item in result.inspection_trace.lifecycle_states
+    ] == [
+        ("proposition:matched", "active", "projection:matched"),
+        ("proposition:non-active", "invalidated", "projection:invalidated"),
+        ("proposition:rejected", "active", "projection:rejected"),
+    ]

@@ -26,7 +26,7 @@ from backend.services.knowledge.knowledge_decision_support import (
     knowledge_support_evidence_facts,
 )
 from backend.services.knowledge.knowledge_ledger import record_knowledge_qualification
-from backend.services.knowledge.knowledge_lifecycle import resolve_current_knowledge_state
+from backend.services.knowledge.knowledge_lifecycle import KnowledgeLifecycleStatus, resolve_current_knowledge_state
 from backend.services.knowledge.knowledge_retrieval import KnowledgeRetrievalQuery, retrieve_current_knowledge
 from backend.services.ontology.decision_feedback import DecisionLearningSignal
 from backend.services.ontology.evidence_lineage import (
@@ -591,11 +591,25 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
         decision_payload,
         derived_fact_count=len(derived_facts),
     )
+    # Retrieval owns the candidate proposition → lifecycle relationship.  Keep
+    # that keyed record intact: its independently canonicalized identifier
+    # lists must never be paired by position at the Decision boundary.
+    lifecycle_states = [item.model_dump(mode="json") for item in retrieval.inspection_trace.lifecycle_states]
+    withdrawn_historical_support = [
+        item
+        for item in lifecycle_states
+        if item["lifecycle_status"]
+        in {KnowledgeLifecycleStatus.CONTESTED.value, KnowledgeLifecycleStatus.INVALIDATED.value}
+    ]
     output = {
         "support": support.model_dump(mode="json"),
         "scoring_decision_input": decision_payload,
         "decision_input": materialization_input,
         "decision_result": normalized_decision_result,
+        "knowledge_lifecycle": {
+            "candidate_states": lifecycle_states,
+            "historical_support_withdrawn": withdrawn_historical_support,
+        },
         # Preserve the canonical Decision result while exposing the same
         # declared recommendation artifact that the direct Decision action
         # already produces.  This lets the composition owner use a governed
@@ -639,6 +653,7 @@ def knowledge_inform_decision(invocation: ToolInvocation, context: ActionRuntime
             "evidence_role": "decision_recommendation_result",
             "composed_action": "decision.recommend_next_action",
             "composition_schema_version": 1,
+            "historical_support_withdrawn_count": len(withdrawn_historical_support),
         },
         lineage=lineage,
         side_effect_class=SideEffectClass.INTERNAL_READ,

@@ -517,11 +517,47 @@ def test_business_impact_history_qualifies_and_informs_a_later_decision(pg_engin
     assert input_data["query"] == original_query
     assert input_data["applicability_context"] == original_applicability_context
     assert datetime.fromisoformat(input_data["applicability_context"]["evaluated_at"]) > contested_watermark
+    withdrawn_provenance = withdrawn.output["knowledge_lifecycle"]["historical_support_withdrawn"]
+    assert withdrawn_provenance == [
+        {
+            "proposition_key": original_proposition["proposition_key"],
+            "lifecycle_status": "contested",
+            "lifecycle_projection_id": lifecycle.lifecycle_projection_id,
+            "authoritative_qualification_ids": [contested["qualification_id"]],
+            "authoritative_knowledge_ids": [],
+            "reason_codes": list(lifecycle.reason_codes),
+            "epistemic_limits": list(lifecycle.epistemic_limits),
+        }
+    ]
     # Withdrawal is the required Layer-3C result.  This fixture has no other
     # evidence favoring either option, so the existing Decision owner selects
     # its normal evidence-seeking fallback.  Other evidence may legitimately
     # select a different recommendation instead.
     assert withdrawn.output["decision_result"]["recommendation"] == "gather_more_evidence"
+
+    # The revised judgment must cross the exact same queue, lease, dispatcher,
+    # and EvidenceBridge path as the original Decision, then remain explainable
+    # through a fresh PostgreSQL session.
+    withdrawn_runtime = execute_canonical_action(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        action="knowledge.inform_decision",
+        action_input=input_data,
+        worker_label="business-impact-withdrawn-decision",
+    )
+    with factory() as fresh:
+        activate_tenant_session(fresh, tenant_id)
+        persisted_withdrawal = fresh.get(EvidenceRecord, withdrawn_runtime.id)
+        assert persisted_withdrawal is not None
+        assert persisted_withdrawal.provenance_metadata["evidence_role"] == "decision_recommendation_result"
+        assert persisted_withdrawal.provenance_metadata["historical_support_withdrawn_count"] == 1
+        assert persisted_withdrawal.structured_payload["support"]["influences"] == []
+        assert persisted_withdrawal.structured_payload["decision_result"]["recommendation"] == "gather_more_evidence"
+        assert persisted_withdrawal.structured_payload["knowledge_lifecycle"]["historical_support_withdrawn"] == (
+            withdrawn_provenance
+        )
     assert (
         registry.invoke(
             ToolInvocation(action="knowledge.inform_decision", input=input_data),

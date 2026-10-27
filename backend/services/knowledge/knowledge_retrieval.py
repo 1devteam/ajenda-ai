@@ -104,6 +104,29 @@ class RetrievedKnowledgeMatch(BaseModel):
     is_decision_instruction: Literal[False] = False
 
 
+class KnowledgeLifecycleInspection(BaseModel):
+    """Bounded Retrieval-owned explanation of a candidate's current lifecycle."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    proposition_key: str
+    lifecycle_status: KnowledgeLifecycleStatus
+    lifecycle_projection_id: str
+    authoritative_qualification_ids: tuple[str, ...] = ()
+    authoritative_knowledge_ids: tuple[str, ...] = ()
+    reason_codes: tuple[str, ...] = ()
+    epistemic_limits: tuple[str, ...] = ()
+
+    @field_validator(
+        "authoritative_qualification_ids",
+        "authoritative_knowledge_ids",
+        "reason_codes",
+        "epistemic_limits",
+    )
+    @classmethod
+    def canonicalize_identifiers(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted(set(values)))
+
+
 class KnowledgeRetrievalInspectionTrace(BaseModel):
     """Deterministic identifiers at Retrieval's owned composition boundaries."""
 
@@ -112,6 +135,7 @@ class KnowledgeRetrievalInspectionTrace(BaseModel):
     lifecycle_projection_ids: tuple[str, ...] = ()
     authoritative_qualification_ids: tuple[str, ...] = ()
     artifact_knowledge_ids_loaded: tuple[str, ...] = ()
+    lifecycle_states: tuple[KnowledgeLifecycleInspection, ...] = ()
 
     @field_validator(
         "candidate_proposition_keys",
@@ -122,6 +146,13 @@ class KnowledgeRetrievalInspectionTrace(BaseModel):
     @classmethod
     def canonicalize_identifiers(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(sorted(set(values)))
+
+    @field_validator("lifecycle_states")
+    @classmethod
+    def canonicalize_lifecycle_states(
+        cls, values: tuple[KnowledgeLifecycleInspection, ...]
+    ) -> tuple[KnowledgeLifecycleInspection, ...]:
+        return tuple(sorted(values, key=lambda item: item.proposition_key))
 
 
 class KnowledgeRetrievalResult(BaseModel):
@@ -277,10 +308,22 @@ def retrieve_current_knowledge(
     lifecycle_projection_ids: list[str] = []
     authoritative_qualification_ids: list[str] = []
     artifact_knowledge_ids_loaded: list[str] = []
+    lifecycle_states: list[KnowledgeLifecycleInspection] = []
     for key in candidate_keys:
         state = resolve_current_knowledge_state(session, tenant_id=tenant_id, proposition_key=key)
         lifecycle_projection_ids.append(state.lifecycle_projection_id)
         authoritative_qualification_ids.extend(state.authoritative_qualification_ids)
+        lifecycle_states.append(
+            KnowledgeLifecycleInspection(
+                proposition_key=state.proposition_key,
+                lifecycle_status=state.lifecycle_status,
+                lifecycle_projection_id=state.lifecycle_projection_id,
+                authoritative_qualification_ids=state.authoritative_qualification_ids,
+                authoritative_knowledge_ids=state.authoritative_knowledge_ids,
+                reason_codes=state.reason_codes,
+                epistemic_limits=state.epistemic_limits,
+            )
+        )
         if state.lifecycle_status != KnowledgeLifecycleStatus.ACTIVE or not state.authoritative_knowledge_ids:
             continue
         active_count += 1
@@ -319,6 +362,7 @@ def retrieve_current_knowledge(
             lifecycle_projection_ids=tuple(lifecycle_projection_ids),
             authoritative_qualification_ids=tuple(authoritative_qualification_ids),
             artifact_knowledge_ids_loaded=tuple(artifact_knowledge_ids_loaded),
+            lifecycle_states=tuple(lifecycle_states),
         ),
         reason_codes=reasons,
         epistemic_limits=limits,

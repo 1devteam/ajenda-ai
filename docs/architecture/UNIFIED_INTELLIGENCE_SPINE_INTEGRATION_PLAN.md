@@ -265,6 +265,19 @@ does not waive any other quality, charter, quota, or runtime-admission check.
   proves the separate canonical outcome → decision episode → qualification →
   later applicable knowledge-decision chain. Its measurements are explicitly
   customer-attested fixtures, never asserted as independently verified facts.
+- **Layer 3C — evidence-driven support withdrawal:**
+  `tests/integration/intelligence/test_business_impact_learning_lineage_real.py`
+  proves that a later independent contradictory business-impact episode creates
+  a later contested qualification for the *same* proposition, intervention,
+  objective, scope, and option set. The original qualified record and its
+  artifact remain immutable; the contested record has no active artifact.
+  Retrieval carries proposition-keyed lifecycle provenance into the existing
+  `knowledge.inform_decision` artifact, which explicitly marks the historical
+  support as withdrawn with the contested qualification and lifecycle
+  projection IDs. The withdrawn Decision is proven through queue admission,
+  lease-owned dispatch, EvidenceBridge persistence, and fresh PostgreSQL
+  readback. A replacement recommendation remains dependent on whatever
+  surviving evidence the Decision owner receives.
 - `tests/integration/intelligence/test_business_need_composition_spine_real.py`
   now also proves two independently ingested, source-attested later
   measurements resolve and persist the same frozen successor measurement
