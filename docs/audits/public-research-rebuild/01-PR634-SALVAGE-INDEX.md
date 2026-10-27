@@ -8,6 +8,12 @@ Preserved head: `5fbc84ab5b46f7cc6358f842f55a77072efedffb`
 Immutable reference by SHA; dedicated archive branch: `archive/public-research-pr634-5fbc84ab`
 Clean recovery branch: `rebuild/public-research-evidence-first` (created from `main`, **not** from #634).
 
+## Source lineage — three distinct levels
+
+1. **Original investigation (primary historical findings):** [00-ORIGINAL-INDEPENDENT-INVESTIGATION.md](00-ORIGINAL-INDEPENDENT-INVESTIGATION.md), reconstructed from the full 423-line user-supplied historical review. It was not originally numbered F01–F20. The new O01–O10 identifiers are for navigation only.
+2. **Later implementation handoff and old PR:** #634, archived at its exact SHA. The later F01–F20 handoff must not be treated as a verbatim citation or numbered copy of the original investigation.
+3. **Post-PR independent review:** R01–R20 in [02-INDEPENDENT-DEFECT-LEDGER.md](02-INDEPENDENT-DEFECT-LEDGER.md). These are additional source hypotheses/defects needing precise reproduction, not original discoveries retroactively.
+
 ## Use this index correctly
 
 The old PR introduced ~1,176 additions and 160 deletions across 26 files. Green tests do not establish that its verification, empty-result, browser or commercial qualification invariants were correct. **No full PR merge, wholesale cherry-pick, or automatic copying of test expectations.** Review each indexed hunk against the fresh baseline and apply only a verified correction. Retain original historical commits and tests for comparison.
@@ -63,4 +69,4 @@ The original PR received independent review submissions:
 - https://github.com/1devteam/ajenda-ai/pull/634#pullrequestreview-5672695879
 - https://github.com/1devteam/ajenda-ai/pull/634#pullrequestreview-5672710072
 
-Reintroduction standard: source ownership established; a failing regression reproduced; minimal correction applied; positives and negatives pass; no governance weakening; then comprehensive runtime proof. See adjacent independent defect register and rebuild order.
+Reintroduction standard: restore separation between authorization, provider choice, egress and evidence before accepting any changes. Source ownership established; a failing regression reproduced; minimal correction applied; positives and negatives pass; no governance weakening; then comprehensive runtime proof. See adjacent independent defect register and rebuild order.
