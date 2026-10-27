@@ -204,3 +204,69 @@ def test_direct_explicit_lead_remains_supported_as_positive_control() -> None:
         _context(),
     )
     assert result.output["scored_prospects"][0]["company"] == "Named Partner"
+
+
+def test_missing_contact_propagates_to_mission_acceptance_reasons() -> None:
+    """Simulate handler output -> durable task -> mission contact acceptance."""
+    from backend.domain.enums import ExecutionTaskState
+    from backend.domain.execution_task import ExecutionTask
+    from backend.services.worker_runtime_contracts import _observe_acceptance_reasons
+
+    result = _observe(
+        snapshot=_snapshot(text="Quiet HVAC provides cooling in Dallas."),
+        company="Quiet HVAC",
+    )
+    completed = ExecutionTask(
+        id=uuid4(),
+        tenant_id="tenant-simulation",
+        mission_id=uuid4(),
+        title="Observed company website",
+        description="Observed page without usable contact information",
+        status=ExecutionTaskState.COMPLETED.value,
+        metadata_json={
+            "tool_invocation": {"action": "research.observe_contacts"},
+            "handler_result": {"output": result.output},
+        },
+    )
+    reasons = _observe_acceptance_reasons([completed], require_contacts=True)
+    assert reasons
+    assert "produced 0" in reasons[0]
+
+
+def test_intermediate_discovery_never_materializes_raw_public_identity() -> None:
+    """Positive control: preserve the existing intermediate source boundary."""
+    from backend.domain.enums import ExecutionTaskState
+    from backend.domain.execution_task import ExecutionTask
+    from backend.services.mission_composition.deliverable_runtime_artifacts import (
+        materialized_artifact_for_task,
+    )
+
+    completed = ExecutionTask(
+        id=uuid4(),
+        tenant_id="tenant-simulation",
+        mission_id=uuid4(),
+        title="Public search",
+        description="Search result remains unverified",
+        status=ExecutionTaskState.COMPLETED.value,
+        metadata_json={
+            "expected_output_contract": {
+                "artifact": "prospect_candidates",
+                "materialization_role": "intermediate",
+                "allow_empty": True,
+            },
+            "handler_result": {
+                "output": {
+                    "prospect_candidates": [
+                        {
+                            "company": "HVAC Listing",
+                            "source": "public_search",
+                            "real": False,
+                            "identity_status": "unverified",
+                            "website": "https://leadlanding.example/",
+                        }
+                    ]
+                }
+            },
+        },
+    )
+    assert materialized_artifact_for_task(completed) is None
