@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from backend.domain.evidence import EvidenceRecord
@@ -473,6 +474,7 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
                 capability_adapter_id=canonical.capability_adapter_id,
                 evidence_type=canonical.evidence_type,
                 evidence_source=canonical.evidence_source,
+                logical_identity=canonical.logical_identity,
                 summary=canonical.summary,
                 structured_payload=canonical.structured_payload,
                 artifact_references=canonical.artifact_references,
@@ -483,16 +485,14 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
                 schema_version=canonical.schema_version,
             )
         )
-        setup.commit()
+        with pytest.raises(IntegrityError, match="uq_evidence_records_tenant_logical_identity"):
+            setup.commit()
+        setup.rollback()
 
-    with pytest.raises(ValueError, match="projection is not unique"):
-        registry.invoke(invocation, tenant_context)
-
-    with factory() as cleanup:
-        duplicate = cleanup.get(EvidenceRecord, duplicate_id)
-        assert duplicate is not None
-        cleanup.delete(duplicate)
-        cleanup.commit()
+    # Canonical episode replay is now prevented at the database write boundary;
+    # the historical resolver remains the defense for legacy rows without a
+    # logical identity.
+    assert registry.invoke(invocation, tenant_context).output["support"]["influences"]
 
     forged_id = uuid.uuid4()
     with factory() as setup:
