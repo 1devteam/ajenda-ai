@@ -19,11 +19,14 @@ from backend.domain.evidence import EvidenceRecord
 from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
+from backend.repositories.knowledge_repository import KnowledgeRepository
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.business_understanding.service import BusinessUnderstandingService
+from backend.services.knowledge.knowledge_lifecycle import resolve_current_knowledge_state
 from backend.services.mission_composition.service import MissionCompositionService
 from backend.services.ontology.commercial_state import Goal, GoalSemanticSignature, Kpi
 from backend.services.ontology.decision_feedback import DecisionLearningSignal
+from backend.services.ontology.knowledge_qualification import KnowledgeQualificationResult, QualifiedKnowledgeArtifact
 from backend.services.ontology.types import BusinessObjectRef, BusinessObjectSemanticSignature, BusinessObjectType
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ToolInvocation
@@ -35,10 +38,18 @@ pytestmark = pytest.mark.integration
 
 
 def _episode(
-    *, factory, queue_adapter, tenant_id: str, index: int
+    *, factory, queue_adapter, tenant_id: str, index: int, observed_value: float = 0.6
 ) -> tuple[str, str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]:
     """Create one committed Layer-2 chain and its materialized business episode."""
 
+    # Each episode is an independently observed time window.  In particular,
+    # the contradictory episode must establish a later evaluation frontier,
+    # rather than appearing to revise history merely because its payload
+    # differs from an otherwise simultaneous observation.
+    baseline_start = datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=(index - 1) * 90)
+    baseline_end = baseline_start + timedelta(days=30)
+    observed_start = baseline_end + timedelta(days=1)
+    observed_end = observed_start + timedelta(days=27)
     subject_id = f"business-impact-{index}"
     subject = {"schema_version": 1, "object_type": "opportunity", "object_id": subject_id}
     need_id = f"need-conversion-{index}"
@@ -98,7 +109,7 @@ def _episode(
                 "supporting_observation_ids": [],
                 "contradictory_observation_ids": [],
                 "knowledge_epistemic_limits": [],
-                "evaluated_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
+                "evaluated_at": baseline_end.isoformat(),
             },
         )
         session.add(assessment)
@@ -121,9 +132,9 @@ def _episode(
             ],
             value=0.5,
             unit="ratio",
-            period_start=datetime(2026, 1, 1, tzinfo=UTC),
-            period_end=datetime(2026, 1, 31, tzinfo=UTC),
-            observed_at=datetime(2026, 1, 31, tzinfo=UTC),
+            period_start=baseline_start,
+            period_end=baseline_end,
+            observed_at=baseline_end,
             source_kind="customer_attested",
             source_reference={"source_id": f"baseline-{index}"},
             source_version="v1",
@@ -178,7 +189,7 @@ def _episode(
                     name="Conversion",
                     metric="conversion",
                     direction="increase",
-                    current_value=0.6,
+                    current_value=observed_value,
                     previous_value=0.5,
                     target_value=0.75,
                     unit="ratio",
@@ -188,9 +199,9 @@ def _episode(
             source_kind="customer_attested",
             source_reference={"source_id": f"later-{index}"},
             source_version="v2",
-            measurement_period_start=datetime(2026, 2, 1, tzinfo=UTC),
-            measurement_period_end=datetime(2026, 2, 28, tzinfo=UTC),
-            observed_at=datetime(2026, 2, 28, tzinfo=UTC),
+            measurement_period_start=observed_start,
+            measurement_period_end=observed_end,
+            observed_at=observed_end,
             successor_mission_id=mission_id,
             limitations=[{"code": "customer_attested"}],
             confidence=None,
@@ -397,3 +408,124 @@ def test_business_impact_history_qualifies_and_informs_a_later_decision(pg_engin
         assert set(runtime_support[0]["supporting_episode_ids"]) == set(episode_ids)
     finally:
         readback.close()
+
+    # A later, independently observed regression is the same proposition,
+    # intervention, objective, scope, and Decision choice set.  It must revise
+    # lifecycle state through accumulated evidence, not through a semantic
+    # mismatch or a changed request.
+    original_proposition = qualification["proposition"]
+    original_options = result.output["scoring_decision_input"]["options"]
+    original_criteria = result.output["scoring_decision_input"]["criteria"]
+    original_query = dict(input_data["query"])
+    original_applicability_context = dict(input_data["applicability_context"])
+    contradictory_episode = _episode(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_id=tenant_id,
+        index=4,
+        observed_value=0.4,
+    )
+    revised = registry.invoke(
+        ToolInvocation(action="knowledge.consolidate_learning_history", input={}), _context(tenant_id, factory)
+    )
+    contested = next(
+        item["qualification"]
+        for item in revised.output["qualifications"]
+        if item["qualification"]["status"] == "contested"
+    )
+    assert contested["proposition"] == original_proposition
+    assert set(contested["evidence_summary"]["supporting_episode_ids"]) == set(episode_ids)
+    assert contradictory_episode[0] in contested["evidence_summary"]["contradicting_episode_ids"]
+    original_watermark = datetime.fromisoformat(qualification["evidence_summary"]["latest_evaluated_at"])
+    contested_watermark = datetime.fromisoformat(contested["evidence_summary"]["latest_evaluated_at"])
+    assert contested_watermark > original_watermark
+
+    # The same evidence history must replay to the existing immutable
+    # qualification rather than mint a competing lifecycle record.
+    revised_replay = registry.invoke(
+        ToolInvocation(action="knowledge.consolidate_learning_history", input={}), _context(tenant_id, factory)
+    )
+    replayed_contested = next(
+        item for item in revised_replay.output["qualifications"] if item["qualification"]["status"] == "contested"
+    )
+    assert replayed_contested["qualification"]["qualification_id"] == contested["qualification_id"]
+    assert replayed_contested["ledger_write"]["status"] == "already_recorded"
+
+    # Fresh-session lifecycle readback establishes that the original qualified
+    # history remains immutable while the current authority becomes contested.
+    # There are two historical *qualification* records, but only the original
+    # qualified record has a knowledge artifact: contested history must not
+    # masquerade as active reusable knowledge.
+    with factory() as fresh:
+        activate_tenant_session(fresh, tenant_id)
+        repository = KnowledgeRepository(fresh)
+        original_record = repository.get_qualification_for_tenant(
+            tenant_id=tenant_id,
+            qualification_id=qualification["qualification_id"],
+        )
+        assert original_record is not None
+        assert (
+            KnowledgeQualificationResult.model_validate(original_record.qualification_payload).model_dump(mode="json")
+            == qualification
+        )
+        contested_record = repository.get_qualification_for_tenant(
+            tenant_id=tenant_id,
+            qualification_id=contested["qualification_id"],
+        )
+        assert contested_record is not None
+        assert (
+            KnowledgeQualificationResult.model_validate(contested_record.qualification_payload).model_dump(mode="json")
+            == contested
+        )
+        qualification_records = repository.list_qualifications_for_proposition(
+            tenant_id=tenant_id,
+            proposition_key=original_proposition["proposition_key"],
+        )
+        assert {record.qualification_id for record in qualification_records} == {
+            qualification["qualification_id"],
+            contested["qualification_id"],
+        }
+        artifacts = repository.list_artifacts_for_qualification_record_ids(
+            tenant_id=tenant_id,
+            qualification_record_ids=[record.id for record in qualification_records],
+        )
+        assert len(artifacts) == 1
+        assert artifacts[0].qualification_id == qualification["qualification_id"]
+        assert (
+            QualifiedKnowledgeArtifact.model_validate(artifacts[0].artifact_payload).model_dump(mode="json")
+            == (qualification["qualified_knowledge"])
+        )
+        lifecycle = resolve_current_knowledge_state(
+            fresh,
+            tenant_id=tenant_id,
+            proposition_key=original_proposition["proposition_key"],
+        )
+    assert lifecycle.lifecycle_status.value == "contested"
+    assert lifecycle.evaluation_frontier == contested_watermark
+    assert lifecycle.authoritative_knowledge_ids == ()
+    assert lifecycle.authoritative_qualification_ids == (contested["qualification_id"],)
+    assert qualification["qualification_id"] != contested["qualification_id"]
+
+    withdrawn = registry.invoke(
+        ToolInvocation(action="knowledge.inform_decision", input=input_data),
+        _context(tenant_id, factory).model_copy(update={"mission_id": mission_id}),
+    )
+    assert withdrawn.output["support"]["influences"] == []
+    assert withdrawn.output["scoring_decision_input"]["evidence"] == []
+    assert withdrawn.output["scoring_decision_input"]["options"] == original_options
+    assert withdrawn.output["scoring_decision_input"]["criteria"] == original_criteria
+    assert input_data["query"] == original_query
+    assert input_data["applicability_context"] == original_applicability_context
+    assert datetime.fromisoformat(input_data["applicability_context"]["evaluated_at"]) > contested_watermark
+    # Withdrawal is the required Layer-3C result.  This fixture has no other
+    # evidence favoring either option, so the existing Decision owner selects
+    # its normal evidence-seeking fallback.  Other evidence may legitimately
+    # select a different recommendation instead.
+    assert withdrawn.output["decision_result"]["recommendation"] == "gather_more_evidence"
+    assert (
+        registry.invoke(
+            ToolInvocation(action="knowledge.inform_decision", input=input_data),
+            _context(other_tenant, factory).model_copy(update={"mission_id": mission_id}),
+        ).output["support"]["influences"]
+        == []
+    )
