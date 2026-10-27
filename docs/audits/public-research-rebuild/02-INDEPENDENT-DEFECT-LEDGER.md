@@ -4,21 +4,34 @@ Baseline for new work: `main` at creation of `rebuild/public-research-evidence-f
 Historical PR #634 patch: `5fbc84ab5b46f7cc6358f842f55a77072efedffb`.
 This ledger describes independently traced source behavior, not acceptance of Codex's original remediation claims. `Observed in source` does not mean a complete PostgreSQL/Redis/browser reproduction was executed by this reviewer.
 
-## Original F01–F20 preservation
+## Original F01–F20: canonical review categories, retained for adjudication
 
-Do **not** discard original F01–F20 simply because PR #634 once listed them resolved. They remain separately accountable:
+These original diagnoses are **not** automatically repaired by PR #634. Status must come from independent current-source/behavior verification, not the old PR's closure table.
 
-- F01/F02: web.research and web.search directly select Instant Answer instead of effective general search.
-- F03/F07: package-owned DDGS transport lacks proof of shared egress policy.
-- F04/F05: existing general provider chain disconnected; Instant Answer success not equivalent to general discovery.
-- F06: irrelevant hardcoded `local contractor` search query.
-- F08/F15: arbitrary hostname substring blocking and provider/source attribution.
-- F09/F16: semantics of real/fixture, public observed, counts, provider attempts, and no evidence.
-- F10–F14: Playwright built but runtime usability and method/origin/WS/service-worker/redirect protections require proof.
-- F17–F19: raw hit versus verified identity, seed/qualification truth, empty producer/binder/terminal-contract semantics.
-- F20: deterministic tests and opt-in real end-to-end proof should establish commercial observation, not just provider HTTP response.
+| ID | Original finding |
+|---|---|
+| F01 | `web.research` hardcodes DuckDuckGo Instant Answer and bypasses configured public-search chain |
+| F02 | `web.search` shares that hardcoded Instant Answer path |
+| F03 | DDGS package-owned HTTP does not traverse shared network-egress authority |
+| F04 | Historical general provider chain was introduced and then disconnected from primary research action |
+| F05 | Instant Answer is not full general business web search |
+| F06 | Universal `local contractor` suffix applies regardless of requested industry |
+| F07 | Transport success, actual results and verified identities are conflated |
+| F08 | Search `source=ddgs` may be recorded when Instant Answer ran |
+| F09 | `real`, `candidates_real`, fixture and source-partition semantics are inconsistent |
+| F10 | No `research_gap` when public search returned zero URLs |
+| F11 | Worker image installs Chromium, but ordinary prospect verification does not invoke it |
+| F12 | Browser feature defaults disabled; live runtime readiness not demonstrated |
+| F13 | Browser interceptor validates URLs without explicitly rejecting mutating HTTP methods |
+| F14 | JavaScript/click/redirect/WebSocket/service-worker/subresource paths lack sufficient read-only proof |
+| F15 | Broad hostname fragment blacklist rejects legitimate public names |
+| F16 | Compiler allows empty public discovery but downstream binder/contact handlers require nonempty input |
+| F17 | Empty public research cannot reliably produce durable no-evidence outcome |
+| F18 | Qualification inherits market scope as prospect facts/intent/opportunity |
+| F19 | Tests mock Instant Answer instead of proving genuine general public business discovery |
+| F20 | Live proof accepts provider-success zero hits; installed browser is not proof of running browser in worker |
 
-Numbering above matches the earlier engineering discussion only approximately; use the original PR's exact F01–F20 table and associated code/commit evidence when adjudicating individual entries.
+See `01-PR634-SALVAGE-INDEX.md` and the archived exact PR commit for historical source context.
 
 ## Prioritized confirmed source defects and proof obligations
 
