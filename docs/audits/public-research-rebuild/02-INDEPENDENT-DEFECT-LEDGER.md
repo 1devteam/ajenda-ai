@@ -4,36 +4,15 @@ Baseline for new work: `main` at creation of `rebuild/public-research-evidence-f
 Historical PR #634 patch: `5fbc84ab5b46f7cc6358f842f55a77072efedffb`.
 This ledger describes independently traced source behavior, not acceptance of Codex's original remediation claims. `Observed in source` does not mean a complete PostgreSQL/Redis/browser reproduction was executed by this reviewer.
 
-## Original F01–F20: canonical review categories, retained for adjudication
+## Source provenance — original investigation and later review are separate
 
-These original diagnoses are **not** automatically repaired by PR #634. Status must come from independent current-source/behavior verification, not the old PR's closure table.
+**The actual original investigation was provided as a 423-line document on 2026-10-27, and it contains no F01–F20 numbering.** Its direct findings, scope limits and architectural conclusions are reconstructed in [00-ORIGINAL-INDEPENDENT-INVESTIGATION.md](00-ORIGINAL-INDEPENDENT-INVESTIGATION.md), indexed **O01–O10** for the rebuild. Those identifiers were assigned **now** for navigation, not present in the source.
 
-| ID | Original finding |
-|---|---|
-| F01 | `web.research` hardcodes DuckDuckGo Instant Answer and bypasses configured public-search chain |
-| F02 | `web.search` shares that hardcoded Instant Answer path |
-| F03 | DDGS package-owned HTTP does not traverse shared network-egress authority |
-| F04 | Historical general provider chain was introduced and then disconnected from primary research action |
-| F05 | Instant Answer is not full general business web search |
-| F06 | Universal `local contractor` suffix applies regardless of requested industry |
-| F07 | Transport success, actual results and verified identities are conflated |
-| F08 | Search `source=ddgs` may be recorded when Instant Answer ran |
-| F09 | `real`, `candidates_real`, fixture and source-partition semantics are inconsistent |
-| F10 | No `research_gap` when public search returned zero URLs |
-| F11 | Worker image installs Chromium, but ordinary prospect verification does not invoke it |
-| F12 | Browser feature defaults disabled; live runtime readiness not demonstrated |
-| F13 | Browser interceptor validates URLs without explicitly rejecting mutating HTTP methods |
-| F14 | JavaScript/click/redirect/WebSocket/service-worker/subresource paths lack sufficient read-only proof |
-| F15 | Broad hostname fragment blacklist rejects legitimate public names |
-| F16 | Compiler allows empty public discovery but downstream binder/contact handlers require nonempty input |
-| F17 | Empty public research cannot reliably produce durable no-evidence outcome |
-| F18 | Qualification inherits market scope as prospect facts/intent/opportunity |
-| F19 | Tests mock Instant Answer instead of proving genuine general public business discovery |
-| F20 | Live proof accepts provider-success zero hits; installed browser is not proof of running browser in worker |
+A subsequent engineering handoff introduced labels **F01–F20**, but the old entries previously placed here under the heading `Original F01–F20: canonical review categories` were a **retrospective, inconsistent mapping** and should **not be used as authoritative original findings or as an exact reproduction of that handoff**. That incorrect table has been withdrawn rather than propagated. To adjudicate a specific F-number, return to the actual later handoff and code snapshot.
 
-See `01-PR634-SALVAGE-INDEX.md` and the archived exact PR commit for historical source context.
+The source review following draft PR #634 produced additional **R01–R20** items below. These are independently identified post-PR concerns, mostly **not part of the original historical investigation**. Keep them separate when attributing discovery, assigning confidence or deciding scope.
 
-## Prioritized confirmed source defects and proof obligations
+## Prioritized post-PR source findings and required reproduction
 
 | ID | Severity | Origin relative to PR #634 | Root code path and mechanism | Mandatory negative/positive evidence |
 |---|---|---|---|---|
