@@ -13,7 +13,10 @@ import httpx
 from backend.app.config import get_settings
 
 BLOCKED_HOSTNAMES = {"localhost", "localhost.localdomain", "ip6-localhost", "ip6-loopback"}
-BLOCKED_HOST_FRAGMENTS = {"internal", "intranet", "metadata", "169.254.169.254"}
+# Hostname text is not a network boundary: a legitimate public hostname such
+# as ``metadata.io`` may contain an infrastructure word.  The exact local
+# namespace check plus vetted DNS/IP answers below are the authority.
+BLOCKED_HOST_LABELS = {"internal", "intranet", "metadata"}
 DEFAULT_RESPONSE_TEXT_LIMIT = 4096
 # External JSON API reads (GitHub repo metadata, Salesforce SOQL, etc.) need more than 4 KiB.
 STRUCTURED_API_READ_RESPONSE_LIMIT = 131_072
@@ -63,11 +66,6 @@ def _connect_url_for_pinned_ip(url: str, *, pinned_ip: IPAddress) -> str:
     parsed = urlparse(url)
     ip_host = str(pinned_ip)
     pinned_netloc = f"[{ip_host}]" if pinned_ip.version == 6 else ip_host
-    if parsed.username:
-        userinfo = parsed.username
-        if parsed.password:
-            userinfo = f"{userinfo}:{parsed.password}"
-        pinned_netloc = f"{userinfo}@{pinned_netloc}"
     if parsed.port is not None:
         pinned_netloc = f"{pinned_netloc}:{parsed.port}"
     return urlunparse((parsed.scheme, pinned_netloc, parsed.path, parsed.params, parsed.query, ""))
@@ -99,16 +97,16 @@ class NetworkEgressAuthority:
         host = (parsed.hostname or "").strip().lower().rstrip(".")
         if not host:
             raise _safe_error(action_name, "URL must include a hostname")
+        if parsed.username is not None or parsed.password is not None:
+            raise _safe_error(action_name, "credentialed URLs are not allowed")
         normalized_allowed_hosts = [item.lower().strip().rstrip(".") for item in (allowed_hosts or []) if item.strip()]
         if normalized_allowed_hosts and host not in normalized_allowed_hosts:
             raise _safe_error(action_name, "host is not in allowed_hosts")
-        if host in BLOCKED_HOSTNAMES or host.endswith(".local") or ".local." in host:
+        if host in BLOCKED_HOSTNAMES or host.endswith(".local"):
             raise _safe_error(action_name, "blocked local hostname")
         try:
             ip = ipaddress.ip_address(host)
         except ValueError:
-            if any(fragment in host for fragment in BLOCKED_HOST_FRAGMENTS):
-                raise _safe_error(action_name, "blocked internal hostname") from None
             try:
                 infos = socket.getaddrinfo(host, parsed.port or 443, type=socket.SOCK_STREAM)
             except socket.gaierror as exc:
@@ -181,19 +179,34 @@ class NetworkEgressAuthority:
                 verify=get_settings().network_egress_tls_verify,
                 limits=httpx.Limits(max_connections=1, max_keepalive_connections=0),
             ) as http_client:
-                response = http_client.request(method, destination.connect_url, **request_kwargs)
+                with http_client.stream(method, destination.connect_url, **request_kwargs) as response:
+                    # Stop reading at the declared boundary.  ``response.text``
+                    # would first buffer and decode the whole remote body.
+                    chunks: list[bytes] = []
+                    remaining = max(0, response_text_limit) + 1
+                    for chunk in response.iter_bytes():
+                        if remaining <= 0:
+                            break
+                        kept = chunk[:remaining]
+                        chunks.append(kept)
+                        remaining -= len(kept)
+                    raw_body = b"".join(chunks)
+                    body_truncated = len(raw_body) > response_text_limit
+                    if body_truncated:
+                        raw_body = raw_body[:response_text_limit]
+                    response_status_code = response.status_code
+                    response_headers = dict(response.headers)
         except httpx.TimeoutException as exc:
             raise _safe_error(action_name, f"network request timed out after {timeout_seconds}s") from exc
         except httpx.HTTPError as exc:
             raise _safe_error(action_name, "network request failed") from exc
         except Exception as exc:
             raise _safe_error(action_name, "network request failed") from exc
-        response_text = response.text
         return destination, NetworkEgressResponse(
-            status_code=response.status_code,
-            headers=dict(response.headers),
-            body_text=response_text[:response_text_limit],
-            body_truncated=len(response_text) > response_text_limit,
+            status_code=response_status_code,
+            headers=response_headers,
+            body_text=raw_body.decode("utf-8", errors="replace"),
+            body_truncated=body_truncated,
         )
 
 

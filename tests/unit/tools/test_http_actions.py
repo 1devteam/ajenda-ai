@@ -34,6 +34,15 @@ class _FakeResponse:
         self.status_code = status_code
         self.headers = {"content-type": "text/plain"}
 
+    def __enter__(self) -> _FakeResponse:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+    def iter_bytes(self):
+        yield self.text.encode()
+
 
 class _FakeClient:
     instances: list[_FakeClient] = []
@@ -50,7 +59,7 @@ class _FakeClient:
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
         return None
 
-    def request(self, method: str, url: str, **kwargs: Any) -> _FakeResponse:
+    def stream(self, method: str, url: str, **kwargs: Any) -> _FakeResponse:
         self.requests.append({"method": method, "url": url, **kwargs})
         return _FakeResponse(text=self.response_text)
 
@@ -453,7 +462,7 @@ def test_http_request_allowed_hosts_cannot_bypass_destination_safety(monkeypatch
 
 def test_http_request_network_failure_error_is_evidence_safe(monkeypatch: pytest.MonkeyPatch) -> None:
     class FailingClient(_FakeClient):
-        def request(self, method: str, url: str, **kwargs: Any) -> _FakeResponse:
+        def stream(self, method: str, url: str, **kwargs: Any) -> _FakeResponse:
             raise httpx.ConnectError("token=super-secret")
 
     monkeypatch.setattr("socket.getaddrinfo", _public_dns)
