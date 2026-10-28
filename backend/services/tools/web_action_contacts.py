@@ -386,10 +386,19 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         }
         expected_host = str(prospect.get("domain") or "").lower().removeprefix("www.").split("/")[0]
         actual_host = page_host(snapshot.url)
+        industry_markers = _industry_evidence_markers(
+            payload.context.get("industry")
+            or prospect.get("industry")
+            or prospect.get("research_summary")
+            or prospect.get("company")
+        )
+        industry_identity_tokens = {
+            token for marker in industry_markers for token in re.findall(r"[a-z0-9]{3,}", marker.lower())
+        }
         company_tokens = [
             token.lower()
             for token in re.findall(r"[a-z0-9]{3,}", str(prospect.get("company") or ""))
-            if token.lower() not in {"the", "and", "inc", "llc", "company", "companies"}
+            if token.lower() not in {"the", "and", "inc", "llc", "company", "companies", *industry_identity_tokens}
         ]
         page_text = " ".join(
             part for part in (snapshot.title, snapshot.text_preview, snapshot.body_preview) if isinstance(part, str)
@@ -405,12 +414,6 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         company_matches = bool(company_tokens) and any(token in page_tokens for token in company_tokens)
         host_tokens = _host_identity_tokens(actual_host)
         host_identity_matches = bool(host_tokens) and any(token in page_tokens for token in host_tokens)
-        industry_markers = _industry_evidence_markers(
-            payload.context.get("industry")
-            or prospect.get("industry")
-            or prospect.get("research_summary")
-            or prospect.get("company")
-        )
         industry_evidence = any(marker in page_text for marker in industry_markers)
         locality_evidence = any(marker in page_text for marker in location_markers)
         identity_status = (
@@ -419,7 +422,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             and not directory_page
             and industry_evidence
             and locality_evidence
-            and (company_matches or host_identity_matches or len(company_tokens) <= 1)
+            and (company_matches or host_identity_matches)
             else "unverified"
         )
         page_record["identity_status"] = identity_status
