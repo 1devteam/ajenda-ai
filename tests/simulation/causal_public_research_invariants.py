@@ -28,7 +28,6 @@ from backend.services.tools.sales_action_qualification import sales_qualify
 from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
 from backend.services.tools.web_action_contacts import research_observe_contacts
 
-
 _MARKET_INSTRUCTION = (
     "Research three HVAC companies in Dallas using public sources only, "
     "qualify the companies, and do not send messages."
@@ -90,9 +89,7 @@ def _observe(*, snapshot: PageSnapshot, company: str, collect_contacts: bool = T
     ],
     ids=["verified-page-without-contact", "verified-page-with-actual-email"],
 )
-def test_contact_acceptance_requires_actual_values(
-    contact_text: str, expected_count: int
-) -> None:
+def test_contact_acceptance_requires_actual_values(contact_text: str, expected_count: int) -> None:
     """A company may be verified without completing a contact objective."""
     result = _observe(snapshot=_snapshot(text=contact_text), company="Quiet HVAC")
     output = result.output
@@ -165,9 +162,7 @@ def test_real_company_does_not_inherit_market_target_fields_from_seed() -> None:
             "identity_evidence_urls": ["https://quiet-hvac.example/"],
         }
     ]
-    result = sales_qualify(
-        ToolInvocation(action="sales.qualify", input=payload), _context()
-    )
+    result = sales_qualify(ToolInvocation(action="sales.qualify", input=payload), _context())
     row = result.output["scored_prospects"][0]
     assert row["company"] == "Quiet HVAC"
     assert row.get("industry") is None
@@ -184,9 +179,7 @@ def test_public_qualification_graph_consumes_verifier_not_implicit_contacts() ->
     assert "research.verify_public_candidates" in selected
 
     qualification = get_business_job("sales.qualify_prospects")
-    dependencies = _dependency_jobs_for_selection(
-        job=qualification, selected_keys=selected, intent=intent
-    )
+    dependencies = _dependency_jobs_for_selection(job=qualification, selected_keys=selected, intent=intent)
     assert "research.verify_public_candidates" in dependencies
     assert "research.observe_sources" not in dependencies
 

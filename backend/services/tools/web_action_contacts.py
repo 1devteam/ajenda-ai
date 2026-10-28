@@ -555,23 +555,6 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     }
                     observed_contacts.append(contact)
                     candidate["observed_contacts"].append(contact)
-                if payload.collect_contacts and not extracted:
-                    contact = {
-                        "kind": None,
-                        "value": None,
-                        "source_url": linked_snapshot.url,
-                        "real": True,
-                        "company": candidate["company"],
-                        "domain": linked_host,
-                        "website": linked_snapshot.url,
-                        "research_summary": candidate["research_summary"],
-                        "sources": candidate["sources"],
-                        "prospect_id": candidate.get("prospect_id"),
-                        "identity_status": "verified",
-                        "identity_evidence_urls": candidate["identity_evidence_urls"],
-                    }
-                    observed_contacts.append(contact)
-                    candidate["observed_contacts"].append(contact)
                 if len(verified_prospect_candidates) >= limit:
                     break
             unobserved.append({**page_record, "reason": "identity_unverified"})
@@ -652,23 +635,6 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                         "observed_contacts": [],
                     }
                 )
-                observed_contacts.append(
-                    {
-                        "kind": None,
-                        "value": None,
-                        "source_url": snapshot.url,
-                        "real": True,
-                        "company": prospect.get("company"),
-                        "domain": page_record["domain"],
-                        "website": str(prospect.get("website") or prospect.get("url") or snapshot.url)[:500],
-                        "product_description": str(prospect.get("product_description") or "")[:1000],
-                        "research_summary": str(prospect.get("research_summary") or "")[:1000],
-                        "sources": sources,
-                        "prospect_id": prospect.get("prospect_id"),
-                        "identity_status": "verified",
-                        "identity_evidence_urls": page_record["identity_evidence_urls"],
-                    }
-                )
                 if len(verified_prospect_candidates) >= limit:
                     break
             else:
@@ -731,7 +697,9 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     accepted_observation_urls = {
         str(item["source_url"])
         for item in observed_contacts
-        if item.get("real") is True or item.get("via") == "local_fixture"
+        if (item.get("real") is True or item.get("via") == "local_fixture")
+        and item.get("kind") in {"email", "phone"}
+        and str(item.get("value") or "").strip()
     }
     accept_met = (
         len(accepted_observation_urls) >= limit

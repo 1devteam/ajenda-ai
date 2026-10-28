@@ -54,11 +54,10 @@ def _ajenda_relevance(*, lead: dict[str, Any], context: dict[str, Any]) -> str:
     opportunity = _first_lead_text(
         lead.get("automation_opportunity"),
         lead.get("workflow"),
-        context.get("automation_opportunity"),
     )
     if opportunity:
         return f"Ajenda may be relevant to the observed automation opportunity: {opportunity[:500]}."
-    intent = _first_lead_text(lead.get("intent"), context.get("intent"))
+    intent = _first_lead_text(lead.get("intent"))
     if intent:
         return f"Ajenda may be relevant because the observed intent signal identifies a workflow to evaluate: {intent[:500]}."
     return ""
@@ -74,7 +73,7 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
     if lead.get("role") or lead.get("title"):
         fit_points += 25
         reasons.append("buyer role context present")
-    if lead.get("intent") or context.get("intent"):
+    if lead.get("intent"):
         fit_points += 25
         reasons.append("intent signal present")
     if _has_real_contact(lead):
@@ -101,9 +100,9 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
         if (lead.get("company") or account_id)
         else 0,
         "automation_opportunity": 10
-        if lead.get("automation_opportunity") or lead.get("workflow") or context.get("automation_opportunity")
+        if lead.get("automation_opportunity") or lead.get("workflow")
         else 5
-        if lead.get("intent") or context.get("intent")
+        if lead.get("intent")
         else 0,
         "evidence_quality": 10
         if lead.get("identity_status") == "verified" and (lead.get("source_url") or lead.get("url"))
@@ -112,7 +111,7 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
         else 4
         if lead.get("signals") or lead.get("source_url") or lead.get("url")
         else 0,
-        "urgency": 10 if lead.get("urgency") else 5 if lead.get("intent") or context.get("intent") else 0,
+        "urgency": 10 if lead.get("urgency") else 5 if lead.get("intent") else 0,
     }
     score_10 = round(sum(dimensions.values()) / len(dimensions))
     mission_scoring = bool(context.get("mission_specific_scoring")) or "qualification_threshold_10" in context
@@ -160,22 +159,14 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
     prospects_in = [p for p in payload.prospects if isinstance(p, dict)]
     observed_contacts = [dict(item) for item in payload.context.get("observed_contacts", []) if isinstance(item, dict)]
     prospects_in = _merge_observed_contacts(prospects_in, observed_contacts)
-    if not prospects_in and (payload.lead or payload.account_id):
+    binding_required = bool(payload.context.get("binding_required"))
+    if not prospects_in and not binding_required and (payload.lead or payload.account_id):
         prospects_in = [dict(payload.lead)] if payload.lead else [{"account_id": payload.account_id}]
 
     qualified_prospects: list[dict[str, Any]] = []
     scored_prospects: list[dict[str, Any]] = []
     for index, prospect in enumerate(prospects_in):
         lead = _normalize_observed_lead(dict(prospect))
-        # Mission-scoped industry/location are evidence constraints for every
-        # bound prospect, not just the first seed lead.
-        for field in ("industry", "location", "intent", "automation_opportunity"):
-            if field not in lead and payload.context.get(field):
-                lead[field] = payload.context[field]
-        if payload.lead and index == 0:
-            # Merge seed lead fields without overwriting bound prospect identity.
-            for key, value in payload.lead.items():
-                lead.setdefault(key, value)
         result = _qualify_one(lead, context=payload.context, account_id=payload.account_id)
         company = str(lead.get("company") or lead.get("name") or f"prospect-{index + 1}")[:160]
         sources = _lead_source_references(lead)
@@ -196,6 +187,9 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
             "qualification_dimensions": result["qualification_dimensions"],
             "qualification_reasons": result["reasons"],
             "source_references": sources,
+            "target_market_constraints": {
+                key: value for key in ("industry", "location") if (value := payload.context.get(key))
+            },
         }
         entry = {
             **{k: v for k, v in lead.items() if k not in {"score", "qualified", "reasons"}},
@@ -231,14 +225,29 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
     if requested_quantity > 0:
         qualified_prospects = qualified_prospects[:requested_quantity]
 
+    raw_threshold = payload.context.get("qualification_threshold_10", 7)
+    try:
+        empty_threshold = int(str(raw_threshold)) if isinstance(raw_threshold, (int, str)) else 7
+    except ValueError:
+        empty_threshold = 7
     primary = (
         qualified_prospects[0]
         if qualified_prospects
         else scored_prospects[0]
         if scored_prospects
-        else _qualify_one(payload.lead, context=payload.context, account_id=payload.account_id)
+        else {
+            "score": 0,
+            "score_10": 0,
+            "qualification_dimensions": {},
+            "qualification_threshold_10": empty_threshold,
+            "qualified": False,
+            "reasons": ["no observed prospects were available for qualification"]
+            if binding_required
+            else ["insufficient local qualification signals"],
+        }
     )
-    score = int(primary.get("score") or 0)
+    raw_score = primary.get("score")
+    score = raw_score if isinstance(raw_score, int) else 0
     qualified = bool(primary.get("qualified"))
     output = {
         "score": score,
