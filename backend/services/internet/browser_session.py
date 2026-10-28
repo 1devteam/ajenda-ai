@@ -23,6 +23,7 @@ from backend.services.network_egress import NetworkEgressError, get_default_netw
 
 WaitUntil = Literal["domcontentloaded", "load", "networkidle"]
 DEFAULT_TEXT_LIMIT = 4_000
+type BrowserOrigin = tuple[str, str, int]
 
 
 def browser_session_enabled() -> bool:
@@ -63,29 +64,39 @@ def _vet_browser_destination(url: str) -> None:
     get_default_network_egress_authority().vet_https_url(url, action_name="web.browser_session")
 
 
-def _allowed_hosts(page_url: str, allowed_origins: Sequence[str]) -> tuple[str, ...]:
-    """Resolve the contract's origin allow-list to exact HTTPS host names."""
+def _origin_key(url: str) -> BrowserOrigin:
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise NetworkEgressError("web.browser_session allowed_origins must be HTTPS URLs")
+    if parsed.username is not None or parsed.password is not None:
+        raise NetworkEgressError("web.browser_session credentialed URLs are not allowed")
+    return ("https", parsed.hostname.lower().rstrip("."), parsed.port or 443)
+
+
+def _allowed_origins(page_url: str, allowed_origins: Sequence[str]) -> tuple[BrowserOrigin, ...]:
+    """Resolve the contract's origin allow-list to exact HTTPS origins."""
 
     origins = tuple(allowed_origins) or (page_url,)
-    hosts: list[str] = []
+    normalized: list[BrowserOrigin] = []
     for origin in origins:
-        parsed = urlparse(origin)
-        if parsed.scheme != "https" or not parsed.hostname:
-            raise NetworkEgressError("web.browser_session allowed_origins must be HTTPS URLs")
-        host = parsed.hostname.lower().rstrip(".")
-        if host not in hosts:
-            hosts.append(host)
-    return tuple(hosts)
+        key = _origin_key(origin)
+        if key not in normalized:
+            normalized.append(key)
+    return tuple(normalized)
 
 
-def _browser_host_resolver_rules(allowed_hosts: Sequence[str]) -> list[str]:
+def _allowed_hosts(origins: Sequence[BrowserOrigin]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(origin[1] for origin in origins))
+
+
+def _browser_host_resolver_rules(allowed_origins: Sequence[BrowserOrigin]) -> list[str]:
     """Pin approved browser hosts to the addresses vetted before Chromium starts."""
 
     authority = get_default_network_egress_authority()
     rules: list[str] = []
-    for host in allowed_hosts:
+    for scheme, host, port in allowed_origins:
         destination = authority.vet_https_url(
-            f"https://{host}/",
+            f"{scheme}://{host}:{port}/",
             allowed_hosts=[host],
             action_name="web.browser_session",
         )
@@ -93,12 +104,11 @@ def _browser_host_resolver_rules(allowed_hosts: Sequence[str]) -> list[str]:
     return rules
 
 
-def _assert_allowed_page_url(page_url: str, allowed_hosts: Sequence[str]) -> str:
+def _assert_allowed_page_url(page_url: str, allowed_origins: Sequence[BrowserOrigin]) -> str:
     """Reject a final browser location that escaped the contract origin set."""
 
     normalized_url = normalize_page_url(page_url)
-    host = (urlparse(normalized_url).hostname or "").lower().rstrip(".")
-    if host not in allowed_hosts:
+    if _origin_key(normalized_url) not in allowed_origins:
         raise NetworkEgressError("web.browser_session final URL is outside allowed_origins")
     _vet_browser_destination(normalized_url)
     return normalized_url
@@ -133,8 +143,9 @@ def run_browser_session(
     try:
         reject_credentialed_url(url_or_domain, action_name="web.browser_session")
         page_url = normalize_page_url(url_or_domain)
-        allowed_hosts = _allowed_hosts(page_url, allowed_origins)
-        if (urlparse(page_url).hostname or "").lower().rstrip(".") not in allowed_hosts:
+        allowed_origin_keys = _allowed_origins(page_url, allowed_origins)
+        allowed_hosts = _allowed_hosts(allowed_origin_keys)
+        if _origin_key(page_url) not in allowed_origin_keys:
             raise NetworkEgressError("web.browser_session start URL is outside allowed_origins")
         _vet_browser_destination(page_url)
     except (ValueError, NetworkEgressError) as exc:
@@ -164,7 +175,10 @@ def run_browser_session(
 
     def _route_handler(route: Any) -> None:
         request_url = str(getattr(route.request, "url", "") or "")
+        method = str(getattr(route.request, "method", "") or "").upper()
         try:
+            if method not in {"GET", "HEAD"}:
+                raise NetworkEgressError("web.browser_session only allows GET and HEAD requests")
             reject_credentialed_url(request_url, action_name="web.browser_session")
             get_default_network_egress_authority().vet_https_url(
                 request_url,
@@ -177,9 +191,14 @@ def run_browser_session(
             return
         route.continue_()
 
+    def _websocket_handler(web_socket: Any) -> None:
+        request_url = str(getattr(web_socket, "url", "") or "")
+        blocked.append(f"{request_url[:160]} (websocket blocked by read-only contract)")
+        web_socket.close()
+
     try:
         with sync_playwright() as playwright:
-            resolver_rules = _browser_host_resolver_rules(allowed_hosts)
+            resolver_rules = _browser_host_resolver_rules(allowed_origin_keys)
             browser = playwright.chromium.launch(
                 headless=True,
                 args=[f"--host-resolver-rules={','.join(resolver_rules)}"],
@@ -189,13 +208,19 @@ def run_browser_session(
                     user_agent="AjendaInternet/1.0 (+browser_session)",
                     java_script_enabled=True,
                     ignore_https_errors=False,
+                    service_workers="block",
+                    accept_downloads=False,
                 )
                 try:
                     # Intercept redirects, frames, and subresources — not only the first hop.
                     context.route("**/*", _route_handler)
+                    context.route_web_socket("**/*", _websocket_handler)
                     page = context.new_page()
                     response = page.goto(page_url, wait_until=wait_until, timeout=timeout_ms)
-                    final_url = _assert_allowed_page_url(page.url or page_url, allowed_hosts)
+                    final_url = _assert_allowed_page_url(page.url or page_url, allowed_origin_keys)
+                    status_code = response.status if response is not None else None
+                    if status_code is None or status_code < 200 or status_code >= 300:
+                        raise NetworkEgressError(f"web.browser_session received HTTP {status_code or 'unknown'}")
                     title = (page.title() or "").strip()[:240] or None
                     text_preview = None
                     if extract_text:
@@ -204,7 +229,6 @@ def run_browser_session(
                             text_preview = " ".join((body_text or "").split())[:DEFAULT_TEXT_LIMIT] or None
                         except Exception:
                             text_preview = None
-                    status_code = response.status if response is not None else None
                     steps.append(
                         {
                             "index": 0,
@@ -221,7 +245,7 @@ def run_browser_session(
                             if not target:
                                 raise ValueError("navigate step requires url")
                             normalized_target = normalize_page_url(target)
-                            if (urlparse(normalized_target).hostname or "").lower().rstrip(".") not in allowed_hosts:
+                            if _origin_key(normalized_target) not in allowed_origin_keys:
                                 raise NetworkEgressError("navigate step is outside allowed_origins")
                             _vet_browser_destination(normalized_target)
                             response = page.goto(
@@ -229,7 +253,11 @@ def run_browser_session(
                                 wait_until=wait_until,
                                 timeout=timeout_ms,
                             )
-                            final_url = _assert_allowed_page_url(page.url or normalized_target, allowed_hosts)
+                            final_url = _assert_allowed_page_url(page.url or normalized_target, allowed_origin_keys)
+                            if response is None or response.status < 200 or response.status >= 300:
+                                raise NetworkEgressError(
+                                    f"web.browser_session received HTTP {response.status if response is not None else 'unknown'}"
+                                )
                             steps.append(
                                 {
                                     "index": index,
@@ -263,7 +291,7 @@ def run_browser_session(
                             except Exception:
                                 # A same-document click need not produce a load event.
                                 pass
-                            final_url = _assert_allowed_page_url(page.url or final_url, allowed_hosts)
+                            final_url = _assert_allowed_page_url(page.url or final_url, allowed_origin_keys)
                             title = (page.title() or "").strip()[:240] or title
                             try:
                                 body_text = page.inner_text("body", timeout=min(timeout_ms, 10_000))
@@ -339,6 +367,13 @@ def run_browser_session(
                             "blocked_request_count": len(blocked),
                             "blocked_samples": blocked[:5],
                             "allowed_hosts": list(allowed_hosts),
+                            "allowed_origins": [
+                                f"{scheme}://{host}:{port}" for scheme, host, port in allowed_origin_keys
+                            ],
+                            "read_only_methods": ["GET", "HEAD"],
+                            "service_workers": "blocked",
+                            "downloads": "blocked",
+                            "websockets": "blocked",
                             "steps": steps,
                             "observation_requirements": requirement_results,
                             "observation_satisfied": observation_satisfied,

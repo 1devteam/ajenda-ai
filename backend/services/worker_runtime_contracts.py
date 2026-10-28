@@ -155,6 +155,16 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
         ):
             raise ValueError("intermediate output contract is only permitted for public web discovery")
         return
+    valid_empty = raw_output.get("valid_empty_result")
+    if (
+        artifact_key in {"verified_prospect_candidates", "qualified_prospects"}
+        and raw_output.get(artifact_key) == []
+        and isinstance(valid_empty, dict)
+        and valid_empty.get("classification") == "valid_empty"
+        and isinstance(valid_empty.get("reason"), str)
+        and valid_empty["reason"].strip()
+    ):
+        return
     errors = list(validate_artifact_payload(schema, raw_output[artifact_key]))
     if errors:
         artifact_payload = raw_output[artifact_key]

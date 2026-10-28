@@ -39,8 +39,9 @@ def test_public_search_directory_hits_are_forwarded_only_to_observation(monkeypa
 
     monkeypatch.setattr(
         standalone_actions,
-        "_fetch_duckduckgo_instant_answer",
+        "_fetch_governed_public_search",
         lambda **_kwargs: {
+            "provider": "duckduckgo_html",
             "results": [
                 {
                     "title": "Top Arkansas HVAC Companies | Directory",
@@ -51,6 +52,7 @@ def test_public_search_directory_hits_are_forwarded_only_to_observation(monkeypa
             ],
             "real": True,
             "error": None,
+            "attempts": [{"provider": "duckduckgo_html", "outcome": "results", "result_count": 1}],
         },
     )
 
@@ -65,8 +67,11 @@ def test_public_search_directory_hits_are_forwarded_only_to_observation(monkeypa
     assert len(result.output["prospect_candidates"]) == 1
     assert result.output["prospect_candidates"][0]["identity_status"] == "unverified"
     assert result.output["rejected_public_candidates"] == 1
-    assert result.output["research_gap"] == "public search returned no verified individual company identities"
-    assert result.output["source"] == "ddgs"
+    assert (
+        result.output["research_gap"]
+        == "public search returned candidates but no verified individual company identities"
+    )
+    assert result.output["source"] == "duckduckgo_html"
     assert result.output["public_prospect_candidates"][0]["source_scope"] == "public_search"
     assert result.output["public_prospect_candidates"][0]["evidence_class"] == "public_candidate_unverified"
 
@@ -99,7 +104,7 @@ def test_web_research_matches_market_tokens_on_tenant_accounts(monkeypatch) -> N
     monkeypatch.setattr(standalone_actions, "resolve_record_store", lambda _ctx: _Store())
     monkeypatch.setattr(
         standalone_actions,
-        "_fetch_duckduckgo_instant_answer",
+        "_fetch_governed_public_search",
         lambda **_kwargs: {"results": [], "real": False, "error": None},
     )
 
@@ -127,8 +132,8 @@ def test_public_only_web_research_never_queries_tenant_or_crm_sources(monkeypatc
     monkeypatch.setattr(standalone_actions, "default_crm_client", forbidden)
     monkeypatch.setattr(
         standalone_actions,
-        "_fetch_duckduckgo_instant_answer",
-        lambda **_kwargs: {"results": [], "real": True, "error": None},
+        "_fetch_governed_public_search",
+        lambda **_kwargs: {"provider": "duckduckgo_html", "results": [], "real": True, "error": None},
     )
 
     result = get_default_action_registry(rebuild=True).invoke(
@@ -286,8 +291,8 @@ def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> 
     )
     monkeypatch.setattr(
         standalone_actions,
-        "_fetch_duckduckgo_instant_answer",
-        lambda **_kwargs: {"results": [], "real": True, "error": None},
+        "_fetch_governed_public_search",
+        lambda **_kwargs: {"provider": "duckduckgo_html", "results": [], "real": True, "error": None},
     )
 
     registry = get_default_action_registry(rebuild=True)
@@ -305,7 +310,7 @@ def test_web_research_open_query_does_not_use_profile_as_target(monkeypatch) -> 
     assert result.output["domain"] is None
     assert result.output["profile_company"] == "Ajenda AI"
     assert result.output["profile_domain"] == "ajenda.ai"
-    assert result.output["source"] == "ddgs"
+    assert result.output["source"] == "duckduckgo_html"
     assert result.output["candidates_real"] is False
     assert "Ajenda AI" not in str(result.output.get("query"))
 
@@ -407,7 +412,7 @@ def test_web_search_merges_internal_records_and_public_results(monkeypatch) -> N
 
     monkeypatch.setattr(
         standalone_actions,
-        "_fetch_duckduckgo_instant_answer",
+        "_fetch_governed_public_search",
         lambda **kwargs: {
             "provider": "duckduckgo_instant_answer",
             "real": True,

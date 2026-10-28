@@ -38,7 +38,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     payload = ResearchObserveContactsInput.model_validate(invocation.input)
     action_name = invocation.action
     raw_prospects = [item for item in payload.prospects if isinstance(item, dict)]
-    if payload.binding_required and not raw_prospects:
+    valid_empty_upstream = payload.context.get("valid_empty_upstream")
+    if payload.binding_required and not raw_prospects and not valid_empty_upstream:
         raise ValueError(f"{action_name} requires bound prospect_candidates")
 
     seen_urls: set[str] = set()
@@ -760,6 +761,14 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         "research_gap": (
             "no verified candidates produced; public identity observation rejected all candidate sources"
             if not verified_prospect_candidates
+            else None
+        ),
+        "valid_empty_result": (
+            {
+                "classification": "valid_empty",
+                "reason": "completed public discovery produced no verifiable company identities",
+            }
+            if not raw_prospects and valid_empty_upstream
             else None
         ),
         "real": (

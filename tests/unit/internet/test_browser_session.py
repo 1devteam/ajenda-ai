@@ -4,6 +4,7 @@ from ipaddress import ip_address
 from unittest.mock import MagicMock, patch
 
 from backend.services.internet.browser_session import (
+    _allowed_origins,
     _assert_allowed_page_url,
     _browser_host_resolver_rules,
     assert_browser_runtime_ready,
@@ -43,8 +44,19 @@ class _FakePage:
 
 
 class _FakeContext:
+    latest: _FakeContext | None = None
+
+    def __init__(self) -> None:
+        self.route_handler = None
+        self.websocket_handler = None
+        self.context_kwargs: dict = {}
+        self.__class__.latest = self
+
     def route(self, _pattern: str, _handler) -> None:
-        return None
+        self.route_handler = _handler
+
+    def route_web_socket(self, _pattern: str, _handler) -> None:
+        self.websocket_handler = _handler
 
     def new_page(self) -> _FakePage:
         return _FakePage()
@@ -55,7 +67,9 @@ class _FakeContext:
 
 class _FakeBrowser:
     def new_context(self, **_kwargs) -> _FakeContext:
-        return _FakeContext()
+        context = _FakeContext()
+        context.context_kwargs = _kwargs
+        return context
 
     def close(self) -> None:
         return None
@@ -167,7 +181,13 @@ def test_browser_session_runs_bounded_read_only_steps(monkeypatch) -> None:
         "click",
     ]
     assert snapshot.extraction["dns_pin"] == "chromium_host_resolver_rules"
+    assert snapshot.extraction["read_only_methods"] == ["GET", "HEAD"]
+    assert snapshot.extraction["service_workers"] == "blocked"
+    assert snapshot.extraction["downloads"] == "blocked"
     assert _FakeChromium.launch_kwargs["args"][0].startswith("--host-resolver-rules=MAP example.com ")
+    assert _FakeContext.latest is not None
+    assert _FakeContext.latest.context_kwargs["service_workers"] == "block"
+    assert _FakeContext.latest.context_kwargs["accept_downloads"] is False
 
 
 def test_browser_host_resolver_rules_use_vetted_addresses() -> None:
@@ -183,7 +203,7 @@ def test_browser_host_resolver_rules_use_vetted_addresses() -> None:
         "backend.services.internet.browser_session.get_default_network_egress_authority",
         return_value=authority,
     ):
-        rules = _browser_host_resolver_rules(("example.com",))
+        rules = _browser_host_resolver_rules((("https", "example.com", 443),))
     assert rules == ["MAP example.com 93.184.216.34"]
 
 
@@ -192,9 +212,64 @@ def test_browser_session_rejects_final_cross_origin_url() -> None:
         "backend.services.internet.browser_session._vet_browser_destination",
     ) as vet:
         try:
-            _assert_allowed_page_url("https://outside.example/", ("example.com",))
+            _assert_allowed_page_url("https://outside.example/", (("https", "example.com", 443),))
         except NetworkEgressError as exc:
             assert "outside allowed_origins" in str(exc)
         else:
             raise AssertionError("cross-origin final URL must fail closed")
         vet.assert_not_called()
+
+
+def test_browser_session_origin_policy_rejects_same_host_different_port() -> None:
+    allowed = _allowed_origins("https://example.com/", ("https://example.com",))
+
+    with patch("backend.services.internet.browser_session._vet_browser_destination") as vet:
+        try:
+            _assert_allowed_page_url("https://example.com:8443/", allowed)
+        except NetworkEgressError as exc:
+            assert "outside allowed_origins" in str(exc)
+        else:
+            raise AssertionError("a different HTTPS port must not inherit origin permission")
+        vet.assert_not_called()
+
+
+def test_browser_route_blocks_non_read_http_methods(monkeypatch) -> None:
+    monkeypatch.setenv("AJENDA_BROWSER_SESSION_ENABLED", "true")
+    from backend.app import config as config_mod
+
+    if hasattr(config_mod.get_settings, "cache_clear"):
+        config_mod.get_settings.cache_clear()
+
+    authority = MagicMock()
+    with (
+        patch("backend.services.internet.browser_session.get_default_network_egress_authority", return_value=authority),
+        patch("playwright.sync_api.sync_playwright", return_value=_FakePlaywright()),
+    ):
+        snapshot = run_browser_session(
+            url_or_domain="https://example.com",
+            allowed_origins=("https://example.com",),
+        )
+
+    assert snapshot.real is True
+    assert _FakeContext.latest is not None
+    handler = _FakeContext.latest.route_handler
+
+    class _Route:
+        class Request:
+            url = "https://example.com/submit"
+            method = "POST"
+
+        request = Request()
+        aborted = False
+        continued = False
+
+        def abort(self) -> None:
+            self.aborted = True
+
+        def continue_(self) -> None:
+            self.continued = True
+
+    route = _Route()
+    handler(route)
+    assert route.aborted is True
+    assert route.continued is False

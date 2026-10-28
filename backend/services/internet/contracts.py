@@ -25,12 +25,38 @@ class SearchHit:
 
 
 @dataclass(frozen=True, slots=True)
+class SearchAttempt:
+    """One provider invocation retained with a public-search result.
+
+    A successful fallback must not erase an earlier timeout, challenge, or
+    rate limit.  This is transport/provenance evidence, not an identity claim
+    about any returned page.
+    """
+
+    provider: str
+    outcome: str
+    result_count: int
+    status_code: int | None = None
+    error: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "outcome": self.outcome,
+            "result_count": self.result_count,
+            "status_code": self.status_code,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class SearchBundle:
     provider: str
     real: bool
     results: tuple[SearchHit, ...] = ()
     status_code: int | None = None
     error: str | None = None
+    attempts: tuple[SearchAttempt, ...] = ()
     access_mode: InternetAccessMode = InternetAccessMode.PUBLIC_SEARCH
 
     def as_dict(self) -> dict[str, Any]:
@@ -41,6 +67,7 @@ class SearchBundle:
             "result_count": len(self.results),
             "status_code": self.status_code,
             "error": self.error,
+            "attempts": [item.as_dict() for item in self.attempts],
             "access_mode": self.access_mode.value,
         }
 

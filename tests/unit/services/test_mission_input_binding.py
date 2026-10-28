@@ -174,6 +174,7 @@ def test_public_qualification_binds_only_verified_candidate_output() -> None:
         tenant_id=tenant_id,
         output={"prospect_candidates": [{"company": "Unverified listing", "identity_status": "unverified"}]},
     )
+    discovery.metadata_json["tool_invocation"]["action"] = "web.research"
     verifier = _task(
         node_key=steps["research.verify_public_candidates"].step_key,
         status=ExecutionTaskState.COMPLETED.value,
@@ -207,6 +208,85 @@ def test_public_qualification_binds_only_verified_candidate_output() -> None:
     ]
     assert bound["lead"]["company"] == "Verified HVAC"
     assert bound["lead"]["company"] != "HVAC (Dallas)"
+
+
+def test_completed_public_no_result_binds_as_valid_empty_only_for_qualification() -> None:
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    discovery = _task(
+        node_key="ability-web-research",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={
+            "prospect_candidates": [],
+            "valid_empty_result": {
+                "classification": "valid_empty",
+                "reason": "public search completed with no result URLs",
+            },
+        },
+    )
+    discovery.metadata_json["tool_invocation"]["action"] = "web.research"
+    qualification = _task(
+        node_key="ability-sales-qualify",
+        status=ExecutionTaskState.RUNNING.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        dependency_keys=["ability-web-research"],
+        tool_input={"prospects": [], "context": {"binding_required": True}},
+        input_bindings=[
+            {
+                "from_step": "ability-web-research",
+                "output_path": "$.prospect_candidates",
+                "input_path": "$.input.prospects",
+            }
+        ],
+    )
+    qualification.metadata_json["tool_invocation"]["action"] = "sales.qualify"
+
+    bound, audit = apply_input_bindings(
+        tool_input=qualification.metadata_json["tool_invocation"]["input"],
+        task=qualification,
+        mission_tasks=[discovery, qualification],
+    )
+
+    assert bound["prospects"] == []
+    assert audit["valid_empty_upstream"][0]["source_action"] == "web.research"
+
+
+def test_provider_failure_empty_output_still_fails_closed() -> None:
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    discovery = _task(
+        node_key="ability-web-research",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={"prospect_candidates": [], "research_gap": "provider failed"},
+    )
+    qualification = _task(
+        node_key="ability-sales-qualify",
+        status=ExecutionTaskState.RUNNING.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        dependency_keys=["ability-web-research"],
+        tool_input={"prospects": [], "context": {"binding_required": True}},
+        input_bindings=[
+            {
+                "from_step": "ability-web-research",
+                "output_path": "$.prospect_candidates",
+                "input_path": "$.input.prospects",
+            }
+        ],
+    )
+    qualification.metadata_json["tool_invocation"]["action"] = "sales.qualify"
+
+    with pytest.raises(Exception, match="binding_required"):
+        apply_input_bindings(
+            tool_input=qualification.metadata_json["tool_invocation"]["input"],
+            task=qualification,
+            mission_tasks=[discovery, qualification],
+        )
 
 
 def test_followup_task_fallback_binds_tenant_crm_records_from_record_search() -> None:

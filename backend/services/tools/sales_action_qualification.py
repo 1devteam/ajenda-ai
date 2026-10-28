@@ -259,6 +259,19 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         "qualified_prospects": qualified_prospects,
         "prospect_count": len(qualified_prospects),
         "scored_prospects": scored_prospects,
+        "research_gap": (
+            "completed public research produced no verified prospects for qualification"
+            if not prospects_in and payload.context.get("valid_empty_upstream")
+            else None
+        ),
+        "valid_empty_result": (
+            {
+                "classification": "valid_empty",
+                "reason": "completed public research produced no verified prospects for qualification",
+            }
+            if not prospects_in and payload.context.get("valid_empty_upstream")
+            else None
+        ),
     }
     summary = f"Qualified {len(qualified_prospects)} prospect(s); primary score={score}, qualified={qualified}."
     return ActionResult(

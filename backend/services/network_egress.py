@@ -16,7 +16,6 @@ BLOCKED_HOSTNAMES = {"localhost", "localhost.localdomain", "ip6-localhost", "ip6
 # Hostname text is not a network boundary: a legitimate public hostname such
 # as ``metadata.io`` may contain an infrastructure word.  The exact local
 # namespace check plus vetted DNS/IP answers below are the authority.
-BLOCKED_HOST_LABELS = {"internal", "intranet", "metadata"}
 DEFAULT_RESPONSE_TEXT_LIMIT = 4096
 # External JSON API reads (GitHub repo metadata, Salesforce SOQL, etc.) need more than 4 KiB.
 STRUCTURED_API_READ_RESPONSE_LIMIT = 131_072

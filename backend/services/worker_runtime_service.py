@@ -99,6 +99,8 @@ def _causal_observation_for_tool_output(
         "access_mode",
         "business_context_source",
         "research_gap",
+        "valid_empty_result",
+        "provider_attempts",
     )
     safe_metadata = {name: output[name] for name in safe_names if name in output}
     for name in (
