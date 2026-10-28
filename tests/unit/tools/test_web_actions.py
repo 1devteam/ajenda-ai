@@ -423,23 +423,11 @@ def test_observe_contacts_keeps_verified_company_without_contact_details() -> No
 
     assert len(result.output["verified_prospect_candidates"]) == 1
     assert result.output["verified_prospect_candidates"][0]["identity_status"] == "verified"
-    assert result.output["observed_contacts"] == [
-        {
-            "kind": None,
-            "value": None,
-            "source_url": official.url,
-            "real": True,
-            "company": "Quiet HVAC",
-            "domain": "quiet-hvac.example",
-            "website": official.url,
-            "product_description": "",
-            "research_summary": "Heating and cooling services in Dallas.",
-            "sources": [official.url],
-            "prospect_id": None,
-            "identity_status": "verified",
-            "identity_evidence_urls": [official.url],
-        }
-    ]
+    assert result.output["observed_contacts"] == []
+    assert result.output["observed_count"] == 0
+    assert result.output["contact_value_count"] == 0
+    assert result.output["condition_observations"] == []
+    assert result.output["accept_met"] is False
 
 
 def test_observe_contacts_does_not_treat_known_listing_host_as_official() -> None:

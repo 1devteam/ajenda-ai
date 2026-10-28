@@ -8,6 +8,10 @@ import pytest
 
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
+from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
+from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.mission_composition.plan_compiler import compile_planned_steps
+from backend.services.operating_charter import default_operating_charter
 from backend.services.tools.mission_input_binding import (
     DependencyNotReadyError,
     apply_input_bindings,
@@ -145,6 +149,64 @@ def test_bind_prospect_candidates_into_draft_context() -> None:
     assert "Fayetteville Roof Pros" in bound["topic"]
     assert audit["prospect_count"] == 1
     assert bound["recipient"] == "pending.binding@invalid.local"
+
+
+def test_public_qualification_binds_only_verified_candidate_output() -> None:
+    """Market discovery cannot bind raw hits or a composition seed into qualification."""
+
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    intent = interpret_instruction(
+        "Research three HVAC companies in Dallas using public sources only, qualify the companies, and do not send messages."
+    )
+    selections, missing = resolve_jobs(
+        route_jobs_for_intent(intent), intent=intent, charter=default_operating_charter()
+    )
+    assert missing == []
+    steps = {step.job_key: step for step in compile_planned_steps(selections, intent=intent)}
+    qualify_step = steps["sales.qualify_prospects"]
+    assert {binding["output_path"] for binding in qualify_step.input_bindings} == {"$.verified_prospect_candidates"}
+
+    discovery = _task(
+        node_key=steps["research.discover_prospects"].step_key,
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={"prospect_candidates": [{"company": "Unverified listing", "identity_status": "unverified"}]},
+    )
+    verifier = _task(
+        node_key=steps["research.verify_public_candidates"].step_key,
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={
+            "verified_prospect_candidates": [
+                {"company": "Verified HVAC", "identity_status": "verified", "source": "public_search"}
+            ]
+        },
+    )
+    qualification = _task(
+        node_key=qualify_step.step_key,
+        status=ExecutionTaskState.RUNNING.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        dependency_keys=qualify_step.depends_on,
+        tool_input=qualify_step.tool_input,
+        input_bindings=qualify_step.input_bindings,
+    )
+    qualification.metadata_json["tool_invocation"]["action"] = "sales.qualify"
+
+    bound, _ = apply_input_bindings(
+        tool_input=qualification.metadata_json["tool_invocation"]["input"],
+        task=qualification,
+        mission_tasks=[discovery, verifier, qualification],
+    )
+
+    assert bound["prospects"] == [
+        {"company": "Verified HVAC", "identity_status": "verified", "source": "public_search"}
+    ]
+    assert bound["lead"]["company"] == "Verified HVAC"
+    assert bound["lead"]["company"] != "HVAC (Dallas)"
 
 
 def test_followup_task_fallback_binds_tenant_crm_records_from_record_search() -> None:

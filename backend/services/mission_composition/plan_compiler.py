@@ -169,6 +169,20 @@ def _dependency_jobs_for_selection(
         # Public reports consume the terminal verified identity artifact, not
         # raw discovery hits. The verifier is absent for CRM-source research.
         dependencies.append("research.verify_public_candidates")
+    if job.job_key == "sales.qualify_prospects":
+        public_research = (
+            intent is not None
+            and "research_prospects" in set(intent.requested_outcomes)
+            and not ({"internal_crm_source", "hubspot_source"} & set(intent.context_requirements))
+        )
+        if public_research and "research.verify_public_candidates" in selected_keys:
+            # A public qualification consumes the terminal identity artifact,
+            # never raw discovery hits or market-planning labels.
+            dependencies.append("research.verify_public_candidates")
+        if "research.observe_sources" in selected_keys:
+            # Contact collection is opt-in. When requested, its verified
+            # contact values supplement the canonical identity list.
+            dependencies.append("research.observe_sources")
     return list(dict.fromkeys(dependencies))
 
 
@@ -246,6 +260,19 @@ def compile_planned_steps(
                     # observer is in the graph, bind only its verified terminal
                     # artifact so qualification cannot score unresolved hits.
                     continue
+                if dep_job == "research.observe_sources" and selection.action_name in {
+                    "sales.qualify",
+                    "sales.score_lead",
+                }:
+                    input_bindings.append(
+                        {
+                            "from_step": dep_step.step_key,
+                            "output_path": "$.observed_contacts",
+                            "to_step": f"ability-{_slug(selection.action_name)}",
+                            "input_path": "$.input.context.observed_contacts",
+                        }
+                    )
+                    continue
                 if (
                     dep_job == "research.discover_prospects"
                     and selection.action_name in {"gtm.email_draft", "sales.draft_followup"}
@@ -273,18 +300,6 @@ def compile_planned_steps(
                         "input_path": input_path,
                     }
                 )
-                if dep_job == "research.observe_sources" and selection.action_name in {
-                    "sales.qualify",
-                    "sales.score_lead",
-                }:
-                    input_bindings.append(
-                        {
-                            "from_step": dep_step.step_key,
-                            "output_path": "$.observed_contacts",
-                            "to_step": f"ability-{_slug(selection.action_name)}",
-                            "input_path": "$.input.context.observed_contacts",
-                        }
-                    )
 
         tool_input: dict[str, Any] = {}
         compile_gap: str | None = None
