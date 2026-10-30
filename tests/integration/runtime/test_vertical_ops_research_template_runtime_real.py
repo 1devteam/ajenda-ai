@@ -22,7 +22,7 @@ from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.services.demo_tenant_bootstrap import DemoTenantBootstrapService
-from backend.services.internet.contracts import SearchAttempt, SearchBundle, SearchHit
+from backend.services.internet.contracts import SearchBundle, SearchHit
 from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.vertical_ops.template_service import (
     VERTICAL_TEMPLATE_METADATA_KEY,
@@ -175,47 +175,58 @@ def test_vertical_public_research_resolves_external_authority_and_persists_runti
     redis_client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Real PostgreSQL/Redis runtime proof; the provider response is deliberately controlled.
+    """Persist complete governed-search fallback provenance through runtime.
 
-    The action still traverses apply → authority records → queue → lease →
-    dispatcher → evidence persistence.  The controlled search response makes
-    this authorization-contract proof deterministic; it is not a claim that a
-    live provider was contacted.
+    The action traverses apply → authority records → queue → lease → dispatcher
+    → evidence persistence.  The provider implementations are controlled, but
+    ``public_search`` itself performs the provider-chain fallback.  This is a
+    PostgreSQL/Redis persistence proof, not a claim that either provider was
+    contacted over the network.
     """
-
-    from backend.services.tools import standalone_actions
 
     tenant_id = str(uuid.uuid4())
     worker_id = "worker-vertical-ops-public-research"
     session_factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
-    def _public_search(*, query: str, limit: int, timeout_seconds: float) -> SearchBundle:
-        assert "Dallas" in query
-        assert limit >= 1
-        assert timeout_seconds > 0
-        return SearchBundle(
-            provider="controlled_governed_search",
-            real=True,
-            status_code=200,
-            results=(
-                SearchHit(
-                    title="Example Heating & Air",
-                    snippet="Dallas HVAC company",
-                    url="https://example.com/hvac",
-                    source="controlled_public_result",
-                ),
-            ),
-            attempts=(
-                SearchAttempt(
-                    provider="controlled_governed_search",
-                    outcome="success",
-                    result_count=1,
-                    status_code=200,
-                ),
-            ),
-        )
+    class _FailingProvider:
+        name = "controlled_primary"
 
-    monkeypatch.setattr(standalone_actions, "public_search", _public_search)
+        def search(self, *, query: str, limit: int, timeout_seconds: float) -> SearchBundle:
+            assert "Dallas" in query
+            assert limit >= 1
+            assert timeout_seconds > 0
+            return SearchBundle(
+                provider=self.name,
+                real=False,
+                status_code=429,
+                error="controlled rate limit",
+            )
+
+    class _FallbackProvider:
+        name = "controlled_fallback"
+
+        def search(self, *, query: str, limit: int, timeout_seconds: float) -> SearchBundle:
+            assert "Dallas" in query
+            assert limit >= 1
+            assert timeout_seconds > 0
+            return SearchBundle(
+                provider=self.name,
+                real=True,
+                status_code=200,
+                results=(
+                    SearchHit(
+                        title="Example Heating & Air",
+                        snippet="Dallas HVAC company",
+                        url="https://example.com/hvac",
+                        source="controlled_public_result",
+                    ),
+                ),
+            )
+
+    monkeypatch.setattr(
+        "backend.services.internet.search.resolve_public_search_provider_chain",
+        lambda **_kwargs: [_FailingProvider(), _FallbackProvider()],
+    )
     setup_session = session_factory()
     try:
         setup_session.add(
@@ -296,9 +307,25 @@ def test_vertical_public_research_resolves_external_authority_and_persists_runti
         assert task.metadata_json["handler_result"]["side_effect_class"] == "external_read"
         output = task.metadata_json["handler_result"]["output"]
         assert output["provider_attempts"]
-        assert output["provider_attempts"][0]["provider"] == "controlled_governed_search"
-        assert output["provider_attempts"][0]["outcome"] == "success"
-        assert output["provider_attempts"][0]["result_count"] == 1
+        attempts = output["provider_attempts"]
+        assert len(attempts) == 4  # primary/fallback for each deterministic query variant
+        assert [attempt["provider"] for attempt in attempts] == [
+            "controlled_primary",
+            "controlled_fallback",
+            "controlled_primary",
+            "controlled_fallback",
+        ]
+        assert [attempt["outcome"] for attempt in attempts] == ["failure", "results", "failure", "results"]
+        assert [attempt["status_code"] for attempt in attempts] == [429, 200, 429, 200]
+        assert [attempt["error"] for attempt in attempts] == [
+            "controlled rate limit",
+            None,
+            "controlled rate limit",
+            None,
+        ]
+        assert output["search_providers"] == ["controlled_fallback"]
+        assert output["web_results"]
+        assert all(item["source"] == "controlled_public_result" for item in output["web_results"])
         assert lease is not None and lease.status == WorkerLeaseState.RELEASED.value
         assert len(evidence) == 1
         assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
