@@ -3,11 +3,15 @@
 from collections.abc import Sequence
 from typing import Any
 
+from backend.domain.enums import ExecutionTaskState
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
 from backend.domain.outcome_review import OutcomeReview
-from backend.services.mission_composition.artifact_schemas import ARTIFACT_SCHEMAS_BY_KEY
+from backend.services.mission_composition.artifact_schemas import (
+    ARTIFACT_SCHEMAS_BY_KEY,
+    is_proven_valid_empty_artifact,
+)
 from backend.services.mission_composition.deliverable_completion import (
     DeliverableCompletion,
     MaterializedArtifact,
@@ -16,11 +20,13 @@ from backend.services.mission_composition.deliverable_completion import (
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
 from backend.services.mission_composition.deliverable_runtime_artifacts import (
     collect_materialized_artifacts,
+    declared_artifact_key,
 )
 from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
 )
 from backend.services.mission_composition.revops_deliverable_contracts import RevOpsCompletionRead
+from backend.services.tools.mission_input_binding import handler_output_for_task
 
 
 def _runtime_state_from_metadata(metadata: object) -> object | None:
@@ -98,11 +104,31 @@ def _validated_artifacts(
     *,
     assembly_errors: list[str],
 ) -> dict[str, MaterializedArtifact]:
+    empty_task_validity: dict[str, list[bool]] = {}
+    for task in tasks:
+        if task.status != ExecutionTaskState.COMPLETED.value:
+            continue
+        artifact_key = declared_artifact_key(task)
+        if artifact_key is None:
+            continue
+        output = handler_output_for_task(task)
+        if output.get(artifact_key) != []:
+            continue
+        empty_task_validity.setdefault(artifact_key, []).append(
+            is_proven_valid_empty_artifact(
+                artifact_key=artifact_key,
+                payload=output.get(artifact_key),
+                output=output,
+            )
+        )
+    valid_empty_keys = {
+        artifact_key for artifact_key, validity in empty_task_validity.items() if validity and all(validity)
+    }
     validated: dict[str, MaterializedArtifact] = {}
     for artifact in collect_materialized_artifacts(list(tasks)):
         if artifact.artifact_key in ARTIFACT_SCHEMAS_BY_KEY:
             validation = validate_materialized_artifact(artifact)
-            if not validation.valid:
+            if not validation.valid and artifact.artifact_key not in valid_empty_keys:
                 assembly_errors.append(f"artifact {artifact.artifact_key!r} is invalid: {'; '.join(validation.errors)}")
                 continue
         validated[artifact.artifact_key] = artifact

@@ -466,6 +466,43 @@ ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     FOLLOW_UP_TASKS_SCHEMA.artifact_key: FOLLOW_UP_TASKS_SCHEMA,
 }
 
+_VALID_EMPTY_PER_ITEM_ARTIFACT_KEYS = frozenset(
+    {
+        "verified_prospect_candidates",
+        "qualified_prospects",
+    }
+)
+
+
+def is_proven_valid_empty_artifact(
+    *,
+    artifact_key: str,
+    payload: object,
+    output: object,
+) -> bool:
+    """Return whether an otherwise-empty terminal artifact is evidenced as valid.
+
+    Per-item artifact schemas intentionally reject bare empty lists: an absent
+    result must not satisfy a deliverable merely because it has the right JSON
+    shape.  Public research can nevertheless complete with no verified
+    identities or qualified prospects.  Its handler supplies a bounded marker
+    describing that evidence-backed outcome.  Runtime completion and the
+    operator read model must apply the same narrow exception so they cannot
+    disagree about the durable result.
+    """
+
+    if artifact_key not in _VALID_EMPTY_PER_ITEM_ARTIFACT_KEYS or payload != []:
+        return False
+    if not isinstance(output, dict):
+        return False
+    marker = output.get("valid_empty_result")
+    return (
+        isinstance(marker, dict)
+        and marker.get("classification") == "valid_empty"
+        and isinstance(marker.get("reason"), str)
+        and bool(marker["reason"].strip())
+    )
+
 
 def _path_field(json_path: str) -> str | None:
     prefix = "$[]."

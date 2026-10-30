@@ -24,6 +24,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.api.routes import mission as mission_module
 from backend.api.routes import mission_composition as composition_module
+from backend.api.routes import mission_deliverable as deliverable_module
 from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_session
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.principal import Principal, PrincipalType
@@ -127,6 +128,7 @@ def _build_app(*, tenant_id: uuid.UUID, session, queue_adapter) -> FastAPI:
 
     app.include_router(composition_module.router, prefix="/v1")
     app.include_router(mission_module.router, prefix="/v1")
+    app.include_router(deliverable_module.router, prefix="/v1")
     app.dependency_overrides[get_request_tenant_id] = lambda: tenant_id
     app.dependency_overrides[get_tenant_db_session] = lambda: session
     app.dependency_overrides[get_queue_adapter] = lambda: queue_adapter
@@ -543,6 +545,21 @@ def test_completed_empty_public_search_materializes_insufficient_evidence_artifa
         )
         assert {task.id for task in tasks} <= {item.execution_task_id for item in evidence}
         assert any(item.evidence_source == "tool.invoke.web.research" for item in evidence)
+
+        # The tenant-scoped operator read model must retain the completed-empty
+        # outcome.  It must not reinterpret it as a prospect or hide its durable
+        # evidence merely because the requested count was not met.
+        read_app = _build_app(tenant_id=tenant_id, session=verify, queue_adapter=queue_adapter)
+        response = TestClient(read_app, raise_server_exceptions=False).get(f"/v1/missions/{mission_id}/deliverable")
+        assert response.status_code == 200, response.text
+        deliverable = response.json()
+        assert deliverable["kind"] == "revops_report"
+        assert deliverable["prospects"] == []
+        assert deliverable["artifacts"]["verified_prospect_candidates"] == []
+        assert deliverable["artifacts"]["qualified_prospects"] == []
+        assert deliverable["task_state"]["all_succeeded"] is True
+        assert deliverable["completion"]["complete"] is False
+        assert deliverable["evidence_references"]
     finally:
         verify.close()
 

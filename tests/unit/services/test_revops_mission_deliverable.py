@@ -155,6 +155,40 @@ def _artifact_tasks() -> list[ExecutionTask]:
     ]
 
 
+def test_assembler_preserves_proven_valid_empty_public_research_artifacts() -> None:
+    """A completed evidence-backed empty outcome remains operator-visible."""
+
+    mission = _mission("Return company name.")
+    valid_empty = {
+        "classification": "valid_empty",
+        "reason": "completed public research produced no verified prospects",
+    }
+    tasks = [
+        _task(
+            task_id=1,
+            artifact="verified_prospect_candidates",
+            payload=[],
+            handler_fields={"output": {"verified_prospect_candidates": [], "valid_empty_result": valid_empty}},
+        ),
+        _task(
+            task_id=2,
+            artifact="qualified_prospects",
+            payload=[],
+            handler_fields={"output": {"qualified_prospects": [], "valid_empty_result": valid_empty}},
+        ),
+    ]
+
+    report = assemble_revops_mission_deliverable(mission=mission, tasks=tasks)
+
+    assert report.artifacts == {
+        "qualified_prospects": [],
+        "verified_prospect_candidates": [],
+    }
+    assert report.prospects == ()
+    assert report.completion.complete is False
+    assert report.completion.assembly_errors == ()
+
+
 def test_assembler_builds_complete_report_from_typed_runtime_artifacts() -> None:
     mission = _mission(
         "Return company name, website, product description, qualification evidence, "
