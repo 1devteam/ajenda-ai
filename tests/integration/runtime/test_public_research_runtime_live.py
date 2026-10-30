@@ -28,8 +28,8 @@ from backend.app.dependencies.db import get_request_tenant_id, get_tenant_db_ses
 from backend.app.dependencies.services import get_queue_adapter
 from backend.auth.principal import Principal, PrincipalType
 from backend.db.tenant_session import activate_tenant_session
-from backend.domain.evidence import EvidenceRecord
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
+from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
@@ -59,6 +59,21 @@ _CONTROLLED_PROVIDER_FAILURE = {
             "result_count": 0,
             "status_code": None,
             "error": "controlled provider timeout",
+        }
+    ],
+}
+_CONTROLLED_PROVIDER_EMPTY = {
+    "provider": "controlled_governed_search",
+    "real": True,
+    "results": [],
+    "error": None,
+    "attempts": [
+        {
+            "provider": "controlled_governed_search",
+            "outcome": "empty",
+            "result_count": 0,
+            "status_code": 200,
+            "error": None,
         }
     ],
 }
@@ -390,5 +405,110 @@ def test_provider_failure_remains_distinct_from_valid_empty_research(pg_engine, 
         )
         assert verifier.status == ExecutionTaskState.FAILED.value
         assert "binding_required" in verifier.metadata_json["failure"]["message"]
+    finally:
+        verify.close()
+
+
+def test_completed_empty_public_search_materializes_insufficient_evidence_artifacts(pg_engine, queue_adapter) -> None:
+    """A successful search with no results completes the entire read-only graph.
+
+    The controlled provider result represents a real provider exchange with no
+    candidate URLs. PostgreSQL and Redis remain real: this proves the marker
+    crosses composition, binding, queue, lease, dispatch, evidence persistence,
+    and fresh-session artifact readback without turning empty discovery into a
+    provider failure or a synthetic prospect.
+    """
+
+    clear_proposals_for_tests()
+    tenant_id = uuid.uuid4()
+    tenant_text = str(tenant_id)
+    factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    setup = factory()
+    try:
+        setup.add(Tenant(id=tenant_id, name="Empty public research", slug=f"empty-{tenant_id.hex[:8]}", plan="free"))
+        setup.flush()
+        activate_tenant_session(setup, tenant_text)
+        persist_test_operating_charter(setup, tenant_id=tenant_text)
+        QuotaEnforcementService(setup).check_and_record_mission_creation(tenant_id)
+        setup.commit()
+
+        app = _build_app(tenant_id=tenant_id, session=setup, queue_adapter=queue_adapter)
+        with (
+            patch.object(composition_module, "require_route_permission", return_value=None),
+            patch.object(mission_module, "require_route_permission", return_value=None),
+            patch(
+                "backend.services.tools.standalone_actions._fetch_governed_public_search",
+                return_value=_CONTROLLED_PROVIDER_EMPTY,
+            ),
+        ):
+            client = TestClient(app, raise_server_exceptions=False)
+            composed_response = client.post("/v1/missions/compose", json={"instruction": _INSTRUCTION})
+            assert composed_response.status_code == 200, composed_response.text
+            composed = composed_response.json()
+            confirmed_response = client.post(
+                f"/v1/missions/proposals/{composed['proposal_id']}/confirm",
+                json={"composition": composed["composition"], "idempotency_key": "provider-empty-v1"},
+            )
+            assert confirmed_response.status_code == 200, confirmed_response.text
+            mission_id = uuid.UUID(confirmed_response.json()["mission_id"])
+            launched_response = client.post(f"/v1/missions/{mission_id}/launch")
+            assert launched_response.status_code == 200, launched_response.text
+            setup.commit()
+            _drain_mission(
+                session=setup,
+                factory=factory,
+                queue_adapter=queue_adapter,
+                tenant_id=tenant_text,
+                mission_id=mission_id,
+            )
+    finally:
+        setup.close()
+
+    verify = factory()
+    try:
+        activate_tenant_session(verify, tenant_text)
+        tasks = list(
+            verify.scalars(
+                select(ExecutionTask).where(
+                    ExecutionTask.tenant_id == tenant_text,
+                    ExecutionTask.mission_id == mission_id,
+                )
+            )
+        )
+        assert tasks and all(task.status == ExecutionTaskState.COMPLETED.value for task in tasks)
+        leases = list(verify.scalars(select(WorkerLease).where(WorkerLease.tenant_id == tenant_text)))
+        assert leases and all(lease.status == WorkerLeaseState.RELEASED.value for lease in leases)
+        outputs = {
+            task.metadata_json["tool_invocation"]["action"]: task.metadata_json["handler_result"]["output"]
+            for task in tasks
+        }
+        research_output = outputs["web.research"]
+        assert research_output["public_search_real"] is True
+        assert research_output["web_results"] == []
+        assert research_output["valid_empty_result"]["classification"] == "valid_empty"
+        assert research_output["search_providers"] == ["controlled_governed_search"]
+        assert len(research_output["provider_attempts"]) == len(research_output["search_queries"])
+        assert all(attempt["outcome"] == "empty" for attempt in research_output["provider_attempts"])
+
+        verifier_output = outputs["research.verify_public_candidates"]
+        qualification_output = outputs["sales.qualify"]
+        assert verifier_output["verified_prospect_candidates"] == []
+        assert verifier_output["valid_empty_result"]["classification"] == "valid_empty"
+        assert qualification_output["qualified_prospects"] == []
+        assert qualification_output["valid_empty_result"]["classification"] == "valid_empty"
+
+        artifacts = collect_materialized_artifacts(tasks)
+        assert next(item.payload for item in artifacts if item.artifact_key == "verified_prospect_candidates") == []
+        assert next(item.payload for item in artifacts if item.artifact_key == "qualified_prospects") == []
+        evidence = list(
+            verify.scalars(
+                select(EvidenceRecord).where(
+                    EvidenceRecord.tenant_id == tenant_text,
+                    EvidenceRecord.mission_id == mission_id,
+                )
+            )
+        )
+        assert {task.id for task in tasks} <= {item.execution_task_id for item in evidence}
+        assert any(item.evidence_source == "tool.invoke.web.research" for item in evidence)
     finally:
         verify.close()
