@@ -33,6 +33,7 @@ from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
+from backend.services.internet.contracts import PageSnapshot
 from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
 from backend.services.mission_composition.proposal_store import clear_proposals_for_tests
 from backend.services.quota_enforcement import QuotaEnforcementService
@@ -77,6 +78,37 @@ _CONTROLLED_PROVIDER_EMPTY = {
         }
     ],
 }
+_CONTROLLED_DIRECTORY_SEARCH = {
+    "provider": "controlled_governed_search",
+    "real": True,
+    "results": [
+        {
+            "title": "15 Best Commercial HVAC Contractors Dallas, TX",
+            "snippet": "Find and invite the best commercial HVAC contractors in Dallas.",
+            "url": "https://downtobid.com/contractors/hvac/dallas",
+            "source": "controlled_public_result",
+        }
+    ],
+    "error": None,
+    "attempts": [
+        {
+            "provider": "controlled_governed_search",
+            "outcome": "results",
+            "result_count": 1,
+            "status_code": 200,
+            "error": None,
+        }
+    ],
+}
+_CONTROLLED_DIRECTORY_PAGE = PageSnapshot(
+    url="https://downtobid.com/contractors/hvac/dallas",
+    real=True,
+    status_code=200,
+    title="15 Best Commercial HVAC Contractors Dallas, TX",
+    text_preview="Find and invite the best commercial HVAC contractors in Dallas. Access our contractor database.",
+    body_preview="Browse contractors and submit bid requests.",
+    extraction={"links": []},
+)
 
 
 def _build_app(*, tenant_id: uuid.UUID, session, queue_adapter) -> FastAPI:
@@ -510,5 +542,116 @@ def test_completed_empty_public_search_materializes_insufficient_evidence_artifa
         )
         assert {task.id for task in tasks} <= {item.execution_task_id for item in evidence}
         assert any(item.evidence_source == "tool.invoke.web.research" for item in evidence)
+    finally:
+        verify.close()
+
+
+def test_directory_search_hit_is_rejected_as_unverified_identity_through_runtime(pg_engine, queue_adapter) -> None:
+    """A real observed directory page cannot become a commercial prospect.
+
+    Provider and page responses are controlled so the test can exercise the
+    identity policy deterministically. PostgreSQL and Redis are real, and the
+    mission runs through composition, admission, queueing, leasing, dispatch,
+    durable evidence, and fresh-session artifact readback.
+    """
+
+    clear_proposals_for_tests()
+    tenant_id = uuid.uuid4()
+    tenant_text = str(tenant_id)
+    factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    setup = factory()
+    try:
+        setup.add(Tenant(id=tenant_id, name="Directory rejection", slug=f"directory-{tenant_id.hex[:8]}", plan="free"))
+        setup.flush()
+        activate_tenant_session(setup, tenant_text)
+        persist_test_operating_charter(setup, tenant_id=tenant_text)
+        QuotaEnforcementService(setup).check_and_record_mission_creation(tenant_id)
+        setup.commit()
+
+        app = _build_app(tenant_id=tenant_id, session=setup, queue_adapter=queue_adapter)
+        with (
+            patch.object(composition_module, "require_route_permission", return_value=None),
+            patch.object(mission_module, "require_route_permission", return_value=None),
+            patch(
+                "backend.services.tools.standalone_actions._fetch_governed_public_search",
+                return_value=_CONTROLLED_DIRECTORY_SEARCH,
+            ),
+            patch(
+                "backend.services.tools.web_action_contacts.fetch_public_page",
+                return_value=_CONTROLLED_DIRECTORY_PAGE,
+            ),
+        ):
+            client = TestClient(app, raise_server_exceptions=False)
+            composed_response = client.post("/v1/missions/compose", json={"instruction": _INSTRUCTION})
+            assert composed_response.status_code == 200, composed_response.text
+            composed = composed_response.json()
+            confirmed_response = client.post(
+                f"/v1/missions/proposals/{composed['proposal_id']}/confirm",
+                json={"composition": composed["composition"], "idempotency_key": "directory-rejection-v1"},
+            )
+            assert confirmed_response.status_code == 200, confirmed_response.text
+            mission_id = uuid.UUID(confirmed_response.json()["mission_id"])
+            launched_response = client.post(f"/v1/missions/{mission_id}/launch")
+            assert launched_response.status_code == 200, launched_response.text
+            setup.commit()
+            _drain_mission(
+                session=setup,
+                factory=factory,
+                queue_adapter=queue_adapter,
+                tenant_id=tenant_text,
+                mission_id=mission_id,
+            )
+    finally:
+        setup.close()
+
+    verify = factory()
+    try:
+        activate_tenant_session(verify, tenant_text)
+        tasks = list(
+            verify.scalars(
+                select(ExecutionTask).where(
+                    ExecutionTask.tenant_id == tenant_text,
+                    ExecutionTask.mission_id == mission_id,
+                )
+            )
+        )
+        assert tasks and all(task.status == ExecutionTaskState.COMPLETED.value for task in tasks)
+        leases = list(verify.scalars(select(WorkerLease).where(WorkerLease.tenant_id == tenant_text)))
+        assert leases and all(lease.status == WorkerLeaseState.RELEASED.value for lease in leases)
+        outputs = {
+            task.metadata_json["tool_invocation"]["action"]: task.metadata_json["handler_result"]["output"]
+            for task in tasks
+        }
+        research_output = outputs["web.research"]
+        assert research_output["public_search_real"] is True
+        assert research_output["web_results"]
+        assert research_output["provider_attempts"]
+        assert all(attempt["outcome"] == "results" for attempt in research_output["provider_attempts"])
+
+        verifier_output = outputs["research.verify_public_candidates"]
+        assert verifier_output["pages"][0]["real"] is True
+        assert verifier_output["pages"][0]["identity_status"] == "unverified"
+        assert verifier_output["pages"][0]["source_reliability"] == "directory_or_third_party"
+        assert verifier_output["verified_prospect_candidates"] == []
+        assert verifier_output["valid_empty_result"] == {
+            "classification": "valid_empty",
+            "reason": "completed public identity verification rejected all candidate sources",
+        }
+
+        qualification_output = outputs["sales.qualify"]
+        assert qualification_output["qualified_prospects"] == []
+        assert qualification_output["valid_empty_result"]["classification"] == "valid_empty"
+        artifacts = collect_materialized_artifacts(tasks)
+        assert next(item.payload for item in artifacts if item.artifact_key == "verified_prospect_candidates") == []
+        assert next(item.payload for item in artifacts if item.artifact_key == "qualified_prospects") == []
+        evidence = list(
+            verify.scalars(
+                select(EvidenceRecord).where(
+                    EvidenceRecord.tenant_id == tenant_text,
+                    EvidenceRecord.mission_id == mission_id,
+                )
+            )
+        )
+        assert {task.id for task in tasks} <= {item.execution_task_id for item in evidence}
     finally:
         verify.close()
