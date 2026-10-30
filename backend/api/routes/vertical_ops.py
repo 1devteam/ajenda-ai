@@ -13,6 +13,7 @@ Does not grant execution authority from declarative pack/role records alone.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -27,6 +28,7 @@ from backend.domain.compliance import is_supported_jurisdiction
 from backend.domain.mission import Mission
 from backend.queue.base import QueueAdapter
 from backend.repositories.business_profile_repository import BusinessProfileRepository
+from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.services.abilities.role_contracts import RoleName
 from backend.services.business_profile.categories import missing_profile_categories
@@ -41,7 +43,7 @@ from backend.services.quota_enforcement import (
     QuotaExceededError,
 )
 from backend.services.tools.action_registry import get_default_action_registry
-from backend.services.tools.schemas import CredentialReference
+from backend.services.tools.schemas import CredentialReference, SideEffectClass
 from backend.services.vertical_ops.plan_templates import (
     get_vertical_mission_template,
     list_vertical_mission_templates,
@@ -252,14 +254,17 @@ def _enforce_quota_and_features(
     creating_mission: bool,
     task_count: int,
     role_key: str | None = None,
+    action_effects: Sequence[tuple[str, SideEffectClass]] | None = None,
 ) -> None:
     quota = QuotaEnforcementService(db)
     quota.check_tenant_active(tenant_id)
 
     needs_runtime_feature = False
     needs_gtm = False
-    for action_name in actions:
-        side_effect = template_step_side_effect(action_name, role_key=role_key)
+    resolved_effects = action_effects or [
+        (action_name, template_step_side_effect(action_name, role_key=role_key)) for action_name in actions
+    ]
+    for action_name, side_effect in resolved_effects:
         if side_effect.has_side_effect or side_effect.value.startswith("external_"):
             needs_runtime_feature = True
         if action_name.startswith("gtm."):
@@ -306,14 +311,29 @@ def _enforce_high_risk_queue_gates(*, request: Request, actions: list[str], body
         )
 
 
-def _enforce_operating_charter(*, db: Session, tenant_id: uuid.UUID | str, actions: list[str]) -> None:
+def _enforce_operating_charter(
+    *,
+    db: Session,
+    tenant_id: uuid.UUID | str,
+    actions: list[str],
+    action_effects: Sequence[tuple[str, SideEffectClass]] | None = None,
+) -> None:
     """Match ability-runtime: fail closed on never_do / prepare/perform charter gates."""
     if not actions:
         return
     profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=str(tenant_id))
     approved_facts = profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}
     registry = get_default_action_registry()
-    for action_name in actions:
+    resolved_effects = action_effects or []
+    if not resolved_effects:
+        resolved_effects = []
+        for action_name in actions:
+            try:
+                definition = registry.get(action_name)
+            except ValueError:
+                continue
+            resolved_effects.append((definition.name, definition.side_effect_class))
+    for action_name, side_effect_class in resolved_effects:
         try:
             definition = registry.get(action_name)
         except ValueError:
@@ -323,7 +343,7 @@ def _enforce_operating_charter(*, db: Session, tenant_id: uuid.UUID | str, actio
             charter = load_operating_charter(approved_facts=approved_facts)
             assert_action_allowed(
                 action_name=definition.name,
-                side_effect_class=definition.side_effect_class,
+                side_effect_class=side_effect_class,
                 charter=charter,
             )
         except OperatingCharterViolation as exc:
@@ -335,6 +355,51 @@ def _enforce_operating_charter(*, db: Session, tenant_id: uuid.UUID | str, actio
                 ),
                 detail={"code": exc.code, "message": exc.message, "action": exc.action},
             ) from exc
+
+
+def _bundle_action_effects(bundle: object) -> list[tuple[str, SideEffectClass]]:
+    """Read the resolved, invocation-specific classes from planned task contracts."""
+
+    planned_tasks = getattr(bundle, "planned_tasks", ())
+    effects: list[tuple[str, SideEffectClass]] = []
+    for planned in planned_tasks:
+        metadata = getattr(planned, "metadata_json", None)
+        action_name = getattr(planned, "action_name", None)
+        if not isinstance(metadata, dict) or not isinstance(action_name, str):
+            raise ValueError("vertical template bundle has invalid planned task authority metadata")
+        raw_effect = metadata.get("side_effect_class")
+        try:
+            effects.append((action_name, SideEffectClass(str(raw_effect))))
+        except ValueError as exc:
+            raise ValueError(f"vertical template task {action_name!r} has invalid side_effect_class") from exc
+    return effects
+
+
+def _stored_task_action_effects(
+    *, db: Session, tenant_id: uuid.UUID, task_ids: Sequence[uuid.UUID]
+) -> list[tuple[str, SideEffectClass]]:
+    """Use the durable task contract when a previously applied template is queued."""
+
+    repository = ExecutionTaskRepository(db)
+    effects: list[tuple[str, SideEffectClass]] = []
+    for task_id in task_ids:
+        task = repository.get(task_id)
+        if task is None or task.tenant_id != str(tenant_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="vertical task not found for tenant")
+        metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        invocation = metadata.get("tool_invocation")
+        action_name = invocation.get("action") if isinstance(invocation, dict) else None
+        raw_effect = metadata.get("side_effect_class")
+        if not isinstance(action_name, str):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="vertical task action metadata missing")
+        try:
+            effects.append((action_name, SideEffectClass(str(raw_effect))))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="vertical task side_effect_class metadata invalid",
+            ) from exc
+    return effects
 
 
 def _parse_stored_created_task_ids(template_meta: dict[str, Any]) -> tuple[uuid.UUID, ...]:
@@ -510,11 +575,21 @@ def create_mission_from_template(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    try:
+        action_effects = _bundle_action_effects(bundle)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     _enforce_profile_readiness(db=db, tenant_id=tenant_id, template_id=body.template_id)
 
     # Charter gates apply whenever runtime-bound tasks will be materialized or queued.
     if bundle.allows_runtime_queue:
-        _enforce_operating_charter(db=db, tenant_id=tenant_id, actions=actions)
+        _enforce_operating_charter(
+            db=db,
+            tenant_id=tenant_id,
+            actions=actions,
+            action_effects=action_effects,
+        )
 
     _enforce_quota_and_features(
         db=db,
@@ -523,6 +598,7 @@ def create_mission_from_template(
         creating_mission=True,
         task_count=len(bundle.planned_tasks),
         role_key=bundle.role_key,
+        action_effects=action_effects if bundle.allows_runtime_queue else [],
     )
 
     from backend.services.abilities.vertical_role_catalog import get_vertical_role
@@ -644,10 +720,20 @@ def apply_template_to_mission(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    try:
+        action_effects = _bundle_action_effects(bundle)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     _enforce_profile_readiness(db=db, tenant_id=tenant_id, template_id=body.template_id)
 
     if bundle.allows_runtime_queue:
-        _enforce_operating_charter(db=db, tenant_id=tenant_id, actions=actions)
+        _enforce_operating_charter(
+            db=db,
+            tenant_id=tenant_id,
+            actions=actions,
+            action_effects=action_effects,
+        )
 
     _enforce_quota_and_features(
         db=db,
@@ -656,6 +742,7 @@ def apply_template_to_mission(
         creating_mission=False,
         task_count=len(bundle.planned_tasks),
         role_key=bundle.role_key,
+        action_effects=action_effects if bundle.allows_runtime_queue else [],
     )
 
     try:
@@ -755,7 +842,12 @@ def queue_applied_template_tasks(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    _enforce_operating_charter(db=db, tenant_id=tenant_id, actions=actions)
+    _enforce_operating_charter(
+        db=db,
+        tenant_id=tenant_id,
+        actions=actions,
+        action_effects=_stored_task_action_effects(db=db, tenant_id=tenant_id, task_ids=task_ids),
+    )
 
     # Synthetic body for credential checks is not available on re-queue; enforce role only.
     high_risk = [action for action in actions if action in _HIGH_RISK_QUEUE_ACTIONS]

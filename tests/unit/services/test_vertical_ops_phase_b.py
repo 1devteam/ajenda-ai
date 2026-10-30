@@ -99,6 +99,47 @@ def test_build_bundle_default_research_is_draft_safe() -> None:
     assert bundle.plan_contract["planned_steps"][0]["sequence"] == 1
 
 
+def test_public_research_resolves_external_read_from_the_actual_invocation() -> None:
+    bundle = VerticalOpsTemplateService().build_bundle(
+        template_id="vertical.research.v1",
+        step_inputs={
+            "research-internal": {
+                "query": "HVAC companies in Dallas Texas",
+                "include_public_search": True,
+                "exclude_internal_records": True,
+            }
+        },
+    )
+
+    task = bundle.planned_tasks[0]
+    assert task.metadata_json["side_effect_class"] == "external_read"
+    assert task.metadata_json["dependency_keys"] == []
+    assert bundle.task_graph["nodes"][0]["metadata"]["side_effect_class"] == "external_read"
+
+
+def test_credential_backed_sales_research_resolves_external_read_and_runtime_dependency() -> None:
+    bundle = VerticalOpsTemplateService().build_bundle(
+        template_id="vertical.research.v1",
+        selected_step_keys=("research-internal", "research-sales"),
+        step_inputs={
+            "research-internal": {"query": "Acme competitors"},
+            "research-sales": {"lead": {"company": "Acme"}},
+        },
+        credential_references={
+            "research-sales": {
+                "credential_id": "cred-sales-1",
+                "provider": "crm",
+                "credential_type": "oauth2",
+            }
+        },
+    )
+
+    sales = next(task for task in bundle.planned_tasks if task.action_name == "sales.research")
+    assert sales.metadata_json["side_effect_class"] == "external_read"
+    assert sales.metadata_json["dependency_keys"] == ["research-internal"]
+    assert sales.metadata_json["dependency_step_keys"] == ["research-internal"]
+
+
 def _email_send_credential() -> dict[str, object]:
     return {
         "credential_id": "cred-email-1",
