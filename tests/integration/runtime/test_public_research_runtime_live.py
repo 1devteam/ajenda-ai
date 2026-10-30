@@ -33,6 +33,7 @@ from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
+from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.internet.contracts import PageSnapshot
 from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
 from backend.services.mission_composition.proposal_store import clear_proposals_for_tests
@@ -653,5 +654,103 @@ def test_directory_search_hit_is_rejected_as_unverified_identity_through_runtime
             )
         )
         assert {task.id for task in tasks} <= {item.execution_task_id for item in evidence}
+    finally:
+        verify.close()
+
+
+def test_public_only_research_does_not_read_or_materialize_tenant_crm_records(pg_engine, queue_adapter) -> None:
+    """Public-only composition excludes tenant records before research executes."""
+
+    def _forbidden_internal_read(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("public-only research attempted an internal record or CRM read")
+
+    clear_proposals_for_tests()
+    tenant_id = uuid.uuid4()
+    tenant_text = str(tenant_id)
+    factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    setup = factory()
+    try:
+        setup.add(
+            Tenant(id=tenant_id, name="Public-only isolation", slug=f"public-only-{tenant_id.hex[:8]}", plan="free")
+        )
+        setup.flush()
+        activate_tenant_session(setup, tenant_text)
+        persist_test_operating_charter(setup, tenant_id=tenant_text)
+        TenantInternalRecordRepository(setup).write_record(
+            tenant_id=tenant_text,
+            record_type="account",
+            record_id="tenant-hvac-account",
+            data={
+                "name": "Tenant-Owned Dallas HVAC",
+                "industry": "HVAC",
+                "location": "Dallas",
+                "website": "https://tenant-owned.example",
+            },
+        )
+        QuotaEnforcementService(setup).check_and_record_mission_creation(tenant_id)
+        setup.commit()
+
+        app = _build_app(tenant_id=tenant_id, session=setup, queue_adapter=queue_adapter)
+        with (
+            patch.object(composition_module, "require_route_permission", return_value=None),
+            patch.object(mission_module, "require_route_permission", return_value=None),
+            patch(
+                "backend.services.tools.standalone_actions._fetch_governed_public_search",
+                return_value=_CONTROLLED_PROVIDER_EMPTY,
+            ),
+            patch(
+                "backend.services.tools.standalone_actions.resolve_record_store", side_effect=_forbidden_internal_read
+            ),
+            patch("backend.services.tools.standalone_actions.default_crm_client", side_effect=_forbidden_internal_read),
+        ):
+            client = TestClient(app, raise_server_exceptions=False)
+            composed_response = client.post("/v1/missions/compose", json={"instruction": _INSTRUCTION})
+            assert composed_response.status_code == 200, composed_response.text
+            composed = composed_response.json()
+            confirmed_response = client.post(
+                f"/v1/missions/proposals/{composed['proposal_id']}/confirm",
+                json={"composition": composed["composition"], "idempotency_key": "public-only-isolation-v1"},
+            )
+            assert confirmed_response.status_code == 200, confirmed_response.text
+            mission_id = uuid.UUID(confirmed_response.json()["mission_id"])
+            launched_response = client.post(f"/v1/missions/{mission_id}/launch")
+            assert launched_response.status_code == 200, launched_response.text
+            setup.commit()
+            _drain_mission(
+                session=setup,
+                factory=factory,
+                queue_adapter=queue_adapter,
+                tenant_id=tenant_text,
+                mission_id=mission_id,
+            )
+    finally:
+        setup.close()
+
+    verify = factory()
+    try:
+        activate_tenant_session(verify, tenant_text)
+        tasks = list(
+            verify.scalars(
+                select(ExecutionTask).where(
+                    ExecutionTask.tenant_id == tenant_text,
+                    ExecutionTask.mission_id == mission_id,
+                )
+            )
+        )
+        assert tasks and all(task.status == ExecutionTaskState.COMPLETED.value for task in tasks)
+        research = next(task for task in tasks if task.metadata_json["tool_invocation"]["action"] == "web.research")
+        output = research.metadata_json["handler_result"]["output"]
+        assert output["exclude_internal_records"] is True
+        assert output["internal_records"] == []
+        assert output["internal_prospect_candidates"] == []
+        assert output["crm_brain_matches"] == []
+        assert output["source_partitions"]["tenant_internal"] == {
+            "record_count": 0,
+            "candidate_count": 0,
+            "verified_candidate_count": 0,
+            "evidence_class": "tenant_owned_record",
+            "provider_observed": False,
+            "authority": "tenant_record_store",
+        }
     finally:
         verify.close()
