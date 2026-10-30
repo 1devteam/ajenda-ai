@@ -15,7 +15,7 @@ Give Ajenda real public-internet leverage on the governed runtime spine.
 
 | Mode | Action(s) | Gate | Behavior |
 |------|-----------|------|----------|
-| `public_search` | `web.search`, `web.research` | always | Provider chain: Brave → SerpAPI → ddgs → DDG Instant Answer |
+| `public_search` | `web.search`, `web.research` | always | Governed provider chain: Brave → SerpAPI → DuckDuckGo HTML → DDG Instant Answer |
 | `page_read` | `web.page_read` | always | Single HTTPS GET + HTML extract |
 | `http_request` | `http.request` | always | Governed HTTP; writes need side-effect auth |
 | `browser_session` | `web.browser_session` | `AJENDA_BROWSER_SESSION_ENABLED` | Ephemeral Playwright Chromium; bounded read-only steps; destroy after call |
@@ -25,9 +25,12 @@ Give Ajenda real public-internet leverage on the governed runtime spine.
 
 ```bash
 # Search (auto picks strongest available)
-AJENDA_PUBLIC_SEARCH_PROVIDER=auto   # auto|ddgs|duckduckgo_instant_answer|brave|serpapi
+AJENDA_PUBLIC_SEARCH_PROVIDER=auto   # auto|duckduckgo_html|duckduckgo_instant_answer|brave|serpapi
 AJENDA_BRAVE_SEARCH_API_KEY=
 AJENDA_SERPAPI_API_KEY=
+
+# `ddgs` remains a legacy alias for governed DuckDuckGo HTML.
+# The package-owned DDGS client is not selected by the governed runtime.
 
 # Prototypes (fail closed when false)
 AJENDA_BROWSER_SESSION_ENABLED=false

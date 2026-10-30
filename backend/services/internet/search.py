@@ -3,11 +3,12 @@
 Priority (``AJENDA_PUBLIC_SEARCH_PROVIDER=auto``):
 1. Brave Search API when ``AJENDA_BRAVE_SEARCH_API_KEY`` is set (egress)
 2. SerpAPI when ``AJENDA_SERPAPI_API_KEY`` is set (egress)
-3. ``duckduckgo-search`` / ddgs package (free; package-owned HTTP)
+3. DuckDuckGo HTML results via NetworkEgressAuthority
 4. DuckDuckGo Instant Answer via NetworkEgressAuthority (fallback)
 
-Brave/SerpAPI always use NetworkEgressAuthority. The ddgs package uses its own
-HTTP client — discovery-only, no user-controlled URL navigation.
+Brave, SerpAPI, and both DuckDuckGo providers use NetworkEgressAuthority. The
+optional DDGS package owns its own HTTP client, so it is excluded from the
+governed public-runtime chain.
 """
 
 from __future__ import annotations
@@ -586,8 +587,9 @@ def public_search(
             error="no governed search providers available",
             attempts=tuple(attempts),
         )
-    # Surface failover chain when the winning bundle is empty/failed.
-    if not last.results or not last.real:
+    # A real empty response is a successful observation, not a provider error.
+    # Earlier provider failures remain reconstructable in ``attempts``.
+    if not last.real:
         err = last.error or "empty results"
         return SearchBundle(
             provider=last.provider,

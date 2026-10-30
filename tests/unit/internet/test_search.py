@@ -128,3 +128,33 @@ def test_fallback_preserves_the_failed_provider_attempt(monkeypatch) -> None:
     assert bundle.provider == "second"
     assert [attempt.outcome for attempt in bundle.attempts] == ["failure", "results"]
     assert bundle.attempts[0].status_code == 429
+
+
+def test_valid_empty_search_is_not_reported_as_a_provider_error(monkeypatch) -> None:
+    class FailedProvider:
+        name = "first"
+
+        def search(self, **_kwargs):  # type: ignore[no-untyped-def]
+            return SearchBundle(provider=self.name, real=False, error="HTTP 429", status_code=429)
+
+    class EmptyProvider:
+        name = "second"
+
+        def search(self, **_kwargs):  # type: ignore[no-untyped-def]
+            return SearchBundle(provider=self.name, real=True)
+
+    monkeypatch.setattr(
+        "backend.services.internet.search.resolve_public_search_provider_chain",
+        lambda: [FailedProvider(), EmptyProvider()],
+    )
+
+    bundle = public_search(query="no matching companies", limit=2)
+
+    assert bundle.provider == "second"
+    assert bundle.real is True
+    assert bundle.results == ()
+    assert bundle.error is None
+    assert [(attempt.provider, attempt.outcome, attempt.error) for attempt in bundle.attempts] == [
+        ("first", "failure", "HTTP 429"),
+        ("second", "empty", None),
+    ]
