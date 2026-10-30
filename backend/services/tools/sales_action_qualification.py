@@ -267,9 +267,15 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         "valid_empty_result": (
             {
                 "classification": "valid_empty",
-                "reason": "completed public research produced no verified prospects for qualification",
+                "reason": (
+                    "completed qualification found no prospects meeting the qualification threshold"
+                    if scored_prospects
+                    else "completed public research produced no verified prospects for qualification"
+                ),
             }
-            if not prospects_in and payload.context.get("valid_empty_upstream")
+            if binding_required
+            and not qualified_prospects
+            and (bool(scored_prospects) or bool(payload.context.get("valid_empty_upstream")))
             else None
         ),
     }

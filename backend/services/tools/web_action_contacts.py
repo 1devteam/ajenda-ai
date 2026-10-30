@@ -719,6 +719,20 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         if payload.collect_contacts
         else ["public company identity is verified from fetched HTML text only"]
     )
+    # A completed fetch is distinct from a verified company.  When at least
+    # one public candidate page was successfully observed but every candidate
+    # failed the identity contract, this is a durable insufficient-evidence
+    # outcome: the verifier did its work and did not invent an identity.
+    #
+    # Do not apply this marker when every page fetch failed.  That remains a
+    # provider/transport failure and must not be converted into a successful
+    # empty research result merely to satisfy the downstream artifact schema.
+    completed_identity_rejection = (
+        not payload.collect_contacts
+        and bool(raw_prospects)
+        and not verified_prospect_candidates
+        and any(page.get("real") is True for page in pages)
+    )
     output = {
         "prospect_candidates": [
             {
@@ -766,9 +780,13 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         "valid_empty_result": (
             {
                 "classification": "valid_empty",
-                "reason": "completed public discovery produced no verifiable company identities",
+                "reason": (
+                    "completed public identity verification rejected all candidate sources"
+                    if completed_identity_rejection
+                    else "completed public discovery produced no verifiable company identities"
+                ),
             }
-            if not raw_prospects and valid_empty_upstream
+            if (not raw_prospects and valid_empty_upstream) or completed_identity_rejection
             else None
         ),
         "real": (

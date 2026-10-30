@@ -254,6 +254,58 @@ def test_completed_public_no_result_binds_as_valid_empty_only_for_qualification(
     assert audit["valid_empty_upstream"][0]["source_action"] == "web.research"
 
 
+def test_completed_identity_rejection_binds_as_valid_empty_to_qualification() -> None:
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    verifier = _task(
+        node_key="ability-research-verify-public-candidates",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={
+            "verified_prospect_candidates": [],
+            "research_gap": "no verified candidates produced; public identity observation rejected all candidate sources",
+            "valid_empty_result": {
+                "classification": "valid_empty",
+                "reason": "completed public identity verification rejected all candidate sources",
+            },
+        },
+    )
+    verifier.metadata_json["tool_invocation"]["action"] = "research.verify_public_candidates"
+    qualification = _task(
+        node_key="ability-sales-qualify",
+        status=ExecutionTaskState.RUNNING.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        dependency_keys=["ability-research-verify-public-candidates"],
+        tool_input={"prospects": [], "context": {"binding_required": True}},
+        input_bindings=[
+            {
+                "from_step": "ability-research-verify-public-candidates",
+                "output_path": "$.verified_prospect_candidates",
+                "input_path": "$.input.prospects",
+            }
+        ],
+    )
+    qualification.metadata_json["tool_invocation"]["action"] = "sales.qualify"
+
+    bound, audit = apply_input_bindings(
+        tool_input=qualification.metadata_json["tool_invocation"]["input"],
+        task=qualification,
+        mission_tasks=[verifier, qualification],
+    )
+
+    assert bound["prospects"] == []
+    assert audit["valid_empty_upstream"] == [
+        {
+            "classification": "valid_empty",
+            "reason": "completed public identity verification rejected all candidate sources",
+            "source_task_id": str(verifier.id),
+            "source_action": "research.verify_public_candidates",
+        }
+    ]
+
+
 def test_provider_failure_empty_output_still_fails_closed() -> None:
     mission_id = uuid.uuid4()
     tenant_id = str(uuid.uuid4())

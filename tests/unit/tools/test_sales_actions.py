@@ -146,6 +146,35 @@ def test_sales_qualify_rejects_snippet_only_prospects() -> None:
     assert "not qualified without an observed or supplied contact" in result.output["reasons"]
 
 
+def test_bound_qualification_rejection_is_a_valid_empty_deliverable() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="sales.qualify",
+            input={
+                "prospects": [
+                    {
+                        "company": "Observed HVAC Company",
+                        "identity_status": "verified",
+                        "website": "https://observed-hvac.example",
+                        "source": "public_search",
+                        "real": True,
+                    }
+                ],
+                "context": {"binding_required": True, "qualification_threshold_10": 10},
+            },
+        ),
+        _context(),
+    )
+
+    assert result.output["scored_prospects"]
+    assert result.output["qualified_prospects"] == []
+    assert result.output["valid_empty_result"] == {
+        "classification": "valid_empty",
+        "reason": "completed qualification found no prospects meeting the qualification threshold",
+    }
+
+
 def test_sales_qualify_accepts_observed_email() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(
