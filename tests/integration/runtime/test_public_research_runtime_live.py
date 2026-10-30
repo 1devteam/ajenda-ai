@@ -560,6 +560,29 @@ def test_completed_empty_public_search_materializes_insufficient_evidence_artifa
         assert deliverable["task_state"]["all_succeeded"] is True
         assert deliverable["completion"]["complete"] is False
         assert deliverable["evidence_references"]
+
+        foreign_tenant_id = uuid.uuid4()
+        foreign = factory()
+        try:
+            foreign.add(
+                Tenant(
+                    id=foreign_tenant_id,
+                    name="Foreign deliverable reader",
+                    slug=f"foreign-{foreign_tenant_id.hex[:8]}",
+                    plan="free",
+                )
+            )
+            foreign.flush()
+            activate_tenant_session(foreign, str(foreign_tenant_id))
+            foreign.commit()
+            foreign_app = _build_app(tenant_id=foreign_tenant_id, session=foreign, queue_adapter=queue_adapter)
+            foreign_response = TestClient(foreign_app, raise_server_exceptions=False).get(
+                f"/v1/missions/{mission_id}/deliverable"
+            )
+            assert foreign_response.status_code == 404
+            assert foreign_response.json() == {"detail": "mission not found for tenant"}
+        finally:
+            foreign.close()
     finally:
         verify.close()
 
