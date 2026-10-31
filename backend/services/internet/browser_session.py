@@ -171,13 +171,16 @@ def run_browser_session(
 
     timeout_ms = int(min(max(timeout_seconds, 1.0), 60.0) * 1000)
     blocked: list[str] = []
+    blocked_unsafe_method = False
     steps: list[dict[str, Any]] = []
 
     def _route_handler(route: Any) -> None:
+        nonlocal blocked_unsafe_method
         request_url = str(getattr(route.request, "url", "") or "")
         method = str(getattr(route.request, "method", "") or "").upper()
         try:
             if method not in {"GET", "HEAD"}:
+                blocked_unsafe_method = True
                 raise NetworkEgressError("web.browser_session only allows GET and HEAD requests")
             reject_credentialed_url(request_url, action_name="web.browser_session")
             get_default_network_egress_authority().vet_https_url(
@@ -286,6 +289,14 @@ def run_browser_session(
                             if not selector:
                                 raise ValueError("click step requires selector")
                             page.locator(selector).click(timeout=timeout_ms)
+                            # A command that triggered a non-read request is
+                            # not a successful observation, even when
+                            # Chromium leaves the pre-click DOM available
+                            # while its aborted navigation settles.
+                            if blocked_unsafe_method:
+                                raise NetworkEgressError(
+                                    "web.browser_session blocked a non-read request during a browser command"
+                                )
                             try:
                                 page.wait_for_load_state(wait_until, timeout=min(timeout_ms, 10_000))
                             except Exception:

@@ -19,6 +19,8 @@ class _FakeResponse:
 
 
 class _FakePage:
+    click_hook = None
+
     def __init__(self) -> None:
         self.url = "https://example.com/"
         self.clicked: list[str] = []
@@ -38,6 +40,8 @@ class _FakePage:
 
     def click(self, **_kwargs) -> None:
         self.clicked.append("clicked")
+        if self.__class__.click_hook is not None:
+            self.__class__.click_hook()
 
     def wait_for_load_state(self, _state: str, **_kwargs) -> None:
         return None
@@ -273,3 +277,53 @@ def test_browser_route_blocks_non_read_http_methods(monkeypatch) -> None:
     handler(route)
     assert route.aborted is True
     assert route.continued is False
+
+
+def test_browser_click_with_blocked_write_fails_observation(monkeypatch) -> None:
+    """A blocked write must not retain a successful pre-click browser snapshot."""
+
+    monkeypatch.setenv("AJENDA_BROWSER_SESSION_ENABLED", "true")
+    from backend.app import config as config_mod
+
+    if hasattr(config_mod.get_settings, "cache_clear"):
+        config_mod.get_settings.cache_clear()
+
+    authority = MagicMock()
+
+    class _Route:
+        class Request:
+            url = "https://example.com/submit"
+            method = "POST"
+
+        request = Request()
+
+        def abort(self) -> None:
+            return None
+
+        def continue_(self) -> None:
+            raise AssertionError("blocked POST must not continue")
+
+    def _trigger_post() -> None:
+        assert _FakeContext.latest is not None
+        assert _FakeContext.latest.route_handler is not None
+        _FakeContext.latest.route_handler(_Route())
+
+    _FakePage.click_hook = _trigger_post
+    try:
+        with (
+            patch(
+                "backend.services.internet.browser_session.get_default_network_egress_authority", return_value=authority
+            ),
+            patch("playwright.sync_api.sync_playwright", return_value=_FakePlaywright()),
+        ):
+            snapshot = run_browser_session(
+                url_or_domain="https://example.com",
+                allowed_origins=("https://example.com",),
+                commands=({"action": "click", "selector": "button"},),
+            )
+    finally:
+        _FakePage.click_hook = None
+
+    assert snapshot.real is False
+    assert "blocked a non-read request" in (snapshot.error or "")
+    assert snapshot.extraction["blocked_request_count"] == 1
