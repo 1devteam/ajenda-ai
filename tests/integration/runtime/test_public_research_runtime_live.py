@@ -321,6 +321,96 @@ def test_live_public_research_preserves_provider_attempts_and_evidence_outcome(
         verify.close()
 
 
+def test_runtime_control_diagnostic_persists_through_canonical_runtime(pg_engine, queue_adapter) -> None:
+    """Run Ajenda's local-only control diagnostic through queue, lease, and readback."""
+
+    clear_proposals_for_tests()
+    tenant_id = uuid.uuid4()
+    tenant_text = str(tenant_id)
+    factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    setup = factory()
+    try:
+        setup.add(Tenant(id=tenant_id, name="Runtime diagnostics", slug=f"controls-{tenant_id.hex[:8]}", plan="free"))
+        setup.flush()
+        activate_tenant_session(setup, tenant_text)
+        persist_test_operating_charter(setup, tenant_id=tenant_text)
+        QuotaEnforcementService(setup).check_and_record_mission_creation(tenant_id)
+        setup.commit()
+        app = _build_app(tenant_id=tenant_id, session=setup, queue_adapter=queue_adapter)
+        instruction = (
+            "Verify runtime controls for HTTPS-only egress, private-address rejection, "
+            "destination policy, and retry idempotency."
+        )
+        with (
+            patch.object(composition_module, "require_route_permission", return_value=None),
+            patch.object(mission_module, "require_route_permission", return_value=None),
+        ):
+            client = TestClient(app, raise_server_exceptions=False)
+            composed_response = client.post("/v1/missions/compose", json={"instruction": instruction})
+            assert composed_response.status_code == 200, composed_response.text
+            composed = composed_response.json()
+            assert [step["action_name"] for step in composed["planned_steps"]] == ["runtime.verify_controls"]
+            confirmed_response = client.post(
+                f"/v1/missions/proposals/{composed['proposal_id']}/confirm",
+                json={"composition": composed["composition"], "idempotency_key": "runtime-controls-v1"},
+            )
+            assert confirmed_response.status_code == 200, confirmed_response.text
+            mission_id = uuid.UUID(confirmed_response.json()["mission_id"])
+            launched_response = client.post(f"/v1/missions/{mission_id}/launch")
+            assert launched_response.status_code == 200, launched_response.text
+            setup.commit()
+            _drain_mission(
+                session=setup,
+                factory=factory,
+                queue_adapter=queue_adapter,
+                tenant_id=tenant_text,
+                mission_id=mission_id,
+            )
+    finally:
+        setup.close()
+
+    verify = factory()
+    try:
+        activate_tenant_session(verify, tenant_text)
+        task = verify.scalar(
+            select(ExecutionTask).where(
+                ExecutionTask.tenant_id == tenant_text,
+                ExecutionTask.mission_id == mission_id,
+            )
+        )
+        assert task is not None
+        assert task.status == ExecutionTaskState.COMPLETED.value
+        output = task.metadata_json["handler_result"]["output"]["runtime_control_verification_package"]
+        assert output["proof_manifest"] == {
+            "redacted": True,
+            "credentials_used": False,
+            "external_actions_performed": False,
+            "network_calls_performed": False,
+            "evidence_types": ["local_fixture_probe", "source_reference"],
+        }
+        controls = {item["control"]: item for item in output["controls"]}
+        assert {
+            "network_authority",
+            "https_only",
+            "private_address_rejection",
+            "destination_policy",
+            "retry_idempotency",
+        } <= set(controls)
+        assert all(item["status"] == "proven" for item in controls.values())
+        evidence = list(
+            verify.scalars(
+                select(EvidenceRecord).where(
+                    EvidenceRecord.tenant_id == tenant_text,
+                    EvidenceRecord.execution_task_id == task.id,
+                )
+            )
+        )
+        assert evidence
+        assert any(item.evidence_source == "tool.invoke.runtime.verify_controls" for item in evidence)
+    finally:
+        verify.close()
+
+
 def test_provider_failure_remains_distinct_from_valid_empty_research(pg_engine, queue_adapter) -> None:
     """A failed provider cannot complete the verifier/qualification as empty evidence."""
 
