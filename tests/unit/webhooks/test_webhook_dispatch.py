@@ -100,6 +100,21 @@ class _FakeHTTPXClient:
         self.requests.append((args, kwargs))
         return self.response or _make_http_response(200, "ok")
 
+    def stream(self, *args: object, **kwargs: object) -> _FakeHTTPXStream:
+        self.requests.append((args, kwargs))
+        return _FakeHTTPXStream(self.response or _make_http_response(200, "ok"))
+
+
+class _FakeHTTPXStream:
+    def __init__(self, response: MagicMock) -> None:
+        self._response = response
+
+    def __enter__(self) -> MagicMock:
+        return self._response
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
 
 @pytest.fixture(autouse=True)
 def public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -189,6 +204,8 @@ def _make_http_response(status_code: int, text: str = "") -> MagicMock:
     resp = MagicMock()
     resp.status_code = status_code
     resp.text = text
+    resp.headers = {}
+    resp.iter_bytes.return_value = [text.encode("utf-8")]
     return resp
 
 
