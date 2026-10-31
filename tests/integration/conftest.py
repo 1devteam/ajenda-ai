@@ -17,6 +17,7 @@ import pytest
 from alembic.config import Config as AlembicConfig
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command as alembic_command
@@ -24,6 +25,13 @@ from backend.app.config import get_settings
 from backend.queue import build_queue_adapter
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+_ROLE_PASSWORD_ENV = {
+    "ajenda_migrator": "AJENDA_TEST_MIGRATOR_DATABASE_PASSWORD",
+    "ajenda_api": "AJENDA_TEST_API_DATABASE_PASSWORD",
+    "ajenda_worker": "AJENDA_TEST_WORKER_DATABASE_PASSWORD",
+    "ajenda_assurance": "AJENDA_TEST_ASSURANCE_DATABASE_PASSWORD",
+}
 
 # Apply safe integration-test defaults at collection time so modules that
 # import backend.main during test discovery do not evaluate production-style
@@ -42,6 +50,10 @@ _COLLECTION_ENV_DEFAULTS = {
     # Never inherit a developer or deployment credential-encryption key into
     # integration tests.  This key lives only for this test process.
     "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY": Fernet.generate_key().decode(),
+    # Database identities must use fresh, process-local credentials.  Fixed
+    # credential-shaped test strings are both unsafe as examples and trigger
+    # secret scanners despite never reaching a deployed environment.
+    **{environment_key: token_urlsafe(32) for environment_key in _ROLE_PASSWORD_ENV.values()},
 }
 
 for _key, _value in _COLLECTION_ENV_DEFAULTS.items():
@@ -103,6 +115,11 @@ def _restore_env(previous: dict[str, str | None]) -> None:
         else:
             os.environ[key] = value
     get_settings.cache_clear()
+
+
+def _postgresql_string_literal(value: str) -> str:
+    """Render a value for PostgreSQL utility DDL, which cannot bind PASSWORD."""
+    return "'" + value.replace("'", "''") + "'"
 
 
 @pytest.fixture(scope="session")
@@ -186,29 +203,25 @@ def pg_engine(pg_url: str, integration_env: None):
                 DO $$
                 BEGIN
                     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ajenda_migrator') THEN
-                        CREATE ROLE ajenda_migrator LOGIN PASSWORD 'integration-migrator' NOSUPERUSER NOBYPASSRLS;
+                        CREATE ROLE ajenda_migrator LOGIN NOSUPERUSER NOBYPASSRLS;
                     END IF;
                     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ajenda_api') THEN
-                        CREATE ROLE ajenda_api LOGIN PASSWORD 'integration-api' NOSUPERUSER NOBYPASSRLS;
+                        CREATE ROLE ajenda_api LOGIN NOSUPERUSER NOBYPASSRLS;
                     END IF;
                     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ajenda_worker') THEN
-                        CREATE ROLE ajenda_worker LOGIN PASSWORD 'integration-worker' NOSUPERUSER NOBYPASSRLS;
+                        CREATE ROLE ajenda_worker LOGIN NOSUPERUSER NOBYPASSRLS;
                     END IF;
                     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ajenda_assurance') THEN
-                        CREATE ROLE ajenda_assurance LOGIN PASSWORD 'integration-assurance' NOSUPERUSER NOBYPASSRLS;
+                        CREATE ROLE ajenda_assurance LOGIN NOSUPERUSER NOBYPASSRLS;
                     END IF;
                 END
                 $$;
                 """
             )
         )
-        for role, password in (
-            ("ajenda_migrator", "integration-migrator"),
-            ("ajenda_api", "integration-api"),
-            ("ajenda_worker", "integration-worker"),
-            ("ajenda_assurance", "integration-assurance"),
-        ):
-            conn.execute(text(f"ALTER ROLE {role} PASSWORD '{password}'"))
+        for role, environment_key in _ROLE_PASSWORD_ENV.items():
+            password_literal = _postgresql_string_literal(os.environ[environment_key])
+            conn.execute(text(f"ALTER ROLE {role} PASSWORD {password_literal}"))
         tables = conn.execute(
             text(
                 "SELECT quote_ident(c.relname) FROM pg_class c "
@@ -220,7 +233,27 @@ def pg_engine(pg_url: str, integration_env: None):
             conn.execute(text(f"ALTER TABLE public.{table} OWNER TO ajenda_migrator"))
         conn.execute(text("ALTER SCHEMA public OWNER TO ajenda_migrator"))
 
-    alembic_command.upgrade(alembic_cfg, "head")
+    # The release contract requires every revision after the ownership handoff
+    # to run through the dedicated migrator identity.  Keeping the bootstrap
+    # engine for this step would make later tables appear correctly migrated
+    # while assigning their ownership to the test bootstrap role.
+    # ``str(URL)`` deliberately redacts a password as ``***``; Alembic needs
+    # the actual ephemeral fixture credential for this real login.
+    migrator_url = (
+        make_url(pg_url)
+        .set(username="ajenda_migrator", password=os.environ[_ROLE_PASSWORD_ENV["ajenda_migrator"]])
+        .render_as_string(hide_password=False)
+    )
+    previous_database_url = os.environ.get("AJENDA_DATABASE_URL")
+    os.environ["AJENDA_DATABASE_URL"] = migrator_url
+    try:
+        alembic_command.upgrade(alembic_cfg, "head")
+    finally:
+        if previous_database_url is None:
+            os.environ.pop("AJENDA_DATABASE_URL", None)
+        else:
+            os.environ["AJENDA_DATABASE_URL"] = previous_database_url
+        get_settings.cache_clear()
 
     from backend.db.vector_schema import ensure_vector_schema
 

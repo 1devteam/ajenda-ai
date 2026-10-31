@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from secrets import token_urlsafe
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -18,10 +18,10 @@ from backend.services.credentials.secret_protector import RuntimeCredentialSecre
 from backend.services.credentials.sqlalchemy_repository import SQLAlchemyCredentialRuntimeRepository
 
 _ROLE_PASSWORDS = {
-    "api": f"test-{token_urlsafe(24)}",
-    "worker": f"test-{token_urlsafe(24)}",
-    "assurance": f"test-{token_urlsafe(24)}",
-    "migrator": f"test-{token_urlsafe(24)}",
+    "api": os.environ["AJENDA_TEST_API_DATABASE_PASSWORD"],
+    "worker": os.environ["AJENDA_TEST_WORKER_DATABASE_PASSWORD"],
+    "assurance": os.environ["AJENDA_TEST_ASSURANCE_DATABASE_PASSWORD"],
+    "migrator": os.environ["AJENDA_TEST_MIGRATOR_DATABASE_PASSWORD"],
 }
 
 
@@ -117,7 +117,13 @@ def test_runtime_roles_are_restricted_and_billing_rows_are_tenant_isolated_real(
             assert conn.scalar(text("SELECT count(*) FROM billing_meter_dispatches")) == 0
 
         with api_engine.connect() as conn:
-            assert conn.scalar(text("SELECT count(*) FROM tenant_members")) == 0
+            # Membership is intentionally a pre-tenant authentication registry:
+            # it has no tenant RLS so API login and membership selection can
+            # occur before a tenant context exists.  The API identity owns
+            # that read; worker and assurance denial is asserted below.
+            assert (
+                conn.scalar(text("SELECT has_table_privilege(current_user, 'public.tenant_members', 'SELECT')")) is True
+            )
 
         for engine in (worker_engine, assurance_engine):
             with engine.connect() as conn:
@@ -182,7 +188,7 @@ def test_worker_credential_runtime_repository_activates_tenant_rls_context_real(
         )
         setup.commit()
 
-    worker_engine = create_engine(_role_url(pg_url, username="ajenda_worker", password="integration-worker"))
+    worker_engine = create_engine(_role_url(pg_url, username="ajenda_worker", password=_ROLE_PASSWORDS["worker"]))
     worker_factory = sessionmaker(bind=worker_engine, autoflush=False, autocommit=False, expire_on_commit=False)
     try:
         repository = SQLAlchemyCredentialRuntimeRepository(session_factory=worker_factory)
