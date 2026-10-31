@@ -46,6 +46,7 @@ from tests.integration.operating_charter_support import persist_test_operating_c
 pytestmark = pytest.mark.integration
 
 _LIVE_FLAG = "AJENDA_LIVE_PUBLIC_RESEARCH"
+_LIVE_BROWSER_FLAG = "AJENDA_LIVE_BROWSER_OBSERVATION"
 _INSTRUCTION = (
     "Research and qualify up to three HVAC companies in Dallas using public sources only. "
     "Do not contact anyone or modify any external system."
@@ -488,6 +489,111 @@ def test_disabled_browser_observation_fails_after_canonical_dispatch(pg_engine, 
         lease = verify.get(WorkerLease, lease_id)
         assert lease is not None
         assert lease.status == WorkerLeaseState.RELEASED.value
+    finally:
+        verify.close()
+
+
+@pytest.mark.live
+def test_live_browser_observation_persists_through_canonical_runtime(pg_engine, queue_adapter, monkeypatch) -> None:
+    """Run the enabled browser path through composition, queue, dispatch, and durable readback."""
+
+    if os.environ.get(_LIVE_BROWSER_FLAG) != "1":
+        pytest.skip(f"set {_LIVE_BROWSER_FLAG}=1 to run this external read-only proof")
+
+    monkeypatch.setenv("AJENDA_BROWSER_SESSION_ENABLED", "true")
+    from backend.app import config as config_module
+
+    if hasattr(config_module.get_settings, "cache_clear"):
+        config_module.get_settings.cache_clear()
+
+    clear_proposals_for_tests()
+    tenant_id = uuid.uuid4()
+    tenant_text = str(tenant_id)
+    factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    setup = factory()
+    try:
+        setup.add(Tenant(id=tenant_id, name="Live browser", slug=f"browser-live-{tenant_id.hex[:8]}", plan="free"))
+        setup.flush()
+        activate_tenant_session(setup, tenant_text)
+        persist_test_operating_charter(setup, tenant_id=tenant_text)
+        QuotaEnforcementService(setup).check_and_record_mission_creation(tenant_id)
+        setup.commit()
+        app = _build_app(tenant_id=tenant_id, session=setup, queue_adapter=queue_adapter)
+        instruction = "Observe https://www.iana.org/domains/reserved and return the page title. Do not modify anything."
+        with (
+            patch.object(composition_module, "require_route_permission", return_value=None),
+            patch.object(mission_module, "require_route_permission", return_value=None),
+        ):
+            client = TestClient(app, raise_server_exceptions=False)
+            composed_response = client.post("/v1/missions/compose", json={"instruction": instruction})
+            assert composed_response.status_code == 200, composed_response.text
+            composed = composed_response.json()
+            assert [step["action_name"] for step in composed["planned_steps"]] == ["web.browser_session"]
+            confirmed_response = client.post(
+                f"/v1/missions/proposals/{composed['proposal_id']}/confirm",
+                json={"composition": composed["composition"], "idempotency_key": "live-browser-v1"},
+            )
+            assert confirmed_response.status_code == 200, confirmed_response.text
+            mission_id = uuid.UUID(confirmed_response.json()["mission_id"])
+            launched_response = client.post(f"/v1/missions/{mission_id}/launch")
+            assert launched_response.status_code == 200, launched_response.text
+            assert launched_response.json()["queued_task_ids"]
+            setup.commit()
+
+        runtime = WorkerRuntimeService(setup, queue_adapter)
+        claimed = runtime.claim_next_task(tenant_id=tenant_text, worker_id="live-browser-worker")
+        assert claimed is not None
+        lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+        runtime.heartbeat(tenant_id=tenant_text, lease_id=lease_id, worker_id="live-browser-worker")
+        runtime.start_execution(tenant_id=tenant_text, lease_id=lease_id, worker_id="live-browser-worker")
+        setup.commit()
+        TaskDispatcher(
+            session_factory=factory,
+            vector_session_factory=factory,
+            queue=queue_adapter,
+            worker_id="live-browser-worker",
+            tenant_id=tenant_text,
+        ).execute(task_id=claimed.id, lease_id=lease_id)
+    finally:
+        setup.close()
+        if hasattr(config_module.get_settings, "cache_clear"):
+            config_module.get_settings.cache_clear()
+
+    verify = factory()
+    try:
+        activate_tenant_session(verify, tenant_text)
+        task = verify.scalar(
+            select(ExecutionTask).where(
+                ExecutionTask.tenant_id == tenant_text,
+                ExecutionTask.mission_id == mission_id,
+            )
+        )
+        assert task is not None
+        assert task.status == ExecutionTaskState.COMPLETED.value
+        output = task.metadata_json["handler_result"]["output"]
+        observation = output["web_page_observation"]
+        assert observation["title"] == "IANA-managed Reserved Domains"
+        assert observation["observation_satisfied"] is True
+        assert observation["network_provenance"] == {
+            "request_vetting": "network_egress_per_request",
+            "dns_pin": "chromium_host_resolver_rules",
+            "dns_pinned_hosts": ["www.iana.org"],
+            "allowed_hosts": ["www.iana.org"],
+            "engine": "playwright_chromium",
+            "ephemeral_context": True,
+        }
+        lease = verify.get(WorkerLease, lease_id)
+        assert lease is not None
+        assert lease.status == WorkerLeaseState.RELEASED.value
+        evidence = list(
+            verify.scalars(
+                select(EvidenceRecord).where(
+                    EvidenceRecord.tenant_id == tenant_text,
+                    EvidenceRecord.execution_task_id == task.id,
+                )
+            )
+        )
+        assert any(item.evidence_source == "tool.invoke.web.browser_session" for item in evidence)
     finally:
         verify.close()
 
