@@ -6,6 +6,7 @@ from backend.services.readiness_evaluator_service import ReadinessEvaluatorServi
 def test_readiness_evaluator_ready_when_dependencies_ping() -> None:
     db = Mock()
     db.ping.return_value = True
+    db.schema_revision_status.return_value = "ready"
     queue = Mock()
     queue.ping.return_value = True
 
@@ -18,6 +19,7 @@ def test_readiness_evaluator_ready_when_dependencies_ping() -> None:
         "status": "ready",
         "dependencies": {
             "database": {"status": "ready"},
+            "schema": {"status": "ready"},
             "queue": {"status": "ready"},
         },
         "reason": None,
@@ -34,6 +36,7 @@ def test_readiness_evaluator_unavailable_when_database_raises() -> None:
 
     assert result.status_code == 503
     assert result.database_status == "unavailable"
+    assert result.schema_status == "skipped"
     assert result.queue_status == "ready"
     assert result.payload["status"] == "unavailable"
     assert result.payload["reason"] == "DATABASE_UNAVAILABLE"
@@ -55,6 +58,7 @@ def test_readiness_evaluator_unavailable_when_both_dependencies_fail() -> None:
 def test_readiness_evaluator_unavailable_when_queue_raises() -> None:
     db = Mock()
     db.ping.return_value = True
+    db.schema_revision_status.return_value = "ready"
     queue = Mock()
     queue.ping.side_effect = RuntimeError("redis://cache:6379/0")
 
@@ -67,6 +71,7 @@ def test_readiness_evaluator_unavailable_when_queue_raises() -> None:
         "status": "unavailable",
         "dependencies": {
             "database": {"status": "ready"},
+            "schema": {"status": "ready"},
             "queue": {"status": "unavailable"},
         },
         "reason": "QUEUE_UNAVAILABLE",
@@ -87,6 +92,7 @@ def test_readiness_evaluator_handles_mixed_skipped_and_unavailable_dependencies(
         "status": "unavailable",
         "dependencies": {
             "database": {"status": "skipped"},
+            "schema": {"status": "skipped"},
             "queue": {"status": "unavailable"},
         },
         "reason": "QUEUE_UNAVAILABLE",
@@ -98,5 +104,28 @@ def test_readiness_evaluator_skips_none_dependencies() -> None:
 
     assert result.status_code == 200
     assert result.database_status == "skipped"
+    assert result.schema_status == "skipped"
     assert result.queue_status == "skipped"
     assert result.payload["reason"] is None
+
+
+def test_readiness_evaluator_exposes_schema_behind_without_disclosing_revisions() -> None:
+    db = Mock()
+    db.ping.return_value = True
+    db.schema_revision_status.return_value = "behind"
+    queue = Mock()
+    queue.ping.return_value = True
+
+    result = ReadinessEvaluatorService().evaluate(database_runtime=db, queue_adapter=queue)
+
+    assert result.status_code == 503
+    assert result.schema_status == "behind"
+    assert result.payload == {
+        "status": "unavailable",
+        "dependencies": {
+            "database": {"status": "ready"},
+            "schema": {"status": "behind"},
+            "queue": {"status": "ready"},
+        },
+        "reason": "SCHEMA_BEHIND",
+    }

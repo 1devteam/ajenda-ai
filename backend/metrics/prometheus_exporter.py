@@ -3,7 +3,7 @@ from __future__ import annotations
 from backend.observability.metrics import MetricsSnapshot
 
 READINESS_METRIC_NAME = "ajenda_readiness_dependency_status"
-READINESS_DEPENDENCIES = ("database", "queue")
+READINESS_DEPENDENCIES = ("database", "schema", "queue")
 
 
 _readiness_dependency_values: dict[str, int] = {dependency: 0 for dependency in READINESS_DEPENDENCIES}

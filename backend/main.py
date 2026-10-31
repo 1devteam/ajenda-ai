@@ -78,6 +78,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Step 3: Initialise database connection pool
     database_runtime = DatabaseRuntime(settings)
+    database_runtime.verify_schema_revision()
 
     # Step 4: Initialise vector/ephemeral data plane when enabled
     vector_database_runtime: VectorDatabaseRuntime | None = None

@@ -45,6 +45,7 @@ def test_worker_image_entrypoint_uses_worker_loop_script() -> None:
     assert 'ENTRYPOINT ["/app/deploy/scripts/start-worker.sh"]' in dockerfile
     assert "configure_logging(settings)" in script
     assert "settings.validate_runtime_contract()" in script
+    assert "database_runtime.verify_schema_revision()" in script
     assert "build_queue_adapter(settings)" in script
     assert "queue_adapter.ping()" in script
     assert "WorkerLoop(" in script
@@ -59,12 +60,23 @@ def test_migrate_image_entrypoint_uses_migration_script() -> None:
 
     assert 'ENTRYPOINT ["/app/deploy/scripts/run-migrations.sh"]' in dockerfile
     assert "alembic upgrade head" in script
+    assert script.count("verify_schema_revision()") == 1
 
 
 def test_main_registers_sanitized_global_exception_handler() -> None:
     main_py = _read(Path("backend/main.py"))
     assert "unhandled_exception_handler" in main_py
     assert '"Internal server error"' in main_py
+
+
+def test_all_runtime_processes_verify_schema_without_becoming_migrators() -> None:
+    main_py = _read(Path("backend/main.py"))
+    assurance_loop = _read(Path("backend/workers/assurance_loop.py"))
+
+    assert "database_runtime.verify_schema_revision()" in main_py
+    assert "runtime.verify_schema_revision()" in assurance_loop
+    assert "alembic upgrade" not in main_py
+    assert "alembic upgrade" not in assurance_loop
 
 
 def test_runtime_images_copy_deploy_scripts() -> None:

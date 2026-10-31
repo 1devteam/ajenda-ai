@@ -81,6 +81,22 @@ class DatabaseRuntime:
         except Exception:
             return False
 
+    def verify_schema_revision(self) -> None:
+        """Fail before serving work when this image's Alembic head is not live."""
+        from backend.db.schema_revision import verify_schema_revision
+
+        verify_schema_revision(self._engine)
+
+    def schema_revision_status(self) -> str:
+        """Return a sanitized readiness state for the schema revision contract."""
+        from backend.db.schema_revision import SchemaRevisionError
+
+        try:
+            self.verify_schema_revision()
+        except SchemaRevisionError as exc:
+            return exc.status
+        return "ready"
+
     def dispose(self) -> None:
         if self._engine is not None:
             self._engine.dispose()

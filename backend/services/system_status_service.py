@@ -24,6 +24,7 @@ class SystemStatusService:
             database_runtime=database_runtime, queue_adapter=queue_adapter
         )
         set_readiness_dependency_status(dependency="database", status=evaluation.database_status)
+        set_readiness_dependency_status(dependency="schema", status=evaluation.schema_status)
         set_readiness_dependency_status(dependency="queue", status=evaluation.queue_status)
         return evaluation.status_code, evaluation.payload
 

@@ -3,20 +3,40 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.db.schema_revision import SchemaRevisionError
 from backend.main import create_app
 from backend.metrics.prometheus_exporter import readiness_dependency_samples
 
 
 @pytest.fixture(autouse=True)
 def _mock_vector_schema_for_health_contract(monkeypatch: pytest.MonkeyPatch) -> None:
-    # This suite tests HTTP health/readiness behavior, not migration readiness.
-    # Production startup retains the real fail-closed vector schema check.
+    # This suite tests HTTP health/readiness behavior, not schema migration
+    # startup. Production startup retains both real fail-closed schema checks.
     monkeypatch.setattr("backend.main.VectorDatabaseRuntime.verify_schema", lambda self: None)
+    monkeypatch.setattr("backend.main.DatabaseRuntime.verify_schema_revision", lambda self: None)
 
 
 class _FailIfCalled:
     def ping(self) -> bool:
         raise AssertionError("dependency ping should not be called for health")
+
+
+def test_api_startup_rejects_schema_behind_before_queue_or_request_handling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _schema_behind(_self: object) -> None:
+        raise SchemaRevisionError(
+            status="behind",
+            expected_heads=("0063_evidence_logical_identity",),
+            actual_heads=("0060_reaffirm_need_rls",),
+        )
+
+    monkeypatch.setattr("backend.main.DatabaseRuntime.verify_schema_revision", _schema_behind)
+    app = create_app()
+
+    with pytest.raises(SchemaRevisionError, match="behind"):
+        with TestClient(app):
+            pass
 
 
 def test_health_route_returns_ok() -> None:
@@ -90,6 +110,7 @@ def test_root_and_system_readiness_share_normalized_contract() -> None:
     app = create_app()
     db = Mock()
     db.ping.return_value = True
+    db.schema_revision_status.return_value = "ready"
     queue = Mock()
     queue.ping.return_value = True
 
@@ -105,6 +126,7 @@ def test_root_and_system_readiness_share_normalized_contract() -> None:
         "status": "ready",
         "dependencies": {
             "database": {"status": "ready"},
+            "schema": {"status": "ready"},
             "queue": {"status": "ready"},
         },
         "reason": None,
@@ -120,19 +142,31 @@ def test_root_and_system_readiness_share_normalized_contract() -> None:
             False,
             True,
             "DATABASE_UNAVAILABLE",
-            {"database": {"status": "unavailable"}, "queue": {"status": "ready"}},
+            {
+                "database": {"status": "unavailable"},
+                "schema": {"status": "skipped"},
+                "queue": {"status": "ready"},
+            },
         ),
         (
             True,
             False,
             "QUEUE_UNAVAILABLE",
-            {"database": {"status": "ready"}, "queue": {"status": "unavailable"}},
+            {
+                "database": {"status": "ready"},
+                "schema": {"status": "ready"},
+                "queue": {"status": "unavailable"},
+            },
         ),
         (
             False,
             False,
             "DEPENDENCY_UNAVAILABLE",
-            {"database": {"status": "unavailable"}, "queue": {"status": "unavailable"}},
+            {
+                "database": {"status": "unavailable"},
+                "schema": {"status": "skipped"},
+                "queue": {"status": "unavailable"},
+            },
         ),
     ],
 )
@@ -145,6 +179,7 @@ def test_root_and_system_readiness_share_degraded_contract(
     app = create_app()
     db = Mock()
     db.ping.return_value = database_ready
+    db.schema_revision_status.return_value = "ready"
     queue = Mock()
     queue.ping.return_value = queue_ready
 
@@ -163,3 +198,28 @@ def test_root_and_system_readiness_share_degraded_contract(
     assert system_response.status_code == 503
     assert root_response.json() == expected_payload
     assert system_response.json() == expected_payload
+
+
+def test_root_readiness_reports_schema_behind() -> None:
+    app = create_app()
+    db = Mock()
+    db.ping.return_value = True
+    db.schema_revision_status.return_value = "behind"
+    queue = Mock()
+    queue.ping.return_value = True
+
+    with TestClient(app) as client:
+        app.state.database_runtime = db
+        app.state.queue_adapter = queue
+        response = client.get("/readiness")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "unavailable",
+        "dependencies": {
+            "database": {"status": "ready"},
+            "schema": {"status": "behind"},
+            "queue": {"status": "ready"},
+        },
+        "reason": "SCHEMA_BEHIND",
+    }
