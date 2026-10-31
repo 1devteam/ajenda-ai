@@ -411,6 +411,87 @@ def test_runtime_control_diagnostic_persists_through_canonical_runtime(pg_engine
         verify.close()
 
 
+def test_disabled_browser_observation_fails_after_canonical_dispatch(pg_engine, queue_adapter, monkeypatch) -> None:
+    """Establish where disabled browser availability becomes visible in runtime."""
+
+    monkeypatch.setenv("AJENDA_BROWSER_SESSION_ENABLED", "false")
+    from backend.app import config as config_module
+
+    if hasattr(config_module.get_settings, "cache_clear"):
+        config_module.get_settings.cache_clear()
+
+    clear_proposals_for_tests()
+    tenant_id = uuid.uuid4()
+    tenant_text = str(tenant_id)
+    factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    setup = factory()
+    try:
+        setup.add(Tenant(id=tenant_id, name="Disabled browser", slug=f"browser-{tenant_id.hex[:8]}", plan="free"))
+        setup.flush()
+        activate_tenant_session(setup, tenant_text)
+        persist_test_operating_charter(setup, tenant_id=tenant_text)
+        QuotaEnforcementService(setup).check_and_record_mission_creation(tenant_id)
+        setup.commit()
+        app = _build_app(tenant_id=tenant_id, session=setup, queue_adapter=queue_adapter)
+        instruction = "Observe https://www.iana.org/domains/reserved and return the page title. Do not modify anything."
+        with (
+            patch.object(composition_module, "require_route_permission", return_value=None),
+            patch.object(mission_module, "require_route_permission", return_value=None),
+        ):
+            client = TestClient(app, raise_server_exceptions=False)
+            composed_response = client.post("/v1/missions/compose", json={"instruction": instruction})
+            assert composed_response.status_code == 200, composed_response.text
+            composed = composed_response.json()
+            assert composed["ready_to_start"] is True
+            assert [step["action_name"] for step in composed["planned_steps"]] == ["web.browser_session"]
+            confirmed_response = client.post(
+                f"/v1/missions/proposals/{composed['proposal_id']}/confirm",
+                json={"composition": composed["composition"], "idempotency_key": "disabled-browser-v1"},
+            )
+            assert confirmed_response.status_code == 200, confirmed_response.text
+            mission_id = uuid.UUID(confirmed_response.json()["mission_id"])
+            launched_response = client.post(f"/v1/missions/{mission_id}/launch")
+            assert launched_response.status_code == 200, launched_response.text
+            assert launched_response.json()["queued_task_ids"]
+            setup.commit()
+
+        runtime = WorkerRuntimeService(setup, queue_adapter)
+        claimed = runtime.claim_next_task(tenant_id=tenant_text, worker_id="disabled-browser-worker")
+        assert claimed is not None
+        lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+        runtime.heartbeat(tenant_id=tenant_text, lease_id=lease_id, worker_id="disabled-browser-worker")
+        runtime.start_execution(tenant_id=tenant_text, lease_id=lease_id, worker_id="disabled-browser-worker")
+        setup.commit()
+        TaskDispatcher(
+            session_factory=factory,
+            vector_session_factory=factory,
+            queue=queue_adapter,
+            worker_id="disabled-browser-worker",
+            tenant_id=tenant_text,
+        ).execute(task_id=claimed.id, lease_id=lease_id)
+    finally:
+        setup.close()
+
+    verify = factory()
+    try:
+        activate_tenant_session(verify, tenant_text)
+        task = verify.scalar(
+            select(ExecutionTask).where(
+                ExecutionTask.tenant_id == tenant_text,
+                ExecutionTask.mission_id == mission_id,
+            )
+        )
+        assert task is not None
+        assert task.status == ExecutionTaskState.FAILED.value
+        failure = task.metadata_json.get("failure") or {}
+        assert "web page observation requirements were not satisfied" in str(failure)
+        lease = verify.get(WorkerLease, lease_id)
+        assert lease is not None
+        assert lease.status == WorkerLeaseState.RELEASED.value
+    finally:
+        verify.close()
+
+
 def test_provider_failure_remains_distinct_from_valid_empty_research(pg_engine, queue_adapter) -> None:
     """A failed provider cannot complete the verifier/qualification as empty evidence."""
 
