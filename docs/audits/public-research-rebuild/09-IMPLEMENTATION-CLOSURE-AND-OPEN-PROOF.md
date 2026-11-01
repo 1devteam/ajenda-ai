@@ -125,6 +125,23 @@ external search provider or a real public business identity.
 - A task can complete operationally with an insufficient-evidence deliverable;
   this never authorizes outreach or satisfies a commercial quantity on its own.
 
+## Deferred assessment — empty-result recovery behavior
+
+A separate review has raised a **not-yet-independently-verified** question about
+whether an unmet public-research acceptance condition should enter Ajenda's
+designed bounded observe/evaluate/replan loop or reaches a terminal failed
+state instead.  This is not a finding from the #635 implementation evidence,
+and it must not be used to reinterpret a valid-empty research result as a
+success or to manufacture a new defect.
+
+When this work is prioritized, trace and exercise the current path from
+`confirmation_phase` through `mission_acceptance`, `worker_runtime_rollup`,
+and `structured_planner` using the canonical queue/lease runtime.  Record the
+source transition, configured replan limit, persisted outcome, and any
+operator-facing evidence before proposing a behavioral change.  The required
+review question is whether the implemented state machine matches the approved
+bounded-replan contract—not whether a new finding can be produced.
+
 ## Recommended next work
 
 The next corrective work is **evidence collection, not another broad rebuild**:
