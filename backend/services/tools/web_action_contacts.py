@@ -38,7 +38,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     payload = ResearchObserveContactsInput.model_validate(invocation.input)
     action_name = invocation.action
     raw_prospects = [item for item in payload.prospects if isinstance(item, dict)]
-    if payload.binding_required and not raw_prospects:
+    valid_empty_upstream = payload.context.get("valid_empty_upstream")
+    if payload.binding_required and not raw_prospects and not valid_empty_upstream:
         raise ValueError(f"{action_name} requires bound prospect_candidates")
 
     seen_urls: set[str] = set()
@@ -386,10 +387,19 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         }
         expected_host = str(prospect.get("domain") or "").lower().removeprefix("www.").split("/")[0]
         actual_host = page_host(snapshot.url)
+        industry_markers = _industry_evidence_markers(
+            payload.context.get("industry")
+            or prospect.get("industry")
+            or prospect.get("research_summary")
+            or prospect.get("company")
+        )
+        industry_identity_tokens = {
+            token for marker in industry_markers for token in re.findall(r"[a-z0-9]{3,}", marker.lower())
+        }
         company_tokens = [
             token.lower()
             for token in re.findall(r"[a-z0-9]{3,}", str(prospect.get("company") or ""))
-            if token.lower() not in {"the", "and", "inc", "llc", "company", "companies"}
+            if token.lower() not in {"the", "and", "inc", "llc", "company", "companies", *industry_identity_tokens}
         ]
         page_text = " ".join(
             part for part in (snapshot.title, snapshot.text_preview, snapshot.body_preview) if isinstance(part, str)
@@ -405,12 +415,6 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         company_matches = bool(company_tokens) and any(token in page_tokens for token in company_tokens)
         host_tokens = _host_identity_tokens(actual_host)
         host_identity_matches = bool(host_tokens) and any(token in page_tokens for token in host_tokens)
-        industry_markers = _industry_evidence_markers(
-            payload.context.get("industry")
-            or prospect.get("industry")
-            or prospect.get("research_summary")
-            or prospect.get("company")
-        )
         industry_evidence = any(marker in page_text for marker in industry_markers)
         locality_evidence = any(marker in page_text for marker in location_markers)
         identity_status = (
@@ -419,7 +423,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             and not directory_page
             and industry_evidence
             and locality_evidence
-            and (company_matches or host_identity_matches or len(company_tokens) <= 1)
+            and (company_matches or host_identity_matches)
             else "unverified"
         )
         page_record["identity_status"] = identity_status
@@ -555,23 +559,6 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     }
                     observed_contacts.append(contact)
                     candidate["observed_contacts"].append(contact)
-                if payload.collect_contacts and not extracted:
-                    contact = {
-                        "kind": None,
-                        "value": None,
-                        "source_url": linked_snapshot.url,
-                        "real": True,
-                        "company": candidate["company"],
-                        "domain": linked_host,
-                        "website": linked_snapshot.url,
-                        "research_summary": candidate["research_summary"],
-                        "sources": candidate["sources"],
-                        "prospect_id": candidate.get("prospect_id"),
-                        "identity_status": "verified",
-                        "identity_evidence_urls": candidate["identity_evidence_urls"],
-                    }
-                    observed_contacts.append(contact)
-                    candidate["observed_contacts"].append(contact)
                 if len(verified_prospect_candidates) >= limit:
                     break
             unobserved.append({**page_record, "reason": "identity_unverified"})
@@ -652,23 +639,6 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                         "observed_contacts": [],
                     }
                 )
-                observed_contacts.append(
-                    {
-                        "kind": None,
-                        "value": None,
-                        "source_url": snapshot.url,
-                        "real": True,
-                        "company": prospect.get("company"),
-                        "domain": page_record["domain"],
-                        "website": str(prospect.get("website") or prospect.get("url") or snapshot.url)[:500],
-                        "product_description": str(prospect.get("product_description") or "")[:1000],
-                        "research_summary": str(prospect.get("research_summary") or "")[:1000],
-                        "sources": sources,
-                        "prospect_id": prospect.get("prospect_id"),
-                        "identity_status": "verified",
-                        "identity_evidence_urls": page_record["identity_evidence_urls"],
-                    }
-                )
                 if len(verified_prospect_candidates) >= limit:
                     break
             else:
@@ -731,7 +701,9 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     accepted_observation_urls = {
         str(item["source_url"])
         for item in observed_contacts
-        if item.get("real") is True or item.get("via") == "local_fixture"
+        if (item.get("real") is True or item.get("via") == "local_fixture")
+        and item.get("kind") in {"email", "phone"}
+        and str(item.get("value") or "").strip()
     }
     accept_met = (
         len(accepted_observation_urls) >= limit
@@ -746,6 +718,20 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         ]
         if payload.collect_contacts
         else ["public company identity is verified from fetched HTML text only"]
+    )
+    # A completed fetch is distinct from a verified company.  When at least
+    # one public candidate page was successfully observed but every candidate
+    # failed the identity contract, this is a durable insufficient-evidence
+    # outcome: the verifier did its work and did not invent an identity.
+    #
+    # Do not apply this marker when every page fetch failed.  That remains a
+    # provider/transport failure and must not be converted into a successful
+    # empty research result merely to satisfy the downstream artifact schema.
+    completed_identity_rejection = (
+        not payload.collect_contacts
+        and bool(raw_prospects)
+        and not verified_prospect_candidates
+        and any(page.get("real") is True for page in pages)
     )
     output = {
         "prospect_candidates": [
@@ -789,6 +775,18 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         "research_gap": (
             "no verified candidates produced; public identity observation rejected all candidate sources"
             if not verified_prospect_candidates
+            else None
+        ),
+        "valid_empty_result": (
+            {
+                "classification": "valid_empty",
+                "reason": (
+                    "completed public identity verification rejected all candidate sources"
+                    if completed_identity_rejection
+                    else "completed public discovery produced no verifiable company identities"
+                ),
+            }
+            if (not raw_prospects and valid_empty_upstream) or completed_identity_rejection
             else None
         ),
         "real": (

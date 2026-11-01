@@ -75,6 +75,15 @@ def build_sales_action_input(
             },
         }
     if action_name in {"sales.qualify", "sales.score_lead", "sales.recommend_next_action"}:
+        # Industry and location define a target market for the composition;
+        # they are not a discovered company.  A qualification seed may carry
+        # only a company the instruction actually named.  Bound upstream
+        # prospect records remain the source of company attributes.
+        qualification_lead: dict[str, Any] = {"source": "mission_composition"}
+        if explicit_company:
+            qualification_lead["company"] = explicit_company
+            if primary_entity and primary_entity.domain:
+                qualification_lead["domain"] = primary_entity.domain
         local_fixture_only = _local_fixture_only(intent)
         qualification_quantity = intent.qualification_quantity or limit
         ranking_only = is_ranking_only_instruction(intent.objective)
@@ -86,7 +95,7 @@ def build_sales_action_input(
             else 7
         )
         return {
-            "lead": lead,
+            "lead": qualification_lead,
             "prospects": [],
             "context": {
                 "industry": industry,

@@ -244,6 +244,33 @@ def _propagate_research_provenance(
     bound["context"] = context
 
 
+def _valid_empty_research_result(*, upstream: ExecutionTask, output: dict[str, Any]) -> dict[str, str] | None:
+    """Recognize only a completed, producer-declared public no-evidence result.
+
+    Empty lists remain invalid for ordinary bindings.  This narrow exception
+    carries a concrete producer task and reason so a downstream read-only
+    verifier/qualifier can produce an insufficient-evidence result instead of
+    treating a completed search as missing state.
+    """
+
+    marker = output.get("valid_empty_result")
+    if not isinstance(marker, dict) or marker.get("classification") != "valid_empty":
+        return None
+    reason = marker.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        return None
+    invocation = upstream.metadata_json.get("tool_invocation") if isinstance(upstream.metadata_json, dict) else None
+    action = invocation.get("action") if isinstance(invocation, dict) else None
+    if action not in {"web.research", "research.verify_public_candidates", "research.observe_contacts"}:
+        return None
+    return {
+        "classification": "valid_empty",
+        "reason": reason[:500],
+        "source_task_id": str(upstream.id),
+        "source_action": action,
+    }
+
+
 def collect_upstream_world_state(mission_tasks: list[ExecutionTask]) -> dict[str, Any]:
     """Merge completed ability outputs into a mission world-state document."""
     world: dict[str, Any] = {
@@ -571,6 +598,7 @@ def apply_input_bindings(
     specs = _binding_specs_from_metadata(metadata)
     by_key = index_mission_tasks_by_node_key(mission_tasks)
     applied: list[dict[str, Any]] = []
+    valid_empty_sources: list[dict[str, str]] = []
 
     for spec in specs:
         from_step = str(spec.get("from_step") or "").strip()
@@ -588,6 +616,10 @@ def apply_input_bindings(
         value = _binding_value(upstream_output, output_path)
         if value is None:
             continue
+        if isinstance(value, list) and not value:
+            valid_empty = _valid_empty_research_result(upstream=upstream, output=upstream_output)
+            if valid_empty is not None:
+                valid_empty_sources.append(valid_empty)
         existing = _get_input_path(bound, input_path)
         # When multiple deps target the same list path (e.g. enrich + qualify → prospects),
         # merge by prospect identity and prefer records that carry contacts.
@@ -622,6 +654,10 @@ def apply_input_bindings(
 
     raw_context = bound.get("context")
     context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
+    if valid_empty_sources:
+        context = dict(context)
+        context["valid_empty_upstream"] = valid_empty_sources
+        bound["context"] = context
     binding_required = bool(context.get("binding_required")) or bool(bound.get("binding_required"))
 
     audit = {
@@ -629,6 +665,7 @@ def apply_input_bindings(
         "binding_required": binding_required,
         "prospect_count": len(bound.get("prospects") or []) if isinstance(bound.get("prospects"), list) else 0,
         "action": action_name,
+        "valid_empty_upstream": valid_empty_sources,
     }
 
     if binding_required and action_needs_prospect_world(metadata):
@@ -640,7 +677,12 @@ def apply_input_bindings(
                 )
         else:
             prospects = bound.get("prospects")
-            if not isinstance(prospects, list) or not prospects:
+            valid_empty_allowed = bool(context.get("valid_empty_upstream")) and action_name in {
+                "research.observe_contacts",
+                "research.verify_public_candidates",
+                "sales.qualify",
+            }
+            if (not isinstance(prospects, list) or not prospects) and not valid_empty_allowed:
                 # A draft is still a product artifact and must identify the
                 # upstream prospect it represents. Industry/location seeds are
                 # planning context, not permission to emit a placeholder row.

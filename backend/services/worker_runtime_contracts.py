@@ -6,6 +6,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
 from backend.services.mission_composition.artifact_schemas import (
     ARTIFACT_SCHEMAS_BY_KEY,
+    is_proven_valid_empty_artifact,
     validate_artifact_payload,
 )
 from backend.services.tools.mission_input_binding import handler_output_for_task
@@ -154,6 +155,12 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
             or invocation_input.get("include_public_search") is not True
         ):
             raise ValueError("intermediate output contract is only permitted for public web discovery")
+        return
+    if is_proven_valid_empty_artifact(
+        artifact_key=artifact_key,
+        payload=raw_output[artifact_key],
+        output=raw_output,
+    ):
         return
     errors = list(validate_artifact_payload(schema, raw_output[artifact_key]))
     if errors:

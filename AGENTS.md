@@ -2,6 +2,22 @@
 
 These instructions apply to AI agents, Codex sessions, connector-assisted edits, and local automation working in this repository.
 
+## Mandatory context reset for Codex — closed PR #634
+
+**PR #634 is CLOSED, UNMERGED and SUPERSEDED.** No task, worktree, branch, pending diff, code review or PR assumption originating from #634 is an active implementation instruction. The active work is **issue #635**, with the sole implementation base `origin/rebuild/public-research-evidence-first` (main-derived). The old commit `5fbc84ab5b46f7cc6358f842f55a77072efedffb` and archive branch are READ-ONLY salvage references.
+
+**DO NOT rebase PR #634 or its original feature branch onto the recovery branch; DO NOT merge, reset, cherry-pick or port it wholesale.** A rebase of the superseded history would reincorporate unadjudicated defects. Only verified hunks from its archive may later be manually reintroduced with tests.
+
+Before touching source: `git fetch origin`; inspect `git branch --show-current`, `git status --short`, `git rev-parse HEAD`, and `git rev-parse origin/rebuild/public-research-evidence-first`. On an old PR branch or dirty worktree, **stop and preserve changes**—do not checkout over, force reset, stash/drop, or rewrite user work automatically. Use a clean worktree at the exact recovery branch, fast-forwarding it as appropriate; verify the branch and base in writing. If the active Codex session's previous instructions refer to #634 as an open PR, those assumptions are stale: replace them with this file and `07-CODEX-EXECUTION-BRIEF.md`. The executor must affirm the correct branch before further edits.
+
+## Public research recovery branch — handoff entry point
+
+When working on **issue #635** or branch `rebuild/public-research-evidence-first`, first read `docs/audits/public-research-rebuild/07-CODEX-EXECUTION-BRIEF.md` **in full**. It is the **file/function-level implementation handoff** for Codex, with exact source findings, owned corrections, controlled simulation scenarios, existing-system consumers and evidence gates.
+
+Then follow its ordered source reading list (original investigation O01–O10, causal traces T01–T06, ownership C01–C12 and simulation). Perform the UPG/LAP and GRAFT+ gates below before editing. **Do not** merge or wholesale cherry-pick archived draft PR #634. The first code changes on this branch already include a reviewer-owned `page_read.py` HTTP-status fix whose tests have **not yet been executed**.
+
+This handoff is branch/issue scoped. It does not supersede the repository-wide safety, runtime authority, or test requirements below.
+
 ## Operating doctrine
 
 - Treat implementation files, tests, migrations, and runtime proof as the source of truth.

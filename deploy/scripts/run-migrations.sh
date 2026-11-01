@@ -14,6 +14,18 @@ alembic upgrade head
 
 python - <<'PY'
 from backend.app.config import get_settings
+from backend.db.session import DatabaseRuntime
+
+settings = get_settings()
+runtime = DatabaseRuntime(settings)
+try:
+    runtime.verify_schema_revision()
+finally:
+    runtime.dispose()
+PY
+
+python - <<'PY'
+from backend.app.config import get_settings
 from backend.db.vector_session import VectorDatabaseRuntime
 
 settings = get_settings()

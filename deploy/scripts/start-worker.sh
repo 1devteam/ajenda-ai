@@ -24,6 +24,7 @@ if not queue_adapter.ping():
     raise SystemExit(f"queue adapter {settings.queue_adapter} failed startup ping")
 
 database_runtime = DatabaseRuntime(settings)
+database_runtime.verify_schema_revision()
 vector_database_runtime = None
 if settings.vector_db_enabled and settings.resolved_vector_database_url:
     vector_database_runtime = VectorDatabaseRuntime(settings)

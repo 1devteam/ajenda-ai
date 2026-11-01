@@ -22,6 +22,8 @@ from backend.repositories.capability_repository import CapabilityRepository
 GTM_CAPABILITY_NAME = "gtm_outbound_email"
 GTM_ADAPTER_NAME = "gtm_outbound_email_adapter"
 GTM_VERSION = "1.0.0"
+GTM_CATALOG_SEED_REVISION = "0021_seed_gtm_capability_catalog"
+GTM_CATALOG_PREDECESSOR_REVISION = "0020_expand_lifecycle_checks"
 
 
 class _DatabaseSideEffects(NamedTuple):
@@ -265,17 +267,20 @@ def test_gtm_catalog_seed_round_trip_preserves_api_shapes_and_cleans_up_policies
     try:
         cfg = _alembic_config(database_url)
         with _alembic_database_url(database_url, schema=schema):
-            alembic_command.upgrade(cfg, "head")
+            # This is a focused round-trip for the catalog seed.  Later
+            # migrations intentionally require the production public-schema
+            # ownership handoff, which is outside this isolated schema test.
+            alembic_command.upgrade(cfg, GTM_CATALOG_SEED_REVISION)
             with _session(database_url, schema=schema) as session:
                 _assert_seed_rows_have_runtime_contract_shapes(session)
                 assert _seed_policy_names(session) == set()
 
-            alembic_command.downgrade(cfg, "0020_expand_lifecycle_checks")
+            alembic_command.downgrade(cfg, GTM_CATALOG_PREDECESSOR_REVISION)
             with _session(database_url, schema=schema) as session:
                 _assert_seed_rows_absent(session)
                 assert _seed_policy_names(session) == set()
 
-            alembic_command.upgrade(cfg, "head")
+            alembic_command.upgrade(cfg, GTM_CATALOG_SEED_REVISION)
             with _session(database_url, schema=schema) as session:
                 _assert_seed_rows_have_runtime_contract_shapes(session)
                 assert _seed_policy_names(session) == set()

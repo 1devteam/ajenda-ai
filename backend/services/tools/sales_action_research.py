@@ -282,10 +282,15 @@ def _has_real_contact(lead: dict[str, Any]) -> bool:
         for item in contacts:
             if not isinstance(item, dict):
                 continue
-            if item.get("real") is True and item.get("simulated") is not True:
+            if item.get("simulated") is True:
+                continue
+            kind = str(item.get("kind") or "").strip().lower()
+            value = str(item.get("email") or item.get("phone") or item.get("value") or "").strip()
+            if kind == "email" and value and "@" in value:
                 return True
-            value = str(item.get("email") or item.get("value") or "").strip()
-            if value and "@" in value and item.get("simulated") is not True:
+            if kind == "phone" and value:
+                return True
+            if not kind and value and "@" in value:
                 return True
     return False
 

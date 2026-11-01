@@ -233,8 +233,11 @@ def test_create_mission_from_template_apply_only() -> None:
         )
         build_bundle.return_value = MagicMock(
             role_key="vertical.research",
-            planned_tasks=(MagicMock(),),
+            planned_tasks=(
+                MagicMock(action_name="web.research", metadata_json={"side_effect_class": "internal_read"}),
+            ),
             objective="Research competitors",
+            allows_runtime_queue=True,
         )
         response = client.post(
             "/v1/vertical-ops/missions",
@@ -296,8 +299,11 @@ def test_create_mission_with_queue_uses_apply_and_queue() -> None:
         )
         build_bundle.return_value = MagicMock(
             role_key="vertical.research",
-            planned_tasks=(MagicMock(),),
+            planned_tasks=(
+                MagicMock(action_name="web.research", metadata_json={"side_effect_class": "internal_read"}),
+            ),
             objective="Research competitors",
+            allows_runtime_queue=True,
         )
         response = client.post(
             "/v1/vertical-ops/missions",
@@ -399,6 +405,14 @@ def test_queue_accepts_subset_of_applied_template_task_ids() -> None:
     mission.id = mission_id
     repo = MagicMock()
     repo.get_for_tenant.return_value = mission
+    task = MagicMock()
+    task.tenant_id = str(tenant_id)
+    task.metadata_json = {
+        "side_effect_class": "internal_read",
+        "tool_invocation": {"action": "web.research"},
+    }
+    task_repo = MagicMock()
+    task_repo.get.return_value = task
 
     queued = VerticalTemplateQueueResult(
         results=(
@@ -416,6 +430,7 @@ def test_queue_accepts_subset_of_applied_template_task_ids() -> None:
     with (
         patch.object(vertical_ops_module, "require_route_permission"),
         patch.object(vertical_ops_module, "MissionRepository", return_value=repo),
+        patch.object(vertical_ops_module, "ExecutionTaskRepository", return_value=task_repo),
         patch.object(vertical_ops_module, "BusinessProfileRepository") as profile_repo_cls,
         patch.object(
             vertical_ops_module.VerticalOpsTemplateService,

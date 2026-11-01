@@ -34,6 +34,15 @@ class _FakeResponse:
         self.status_code = status_code
         self.headers = {"content-type": "text/plain"}
 
+    def __enter__(self) -> _FakeResponse:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+    def iter_bytes(self):
+        yield self.text.encode()
+
 
 class _FakeClient:
     instances: list[_FakeClient] = []
@@ -50,7 +59,7 @@ class _FakeClient:
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
         return None
 
-    def request(self, method: str, url: str, **kwargs: Any) -> _FakeResponse:
+    def stream(self, method: str, url: str, **kwargs: Any) -> _FakeResponse:
         self.requests.append({"method": method, "url": url, **kwargs})
         return _FakeResponse(text=self.response_text)
 
@@ -152,6 +161,25 @@ def test_http_url_validation_keeps_allowed_hosts_explicit(monkeypatch: pytest.Mo
     assert str(destination.pinned_ip) == PUBLIC_ADDR
 
 
+@pytest.mark.parametrize("host", ["metadata.io", "internal-api.example.com"])
+def test_http_url_validation_does_not_reject_public_hostnames_by_substring(
+    monkeypatch: pytest.MonkeyPatch, host: str
+) -> None:
+    """Destination safety is based on vetted DNS/IPs, not incidental words."""
+
+    monkeypatch.setattr("socket.getaddrinfo", _public_dns)
+
+    assert validate_safe_http_url(f"https://{host}/", allowed_hosts=[host]) == f"https://{host}/"
+
+
+@pytest.mark.parametrize("url", ["https://user@example.com/", "https://user:secret@example.com/"])
+def test_http_url_validation_rejects_credentialed_urls(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
+    monkeypatch.setattr("socket.getaddrinfo", _public_dns)
+
+    with pytest.raises(ValueError, match="credentialed URLs"):
+        validate_safe_http_url(url)
+
+
 def test_http_request_uses_pinned_vetted_address_for_connection(monkeypatch: pytest.MonkeyPatch) -> None:
     resolutions = [PUBLIC_ADDR, PRIVATE_ADDR]
 
@@ -221,6 +249,20 @@ def test_http_request_truncates_response_body_to_4096_chars(monkeypatch: pytest.
     )
 
     assert result.output["body_text"] == "x" * 4096
+    assert result.output["body_truncated"] is True
+
+
+def test_http_request_stops_after_the_configured_response_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("socket.getaddrinfo", _public_dns)
+    monkeypatch.setattr("backend.services.network_egress.httpx.Client", _FakeClient)
+    _FakeClient.response_text = "x" * (1_000_000 + 1)
+
+    result = http_request(
+        ToolInvocation(action="http.request", input={"method": "GET", "url": "https://example.com/large"}),
+        _context(),
+    )
+
+    assert len(result.output["body_text"]) == 4096
     assert result.output["body_truncated"] is True
 
 
@@ -453,7 +495,7 @@ def test_http_request_allowed_hosts_cannot_bypass_destination_safety(monkeypatch
 
 def test_http_request_network_failure_error_is_evidence_safe(monkeypatch: pytest.MonkeyPatch) -> None:
     class FailingClient(_FakeClient):
-        def request(self, method: str, url: str, **kwargs: Any) -> _FakeResponse:
+        def stream(self, method: str, url: str, **kwargs: Any) -> _FakeResponse:
             raise httpx.ConnectError("token=super-secret")
 
     monkeypatch.setattr("socket.getaddrinfo", _public_dns)

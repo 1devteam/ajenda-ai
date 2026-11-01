@@ -10,6 +10,7 @@ from backend.services.knowledge import ContextConditionState, SourceConditionObs
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 from backend.services.tools.action_registry import ActionRegistry, get_default_action_registry
 from backend.services.tools.local_records import default_local_record_provider
+from backend.services.tools.sales_action_research import _has_real_contact
 from backend.services.tools.sales_actions import register_sales_actions
 from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
 
@@ -22,6 +23,11 @@ def _context() -> ActionRuntimeContext:
         worker_id="worker",
         lease_id=str(uuid.uuid4()),
     )
+
+
+def test_real_contact_requires_a_usable_value_not_a_real_page_marker() -> None:
+    assert _has_real_contact({"contacts": [{"real": True, "kind": None, "value": None}]}) is False
+    assert _has_real_contact({"contacts": [{"real": True, "kind": "email", "value": "owner@example.test"}]})
 
 
 def test_sales_and_record_actions_return_evidence_shaped_output() -> None:
@@ -140,6 +146,35 @@ def test_sales_qualify_rejects_snippet_only_prospects() -> None:
     assert "not qualified without an observed or supplied contact" in result.output["reasons"]
 
 
+def test_bound_qualification_rejection_is_a_valid_empty_deliverable() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="sales.qualify",
+            input={
+                "prospects": [
+                    {
+                        "company": "Observed HVAC Company",
+                        "identity_status": "verified",
+                        "website": "https://observed-hvac.example",
+                        "source": "public_search",
+                        "real": True,
+                    }
+                ],
+                "context": {"binding_required": True, "qualification_threshold_10": 10},
+            },
+        ),
+        _context(),
+    )
+
+    assert result.output["scored_prospects"]
+    assert result.output["qualified_prospects"] == []
+    assert result.output["valid_empty_result"] == {
+        "classification": "valid_empty",
+        "reason": "completed qualification found no prospects meeting the qualification threshold",
+    }
+
+
 def test_sales_qualify_accepts_observed_email() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(
@@ -209,7 +244,7 @@ def test_sales_qualify_joins_observed_contacts_to_prospects() -> None:
     assert result.output["qualified_prospects"][0]["email"] == "founder@austin-studio.example"
 
 
-def test_sales_qualify_applies_mission_scope_to_every_bound_prospect() -> None:
+def test_sales_qualify_keeps_mission_scope_separate_from_bound_prospect_facts() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(
         ToolInvocation(
@@ -245,8 +280,14 @@ def test_sales_qualify_applies_mission_scope_to_every_bound_prospect() -> None:
         _context(),
     )
     assert len(result.output["scored_prospects"]) == 2
-    assert len(result.output["qualified_prospects"]) == 1
-    assert result.output["qualified_prospects"][0]["score_10"] == 5
+    assert result.output["qualified_prospects"] == []
+    for prospect in result.output["scored_prospects"]:
+        assert "industry" not in prospect
+        assert "location" not in prospect
+        assert prospect["qualification_evidence"]["target_market_constraints"] == {
+            "industry": "HVAC",
+            "location": "Dallas",
+        }
 
 
 def test_sales_ranking_accepts_verified_identity_without_contact() -> None:

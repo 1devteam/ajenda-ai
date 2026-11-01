@@ -191,6 +191,21 @@ def fetch_public_page(
             if key.lower() == "content-type":
                 content_type = value
                 break
+        # A completed HTTP exchange is not evidence of an observed public page.
+        # Redirects are intentionally disabled in the shared egress authority:
+        # reject 3xx as well as 4xx/5xx instead of parsing redirect/error text
+        # into a verified business identity downstream.
+        if not 200 <= response.status_code < 300:
+            return PageSnapshot(
+                url=page_url,
+                real=False,
+                status_code=response.status_code,
+                error=f"HTTP {response.status_code}",
+                body_truncated=response.body_truncated,
+                content_type=content_type,
+                browser_ready=False,
+                access_mode=InternetAccessMode.PAGE_READ,
+            )
         body = response.body_text or ""
         preview_limit = max(DEFAULT_TEXT_PREVIEW_CHARS, min(int(text_preview_chars), response_text_limit))
         extraction = (

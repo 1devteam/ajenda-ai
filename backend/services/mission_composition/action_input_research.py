@@ -40,10 +40,8 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
             if audience and not entity.name:
                 research_query = f"{entity.industry} companies serving {audience}"
         extracted_company = (
-            (entity.name.strip() if entity and entity.name else None)
-            or industry
-            or _extract_company_from_instruction(source)
-        )
+            entity.name.strip() if entity and entity.name else None
+        ) or _extract_company_from_instruction(source)
         domain = entity.domain if entity and entity.domain else None
         if domain is None and entity and isinstance(entity.attributes, dict):
             for key in ("domain", "website", "url"):

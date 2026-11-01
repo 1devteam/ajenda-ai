@@ -86,6 +86,7 @@ def main() -> int:
     settings.validate_runtime_contract()
     settings.validate_database_identity(expected_identity="assurance")
     runtime = DatabaseRuntime(settings)
+    runtime.verify_schema_revision()
     interval = max(30.0, float(settings.assurance_interval_seconds))
     logger.info("continuous_assurance_started", extra={"interval_seconds": interval, "once": args.once})
     try:

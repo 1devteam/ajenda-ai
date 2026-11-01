@@ -3,7 +3,7 @@ from __future__ import annotations
 from backend.observability.metrics import MetricsSnapshot
 
 READINESS_METRIC_NAME = "ajenda_readiness_dependency_status"
-READINESS_DEPENDENCIES = ("database", "queue")
+READINESS_DEPENDENCIES = ("database", "schema", "queue")
 
 
 _readiness_dependency_values: dict[str, int] = {dependency: 0 for dependency in READINESS_DEPENDENCIES}
@@ -17,7 +17,11 @@ def reset_readiness_dependency_statuses() -> None:
 def set_readiness_dependency_status(*, dependency: str, status: str) -> None:
     if dependency not in READINESS_DEPENDENCIES:
         return
-    _readiness_dependency_values[dependency] = 0 if status == "unavailable" else 1
+    # A dependency is healthy only when the readiness evaluator has explicitly
+    # established it as ready.  In particular, a schema that is behind (or
+    # skipped because the database is unavailable) must not emit a healthy
+    # dependency metric.
+    _readiness_dependency_values[dependency] = 1 if status == "ready" else 0
 
 
 def readiness_dependency_samples() -> list[tuple[str, int]]:

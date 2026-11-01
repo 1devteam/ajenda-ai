@@ -334,6 +334,46 @@ def test_complete_preserves_public_research_gap_when_identity_observation_is_emp
     queue.complete_task.assert_not_called()
 
 
+def test_complete_allows_proven_valid_empty_identity_observation() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=True)
+    task.metadata_json["expected_output_contract"] = {"artifact": "verified_prospect_candidates"}
+
+    service.complete(
+        tenant_id=tenant_id,
+        lease_id=lease.id,
+        worker_id=worker_id,
+        task_output={
+            "handler": "tool.invoke",
+            "status": "completed",
+            "evidence": [
+                {
+                    "evidence_type": "action_result",
+                    "evidence_source": "test.valid_empty",
+                    "action_name": "gtm.email_draft",
+                    "tool_provider": "test",
+                    "tenant_id": tenant_id,
+                    "task_id": str(task.id),
+                    "mission_id": str(task.mission_id),
+                    "summary": "Completed valid-empty public identity observation.",
+                }
+            ],
+            "output": {
+                "verified_prospect_candidates": [],
+                "valid_empty_result": {
+                    "classification": "valid_empty",
+                    "reason": "completed public discovery produced no verifiable company identities",
+                },
+            },
+        },
+    )
+
+    assert task.status == ExecutionTaskState.COMPLETED.value
+    queue.complete_task.assert_called_once()
+
+
 def test_complete_allows_explicit_intermediate_public_discovery_payload() -> None:
     service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
         status=ExecutionTaskState.RUNNING.value

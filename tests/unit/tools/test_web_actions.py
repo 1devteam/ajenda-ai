@@ -423,23 +423,11 @@ def test_observe_contacts_keeps_verified_company_without_contact_details() -> No
 
     assert len(result.output["verified_prospect_candidates"]) == 1
     assert result.output["verified_prospect_candidates"][0]["identity_status"] == "verified"
-    assert result.output["observed_contacts"] == [
-        {
-            "kind": None,
-            "value": None,
-            "source_url": official.url,
-            "real": True,
-            "company": "Quiet HVAC",
-            "domain": "quiet-hvac.example",
-            "website": official.url,
-            "product_description": "",
-            "research_summary": "Heating and cooling services in Dallas.",
-            "sources": [official.url],
-            "prospect_id": None,
-            "identity_status": "verified",
-            "identity_evidence_urls": [official.url],
-        }
-    ]
+    assert result.output["observed_contacts"] == []
+    assert result.output["observed_count"] == 0
+    assert result.output["contact_value_count"] == 0
+    assert result.output["condition_observations"] == []
+    assert result.output["accept_met"] is False
 
 
 def test_observe_contacts_does_not_treat_known_listing_host_as_official() -> None:
@@ -512,6 +500,73 @@ def test_observe_contacts_rejects_marketplace_page_even_when_host_matches() -> N
     assert result.output["research_gap"] == (
         "no verified candidates produced; public identity observation rejected all candidate sources"
     )
+
+
+def test_public_identity_rejection_is_a_valid_empty_verification_outcome() -> None:
+    from backend.services.tools.web_action_contacts import research_verify_public_candidates
+
+    marketplace = PageSnapshot(
+        url="https://downtobid.com/contractors/hvac/dallas",
+        real=True,
+        status_code=200,
+        title="15 Best Commercial HVAC Contractors Dallas, TX",
+        text_preview="Find and invite the best commercial HVAC contractors in Dallas.",
+        body_preview="Browse contractors and submit bid requests.",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.verify_public_candidates",
+        input={
+            "prospects": [
+                {
+                    "company": "15 Best Commercial HVAC Contractors Dallas, TX",
+                    "domain": "downtobid.com",
+                    "url": marketplace.url,
+                }
+            ],
+            "requested_quantity": 1,
+            "binding_required": True,
+        },
+    )
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=marketplace):
+        result = research_verify_public_candidates(invocation, _context())
+
+    assert result.output["verified_prospect_candidates"] == []
+    assert result.output["valid_empty_result"] == {
+        "classification": "valid_empty",
+        "reason": "completed public identity verification rejected all candidate sources",
+    }
+
+
+def test_public_identity_rejection_does_not_mark_all_fetch_failures_valid_empty() -> None:
+    from backend.services.tools.web_action_contacts import research_verify_public_candidates
+
+    failed = PageSnapshot(
+        url="https://unreachable.example/",
+        real=False,
+        error="web.page_read DNS resolution failed",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.verify_public_candidates",
+        input={
+            "prospects": [
+                {
+                    "company": "Unreachable HVAC",
+                    "domain": "unreachable.example",
+                    "url": failed.url,
+                }
+            ],
+            "requested_quantity": 1,
+            "binding_required": True,
+        },
+    )
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=failed):
+        result = research_verify_public_candidates(invocation, _context())
+
+    assert result.output["verified_prospect_candidates"] == []
+    assert result.output["valid_empty_result"] is None
+    assert result.output["unobserved"][0]["reason"] == "web.page_read DNS resolution failed"
 
 
 def test_observe_contacts_normalizes_company_name_when_domain_proves_identity() -> None:

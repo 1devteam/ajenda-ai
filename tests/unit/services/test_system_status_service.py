@@ -21,6 +21,7 @@ def _readiness_values() -> dict[str, int]:
 def test_metrics_default_to_unavailable_before_readiness() -> None:
     values = _readiness_values()
     assert values["database"] == 0
+    assert values["schema"] == 0
     assert values["queue"] == 0
 
 
@@ -36,6 +37,7 @@ def test_health_is_liveness_only() -> None:
 def test_readiness_ready_when_dependencies_ping() -> None:
     db = Mock()
     db.ping.return_value = True
+    db.schema_revision_status.return_value = "ready"
     queue = Mock()
     queue.ping.return_value = True
 
@@ -46,6 +48,7 @@ def test_readiness_ready_when_dependencies_ping() -> None:
         "status": "ready",
         "dependencies": {
             "database": {"status": "ready"},
+            "schema": {"status": "ready"},
             "queue": {"status": "ready"},
         },
         "reason": None,
@@ -68,6 +71,7 @@ def test_readiness_unavailable_when_database_fails() -> None:
 def test_readiness_unavailable_when_queue_fails() -> None:
     db = Mock()
     db.ping.return_value = True
+    db.schema_revision_status.return_value = "ready"
     queue = Mock()
     queue.ping.return_value = False
 
@@ -86,6 +90,7 @@ def test_readiness_skips_none_dependencies() -> None:
         "status": "ready",
         "dependencies": {
             "database": {"status": "skipped"},
+            "schema": {"status": "skipped"},
             "queue": {"status": "skipped"},
         },
         "reason": None,
@@ -95,12 +100,14 @@ def test_readiness_skips_none_dependencies() -> None:
 def test_readiness_metrics_set_ready_when_dependencies_ready() -> None:
     db = Mock()
     db.ping.return_value = True
+    db.schema_revision_status.return_value = "ready"
     queue = Mock()
     queue.ping.return_value = True
 
     SystemStatusService(session=None).readiness(database_runtime=db, queue_adapter=queue)
 
     assert _readiness_values()["database"] == 1
+    assert _readiness_values()["schema"] == 1
     assert _readiness_values()["queue"] == 1
 
 
@@ -113,23 +120,43 @@ def test_readiness_metrics_set_database_unavailable_to_zero() -> None:
     SystemStatusService(session=None).readiness(database_runtime=db, queue_adapter=queue)
 
     assert _readiness_values()["database"] == 0
+    assert _readiness_values()["schema"] == 0
     assert _readiness_values()["queue"] == 1
 
 
 def test_readiness_metrics_set_queue_unavailable_to_zero() -> None:
     db = Mock()
     db.ping.return_value = True
+    db.schema_revision_status.return_value = "ready"
     queue = Mock()
     queue.ping.return_value = False
 
     SystemStatusService(session=None).readiness(database_runtime=db, queue_adapter=queue)
 
     assert _readiness_values()["database"] == 1
+    assert _readiness_values()["schema"] == 1
     assert _readiness_values()["queue"] == 0
 
 
-def test_readiness_metrics_treat_skipped_dependencies_as_ready() -> None:
+def test_readiness_metrics_treat_skipped_dependencies_as_unavailable() -> None:
     SystemStatusService(session=None).readiness(database_runtime=None, queue_adapter=None)
 
+    assert _readiness_values()["database"] == 0
+    assert _readiness_values()["schema"] == 0
+    assert _readiness_values()["queue"] == 0
+
+
+def test_readiness_metrics_treat_behind_schema_as_unavailable() -> None:
+    db = Mock()
+    db.ping.return_value = True
+    db.schema_revision_status.return_value = "behind"
+    queue = Mock()
+    queue.ping.return_value = True
+
+    status_code, payload = SystemStatusService(session=None).readiness(database_runtime=db, queue_adapter=queue)
+
+    assert status_code == 503
+    assert payload["reason"] == "SCHEMA_BEHIND"
     assert _readiness_values()["database"] == 1
+    assert _readiness_values()["schema"] == 0
     assert _readiness_values()["queue"] == 1

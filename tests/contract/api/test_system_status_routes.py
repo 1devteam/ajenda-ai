@@ -12,7 +12,12 @@ from backend.observability.metrics import MetricsSnapshot
 
 @pytest.fixture(autouse=True)
 def _mock_vector_schema_for_status_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These route-contract tests deliberately substitute dependencies after
+    # startup.  Schema startup rejection is covered by the dedicated health
+    # contract; bypass it here so the test database is not required to be
+    # migrated simply to exercise response sanitization.
     monkeypatch.setattr("backend.main.VectorDatabaseRuntime.verify_schema", lambda self: None)
+    monkeypatch.setattr("backend.main.DatabaseRuntime.verify_schema_revision", lambda self: None)
 
 
 def test_system_status_routes_register() -> None:
@@ -55,6 +60,7 @@ def test_system_readiness_sanitizes_dependency_exception() -> None:
         "status": "unavailable",
         "dependencies": {
             "database": {"status": "unavailable"},
+            "schema": {"status": "skipped"},
             "queue": {"status": "ready"},
         },
         "reason": "DATABASE_UNAVAILABLE",
@@ -88,5 +94,6 @@ def test_metrics_exposes_readiness_dependency_status_after_readiness_check() -> 
 
     assert readiness.status_code == 503
     assert 'ajenda_readiness_dependency_status{dependency="database"} 0' in metrics
+    assert 'ajenda_readiness_dependency_status{dependency="schema"} 0' in metrics
     assert 'ajenda_readiness_dependency_status{dependency="queue"} 1' in metrics
     assert "postgresql://user:secret@db:5432/app" not in metrics

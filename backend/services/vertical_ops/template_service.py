@@ -42,7 +42,7 @@ from backend.services.abilities.manifest import AbilityRiskLevel
 from backend.services.abilities.vertical_role_catalog import RoleBindingStatus, get_vertical_role
 from backend.services.execution_coordinator import CoordinationResult, ExecutionCoordinator
 from backend.services.tools.action_registry import get_default_action_registry
-from backend.services.tools.schemas import CredentialReference, SideEffectClass
+from backend.services.tools.schemas import CredentialReference, SideEffectClass, ToolInvocation
 from backend.services.vertical_ops.channel_state import SocialPublicationState
 from backend.services.vertical_ops.plan_templates import (
     VerticalMissionTemplate,
@@ -321,6 +321,21 @@ class VerticalOpsTemplateService:
                         jurisdiction=resolved_jurisdiction,
                     )
                 )
+
+        # A template binding describes the catalog default.  A task's durable
+        # contract must instead describe the actual invocation: public web
+        # search and credential-backed sales research both elevate at runtime.
+        # Keep the graph projection equally truthful so an operator does not
+        # see an internal-read plan for an externally governed task.
+        effective_effects = {planned.step_key: planned.metadata_json["side_effect_class"] for planned in planned_tasks}
+        graph_nodes = task_graph.get("nodes")
+        for node in graph_nodes if isinstance(graph_nodes, list) else []:
+            metadata = node.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            effect = effective_effects.get(str(node.get("node_key")))
+            if effect is not None:
+                metadata["side_effect_class"] = effect
 
         return VerticalTemplateBundle(
             template_id=template.template_id,
@@ -616,7 +631,6 @@ class VerticalOpsTemplateService:
         if binding.binding_status is not RoleBindingStatus.RUNTIME_BOUND:
             raise ValueError(f"cannot materialize catalog_only action {step.action_name!r} as ExecutionTask")
         manifest = ABILITY_MANIFESTS_BY_ACTION[step.action_name]
-        side_effect = manifest.side_effect_class
         input_payload = dict(step_inputs.get(step.step_key) or step_inputs.get(step.action_name) or {})
         input_payload = self._validate_step_input(
             action_name=step.action_name,
@@ -644,6 +658,19 @@ class VerticalOpsTemplateService:
                 credential_payload = dict(cred)
             tool_invocation["credential_reference"] = credential_payload
 
+        # Resolve the effect from the same typed invocation that the worker
+        # will later authorize.  Using the manifest default here is wrong for
+        # actions whose class depends on their input or credential reference:
+        # it can omit the capability/adapter required by ToolRuntimeAuthority.
+        try:
+            invocation = ToolInvocation.model_validate(tool_invocation)
+        except ValidationError as exc:
+            raise ValueError(
+                f"step {step.step_key} ({step.action_name}) has invalid tool invocation: {exc.errors()[0]['msg']}"
+            ) from exc
+        definition = get_default_action_registry().get(step.action_name)
+        side_effect = definition.side_effect_for(invocation)
+
         requires_human_review = bool(
             role.requires_human_review
             or binding.requires_human_review
@@ -667,6 +694,9 @@ class VerticalOpsTemplateService:
             "vertical_pack_version": template.pack_version,
             "template_id": template.template_id,
             "template_step_key": step.step_key,
+            # ``dependency_keys`` is consumed by WorkerRuntimeService before
+            # claim.  Retain the legacy display key for existing projections.
+            "dependency_keys": list(step.depends_on),
             "dependency_step_keys": list(step.depends_on),
             "graph_node_key": step.step_key,
         }
