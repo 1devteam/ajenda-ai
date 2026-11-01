@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
+from backend.domain.tenant import Tenant
 from backend.queue.base import QueueAdapter
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
@@ -19,7 +22,47 @@ class OperationsService:
         self._session = session
         self._queue = queue
         self._audit = AuditEventRepository(session)
-        self._maintainer = RuntimeMaintainer(session, queue)
+
+    @staticmethod
+    def _aggregate_recovery_summaries(summaries: Iterable[RecoverySummary]) -> RecoverySummary:
+        """Combine tenant-scoped recovery results without widening DB authority."""
+        totals = {
+            field: 0
+            for field in (
+                "expired_lease_count",
+                "requeued_task_count",
+                "dead_lettered_count",
+                "mismatched_state_count",
+                "deliverable_reconciled_count",
+                "dispatch_published_count",
+                "dispatch_retry_scheduled_count",
+                "cancelled_dispatch_cleanup_count",
+                "cancelled_dispatch_cleanup_failed_count",
+                "billing_meter_delivered_count",
+                "billing_meter_retry_scheduled_count",
+                "billing_meter_skipped_count",
+            )
+        }
+        for summary in summaries:
+            for field in totals:
+                totals[field] += getattr(summary, field)
+        return RecoverySummary(**totals)
+
+    def _recover_all_tenants(self) -> RecoverySummary:
+        """Run global recovery as bounded tenant-scoped passes.
+
+        The API role is intentionally NOBYPASSRLS.  Tenant roots are the
+        explicit control-plane inventory; every tenant-owned recovery read or
+        write happens only after its transaction-local RLS setting is active.
+        """
+        tenant_ids = tuple(str(tenant_id) for tenant_id in self._session.scalars(select(Tenant.id)).all())
+        summaries: list[RecoverySummary] = []
+        for tenant_id in tenant_ids:
+            activate_tenant_session(self._session, tenant_id)
+            summaries.append(
+                RuntimeMaintainer(self._session, self._queue, tenant_id=tenant_id).recover_expired_leases()
+            )
+        return self._aggregate_recovery_summaries(summaries)
 
     def inspect_dead_letter(self, *, tenant_id: str) -> list[dict[str, str]]:
         stmt = select(ExecutionTask).where(
@@ -91,7 +134,7 @@ class OperationsService:
         self._session.commit()
 
         try:
-            summary = self._maintainer.recover_expired_leases()
+            summary = self._recover_all_tenants()
         except Exception as exc:
             self._audit.append(
                 AuditEvent(
