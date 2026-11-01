@@ -127,6 +127,12 @@ if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then
   fail "compose env file not found: $COMPOSE_ENV_FILE"
 fi
 
+# Compose resolves service-level `env_file` paths relative to the Compose file.
+# The proof accepts a repository-relative path for operator ergonomics, but the
+# same value is also injected into the Compose model.  Normalize it once so a
+# valid relative path is not resolved a second time beneath deploy/compose.
+COMPOSE_ENV_FILE="$(cd "$(dirname "$COMPOSE_ENV_FILE")" && pwd -P)/$(basename "$COMPOSE_ENV_FILE")"
+
 log "validating compose configuration"
 compose config --quiet
 

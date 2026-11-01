@@ -160,6 +160,9 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     )
     assert 'if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then' in script
     assert 'fail "compose env file not found: $COMPOSE_ENV_FILE"' in script
+    assert (
+        'COMPOSE_ENV_FILE="$(cd "$(dirname "$COMPOSE_ENV_FILE")" && pwd -P)/$(basename "$COMPOSE_ENV_FILE")"' in script
+    )
     assert 'AJENDA_COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE"' in script
     assert 'AJENDA_COMPOSE_API_HOST_PORT="$COMPOSE_API_HOST_PORT"' in script
     assert 'AJENDA_COMPOSE_FRONTEND_HOST_PORT="$COMPOSE_FRONTEND_HOST_PORT"' in script
