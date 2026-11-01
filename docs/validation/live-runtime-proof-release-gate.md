@@ -360,7 +360,13 @@ A passing run means the prod-like stack proved the following together:
 - Prometheus is ready
 - Prometheus reports the configured `ajenda-api` scrape target as healthy
 - Redis lease cleanup succeeds
-- the durable HVAC deliverable contains verified, evidence-backed candidates
+- the deterministic local-fixture deliverable contains the configured number of
+  fixture-backed candidates and its runtime/evidence artifacts
+
+The fixture proof does not establish that an external public-search provider
+found, verified, or qualified a real business. That requires the separately
+gated provider-backed public-research proof documented in
+[`09-IMPLEMENTATION-CLOSURE-AND-OPEN-PROOF.md`](../audits/public-research-rebuild/09-IMPLEMENTATION-CLOSURE-AND-OPEN-PROOF.md).
 
 Any script failure is promotion-blocking for the environment being proven (including the automatic `main` CI job).
 
