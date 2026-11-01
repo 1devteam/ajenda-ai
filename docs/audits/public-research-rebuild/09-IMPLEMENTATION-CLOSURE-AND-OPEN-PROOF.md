@@ -85,6 +85,29 @@ configuration**.  It is not represented here as an executed proof.  The
 pre-merge runtime proof is a deterministic fixture lane and does not prove an
 external search provider or a real public business identity.
 
+### Post-merge opt-in runtime evidence
+
+On 2026-11-01, the following externally gated tests passed locally through the
+real PostgreSQL/Redis test runtime, queue admission, lease, dispatcher, durable
+evidence, and fresh-session readback paths:
+
+```text
+AJENDA_LIVE_PUBLIC_RESEARCH=1 python -m pytest \
+  tests/integration/runtime/test_public_research_runtime_live.py::test_live_public_research_preserves_provider_attempts_and_evidence_outcome \
+  -q -m integration --timeout=300
+
+AJENDA_LIVE_BROWSER_OBSERVATION=1 python -m pytest \
+  tests/integration/runtime/test_public_research_runtime_live.py::test_live_browser_observation_persists_through_canonical_runtime \
+  -q -m integration --timeout=300
+```
+
+The governed DuckDuckGo HTML diagnostic also returned five real Dallas
+commercial-HVAC URLs at that time.  The public-research mission test
+intentionally accepts a defensible zero-verified-candidate outcome, so neither
+result is claimed as a positive verified-business proof.  The browser test
+proves that Chromium launched and persisted a read-only IANA observation in
+this test environment; it is not the controlled prohibited-write proof below.
+
 ## Still unproven — required before stronger claims
 
 1. **A positive external public-research mission.** Run the opt-in
@@ -107,6 +130,10 @@ external search provider or a real public business identity.
    workflow with `run_live_proof=true` or run the documented prod-like command.
    Preserve its artifacts and record whether it is fixture-only or
    provider-backed. The skipped PR workflow cannot be substituted for this.
+   This checkout has a persistent stack already bound to the proof ports but
+   lacks its authorized Compose credential environment; do not replace or
+   recreate that stack. Use an isolated host/port profile or the authorized
+   deployment environment.
 5. **Independent review of real artifacts.** Review persisted provider attempts,
    source URLs, gaps, verified identities, rejected candidates, and deliverable
    acceptance after the external and browser proofs. Do not accept handler
