@@ -72,7 +72,7 @@ def test_runtime_services_load_prod_env_file() -> None:
     for service_name in ENV_FILE_SERVICES:
         block = _service_block(compose, service_name)
         assert "env_file:" in block
-        assert "- .env.prod" in block
+        assert "- ${AJENDA_COMPOSE_ENV_FILE:-.env.prod}" in block
 
 
 def test_runtime_services_receive_only_their_own_database_identity() -> None:
@@ -153,9 +153,15 @@ def test_live_runtime_proof_starts_core_proof_services() -> None:
     expected_command = 'compose up -d "${proof_build_args[@]}" ' + " ".join(LIVE_PROOF_STARTED_SERVICES)
 
     assert 'COMPOSE_ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"' in script
-    assert 'FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:8080}"' in script
+    assert 'COMPOSE_FRONTEND_HOST_PORT="${AJENDA_PROOF_COMPOSE_FRONTEND_HOST_PORT:-8080}"' in script
+    assert 'FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:${COMPOSE_FRONTEND_HOST_PORT}}"' in script
     assert 'if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then' in script
     assert 'fail "compose env file not found: $COMPOSE_ENV_FILE"' in script
+    assert 'AJENDA_COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE"' in script
+    assert 'AJENDA_COMPOSE_API_HOST_PORT="$COMPOSE_API_HOST_PORT"' in script
+    assert 'AJENDA_COMPOSE_FRONTEND_HOST_PORT="$COMPOSE_FRONTEND_HOST_PORT"' in script
+    assert 'AJENDA_COMPOSE_PROMETHEUS_HOST_PORT="$COMPOSE_PROMETHEUS_HOST_PORT"' in script
+    assert 'AJENDA_COMPOSE_OTEL_HOST_PORT="$COMPOSE_OTEL_HOST_PORT"' in script
     assert 'docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
     assert expected_command in script
     assert "compose down --remove-orphans" not in script
@@ -244,9 +250,13 @@ def test_staging_autonomy_plugin_proof_delegates_to_plugin_lane() -> None:
 def test_compose_exposes_expected_loopback_runtime_ports() -> None:
     compose = _read(COMPOSE_FILE)
 
-    assert '"127.0.0.1:8000:8000"' in _service_block(compose, "api")
-    assert '"127.0.0.1:9090:9090"' in _service_block(compose, "prometheus")
-    assert '"127.0.0.1:4317:4317"' in _service_block(compose, "otel-collector")
+    assert '"127.0.0.1:${AJENDA_COMPOSE_API_HOST_PORT:-8000}:8000"' in _service_block(compose, "api")
+    assert '"127.0.0.1:${AJENDA_COMPOSE_PROMETHEUS_HOST_PORT:-9090}:9090"' in _service_block(
+        compose, "prometheus"
+    )
+    assert '"127.0.0.1:${AJENDA_COMPOSE_OTEL_HOST_PORT:-4317}:4317"' in _service_block(
+        compose, "otel-collector"
+    )
 
 
 def test_compose_mounts_prometheus_and_otel_config() -> None:
@@ -295,10 +305,10 @@ def test_live_runtime_proof_validates_prometheus_rule_file_and_metrics_path_cont
 def test_prod_compose_only_publishes_loopback_ports() -> None:
     compose = _read(COMPOSE_FILE)
     for service, port in {
-        "frontend": "8080:80",
-        "api": "8000:8000",
-        "prometheus": "9090:9090",
-        "otel-collector": "4317:4317",
+        "frontend": "${AJENDA_COMPOSE_FRONTEND_HOST_PORT:-8080}:80",
+        "api": "${AJENDA_COMPOSE_API_HOST_PORT:-8000}:8000",
+        "prometheus": "${AJENDA_COMPOSE_PROMETHEUS_HOST_PORT:-9090}:9090",
+        "otel-collector": "${AJENDA_COMPOSE_OTEL_HOST_PORT:-4317}:4317",
     }.items():
         block = _service_block(compose, service)
         assert f'"127.0.0.1:{port}"' in block
