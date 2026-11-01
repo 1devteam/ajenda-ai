@@ -108,6 +108,26 @@ result is claimed as a positive verified-business proof.  The browser test
 proves that Chromium launched and persisted a read-only IANA observation in
 this test environment; it is not the controlled prohibited-write proof below.
 
+### Isolated full-Compose proof
+
+On 2026-11-01, a subsequent deployment-proof correction established and
+exercised an isolated local Compose stack without replacing the persistent
+developer stack already bound to the default ports.  The correction makes
+`AJENDA_PROOF_COMPOSE_ENV_FILE` control both Compose interpolation and each
+runtime service's `env_file`; it also permits explicit alternate loopback ports
+for API, frontend, Prometheus, and OTLP.  Before that correction, the proof
+script could validate a selected env file while the services still loaded
+`deploy/compose/.env.prod`, making a disposable proof non-isolated.
+
+The isolated stack used a new Docker Compose project, volume, runtime role
+bootstrap, migrator, API, worker, assurance, Redis, frontend, Prometheus, and
+OTLP collector.  Its canonical operator mission completed through the public
+API and worker path with durable runtime/GRAFT artifacts, followed by a
+successful assurance cycle, API metrics check, and an `ajenda-api` Prometheus
+target health of `up`.  This is a local fixture-backed deployment proof.  It
+does not prove an external provider, a positive verified public company, or a
+target production environment.
+
 ## Still unproven — required before stronger claims
 
 1. **A positive external public-research mission.** Run the opt-in
@@ -126,14 +146,13 @@ this test environment; it is not the controlled prohibited-write proof below.
    database's Alembic revision equals that image's single head before API,
    worker, or assurance starts. The merged code proves the guard; it does not
    attest to any environment not inspected by that release procedure.
-4. **Post-merge full Compose proof when promotion requires it.** Dispatch the
-   workflow with `run_live_proof=true` or run the documented prod-like command.
-   Preserve its artifacts and record whether it is fixture-only or
-   provider-backed. The skipped PR workflow cannot be substituted for this.
-   This checkout has a persistent stack already bound to the proof ports but
-   lacks its authorized Compose credential environment; do not replace or
-   recreate that stack. Use an isolated host/port profile or the authorized
-   deployment environment.
+4. **Promotion-environment Compose proof.** The isolated local full-Compose
+   fixture proof above closes the prior local port/env isolation gap.  Before
+   promotion, dispatch the workflow with `run_live_proof=true` or run the
+   documented prod-like command for the target release environment. Preserve
+   its artifacts and record whether it is fixture-only or provider-backed. The
+   skipped PR workflow and the local proof cannot be substituted for that
+   environment-specific evidence.
 5. **Independent review of real artifacts.** Review persisted provider attempts,
    source URLs, gaps, verified identities, rejected candidates, and deliverable
    acceptance after the external and browser proofs. Do not accept handler

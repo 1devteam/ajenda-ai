@@ -131,6 +131,10 @@ NON_SETTINGS_DEPLOYMENT_ENV = frozenset(
         "AJENDA_PROOF_API_BASE_URL",
         "AJENDA_PROOF_BOOTSTRAP_ROLES",
         "AJENDA_PROOF_COMPOSE_ENV_FILE",
+        "AJENDA_PROOF_COMPOSE_API_HOST_PORT",
+        "AJENDA_PROOF_COMPOSE_FRONTEND_HOST_PORT",
+        "AJENDA_PROOF_COMPOSE_PROMETHEUS_HOST_PORT",
+        "AJENDA_PROOF_COMPOSE_OTEL_HOST_PORT",
         "AJENDA_PROOF_COMPOSE_FILE",
         "AJENDA_PROOF_COMPOSE_PROJECT_NAME",
         "AJENDA_PROOF_CURL_CONNECT_TIMEOUT_SECONDS",
@@ -318,9 +322,21 @@ def test_compose_and_live_proof_use_same_env_file_for_config_up_exec_down() -> N
     assert "POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.prod}" in compose
     assert "image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}" in compose
     assert 'COMPOSE_ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"' in script
+    assert 'AJENDA_COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE"' in script
+    assert 'AJENDA_COMPOSE_API_HOST_PORT="$COMPOSE_API_HOST_PORT"' in script
+    assert 'AJENDA_COMPOSE_FRONTEND_HOST_PORT="$COMPOSE_FRONTEND_HOST_PORT"' in script
+    assert 'AJENDA_COMPOSE_PROMETHEUS_HOST_PORT="$COMPOSE_PROMETHEUS_HOST_PORT"' in script
+    assert 'AJENDA_COMPOSE_OTEL_HOST_PORT="$COMPOSE_OTEL_HOST_PORT"' in script
     assert 'docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
     assert "compose config --quiet" in script
-    assert 'FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:8080}"' in script
+    assert (
+        'COMPOSE_ENV_FILE="$(cd "$(dirname "$COMPOSE_ENV_FILE")" && pwd -P)/$(basename "$COMPOSE_ENV_FILE")"' in script
+    )
+    assert 'COMPOSE_FRONTEND_HOST_PORT="${AJENDA_PROOF_COMPOSE_FRONTEND_HOST_PORT:-8080}"' in script
+    assert (
+        'FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:${COMPOSE_FRONTEND_HOST_PORT}}"'
+        in script
+    )
     assert 'wait_for_http_ok "$FRONTEND_BASE_URL/"' in script
     assert "AJENDA_PROOF_START_SERVICES:-0" in script
     assert "AJENDA_PROOF_BOOTSTRAP_ROLES:-0" in script

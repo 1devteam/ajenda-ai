@@ -28,7 +28,7 @@ def test_compose_declares_frontend_service() -> None:
     compose = _read(COMPOSE_FILE)
     assert "frontend:" in compose
     assert "deploy/docker/frontend.Dockerfile" in compose
-    assert '"8080:80"' in compose or "8080:80" in compose
+    assert '"127.0.0.1:${AJENDA_COMPOSE_FRONTEND_HOST_PORT:-8080}:80"' in compose
 
 
 def test_dev_compose_declares_frontend_service() -> None:
