@@ -330,7 +330,10 @@ def test_compose_and_live_proof_use_same_env_file_for_config_up_exec_down() -> N
     assert 'docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"' in script
     assert "compose config --quiet" in script
     assert 'COMPOSE_FRONTEND_HOST_PORT="${AJENDA_PROOF_COMPOSE_FRONTEND_HOST_PORT:-8080}"' in script
-    assert 'FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:${COMPOSE_FRONTEND_HOST_PORT}}"' in script
+    assert (
+        'FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:${COMPOSE_FRONTEND_HOST_PORT}}"'
+        in script
+    )
     assert 'wait_for_http_ok "$FRONTEND_BASE_URL/"' in script
     assert "AJENDA_PROOF_START_SERVICES:-0" in script
     assert "AJENDA_PROOF_BOOTSTRAP_ROLES:-0" in script
