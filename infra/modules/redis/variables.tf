@@ -25,12 +25,6 @@ variable "num_cache_clusters" {
   default     = 1
 }
 
-variable "auth_token" {
-  description = "AUTH token for Redis in-transit authentication — sourced from Secrets Manager"
-  type        = string
-  sensitive   = true
-}
-
 variable "snapshot_retention_days" {
   description = "Number of days to retain Redis snapshots"
   type        = number

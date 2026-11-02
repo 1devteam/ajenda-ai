@@ -151,5 +151,5 @@ Before switching production env to Resend + live Stripe:
 docker compose \
   --env-file deploy/compose/.env.prod \
   -f deploy/compose/docker-compose.prod.yml \
-  down -v
+  down --remove-orphans
 ```

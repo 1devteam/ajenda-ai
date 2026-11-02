@@ -31,8 +31,18 @@ def test_vpc_module_exposes_frontend_security_group() -> None:
 
 def test_secrets_module_exists_for_environment_roots() -> None:
     secrets = _read(SECRETS_MAIN)
-    assert "aws_secretsmanager_secret" in secrets
-    assert "ecs_secrets_read_policy_arn" in _read(Path("infra/modules/secrets/outputs.tf"))
+    assert "aws_iam_policy_document" in secrets
+    assert "secret_arns_by_runtime" in secrets
+    assert "aws_secretsmanager_secret_version" not in secrets
+    assert "ecs_secrets_read_policy_arns" in _read(Path("infra/modules/secrets/outputs.tf"))
+
+
+def test_runtime_secret_role_validations_use_supported_terraform_expressions() -> None:
+    for path in (Path("infra/modules/secrets/variables.tf"), Path("infra/modules/ecs/variables.tf")):
+        content = _read(path)
+        assert "setequals(" not in content
+        assert "alltrue([" in content
+        assert "length(keys(" in content
 
 
 def test_environment_roots_wire_customer_frontend() -> None:
@@ -40,5 +50,5 @@ def test_environment_roots_wire_customer_frontend() -> None:
     production = _read(PRODUCTION_MAIN)
     for content in (staging, production):
         assert "sg_ecs_frontend_id" in content
-        assert "ecr_frontend_image_uri" in content
-        assert "enable_customer_frontend = true" in content
+        assert "frontend_image" in content
+        assert "enable_runtime" in content

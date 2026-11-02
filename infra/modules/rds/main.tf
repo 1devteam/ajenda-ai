@@ -116,9 +116,10 @@ resource "aws_db_instance" "main" {
   kms_key_id            = aws_kms_key.rds.arn
 
   # Database
-  db_name  = var.db_name
-  username = var.db_username
-  password = var.db_password  # Sourced from Secrets Manager by the caller
+  db_name                       = var.db_name
+  username                      = var.db_username
+  manage_master_user_password   = true
+  master_user_secret_kms_key_id = aws_kms_key.rds.arn
 
   # Network
   db_subnet_group_name   = aws_db_subnet_group.main.name
@@ -130,11 +131,11 @@ resource "aws_db_instance" "main" {
   multi_az = var.multi_az
 
   # Backups
-  backup_retention_period   = var.backup_retention_days
-  backup_window             = "03:00-04:00"  # UTC — low traffic window
-  maintenance_window        = "sun:04:00-sun:05:00"
-  copy_tags_to_snapshot     = true
-  delete_automated_backups  = false
+  backup_retention_period  = var.backup_retention_days
+  backup_window            = "03:00-04:00" # UTC — low traffic window
+  maintenance_window       = "sun:04:00-sun:05:00"
+  copy_tags_to_snapshot    = true
+  delete_automated_backups = false
 
   # Deletion protection — always on in production
   deletion_protection = var.deletion_protection
@@ -156,9 +157,9 @@ resource "aws_db_instance" "main" {
   })
 
   lifecycle {
-    # Prevent accidental deletion of the database
-    prevent_destroy = false  # Set to true in production via tfvars
-    ignore_changes  = [password]  # Password managed via Secrets Manager rotation
+    # Prevent accidental deletion is controlled by deletion_protection and the
+    # environment root. The password is AWS-managed, never Terraform input.
+    prevent_destroy = false
   }
 }
 
@@ -217,7 +218,7 @@ resource "aws_cloudwatch_metric_alarm" "rds_storage" {
   namespace           = "AWS/RDS"
   period              = 300
   statistic           = "Average"
-  threshold           = 10737418240  # 10 GB in bytes
+  threshold           = 10737418240 # 10 GB in bytes
   alarm_description   = "RDS free storage below 10 GB"
   alarm_actions       = var.alarm_sns_arn != "" ? [var.alarm_sns_arn] : []
 

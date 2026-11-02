@@ -113,8 +113,24 @@ Non-application deployment variables are limited to deployment tooling or platfo
 |---|---|---|---|
 | Docker Compose prod | `deploy/compose/docker-compose.prod.yml` loads `deploy/compose/.env.prod` for `api`, `worker`, assurance, and `migrate`; `.env.prod.example` documents required values. Build and run the dedicated `migrate` image first; after `alembic upgrade head`, it verifies the database revision equals the image's single migration head. Build/recreate API, worker, and assurance only after that migration step succeeds. | API uses `deploy/scripts/start-api.sh`; worker uses `deploy/scripts/start-worker.sh`; migrations use `deploy/scripts/run-migrations.sh`. API, worker, and assurance independently reject a database whose Alembic revision does not equal their image's single head. | API healthcheck uses `/health`; readiness exposes schema state; Prometheus scrapes `/v1/observability/metrics`. |
 | Live runtime proof | `.github/workflows/live-runtime-proof.yml` writes `deploy/compose/.env.prod`; `deploy/scripts/live-runtime-proof.sh` runs Compose with `--env-file "$COMPOSE_ENV_FILE"` for `config`, `up`, `exec`, and related commands. | Starts `db redis migrate api worker prometheus otel-collector` and verifies worker completion through the supported worker image entrypoint. | Verifies `/health`, `/readiness`, `/v1/system/health`, `/v1/system/readiness`, Prometheus target health, live metrics, and Redis lease cleanup. |
-| Kubernetes | `deploy/k8s/configmap.yaml` contains non-secret `AJENDA_*` values; `deploy/k8s/secret.example.yaml` contains distinct API, worker, assurance, and migrator database URLs. A separately authorized operator provisions the roles before the migration Job runs. Run `deploy/k8s/migrate-job.yaml` from the release image and wait for successful completion before rolling out API, worker, or assurance. | API, worker, assurance, and migration workloads set their matching `AJENDA_DATABASE_IDENTITY` and rely on their image entrypoints. API, worker, and assurance independently reject a database whose recorded Alembic revision does not equal their image's single migration head; only the migration Job runs `alembic upgrade head`. Worker images must use `deploy/scripts/start-worker.sh`, which starts `backend.workers.worker_loop.WorkerLoop`. | API probes use `/health` and `/readiness`; readiness reports `SCHEMA_BEHIND` when a running process later observes schema drift. Worker probes use `/tmp/worker-alive`; ServiceMonitor uses `/v1/observability/metrics`. |
-| Terraform/ECS | No Terraform/ECS deployment files are present in this repository snapshot. | Not present. Add F3-B static env/command/secret tests before adding ECS task definitions. | Not present. |
+| Kubernetes | **Non-operational reference only.** The manifests are not connected to release promotion and contain no target-environment proof. See [`deploy/k8s/README.md`](../../deploy/k8s/README.md). | Do not use for staging or production until a separately reviewed CDE alignment implements the same current image, identity, migration, readiness, and rollback contract. | No Kubernetes production claim is supported. |
+| Terraform/ECS | `infra/` defines the intended AWS target. Terraform accepts immutable image digests and Secrets Manager ARNs only; it does not apply migrations, provision database roles, or promote service revisions. It creates runtime services dormant at desired count zero. | `deploy/scripts/ecs-promote.sh` runs the dedicated migrator task, requires zero exit, then promotes and starts API, worker, assurance, and optional frontend task definitions. `deploy/scripts/ecs-rollback.sh` requires explicit schema-compatibility approval and never runs Alembic. | Static Terraform/deployment contract checks and local Compose proof exist. Authorized ECS staging proof remains required before any production claim. |
+
+### ECS secret and database-role boundary
+
+ECS runtime configuration is not synthesized from the RDS administrator
+credential. Before enabling an ECS runtime, an authorized operator must create
+and store separate Secrets Manager values for `ajenda_api`, `ajenda_worker`,
+`ajenda_assurance`, and `ajenda_migrator`; Terraform receives only their ARNs.
+The API and worker receive their role-specific database URL plus their required
+queue/runtime secrets. Assurance and migrator receive only their respective
+database URL. Terraform creates neither the secret values nor the database
+roles, and the promotion script does neither.
+
+The AWS implementation is source-validated but not yet proven in a target
+account. In particular, ElastiCache is private-network and TLS protected; if a
+target environment requires Redis AUTH, introduce its secret and rotation
+contract before calling that environment production-ready.
 
 ## Worker runtime entrypoint
 

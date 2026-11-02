@@ -390,7 +390,7 @@ Root (unversioned): `/health`, `/readiness`
 
 ## 9. Database migrations (Alembic head)
 
-**Head revision:** `0054_merge_roles_evidence`
+**Head revision:** `0063_evidence_logical_identity`
 
 | Rev | Description |
 |-----|-------------|
@@ -458,7 +458,7 @@ Root (unversioned): `/health`, `/readiness`
 |--------|-------|---------------|
 | `deploy/compose/docker-compose.prod.yml` | api, worker, **frontend**, migrate, db, redis, prometheus, otel, hubspot-crm-ingress (optional plugin TLS) | per-tenant dedicated worker pools |
 | `deploy/k8s/*` | api, worker, **frontend**, ingress (`/v1` → API, `/` → frontend) | — |
-| `infra/` (Terraform/AWS) | VPC, RDS, Redis, ECS patterns | customer frontend module |
+| `infra/` (Terraform/AWS) | VPC, RDS, Redis/Valkey, ECS task-definition foundation | intended hosted target; static contract validation only until authorized ECS staging proof |
 
 ---
 

@@ -27,3 +27,8 @@ output "kms_key_arn" {
   description = "ARN of the KMS key used for RDS encryption"
   value       = aws_kms_key.rds.arn
 }
+
+output "master_user_secret_arn" {
+  description = "AWS-managed RDS master-user secret ARN for separately authorized role bootstrap only."
+  value       = aws_db_instance.main.master_user_secret[0].secret_arn
+}

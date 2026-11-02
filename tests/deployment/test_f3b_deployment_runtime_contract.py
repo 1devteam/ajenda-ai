@@ -400,17 +400,119 @@ def test_health_readiness_and_metrics_paths_are_aligned() -> None:
     assert "/observability/metrics" not in deployment_text.replace("/v1/observability/metrics", "")
 
 
-def test_terraform_or_ecs_contract_files_do_not_exist_without_deployment_tests() -> None:
-    candidate_roots = [Path("deploy"), Path("infrastructure")]
-    discovered: list[Path] = []
-    for root in candidate_roots:
-        if not root.exists():
-            continue
-        discovered.extend(path for path in root.rglob("*.tf") if path.is_file())
-        discovered.extend(path for path in root.rglob("*ecs*") if path.is_file())
-        discovered.extend(path for path in root.rglob("*task*definition*") if path.is_file())
+def test_terraform_ecs_owner_is_covered_by_this_contract_module() -> None:
+    """Prevent the old `infrastructure/`-only scan from hiding `infra/`."""
 
-    assert not discovered, (
-        "Terraform/ECS deployment files need F3-B env/command/secret contract tests before being added: "
-        f"{[str(path) for path in discovered]}"
-    )
+    terraform_files = sorted(Path("infra").rglob("*.tf"))
+    assert terraform_files, "infra/ is a declared deployment owner and must remain covered below"
+
+
+def test_ecs_terraform_uses_the_current_role_specific_runtime_contract() -> None:
+    """Keep the declared AWS target aligned with the proven Compose/runtime spine.
+
+    This is intentionally a source-level guard. It does not claim an AWS deployment
+    has occurred; an authorized target-environment proof remains separately required.
+    """
+
+    ecs = _read(Path("infra/modules/ecs/main.tf"))
+    frontend = _read(Path("infra/modules/ecs/frontend.tf"))
+    variables = _read(Path("infra/modules/ecs/variables.tf"))
+    staging = _read(Path("infra/environments/staging/main.tf"))
+    production = _read(Path("infra/environments/production/main.tf"))
+
+    for stale_name in LEGACY_UNSUPPORTED_APP_ENV | {"APP_ENV", "LOG_LEVEL", "WORKER_MODE"}:
+        assert f'name = "{stale_name}"' not in ecs
+    for stale_marker in STALE_WORKER_ENTRYPOINT_MARKERS:
+        assert stale_marker not in ecs
+
+    for role in ("api", "worker", "assurance", "migrator"):
+        assert f'aws_ecs_task_definition" "{role}"' in ecs
+        assert f"var.{role}_image" in ecs
+        assert f'aws_cloudwatch_log_group" "{role}"' in ecs
+        assert f'variable "{role}_image"' in variables
+        assert f"{role}_image" in staging
+        assert f"{role}_image" in production
+
+    assert "AJENDA_DATABASE_IDENTITY" in ecs
+    assert "AJENDA_DATABASE_URL" in ecs
+    assert "AJENDA_QUEUE_URL" in variables
+    assert 'aws_ecs_service" "assurance"' in ecs
+    assert 'aws_ecs_task_definition" "migrator"' in ecs
+    assert ecs.count("desired_count   = 0") == 3
+    assert "min_capacity       = 0" in ecs
+    assert 'for_each = toset(["api", "worker", "assurance", "migrator", "frontend"])' in ecs
+    assert "for_each   = var.secrets_read_policy_arns" in ecs
+    for role in ("api", "worker", "assurance", "migrator"):
+        assert f'aws_iam_role.ecs_execution["{role}"].arn' in ecs
+    assert "image" in frontend and "var.frontend_image" in frontend
+    assert 'aws_iam_role.ecs_execution["frontend"].arn' in frontend
+    assert "image_tag" not in (ecs + frontend + variables + staging + production)
+
+    for environment in ("staging", "production"):
+        outputs = _read(Path(f"infra/environments/{environment}/outputs.tf"))
+        for promotion_output in (
+            "api_service_name",
+            "worker_service_name",
+            "assurance_service_name",
+            "migrator_task_definition_arn",
+            "api_task_definition_arn",
+            "worker_task_definition_arn",
+            "assurance_task_definition_arn",
+        ):
+            assert f'output "{promotion_output}"' in outputs
+
+
+def test_terraform_accepts_secret_references_not_secret_values() -> None:
+    secrets = _read(Path("infra/modules/secrets/main.tf"))
+    staging_variables = _read(Path("infra/environments/staging/variables.tf"))
+    production_variables = _read(Path("infra/environments/production/variables.tf"))
+    staging = _read(Path("infra/environments/staging/main.tf"))
+    production = _read(Path("infra/environments/production/main.tf"))
+
+    assert "aws_secretsmanager_secret_version" not in secrets
+    assert "secret_string" not in secrets
+    for legacy_secret_input in (
+        'variable "db_password"',
+        'variable "redis_auth_token"',
+        'variable "oidc_signing_key_pem"',
+        'variable "webhook_hmac_master_key"',
+    ):
+        assert legacy_secret_input not in (staging_variables + production_variables)
+    for legacy_reference in (
+        "db_password             = var.db_password",
+        "redis_auth_token        = var.redis_auth_token",
+        "oidc_signing_key_pem    = var.oidc_signing_key_pem",
+        "webhook_hmac_master_key = var.webhook_hmac_master_key",
+    ):
+        assert legacy_reference not in (staging + production)
+
+
+def test_ecs_promotion_and_rollback_are_explicit_schema_aware_operator_steps() -> None:
+    promotion = _read(Path("deploy/scripts/ecs-promote.sh"))
+    rollback = _read(Path("deploy/scripts/ecs-rollback.sh"))
+
+    assert "AJENDA_ECS_PROMOTION_APPROVED" in promotion
+    assert "aws ecs run-task" in promotion
+    assert "aws ecs wait tasks-stopped" in promotion
+    assert "AJENDA_ECS_MIGRATOR_TASK_DEFINITION" in promotion
+    assert "AJENDA_ECS_API_TASK_DEFINITION" in promotion
+    assert "AJENDA_ECS_WORKER_TASK_DEFINITION" in promotion
+    assert "AJENDA_ECS_ASSURANCE_TASK_DEFINITION" in promotion
+    assert "AJENDA_ECS_API_DESIRED_COUNT" in promotion
+    assert "application-autoscaling register-scalable-target" in promotion
+    assert "terraform apply" not in promotion
+    assert "provision-database-roles.sh" not in promotion
+
+    assert "AJENDA_ECS_SCHEMA_COMPATIBILITY_APPROVED" in rollback
+    assert "Schema compatibility approval is required" in rollback
+    assert "aws ecs update-service" in rollback
+    assert "alembic" not in rollback
+
+
+def test_cloud_target_docs_do_not_claim_unconfigured_redis_auth_or_secret_creation() -> None:
+    infra_readme = _read(Path("infra/README.md"))
+    production_contract = _read(Path("docs/deployment/production-env-contract.md"))
+
+    assert "Redis auth token" not in infra_readme
+    assert "Terraform creates neither the secret values nor the database" in production_contract
+    assert "Authorized ECS staging proof remains required" in production_contract

@@ -193,7 +193,7 @@ The system is built around these core guarantees:
 | **Observability** | Prometheus metrics, audit events, governance events, validation artifacts |
 | **Webhooks** | tenant-scoped outbound webhook management, reliability summaries, replay support |
 | **Validation** | live runtime validation matrix, runner-backed artifact capture, release-gating scenarios |
-| **Deployment** | Docker, Alembic, GitHub Actions, Kubernetes manifests |
+| **Deployment** | Docker/Compose proof spine, Alembic, GitHub Actions, Terraform-defined AWS ECS target; Kubernetes manifests are reference-only |
 
 ---
 
@@ -575,7 +575,7 @@ Recent milestones:
 - **Mission plans (Phase 4):** durable `mission_plans` table is canonical; `PUT /plan` writes table only; legacy metadata read-only + `0031` backfill migration; `allow_legacy_v1` opt-in on mission create (default false)
 - **Worker tenancy (Phase 5):** `AJENDA_WORKER_TENANT_MODE=multi` round-robin across active tenants (ADR-0004); production deploy defaults updated
 - **Paid customer product:** account APIs, customer frontend (router + pages), Compose/K8s frontend deploy, GHCR frontend image CI, E2E integration test + staging curl proof
-- **Alembic head:** `0054_merge_roles_evidence` — merges the runtime-evidence/billing and restricted-role branches.
+- **Alembic head:** `0063_evidence_logical_identity`.
 - **Live proof CI:** `main` push runs Live Runtime Proof after integration + docker build (see `docs/validation/live-runtime-proof-release-gate.md`)
 - **Outcome-loop intelligence:** deterministic coverage/applicability assessment, epistemic context, deliverable lifecycle reconciliation, and semantic lattice provenance are implemented before and alongside governed runtime execution
 - **Semantic lattice:** shared GTM/business concepts now compose with local-service, field-service, professional-services, healthcare, SaaS, e-commerce, and industry overlays including HVAC, roofing, plumbing, electrical, landscaping, pest control, legal, dental, recruiting, and advertising
@@ -800,7 +800,7 @@ Run integration tests, migration round-trip checks, and live runtime proof when 
 | 0053 | Restrict authentication-table access to the API role |
 | 0054 | Merge the restricted-role and runtime-evidence migration branches |
 
-**Alembic head:** `0054_merge_roles_evidence`
+**Alembic head:** `0063_evidence_logical_identity`
 
 ### Mission composition (plain language → plan)
 
