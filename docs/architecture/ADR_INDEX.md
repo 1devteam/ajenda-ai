@@ -4,7 +4,8 @@ This index tracks active architecture doctrines that govern implementation choic
 
 All ADRs in this folder should be treated as policy-level architecture guidance and kept aligned with `PROJECT_SPEC.md`, `README.md`, `docs/architecture/SYSTEM_ARCHITECTURE.md`, and runtime-proof evidence surfaces.
 
-**Visual system map:** [`SYSTEM_ARCHITECTURE.md`](./SYSTEM_ARCHITECTURE.md) (Mermaid flowcharts, code-aligned, updated 2026-06-21).
+**Visual system map:** [`SYSTEM_ARCHITECTURE.md`](./SYSTEM_ARCHITECTURE.md)
+(Mermaid flowcharts; last reconciled 2026-11-02).
 
 ---
 
@@ -31,6 +32,18 @@ All ADRs in this folder should be treated as policy-level architecture guidance 
 | [ADR-0008](./ADR-0008-mission-composition-engine.md) | Mission Composition Engine | Accepted | 2026-07-19 (upd. 2026-07-27) | Plain language → canonical outcomes + structured intent → jobs → abilities → durable proposal; restatement not fragment merge; compose read-only; confirm intake only |
 | [ADR-0009](./ADR-0009-external-connector-truthfulness.md) | External Connector Truthfulness | Accepted | 2026-07-31 | Fail-closed connector capability and source-truth boundaries |
 | [ADR-0010](./ADR-0010-decision-episode-materialization-authority.md) | Decision Episode Materialization Authority | Accepted | 2026-08-12 | Canonical runtime evidence composition into tenant-scoped Decision learning episodes |
+
+---
+
+## Proposed ADRs (not implementation authority)
+
+| ADR | Title | Status | Date | Scope |
+|---|---|---|---|---|
+| [ADR-0011](./ADR-0011-business-first-vertical-boundary.md) | Business-first Vertical Boundary | Proposed | 2026-09-10 | Business context and operating intent as the vertical boundary; providers remain adapters |
+
+`ADR-0011` was originally created with a duplicate `ADR-0010` filename. It was
+renumbered on 2026-11-02 after source/history review; its proposal text remains
+preserved and it has not been silently promoted to accepted doctrine.
 
 ---
 

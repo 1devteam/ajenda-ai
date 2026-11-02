@@ -1,6 +1,11 @@
 # AJENDA-AI System Assessment (May 23, 2026)
 
-> **Historical document.** This assessment predates self-serve onboarding (Phase 1A/1B), Stripe webhook hardening (Phase 0), and Alembic head `0030`. For current system truth and Mermaid flowcharts, use [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md) and [`docs/PROJECT_STATE_REPORT.md`](PROJECT_STATE_REPORT.md).
+> **Historical document.** This assessment predates self-serve onboarding
+> (Phase 1A/1B), Stripe webhook hardening (Phase 0), and Alembic head `0030`.
+> For current system truth and Mermaid flowcharts, use
+> [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md),
+> [`docs/README.md`](README.md), and the applicable current deployment/proof
+> contract. `PROJECT_STATE_REPORT.md` is a preserved historical snapshot.
 
 ## Scope and method
 

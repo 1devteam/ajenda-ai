@@ -1,8 +1,8 @@
 # Ajenda AI — System Architecture (Code-Aligned)
 
 **Status:** Active  
-**Current structural verification:** 2026-10-19, working tree at `4c7caabeb7805d3b0a62535c1893df6b42296a4e`; generated graph: 2,121 nodes, 5,852 edges, no static cycles.
-**Runtime verification scope:** one local Compose fixture mission completed through onboarding, compose, confirm, launch, Redis/worker execution, deliverable, tenant-isolated runtime-evidence read, and reconciliation. This is not proof of live provider behavior or production deployment health; see [`docs/validation/runtime-capability-assessment-2026-10-19.md`](../validation/runtime-capability-assessment-2026-10-19.md).
+**Last reconciled:** 2026-11-02; generated dependency graph: 2,239 nodes, 6,311 edges, no static cycles.
+**Runtime verification scope:** isolated/local Compose proof has covered migration, readiness, governed runtime execution, durable evidence, and deliverable readback. This is not proof of live provider behavior, authorized AWS staging, or production deployment health; see [`docs/validation/live-runtime-proof-release-gate.md`](../validation/live-runtime-proof-release-gate.md) and [`docs/audits/public-research-rebuild/09-IMPLEMENTATION-CLOSURE-AND-OPEN-PROOF.md`](../audits/public-research-rebuild/09-IMPLEMENTATION-CLOSURE-AND-OPEN-PROOF.md).
 **Source of truth:** implementation files, migrations, tests — not aspirational product docs.
 
 This document is the canonical visual and narrative map of what exists in the repository today. When docs conflict with code, code wins.
@@ -14,14 +14,14 @@ This document is the canonical visual and narrative map of what exists in the re
 ```mermaid
 flowchart TB
     subgraph Clients["Clients"]
-        CustomerUI["Customer UI<br/>Compose :8080 / K8s ingress /"]
+        CustomerUI["Customer UI<br/>Compose :8080 / intended hosted ingress"]
         DevConsole["Dev console /dev<br/>ability-runtime test UI"]
         CurlAPI["API clients / curl / integrations"]
         Stripe["Stripe webhooks"]
     end
 
     subgraph Edge["HTTP edge"]
-        Ingress["K8s Ingress or Compose nginx<br/>/v1 → API :8000, / → frontend"]
+        Ingress["Compose nginx or approved hosted ingress<br/>/v1 → API :8000, / → frontend"]
         MW["Middleware chain<br/>SecurityHeaders → CORS → TenantContext →<br/>AuthContext → Idempotency → RateLimit → RequestContext"]
     end
 
@@ -309,11 +309,11 @@ providers. The compatibility manifest is
 
 ---
 
-## 6. End-to-end paid customer loop (staging-ready)
+## 6. End-to-end paid customer loop (source implemented; Compose proof boundary)
 
 ```mermaid
 flowchart LR
-    subgraph Product["Implemented (staging-ready)"]
+    subgraph Product["Implemented product surfaces"]
         P1[Customer UI signup/verify]
         P2[promote + dashboard]
         P3[account /me /usage /billing]
@@ -322,11 +322,11 @@ flowchart LR
         P6[worker execution]
     end
 
-    subgraph ProdGap["Production cutover remaining"]
+    subgraph ProdGap["Configuration and target proof still required"]
         G1[Resend email in prod]
         G2[live Stripe + webhook URL]
         G3[prod hostnames + CORS]
-        G4[Terraform frontend module]
+        G4[Authorized ECS staging proof]
     end
 
     P1 --> P2 --> P3 --> P4 --> P5 --> P6
@@ -338,7 +338,10 @@ flowchart LR
 - Compose HTTP: `deploy/scripts/paid-customer-loop-staging-proof.sh`
 - Runbook: `ops/runbooks/paid-customer-loop-staging.md`
 
-**Stranger completion:** full path on local/staging Compose (`:8080`). Production requires cutover checklist in runbook §5.
+**Current proof boundary:** the local/isolated Compose path can be exercised at
+`:8080`. A source-present frontend, billing route, or infrastructure definition
+is not itself a stranger-ready production claim. Hosted production requires the
+configuration and target-environment proof described by the deployment contract.
 
 ---
 
@@ -418,6 +421,8 @@ Root (unversioned): `/health`, `/readiness`
 | 0052 | Runtime-evidence/billing merge and database role separation |
 | 0053 | Restrict pre-tenant authentication records to the API identity |
 | 0054 | Merge restricted runtime-role and observability histories |
+| 0055–0062 | Business understanding, need assessment, measurement security, immutable measurement-contract, and accepted measurement-pairing contracts |
+| 0063 | Tenant-scoped logical identity for canonical evidence episodes |
 
 ---
 
@@ -432,7 +437,7 @@ Root (unversioned): `/health`, `/readiness`
 | Auth model | sessionStorage session (bootstrap vs operational API keys + tenant id) |
 | API integration | onboarding, account, billing, ability-runtime, CRM records/pipeline/relationships/timelines, authorized record edits |
 | Compose deploy | `:8080`, nginx proxies `/v1`, `/health`, `/readiness` to API |
-| K8s deploy | `ajenda-frontend` + ingress `/` → frontend; image `ghcr.io/<org>/<repo>-frontend:<version>` |
+| Kubernetes | Reference-only manifests; not an authorized staging or production deployment target |
 
 ---
 
@@ -457,8 +462,8 @@ Root (unversioned): `/health`, `/readiness`
 | Target | Ships | Does not ship |
 |--------|-------|---------------|
 | `deploy/compose/docker-compose.prod.yml` | api, worker, **frontend**, migrate, db, redis, prometheus, otel, hubspot-crm-ingress (optional plugin TLS) | per-tenant dedicated worker pools |
-| `deploy/k8s/*` | api, worker, **frontend**, ingress (`/v1` → API, `/` → frontend) | — |
-| `infra/` (Terraform/AWS) | VPC, RDS, Redis/Valkey, ECS task-definition foundation | intended hosted target; static contract validation only until authorized ECS staging proof |
+| `deploy/k8s/*` | Reference manifests retained for development/history | Not connected to release promotion; no staging or production claim |
+| `infra/` (Terraform/AWS) | VPC, RDS, Redis/Valkey, dormant ECS task-definition foundation, role-specific release inputs | Intended hosted target; source/static validation only until authorized ECS staging proof |
 
 ---
 
@@ -468,8 +473,10 @@ Root (unversioned): `/health`, `/readiness`
 2. Live Stripe keys, price IDs, and webhook endpoint on production API URL
 3. Production `AJENDA_SIGNUP_VERIFY_URL_BASE` and `AJENDA_CORS_ALLOWED_ORIGINS`
 4. Plan/feature alignment (starter checkout vs `ability_runtime` on pro)
-5. Terraform/AWS frontend hosting (if production edge is ECS/ALB-only today)
-6. Run staging runbook + E2E proof against production-like hostnames before launch
+5. Authorized ECS staging deployment and target proof, including frontend,
+   browser-worker, database-role, queue/TLS, evidence, and operator readback
+6. Run the staging runbook and E2E proof against approved production-like
+   hostnames before launch
 
 ## 13.1 Current evidence gaps and next engineering work
 

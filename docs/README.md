@@ -1,83 +1,120 @@
-# Ajenda AI — Documentation Index
+# Ajenda AI Documentation Guide
 
-**Last aligned with `main`:** 2026-11-01
+**Status:** Active navigation guide
+**Last reconciled:** November 2, 2026
+**Authority:** Code, migrations, tests, and observed runtime artifacts override
+documentation when they disagree.
 
-When docs conflict with code, **code + tests win**. Start with the canonical set below.
+Ajenda's documentation is deliberately separated by audience and evidence
+status. A product overview is not a deployment runbook; a historical audit is
+not current runtime proof.
 
----
+## Start here
 
-## Canonical (always current)
+| If you are… | Start with | Then use |
+|---|---|---|
+| Evaluating Ajenda | [Product overview](product/PRODUCT_OVERVIEW.md) | [README](../README.md) and the proof boundary below |
+| Operating a runtime | [Production environment contract](deployment/production-env-contract.md) | [Compose lifecycle](../deploy/compose/README.database-lifecycle.md), [deployment](../ops/runbooks/deployment.md), and [rollback](../ops/runbooks/rollback.md) |
+| Building or reviewing Ajenda | [`AGENTS.md`](../AGENTS.md) | [System architecture](architecture/SYSTEM_ARCHITECTURE.md) and [GRAFT+ workflow](development/GRAFT_PLUS_WORKFLOW.md) |
+| Evaluating proof | [Live runtime proof gate](validation/live-runtime-proof-release-gate.md) | [validation matrix](validation/live-runtime-matrix.md) and [artifact guide](../artifacts/validation/README.md) |
+| Researching decisions | [ADR index](architecture/ADR_INDEX.md) | Status-marked audit, remediation, planning, and validation records |
 
-| Document | Purpose |
-|----------|---------|
-| [`architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md) | **Mermaid flowcharts** + code-aligned system map |
-| [`../PROJECT_SPEC.md`](../PROJECT_SPEC.md) | Canonical specification |
-| [`../README.md`](../README.md) | Repository entry point |
-| [`PROJECT_STATE_REPORT.md`](PROJECT_STATE_REPORT.md) | Current implementation status |
-| [`SAAS_ARCHITECTURE.md`](SAAS_ARCHITECTURE.md) | Tenant isolation, plans, onboarding, billing |
-| [`deployment/production-env-contract.md`](deployment/production-env-contract.md) | Required production environment variables |
-| [`contracts/authority-ledger.v1.yaml`](contracts/authority-ledger.v1.yaml) | Machine-readable authority map |
-| [`development/GRAFT_PLUS_WORKFLOW.md`](development/GRAFT_PLUS_WORKFLOW.md) | Established UPG/LAP + graph-guided build and runtime-artifact workflow |
+## Current reference set
 
----
+These documents are maintained as current references. Their status does not
+replace source inspection or runtime proof.
 
-## Architecture and governance
+| Document | Audience and purpose |
+|---|---|
+| [`../README.md`](../README.md) | Public/repository entry point: product value, current capability boundary, and developer orientation. |
+| [`product/PRODUCT_OVERVIEW.md`](product/PRODUCT_OVERVIEW.md) | Customer-readable product narrative and availability boundary. |
+| [`../PROJECT_SPEC.md`](../PROJECT_SPEC.md) | Binding engineering scope, invariants, authority model, and release expectations. |
+| [`architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md) | Code-aligned technical map and Mermaid flows. |
+| [`architecture/ADR_INDEX.md`](architecture/ADR_INDEX.md) | Accepted and proposed architecture decisions with unique identifiers. |
+| [`SAAS_ARCHITECTURE.md`](SAAS_ARCHITECTURE.md) | Tenant, plan, onboarding, billing, and worker-tenancy enforcement topology. |
+| [`deployment/production-env-contract.md`](deployment/production-env-contract.md) | Current production configuration, migration/promotion, ECS, and Kubernetes status. |
+| [`validation/live-runtime-matrix.md`](validation/live-runtime-matrix.md) | Validation scenarios and evidence semantics. |
+| [`validation/live-runtime-proof-release-gate.md`](validation/live-runtime-proof-release-gate.md) | What the Compose runtime proof actually proves and what it does not. |
+| [`policies/DOCS_FRESHNESS_POLICY.md`](policies/DOCS_FRESHNESS_POLICY.md) | Documentation classification, review requirements, and current CI enforcement boundary. |
+| [`contracts/authority-ledger.v1.yaml`](contracts/authority-ledger.v1.yaml) | Machine-readable authority/proof map. |
 
-| Document | Purpose |
-|----------|---------|
-| [`architecture/ADR_INDEX.md`](architecture/ADR_INDEX.md) | Architecture decision records |
-| [`architecture/ADR-0001-authority-classification-doctrine.md`](architecture/ADR-0001-authority-classification-doctrine.md) | Authority classes |
-| [`architecture/ADR-0002-schema-evolution-strategy.md`](architecture/ADR-0002-schema-evolution-strategy.md) | Schema evolution |
-| [`architecture/ADR-0003-readiness-semantics-doctrine.md`](architecture/ADR-0003-readiness-semantics-doctrine.md) | Health/readiness |
-| [`architecture/ADR-0005-informed-autonomy-gate-policy.md`](architecture/ADR-0005-informed-autonomy-gate-policy.md) | Informed autonomy vs approval theater |
-| [`policies/DOCS_FRESHNESS_POLICY.md`](policies/DOCS_FRESHNESS_POLICY.md) | Documentation SLA |
-| [`policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md`](policies/TENANT_ISOLATION_AND_TENANT_DB_SESSION_POLICY.md) | Tenant DB session policy |
+## Product and capability contracts
 
----
+`docs/product/` contains domain contracts and implementation maps. They do not
+all have the same status:
 
-## Runtime validation and deployment
+- **Current product narrative:** `product/PRODUCT_OVERVIEW.md`.
+- **Active source-linked contracts:** mission, ability, business-profile,
+  internet, credential, and knowledge documents. Read their status and owning
+  implementation before relying on a claim.
+- **Planning or slice documents:** files named `*-slice-*`, `V2_BUILD_PLAN`,
+  `TOOL_AND_ABILITY_PHASE_PRIORITIES`, and similar artifacts record
+  scope/sequence; they do not establish live capability.
 
-| Document | Purpose |
-|----------|---------|
-| [`validation/live-runtime-matrix.md`](validation/live-runtime-matrix.md) | Release-gating scenarios |
-| [`validation/live-runtime-proof-release-gate.md`](validation/live-runtime-proof-release-gate.md) | Live runtime proof |
-| [`audits/public-research-rebuild/09-IMPLEMENTATION-CLOSURE-AND-OPEN-PROOF.md`](audits/public-research-rebuild/09-IMPLEMENTATION-CLOSURE-AND-OPEN-PROOF.md) | Public-research rebuild closure, evidence, and remaining live-proof gates |
-| [`validation/outcome-loop-checkpoint-2026-10-03.md`](validation/outcome-loop-checkpoint-2026-10-03.md) | Coverage, epistemic, lifecycle, and blocked-coverage runtime checkpoint |
-| [`deployment/RUNTIME_LIMITS.md`](deployment/RUNTIME_LIMITS.md) | Runtime limits |
-| [`deployment/STAGING_PROOF.md`](deployment/STAGING_PROOF.md) | Staging runtime proof contract |
-| [`../ops/runbooks/paid-customer-loop-staging.md`](../ops/runbooks/paid-customer-loop-staging.md) | Paid customer loop staging runbook |
-| [`../deploy/scripts/paid-customer-loop-staging-proof.sh`](../deploy/scripts/paid-customer-loop-staging-proof.sh) | HTTP proof script (signup → account reads) |
-| [`../deploy/compose/.env.prod.example`](../deploy/compose/.env.prod.example) | Compose production env template |
-| [`../deploy/compose/.env.staging.example`](../deploy/compose/.env.staging.example) | Compose staging env template (noop email, exposed token for local proof) |
-| [`../infra/README.md`](../infra/README.md) | Terraform/AWS infrastructure |
-
----
-
-## Product contracts (domain-specific — verify against code)
-
-These documents describe specific contract surfaces. For the full customer product map, start with [`architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md) §6 and the staging runbook above.
+Important active references include:
 
 | Document | Scope |
-|----------|-------|
-| [`product/TOOL_AND_ABILITY_PHASE_PRIORITIES.md`](product/TOOL_AND_ABILITY_PHASE_PRIORITIES.md) | **Active roadmap** — tools/abilities, gate rollback, informed autonomy |
-| [`product/mission-based-ai-core.md`](product/mission-based-ai-core.md) | Mission execution model |
-| [`product/ability-rollout-contract.md`](product/ability-rollout-contract.md) | Ability rollout |
-| [`product/GTM_CAPABILITY_CATALOG.md`](product/GTM_CAPABILITY_CATALOG.md) | GTM actions |
-| [`product/business-profile-implementation-contract.md`](product/business-profile-implementation-contract.md) | Business profile |
-| Other `docs/product/*` | Specialized contracts |
+|---|---|
+| [`product/mission-based-ai-core.md`](product/mission-based-ai-core.md) | Mission model and boundaries |
+| [`product/ability-rollout-contract.md`](product/ability-rollout-contract.md) | Capability/action rollout contract |
+| [`product/internet-access-phase.md`](product/internet-access-phase.md) | Governed internet access and provider boundaries |
+| [`product/business-profile-implementation-contract.md`](product/business-profile-implementation-contract.md) | Business-context implementation contract |
+| [`product/GTM_CAPABILITY_CATALOG.md`](product/GTM_CAPABILITY_CATALOG.md) | GTM catalog; verify action maturity against implementation and proof |
 
----
+## Operations and deployment
 
-## Historical (do not use as current truth)
+| Document | What it controls |
+|---|---|
+| [`deployment/production-env-contract.md`](deployment/production-env-contract.md) | Runtime configuration, role identities, migrator-first ordering, target status. |
+| [`deployment/STAGING_PROOF.md`](deployment/STAGING_PROOF.md) | Compose staging/runtime proof contract. |
+| [`deployment/RUNTIME_LIMITS.md`](deployment/RUNTIME_LIMITS.md) | Runtime operational limits. |
+| [`../deploy/compose/README.database-lifecycle.md`](../deploy/compose/README.database-lifecycle.md) | First provisioning versus routine persistent-database startup. |
+| [`../ops/runbooks/deployment.md`](../ops/runbooks/deployment.md) | ECS controlled promotion. |
+| [`../ops/runbooks/rollback.md`](../ops/runbooks/rollback.md) | Schema-aware ECS rollback/forward-fix boundary. |
+| [`../infra/README.md`](../infra/README.md) | Terraform foundation and external release inputs. |
+| [`deployment/CLOUD_PLATFORM_DECISION_STUDY_2026-11-01.md`](deployment/CLOUD_PLATFORM_DECISION_STUDY_2026-11-01.md) | Proposed AWS platform decision; not deployment authorization. |
 
-These dated documents are retained for history. They may describe plans or states that predate onboarding/billing on `main`.
+Kubernetes manifests remain reference-only until their image, identity,
+migration, readiness, rollback, and target-proof contract is complete. See
+[`../deploy/k8s/README.md`](../deploy/k8s/README.md).
 
-| Document | Status |
-|----------|--------|
-| [`SYSTEM_ASSESSMENT_2026-05-23.md`](SYSTEM_ASSESSMENT_2026-05-23.md) | Historical — May 2026 |
-| [`REMEDIATION_EXECUTION_PLAN_2026-05-23.md`](REMEDIATION_EXECUTION_PLAN_2026-05-23.md) | Historical — May 2026 |
-| [`remediation/commercial_phase1.md`](remediation/commercial_phase1.md) | Superseded by implementation |
-| [`remediation/phase1_commercial_complete.md`](remediation/phase1_commercial_complete.md) | Superseded — see SYSTEM_ARCHITECTURE |
-| [`product/PRODUCT_VERTICAL_SLICE_BUILD_CONTRACT.md`](product/PRODUCT_VERTICAL_SLICE_BUILD_CONTRACT.md) | Historical — predates customer frontend, migrations 0032–0033, and CI live proof |
+## Architecture, policy, and validation
 
-For current commercial/onboarding status, use [`architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md) §3–6 and [`PROJECT_STATE_REPORT.md`](PROJECT_STATE_REPORT.md).
+- [`architecture/ADR_INDEX.md`](architecture/ADR_INDEX.md) lists architecture
+  decisions. Accepted ADRs are doctrine; proposed ADRs are not.
+- [`architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md)
+  is the current technical map. Its diagrams are not deployment proof.
+- [`policies/`](policies/) contains policy references for documentation,
+  evidence, outbound communication, outcome escalation, tenant DB sessions,
+  and budget policy.
+- [`validation/`](validation/) contains both current proof contracts and dated
+  checkpoint reports. Inspect document status/date before using a result as
+  present-tense evidence.
+- [`audits/public-research-rebuild/`](audits/public-research-rebuild/) is the
+  public-research rebuild record, including its remaining live-proof gates.
+
+## Preserved historical and planning records
+
+Ajenda keeps historical records because they explain why boundaries, migrations,
+and proof requirements exist. They are preserved, not rewritten into current
+claims.
+
+| Location | Interpretation |
+|---|---|
+| `PROJECT_STATE_REPORT.md` | **Historical snapshot:** October 3, 2026; schema `0038_knowledge_retrieval`. Do not use it as current runtime or migration proof. |
+| `SYSTEM_ASSESSMENT_2026-05-23.md`, `REMEDIATION_EXECUTION_PLAN_2026-05-23.md` | Historical early assessments/plans. |
+| `audits/` | Point-in-time investigations and evidence ledgers. Use current source/proof for present disposition. |
+| `remediation/` | Completed, superseded, or in-progress remediation records; retain their stated date/status. |
+| `planning/` | Proposals, roadmaps, acceptance plans, and thread handoffs—not implementation authority. |
+| Dated files under `validation/` | Checkpoint evidence for the named source/context, not proof for a later revision. |
+
+## Documentation status conventions
+
+- **Active/current:** Maintained reference; still subordinate to source and
+  current proof.
+- **Proposed:** Under consideration; not implementation authority.
+- **Historical/superseded:** Retained for provenance; not a present-tense claim.
+- **Reference-only:** Example/template that must not be used as a release path.
+
+When a document does not state its status, determine its authority from the
+index, date, linked owner, and implementation before using it in a decision.

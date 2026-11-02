@@ -1,7 +1,11 @@
-# ADR-0010: Business-first vertical boundary
+# ADR-0011: Business-first vertical boundary
 
-**Status:** Proposed  
+**Status:** Proposed
 **Date:** 2026-09-10
+**Identifier note:** This proposal was originally assigned the duplicate
+identifier `ADR-0010`. On 2026-11-02 it was renumbered to `ADR-0011` so the
+already accepted Decision Episode Materialization Authority remains the sole
+ADR-0010. The proposal's decision text and date are preserved.
 
 ## Decision
 

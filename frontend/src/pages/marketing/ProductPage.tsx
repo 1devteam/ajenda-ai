@@ -58,7 +58,7 @@ export default function ProductPage() {
           </div>
           <div className="marketing-surface-grid">
             {surfaces.map(({ icon: Icon, title, text }) => (
-              <article key={title}><Icon aria-hidden /><h3>{title}</h3><p>{text}</p><span><CheckCircle2 /> Built into the product</span></article>
+              <article key={title}><Icon aria-hidden /><h3>{title}</h3><p>{text}</p><span><CheckCircle2 /> Current product surface</span></article>
             ))}
           </div>
         </div>
