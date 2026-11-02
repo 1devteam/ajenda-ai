@@ -7,6 +7,14 @@ identifier `ADR-0010`. On 2026-11-02 it was renumbered to `ADR-0011` so the
 already accepted Decision Episode Materialization Authority remains the sole
 ADR-0010. The proposal's decision text and date are preserved.
 
+## Context
+
+Ajenda currently has business-profile, operating-charter, mission-composition,
+runtime, and provider-adapter owners. Provider-oriented templates can make a
+channel appear to be the tenant's operating boundary, which risks duplicating
+authority or treating credentials as business truth. This proposal defines the
+intended boundary before any further vertical capability is adopted.
+
 ## Decision
 
 Ajenda verticals represent a tenant's operating domain, not a channel or
@@ -62,7 +70,7 @@ The implementation sources are:
 Product and architecture documents describe this contract but do not prove its
 runtime behavior. Contract and integration tests remain the acceptance source.
 
-## Required acceptance proof for a new vertical
+## Verification impact
 
 A vertical addition must prove:
 
@@ -76,6 +84,19 @@ A vertical addition must prove:
 - evidence and outcome review records remain observable after completion; and
 - a provider credential or adapter cannot be used outside the selected tenant,
   action, side-effect class, and approval contract.
+
+The proof must also identify the existing implementation owner for every new
+input, decision, persistent record, queue transition, provider call, and
+evidence projection. A design proposal alone grants no runtime authority.
+
+## Rollback strategy
+
+This proposed ADR has not changed runtime behavior, schema, or persisted data.
+Rejecting or superseding it therefore requires no operational rollback. If it
+is adopted and later drives implementation, each corresponding change must
+define its own compatibility, migration, release, and recovery plan at the
+owning layer; removing a provider template or changing a vertical boundary must
+not strand tenant data, credentials, queue work, or evidence.
 
 ## Rollout sequence
 

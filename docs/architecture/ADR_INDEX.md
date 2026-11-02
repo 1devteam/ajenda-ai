@@ -44,6 +44,8 @@ All ADRs in this folder should be treated as policy-level architecture guidance 
 `ADR-0011` was originally created with a duplicate `ADR-0010` filename. It was
 renumbered on 2026-11-02 after source/history review; its proposal text remains
 preserved and it has not been silently promoted to accepted doctrine.
+The former filename remains as a non-authoritative compatibility notice for
+existing links; only the indexed files above are canonical ADR decisions.
 
 ---
 
