@@ -1,5 +1,13 @@
 # Mission-Based AI Coherence Review
 
+**Status:** Historical assessment — source snapshot reviewed May–August 2026
+**Current-use warning:** This document records gaps found before the current
+mission-composition, task-graph, capability, evidence, outcome-review, and
+knowledge implementations. It is retained for decision provenance, not as a
+description of current Ajenda capability. Use
+[`SYSTEM_ARCHITECTURE.md`](../architecture/SYSTEM_ARCHITECTURE.md), current
+tests, and runtime proof for present-tense claims.
+
 ## 1. Executive verdict
 
 **Verdict: partially aligned.**

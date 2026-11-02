@@ -103,6 +103,7 @@ claims.
 |---|---|
 | `PROJECT_STATE_REPORT.md` | **Historical snapshot:** October 3, 2026; schema `0038_knowledge_retrieval`. Do not use it as current runtime or migration proof. |
 | `SYSTEM_ASSESSMENT_2026-05-23.md`, `REMEDIATION_EXECUTION_PLAN_2026-05-23.md` | Historical early assessments/plans. |
+| `product/mission-based-ai-coherence-review.md` | **Historical assessment:** May–August 2026 source snapshot, retained to explain the mission-layer build sequence. It does not describe the current mission implementation. |
 | `audits/` | Point-in-time investigations and evidence ledgers. Use current source/proof for present disposition. |
 | `remediation/` | Completed, superseded, or in-progress remediation records; retain their stated date/status. |
 | `planning/` | Proposals, roadmaps, acceptance plans, and thread handoffs—not implementation authority. |

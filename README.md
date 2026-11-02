@@ -110,6 +110,7 @@ that the displayed missions, counts, or research results are live customer data.
 
 Ajenda is a multi-service system. Use the documented Compose lifecycle rather
 than improvising database state or worker entrypoints.
+Local backend development requires Python 3.13 or later.
 
 ```bash
 # Install the backend for local development.

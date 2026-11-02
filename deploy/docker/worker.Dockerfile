@@ -1,5 +1,5 @@
 # Worker image — hardening-parity with the API runtime image.
-FROM python:3.12-slim AS builder
+FROM python:3.13-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -18,7 +18,7 @@ COPY backend ./backend
 RUN pip install --upgrade "pip<26.0.1" "setuptools>=78.1.1" wheel \
     && pip install --prefix=/install .
 
-FROM python:3.12-slim
+FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -38,6 +38,8 @@ RUN apt-get update \
     && playwright install --with-deps chromium \
     && chown -R ajenda:ajenda /ms-playwright \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --no-cache-dir --upgrade "setuptools>=78.1.1"
 
 COPY pyproject.toml README.md /app/
 COPY backend /app/backend

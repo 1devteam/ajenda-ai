@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import base64
 import uuid
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -63,7 +63,7 @@ def decode_cursor(cursor: str) -> uuid.UUID:
         raise ValueError(f"Invalid pagination cursor: {cursor!r}") from exc
 
 
-class PaginatedResponse(BaseModel, Generic[T]):
+class PaginatedResponse[T](BaseModel):
     """Generic paginated response envelope.
 
     Attributes:

@@ -2,7 +2,7 @@
 
 Prove the stranger-ready product path on Docker Compose before production cutover.
 
-**Prerequisites:** Docker, `docker compose`, curl, Python 3.12+
+**Prerequisites:** Docker, `docker compose`, curl, Python 3.13+
 
 ---
 
