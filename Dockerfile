@@ -1,6 +1,6 @@
 # Production API image — canonical build path shared by dev Compose, CI, and release.
 # Worker and migrate images live under deploy/docker/ and must stay hardening-parity.
-FROM python:3.12-slim AS builder
+FROM python:3.13-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -19,7 +19,7 @@ COPY backend ./backend
 RUN pip install --upgrade "pip<26.0.1" "setuptools>=78.1.1" wheel \
     && pip install --prefix=/install .
 
-FROM python:3.12-slim
+FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
