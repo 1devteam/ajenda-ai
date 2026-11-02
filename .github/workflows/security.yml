@@ -14,30 +14,116 @@ permissions:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────
-  # Job 1: Trivy — scan the built Docker image for OS and library CVEs
+  # Job 1: Trivy — scan every image that can be built for an Ajenda runtime.
+  #
+  # The root API image alone is not a sufficient security boundary: worker,
+  # migrator, frontend, and optional HubSpot paths have independent final
+  # layers.  Keep this list aligned with the Docker build surfaces in Compose.
   # ─────────────────────────────────────────────────────────────────────────
   trivy-image:
-    name: Trivy Image Scan
+    name: Trivy Image Scan (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            dockerfile: Dockerfile
+            build_arg: ""
+            runtime_contract: api
+          - name: compose-api
+            dockerfile: deploy/docker/api.Dockerfile
+            build_arg: ""
+            runtime_contract: api
+          - name: worker
+            dockerfile: deploy/docker/worker.Dockerfile
+            build_arg: ""
+            runtime_contract: worker
+          - name: migrate
+            dockerfile: deploy/docker/migrate.Dockerfile
+            build_arg: ""
+            runtime_contract: migrate
+          - name: frontend
+            dockerfile: deploy/docker/frontend.Dockerfile
+            build_arg: NGINX_CONF=deploy/nginx/frontend.k8s.conf
+            runtime_contract: ""
+          - name: hubspot-crm-adapter
+            dockerfile: services/hubspot_crm_adapter/Dockerfile
+            build_arg: ""
+            runtime_contract: hubspot
+          - name: hubspot-crm-ingress
+            dockerfile: deploy/compose/hubspot-crm-ingress/Dockerfile
+            build_arg: ""
+            runtime_contract: ""
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Build image for scanning
-        run: docker build --no-cache -t "ajenda-ai:scan-${{ github.sha }}" .
+      - name: Build ${{ matrix.name }} image for scanning
+        env:
+          IMAGE: ajenda-ai-${{ matrix.name }}:scan-${{ github.sha }}
+          BUILD_ARG: ${{ matrix.build_arg }}
+        run: |
+          args=()
+          if [[ -n "$BUILD_ARG" ]]; then
+            args+=(--build-arg "$BUILD_ARG")
+          fi
+          # --no-cache alone does not refresh a locally cached mutable base
+          # tag.  Pull first so this gate evaluates the current upstream base
+          # image rather than a runner-cache historical artifact.
+          docker build --pull --no-cache --file "${{ matrix.dockerfile }}" "${args[@]}" --tag "$IMAGE" .
+
+      - name: Prove Python runtime image contents (${{ matrix.name }})
+        if: matrix.runtime_contract != ''
+        env:
+          IMAGE: ajenda-ai-${{ matrix.name }}:scan-${{ github.sha }}
+          RUNTIME_CONTRACT: ${{ matrix.runtime_contract }}
+        run: |
+          # The Dockerfile text is a drift guard; these checks prove the final
+          # image is non-root, has no pip executable/module, and still imports
+          # the process-specific serving code as its configured runtime user.
+          docker run --rm --entrypoint /bin/sh "$IMAGE" -ec '
+            test "$(id -u)" = "1000"
+            if command -v pip >/dev/null 2>&1; then
+              echo "pip executable is present in the final runtime image" >&2
+              exit 1
+            fi
+            if python -c "import pip" >/dev/null 2>&1; then
+              echo "pip module is present in the final runtime image" >&2
+              exit 1
+            fi
+          '
+          case "$RUNTIME_CONTRACT" in
+            api) docker run --rm --entrypoint python "$IMAGE" -c 'import backend.main' ;;
+            worker) docker run --rm --entrypoint python "$IMAGE" -c 'import playwright, backend.workers.worker_loop' ;;
+            migrate) docker run --rm --entrypoint python "$IMAGE" -c 'import alembic, backend.db.schema_revision' ;;
+            hubspot) docker run --rm --entrypoint python "$IMAGE" -c 'import services.hubspot_crm_adapter.main' ;;
+            *) echo "Unknown runtime contract: $RUNTIME_CONTRACT" >&2; exit 1 ;;
+          esac
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ajenda-ai:scan-${{ github.sha }}
+          image-ref: ajenda-ai-${{ matrix.name }}:scan-${{ github.sha }}
           # Never reuse package-analysis results across identically tagged PR images.
           cache: false
-          format: table
+          # Persist the scanner metadata and package findings for review; the
+          # command still fails closed below on HIGH/CRITICAL vulnerabilities.
+          format: json
+          output: trivy-${{ matrix.name }}.json
           # Secret scanning is covered by gitleaks; keep Trivy on package CVEs.
           scanners: vuln
           severity: CRITICAL,HIGH
           exit-code: "1"
           ignore-unfixed: true
+
+      - name: Upload Trivy report (${{ matrix.name }})
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: trivy-${{ matrix.name }}-${{ github.sha }}
+          path: trivy-${{ matrix.name }}.json
+          if-no-files-found: warn
 
   # ─────────────────────────────────────────────────────────────────────────
   # Job 2: pip-audit — scan installed Python dependencies for known vulnerabilities

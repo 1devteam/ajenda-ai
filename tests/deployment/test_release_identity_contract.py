@@ -30,6 +30,22 @@ def test_release_workflow_always_publishes_sha_and_latest_digests() -> None:
     assert "Resolve publish tags" in workflow
 
 
+def test_release_workflow_scans_published_images_by_immutable_digest() -> None:
+    workflow = _read(RELEASE_WORKFLOW)
+
+    for image in ("api", "worker", "migrate", "frontend"):
+        assert f"{image}_digest: ${{{{ steps.{image}.outputs.digest }}}}" in workflow
+        assert f"digest: ${{{{ needs.docker-publish.outputs.{image}_digest }}}}" in workflow
+
+    assert "release-image-security:" in workflow
+    assert "Scan immutable published image with Trivy" in workflow
+    assert "@${{ matrix.digest }}" in workflow
+    assert "Prove immutable Python runtime contents" in workflow
+    for contract in ("api", "worker", "migrate"):
+        assert f"runtime_contract: {contract}" in workflow
+    assert "needs: [version, tag, docker-publish, release-image-security]" in workflow
+
+
 def test_release_workflow_uses_least_privilege_default_permissions() -> None:
     workflow = _read(RELEASE_WORKFLOW)
     # Workflow-level default is read; write is elevated only on jobs that need it.
