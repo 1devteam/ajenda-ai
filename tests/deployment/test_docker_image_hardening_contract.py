@@ -57,6 +57,7 @@ def test_python_runtime_images_do_not_ship_build_toolchains() -> None:
         assert "build-essential" not in runtime_stage, f"{path} runtime stage must not install build-essential"
         assert "libpq5" in runtime_stage, f"{path} runtime stage must include libpq5"
         assert "setuptools>=78.1.1" in runtime_stage, f"{path} runtime stage must retain the patched setuptools floor"
+        assert "pip uninstall --yes pip" in runtime_stage, f"{path} runtime stage must remove build-only pip"
 
 
 def test_api_images_include_autonomy_catalog_and_match_hardening() -> None:

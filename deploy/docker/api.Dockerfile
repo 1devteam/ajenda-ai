@@ -36,7 +36,11 @@ RUN apt-get update \
     && useradd --uid 1000 --gid 1000 --create-home --home-dir /home/ajenda --shell /usr/sbin/nologin ajenda
 
 COPY --from=builder /install /usr/local
-RUN python -m pip install --no-cache-dir --upgrade "setuptools>=78.1.1"
+# pip is a build-time tool.  Keeping it in the serving image also keeps its
+# vendored dependency tree, so remove it after installing the patched runtime
+# setuptools distribution.
+RUN python -m pip install --no-cache-dir --upgrade "setuptools>=78.1.1" \
+    && python -m pip uninstall --yes pip
 COPY pyproject.toml README.md /app/
 COPY backend /app/backend
 COPY alembic.ini /app/

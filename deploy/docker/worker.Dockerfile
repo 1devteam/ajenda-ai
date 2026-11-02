@@ -39,7 +39,11 @@ RUN apt-get update \
     && chown -R ajenda:ajenda /ms-playwright \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python -m pip install --no-cache-dir --upgrade "setuptools>=78.1.1"
+# pip is a build-time tool.  Keeping it in the worker image also keeps its
+# vendored dependency tree, so remove it after installing the patched runtime
+# setuptools distribution.
+RUN python -m pip install --no-cache-dir --upgrade "setuptools>=78.1.1" \
+    && python -m pip uninstall --yes pip
 
 COPY pyproject.toml README.md /app/
 COPY backend /app/backend
