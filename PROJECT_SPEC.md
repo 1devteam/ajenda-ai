@@ -1,8 +1,9 @@
 # AJENDA-AI Project Specification (Canonical)
 
 **Version:** 0.1.0  
-**Status:** Active  
+**Status:** Active engineering specification
 **Effective date:** May 23, 2026  
+**Last reconciled to current build:** November 2, 2026
 **Owner:** Obex Blackvault  
 **Repository:** `github.com/1devteam/ajenda-ai`
 
@@ -44,22 +45,32 @@ Primary mission:
 
 ### Customer product surface (current implementation truth)
 
-**Implemented (customer product — staging-ready):**
+The following is an implementation inventory, not a production-service claim.
+Repository code and current proof remain authoritative. A local/isolated Compose
+proof cannot establish hosted-cloud availability, universal provider readiness,
+or customer-commercial availability.
+
+**Implemented in source:**
 
 - self-serve onboarding: `/v1/onboarding/signup`, `/verify-email`, `/resend-verification`, `/promote-bootstrap-key`
 - account self-service: `/v1/account/me`, `/plan`, `/usage`, `/billing`
 - Stripe billing: `/v1/billing/checkout`, `/portal`, `/webhook/stripe` (checkout/portal gated by `billing:manage`)
 - ability runtime launcher: `/v1/ability-runtime/*`
 - customer frontend: signup, verify-email, promote, dashboard, billing, tasks (`/dev` retains internal ability console)
-- deploy: Compose frontend `:8080`, K8s `ajenda-frontend`, GHCR `-frontend` image in release CI
+- local deployment/proof: Compose frontend `:8080`; role-specific API, worker,
+  assurance, migrator, and frontend images are published by release CI
 - proof: `tests/integration/saas/test_paid_customer_loop_real.py`, `deploy/scripts/paid-customer-loop-staging-proof.sh`
 
-**Operator production cutover (configure, not code gaps):**
+**Configuration and target-environment proof still required:**
 
 - replace placeholder host `ajenda.example.com` with the real domain in ingress/ConfigMap/`.env.prod`
 - populate live Resend + Stripe (`sk_live_`, `price_` IDs) secrets; startup validation rejects test keys and localhost origins
 - customer billing UI sells **Pro only**; Starter is admin/sales webhook tier
-- Terraform ECS module ships customer frontend with ALB path routing (`infra/modules/ecs/frontend.tf`)
+- ECS/Terraform is the intended hosted target. Promotion is migrator-first and
+  digest-controlled, but authorized ECS staging proof is still required before
+  any production claim.
+- Kubernetes manifests are retained as non-operational references. They are not
+  a staging or production release path.
 
 Visual architecture: `docs/architecture/SYSTEM_ARCHITECTURE.md`
 
@@ -230,18 +241,21 @@ Promotion policy:
 
 ## 11) Documentation governance
 
-Canonical source-of-truth docs:
+Current reference docs:
 
 1. `PROJECT_SPEC.md` (this file)
 2. `README.md`
 3. `docs/architecture/SYSTEM_ARCHITECTURE.md`
 4. `docs/SAAS_ARCHITECTURE.md`
-5. `docs/PROJECT_STATE_REPORT.md`
+5. `docs/README.md`
 6. `docs/deployment/production-env-contract.md`
 7. `docs/validation/live-runtime-matrix.md`
 8. `docs/validation/live-runtime-proof-release-gate.md`
 9. `docs/policies/DOCS_FRESHNESS_POLICY.md`
 10. `docs/contracts/authority-ledger.v1.yaml`
+
+`docs/PROJECT_STATE_REPORT.md` is a preserved October 3, 2026 historical
+snapshot and is not current runtime, migration, or deployment proof.
 
 If documents conflict, precedence order is:
 
@@ -251,15 +265,15 @@ If documents conflict, precedence order is:
 
 ---
 
-## 12) 90-day execution priorities (from remediation plan)
+## 12) Planning and current work
 
-1. Bundle 0: canonical spec + ADR index + docs freshness policy
-2. Bundle 1: authority ledger + drift sentinel + operator cues
-3. Bundle 2: readiness semantics hardening
-4. Bundle 3: lifecycle governance explicitness
-5. Bundle 4: explainability + reliability read models
-6. Bundle 5: economic observability scaffolding
-7. Bundle 6: GTM capability contracts and controlled pilot
+Historical bundle priorities remain in the planning and remediation records for
+provenance. They are not a substitute for the current source and proof state.
+Current work must begin from the implementation owners, repository instructions,
+the documentation guide, and the relevant operational/proof contracts.
+
+No roadmap item, public product copy, catalog entry, or proposed ADR grants
+runtime authority or establishes commercial readiness by itself.
 
 ---
 

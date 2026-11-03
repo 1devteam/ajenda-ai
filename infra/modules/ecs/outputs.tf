@@ -33,6 +33,28 @@ output "worker_service_name" {
   value       = aws_ecs_service.worker.name
 }
 
+output "assurance_service_name" {
+  description = "ECS assurance service name"
+  value       = aws_ecs_service.assurance.name
+}
+
+output "migrator_task_definition_arn" {
+  description = "Dedicated migrator task definition ARN; promotion must run it before service updates."
+  value       = aws_ecs_task_definition.migrator.arn
+}
+
+output "api_task_definition_arn" {
+  value = aws_ecs_task_definition.api.arn
+}
+
+output "worker_task_definition_arn" {
+  value = aws_ecs_task_definition.worker.arn
+}
+
+output "assurance_task_definition_arn" {
+  value = aws_ecs_task_definition.assurance.arn
+}
+
 output "api_task_role_arn" {
   description = "ARN of the ECS API task IAM role"
   value       = aws_iam_role.api_task.arn

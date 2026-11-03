@@ -41,7 +41,8 @@ def test_dev_compose_declares_frontend_service() -> None:
 def test_frontend_dockerfile_builds_vite_app_and_serves_with_nginx() -> None:
     dockerfile = _read(FRONTEND_DOCKERFILE)
     assert "npm run build" in dockerfile
-    assert "nginx:1.27-alpine" in dockerfile
+    assert "nginx:1.31.8-alpine" in dockerfile
+    assert "apk upgrade --no-cache" in dockerfile
     assert "VITE_API_BASE_URL=" in dockerfile
     assert "rm -f .env" in dockerfile
     # Credential-shaped keys must never appear in image ENV metadata.

@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 env:
-  PYTHON_VERSION: "3.12"
+  PYTHON_VERSION: "3.13"
   AJENDA_QUEUE_URL: "redis://localhost:6379/0"
   AJENDA_ENV: "test"
   AJENDA_LOG_LEVEL: "WARNING"

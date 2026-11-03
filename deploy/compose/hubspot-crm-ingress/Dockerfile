@@ -1,8 +1,9 @@
-FROM nginx:1.27-alpine
+FROM nginx:1.31.8-alpine
 
 # Host *.crt/*.key are dockerignored so they never land in the build context.
 # Generate a local self-signed pair in the image or nginx dies on startup.
-RUN apk add --no-cache openssl \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache openssl \
     && mkdir -p /etc/nginx/certs \
     && openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
         -keyout /etc/nginx/certs/server.key \

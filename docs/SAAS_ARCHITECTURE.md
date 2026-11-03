@@ -1,5 +1,11 @@
 # Ajenda AI — SaaS Structural Enforcement Architecture
 
+**Status:** Active technical reference
+**Last reconciled:** November 2, 2026
+**Evidence boundary:** This document describes source-backed enforcement
+topology. It does not itself prove an authorized hosted deployment or a
+customer-specific provider configuration.
+
 This document defines the production-grade SaaS enforcement boundaries for Ajenda AI and explains how those guarantees relate to the governed runtime and its validation model.
 
 Ajenda is not only intended to enforce tenant, policy, and operational boundaries. It is intended to prove that those boundaries hold through explicit validation and evidence collection.
@@ -249,7 +255,13 @@ See Mermaid: [`SYSTEM_ARCHITECTURE.md` §3](./architecture/SYSTEM_ARCHITECTURE.m
 - Plan changes through `TenantLifecycleService.upgrade_plan`
 - Lazy `stripe_customer_id` creation on first checkout
 
-**RBAC gap:** Checkout and portal do not call `require_route_permission`; any authenticated tenant API key can invoke them.
+**Authorization:** Checkout and portal call `require_route_permission` with
+`Permission.BILLING_MANAGE`; the webhook remains a deliberately public ingress
+whose authority is Stripe signature verification and event-to-tenant resolution.
+
+This corrects an older implementation gap. Billing still requires configured
+Stripe credentials, approved price IDs, and an environment-specific proof before
+it can be described as a live commercial service.
 
 See Mermaid: [`SYSTEM_ARCHITECTURE.md` §4](./architecture/SYSTEM_ARCHITECTURE.md).
 
@@ -272,14 +284,20 @@ See Mermaid: [`SYSTEM_ARCHITECTURE.md` §4](./architecture/SYSTEM_ARCHITECTURE.m
 
 ## 16. Worker tenancy model (deploy constraint)
 
-Workers start via `deploy/scripts/start-worker.sh` with a single `AJENDA_WORKER_TENANT_ID`. Each worker process claims tasks only for that tenant.
+Workers start through `deploy/scripts/start-worker.sh`, which constructs a
+tenant claim target before entering `WorkerLoop`:
 
-Multi-tenant SaaS requires:
+1. **`single` mode** polls the explicitly configured
+   `AJENDA_WORKER_TENANT_ID`.
+2. **`multi` mode** uses `RoundRobinActiveTenantClaimTarget` to refresh active
+   tenants and poll their queues fairly, prioritizing queues with pending work.
 
-1. one worker deployment per tenant, or
-2. tenant-sharded worker pools, or
-3. a future tenant-scanning scheduler (not implemented).
+`multi` is the production configuration default described by
+[`ADR-0004`](architecture/ADR-0004-worker-tenancy-strategy.md). Dedicated
+single-tenant worker pools remain a valid enterprise isolation choice.
 
-Self-serve signups create new tenant IDs; default single-tenant worker deploy will not execute their queued work.
+This is a source-backed scheduler capability. Its capacity, latency, and
+failure behavior still need to be proven in the particular deployment target
+before making a tenant-scale service claim.
 
 See Mermaid: [`SYSTEM_ARCHITECTURE.md` §5](./architecture/SYSTEM_ARCHITECTURE.md).

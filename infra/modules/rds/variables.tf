@@ -43,12 +43,6 @@ variable "db_username" {
   default     = "ajenda_admin"
 }
 
-variable "db_password" {
-  description = "Master password — sourced from Secrets Manager by the caller"
-  type        = string
-  sensitive   = true
-}
-
 variable "multi_az" {
   description = "Enable Multi-AZ deployment (true for production)"
   type        = bool

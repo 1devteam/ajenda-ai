@@ -15,7 +15,12 @@ RUN rm -f .env .env.local .env.development .env.development.local
 ENV VITE_API_BASE_URL=
 RUN npm run build
 
-FROM nginx:1.27-alpine
+FROM nginx:1.31.8-alpine
+
+# The upstream nginx image can publish before Alpine's current security fixes.
+# Refresh installed runtime packages so the released image is evaluated against
+# the current supported repository, not the base-image publication snapshot.
+RUN apk upgrade --no-cache
 
 ARG NGINX_CONF=deploy/nginx/frontend.compose.conf
 COPY ${NGINX_CONF} /etc/nginx/conf.d/default.conf

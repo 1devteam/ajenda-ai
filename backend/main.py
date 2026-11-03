@@ -60,7 +60,7 @@ def _resolve_app_version() -> str:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan manager.
 
     Validates configuration, initialises shared resources, and ensures clean
