@@ -204,7 +204,9 @@ def create_tenant_session(*, org_name: str) -> tuple[str, str, dict[str, str]]:
         "/v1/onboarding/signup",
         body={"org_name": org_name, "email": email, "password": password},
         headers={"Idempotency-Key": str(uuid.uuid4())},
-        expected=201,
+        # Password-bearing public signup deliberately responds 202 while the
+        # legacy passwordless programmatic path retains 201.
+        expected=202,
     )
     if not signup.get("verification_code"):
         raise ProofFailure(

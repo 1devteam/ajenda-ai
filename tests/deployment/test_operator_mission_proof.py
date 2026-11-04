@@ -138,6 +138,7 @@ def test_operator_proof_uses_an_owner_session_for_review_approval(monkeypatch) -
     assert reviewer_headers == {"X-Tenant-Id": "tenant", "Authorization": "Bearer owner-session"}
     signup = calls[0]
     assert signup["body"] and signup["body"].get("password")
+    assert signup["expected"] == 202
     login = next(call for call in calls if call["path"] == "/v1/auth/password")
     assert login["body"] == {
         "email": signup["body"]["email"],
