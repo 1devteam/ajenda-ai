@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
@@ -10,8 +11,11 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.provider_runtime_credential import ProviderRuntimeCredential
+from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
+from backend.services.abilities.runtime_governance import AbilityAuthorizationV1, manifest_fingerprint
 from backend.services.credentials.secret_protector import RuntimeCredentialSecretProtector
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
+from backend.services.tools.schemas import ToolInvocation, tool_invocation_sha256
 from backend.workers.handlers.tool_invoke import tool_invoke_handler
 
 
@@ -45,6 +49,31 @@ def _context(tenant_id: str) -> dict[str, Any]:
         "tenant_id": tenant_id,
         "lease_id": str(uuid.uuid4()),
         "session_factory": _session_factory,
+    }
+
+
+def _approve_ability_for_task(task: ExecutionTask, *, approved_by: str) -> None:
+    """Attach the same bounded review grant issued before a real provider run."""
+
+    raw_invocation = task.metadata_json["tool_invocation"]
+    assert isinstance(raw_invocation, dict)
+    invocation = ToolInvocation.model_validate(raw_invocation)
+    manifest = ABILITY_MANIFESTS_BY_ACTION[invocation.action]
+    approved_at = datetime.now(UTC)
+    task.metadata_json["execution_constraints"] = {
+        "ability_authorization": AbilityAuthorizationV1(
+            grant_id=uuid.uuid4(),
+            tenant_id=task.tenant_id,
+            task_id=task.id,
+            ability_id=manifest.ability_id,
+            manifest_fingerprint=manifest_fingerprint(manifest),
+            allowed_action=manifest.action_name,
+            invocation_sha256=tool_invocation_sha256(invocation),
+            reason="human_review_approved_for_live_credential_repository_test",
+            approved_by=approved_by,
+            approved_at=approved_at,
+            expires_at=approved_at + timedelta(hours=1),
+        ).model_dump(mode="json")
     }
 
 
@@ -254,6 +283,7 @@ def test_tool_invoke_handler_uses_live_sqlalchemy_credential_repository(
             },
         },
     )
+    _approve_ability_for_task(task, approved_by="human:credential-repository-test")
 
     result = tool_invoke_handler(
         task,

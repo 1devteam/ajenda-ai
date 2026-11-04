@@ -45,6 +45,13 @@ def test_redaction_is_recursive_and_covers_common_sensitive_keys() -> None:
     assert (
         contains_sensitive_key({"execution_constraints": {"side_effect_authorization": {"approved_by": "qa"}}}) is False
     )
+    assert contains_sensitive_key({"execution_constraints": {"ability_authorization": {"approved_by": "qa"}}}) is False
+    assert (
+        contains_sensitive_key(
+            {"execution_constraints": {"ability_authorization": {"access_token": "must-still-be-rejected"}}}
+        )
+        is True
+    )
 
 
 def test_redaction_accepts_configured_exact_keys_recursively() -> None:

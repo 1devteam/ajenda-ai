@@ -57,6 +57,10 @@ def test_planned_to_cancelled_task_transition_is_allowed() -> None:
     StateMachine.ensure_task_transition("planned", "cancelled")
 
 
+def test_pending_review_to_failed_is_allowed_for_pre_provider_binding_failure() -> None:
+    StateMachine.ensure_task_transition("pending_review", "failed")
+
+
 def test_cancelled_to_queued_task_transition_remains_invalid() -> None:
     """cancelled -> queued must remain invalid so cancelled work cannot be admitted."""
     with pytest.raises(InvalidTransitionError):

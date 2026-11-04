@@ -264,10 +264,12 @@ def build_execution_task_payload(
                 execution_constraints = payload.get("execution_constraints")
             if not isinstance(execution_constraints, dict):
                 execution_constraints = {}
-            # A graph preview is not an authority source. Strip any embedded
-            # grant; human review can issue one after the task exists.
+            # A graph preview is not an authority source. Strip every embedded
+            # execution grant; the existing human-review owner can issue a
+            # task-bound grant only after the task exists.
             execution_constraints = dict(execution_constraints)
             execution_constraints.pop("side_effect_authorization", None)
+            execution_constraints.pop("ability_authorization", None)
             if execution_constraints:
                 payload["execution_constraints"] = execution_constraints
                 input_contract = dict(input_contract)

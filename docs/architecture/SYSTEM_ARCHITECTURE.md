@@ -179,8 +179,8 @@ flowchart TD
     H --> A1
     A1 -->|no| X["409 fail closed"]
     A1 -->|yes| I["ExecutionCoordinator<br/>mission + task admission"]
-    I --> R{"Side-effecting action?"}
-    R -->|yes| V["pending_review<br/>tenant reviewer issues V2 task/payload-bound grant"]
+    I --> R{"Side-effecting or<br/>manifest approval required?"}
+    R -->|yes| V["pending_review<br/>tenant reviewer issues task-bound grant(s)"]
     V --> J
     R -->|no| J
     I --> J["Redis queue message<br/>tenant_id in payload"]
@@ -203,9 +203,11 @@ HTTP 410 after permission validation. Their compatibility services are fail-clos
 Only `WorkerLoop`/`WorkerRuntimeService` may claim, start, and dispatch queued work; GET readbacks
 remain available for historical metadata.
 
-For graph-bound side effects, the coordinator resolves completed dependency outputs before issuing
-the payload-bound V2 approval grant. The worker deterministically rebinds and validates the exact
-invocation hash before execution. See
+For graph-bound side effects and approval-required abilities, the coordinator resolves completed dependency outputs before issuing
+the payload-bound grant. Side effects use the V2 side-effect grant; an approval-required ability also receives a V1 grant bound to the
+tenant, task, current manifest fingerprint, action, and exact invocation hash. The worker deterministically rebinds and validates the
+exact invocation hash before execution, then revalidates the current ability manifest and its V1 grant immediately before provider invocation.
+Expired, revoked, stale-policy, or altered-invocation ability grants fail closed and emit a safe durable pre-provider denial fact. See
 [Mission Runtime Authorization and Binding Analysis](MISSION_RUNTIME_AUTHORIZATION_BINDING_ANALYSIS.md).
 The code-aligned CRM surface, target ingestion path, and remaining completion gaps are tracked in
 [Internal CRM Completion Map](INTERNAL_CRM_COMPLETION_MAP.md).

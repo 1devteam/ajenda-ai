@@ -193,7 +193,7 @@ def test_execution_task_payload_promotes_tool_invoke_contract_fields() -> None:
     assert payload["execution_constraints"] == {"read_only": True}
 
 
-def test_execution_task_payload_strips_preview_side_effect_authority() -> None:
+def test_execution_task_payload_strips_preview_execution_authority() -> None:
     preview_item = {
         "preview_task_key": "mission:m:graph:1:node:n:runtime-task-preview",
         "payload_preview": {
@@ -212,7 +212,12 @@ def test_execution_task_payload_strips_preview_side_effect_authority() -> None:
                         "allowed_actions": ["gtm.email_send"],
                         "reason": "compiled",
                         "approved_by": "mission_composition_engine",
-                    }
+                    },
+                    "ability_authorization": {
+                        "schema_version": 1,
+                        "ability_id": "web-browser-session",
+                        "approved_by": "mission_composition_engine",
+                    },
                 },
             },
         },
