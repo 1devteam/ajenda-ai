@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from backend.domain.execution_task import ExecutionTask
 from backend.services.tools.runtime_authority import ToolRuntimeAuthorityError
 from backend.workers.handlers.tool_invoke import tool_invoke_handler
+from tests.integration.credentials._invoke_authority_helpers import approve_ability_for_direct_invoke
 from tests.integration.operating_charter_support import persist_test_operating_charter
 
 pytestmark = pytest.mark.integration
@@ -65,6 +66,7 @@ def test_internal_crm_upsert_without_credential_stays_on_brain(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(task)
     result = tool_invoke_handler(task, _context(tenant_id=tenant_id, session=pg_session))
     output = result["output"]
     assert output["status"] == "upserted_internal"
@@ -109,5 +111,6 @@ def test_gmail_send_without_credential_reference_fails_closed(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(task)
     with pytest.raises(ToolRuntimeAuthorityError, match="credential denied"):
         tool_invoke_handler(task, _context(tenant_id=tenant_id, session=pg_session))

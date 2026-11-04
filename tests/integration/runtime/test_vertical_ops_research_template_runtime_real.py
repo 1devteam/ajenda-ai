@@ -8,6 +8,7 @@ TaskDispatcher spine. No parallel agent swarm runtime.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -22,6 +23,7 @@ from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.services.demo_tenant_bootstrap import DemoTenantBootstrapService
+from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.internet.contracts import SearchBundle, SearchHit
 from backend.services.quota_enforcement import QuotaEnforcementService
 from backend.services.vertical_ops.template_service import (
@@ -32,6 +34,29 @@ from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
 
 pytestmark = pytest.mark.integration
+
+
+def _approve_pending_template_tasks(*, session, queue_adapter, tenant_id: str, task_ids: tuple[uuid.UUID, ...]) -> None:
+    """Model the explicit tenant-review release required by these manifests."""
+
+    coordinator = ExecutionCoordinator(session, queue_adapter)
+    for task_id in task_ids:
+        task = session.get(ExecutionTask, task_id)
+        assert task is not None
+        if task.status != ExecutionTaskState.PENDING_REVIEW.value:
+            continue
+        try:
+            approved = coordinator.approve_review_and_queue(
+                tenant_id=tenant_id,
+                task_id=task_id,
+                actor="human:vertical-runtime-proof",
+                approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
+            )
+        except ValueError as exc:
+            if "input binding deferred" not in str(exc):
+                raise
+            continue
+        assert approved.ok is True
 
 
 def test_vertical_research_template_queues_claims_executes_and_persists_evidence(
@@ -88,9 +113,15 @@ def test_vertical_research_template_queues_claims_executes_and_persists_evidence
         )
         quota.check_and_record_task_creation(uuid.UUID(tenant_id), count=len(applied.created_task_ids))
         assert len(applied.created_task_ids) == 1
-        assert queued.queued_task_ids == applied.created_task_ids
-        assert queued.blocked_task_ids == ()
+        assert queued.queued_task_ids == ()
+        assert queued.blocked_task_ids == applied.created_task_ids
         task_id = applied.created_task_ids[0]
+        _approve_pending_template_tasks(
+            session=setup_session,
+            queue_adapter=queue_adapter,
+            tenant_id=tenant_id,
+            task_ids=applied.created_task_ids,
+        )
 
         template_meta = mission.metadata_json[VERTICAL_TEMPLATE_METADATA_KEY]
         assert template_meta["template_id"] == "vertical.research.v1"
@@ -264,8 +295,15 @@ def test_vertical_public_research_resolves_external_authority_and_persists_runti
             approved_by="vertical-ops-integration",
             approval_reason="Public-read authority runtime proof.",
         )
-        assert queued.queued_task_ids == applied.created_task_ids
+        assert queued.queued_task_ids == ()
+        assert queued.blocked_task_ids == applied.created_task_ids
         task_id = applied.created_task_ids[0]
+        _approve_pending_template_tasks(
+            session=setup_session,
+            queue_adapter=queue_adapter,
+            tenant_id=tenant_id,
+            task_ids=applied.created_task_ids,
+        )
         planned_task = setup_session.get(ExecutionTask, task_id)
         assert planned_task is not None
         assert planned_task.metadata_json["side_effect_class"] == "external_read"
@@ -388,6 +426,12 @@ def test_vertical_template_dependencies_defer_until_the_prerequisite_completes(p
             task_ids=(sales.id,),
             template_id="vertical.research.v1",
         )
+        _approve_pending_template_tasks(
+            session=setup_session,
+            queue_adapter=queue_adapter,
+            tenant_id=tenant_id,
+            task_ids=(sales.id,),
+        )
         setup_session.commit()
 
         deferred = WorkerRuntimeService(setup_session, queue_adapter).claim_next_task(
@@ -396,8 +440,8 @@ def test_vertical_template_dependencies_defer_until_the_prerequisite_completes(p
         )
         assert deferred is None
         setup_session.expire(sales)
-        assert sales.status == ExecutionTaskState.QUEUED.value
-        assert sales.metadata_json["dependency_deferral"]["pending_keys"] == ["research-internal"]
+        assert sales.status == ExecutionTaskState.PENDING_REVIEW.value
+        assert "dependency_deferral" not in sales.metadata_json
 
         service.queue_planned_tasks(
             session=setup_session,
@@ -406,21 +450,20 @@ def test_vertical_template_dependencies_defer_until_the_prerequisite_completes(p
             task_ids=(research.id,),
             template_id="vertical.research.v1",
         )
+        _approve_pending_template_tasks(
+            session=setup_session,
+            queue_adapter=queue_adapter,
+            tenant_id=tenant_id,
+            task_ids=(research.id,),
+        )
         setup_session.commit()
 
         runtime = WorkerRuntimeService(setup_session, queue_adapter)
         claimed_research = None
-        # The deferred child was re-admitted before its parent.  The canonical
-        # queue is FIFO, so it may be encountered and deferred once more
-        # before the newly queued parent is claimable.
-        for _ in range(3):
-            claimed = runtime.claim_next_task(
-                tenant_id=tenant_id,
-                worker_id="worker-vertical-dependency-research",
-            )
-            if claimed is not None:
-                claimed_research = claimed
-                break
+        claimed_research = runtime.claim_next_task(
+            tenant_id=tenant_id,
+            worker_id="worker-vertical-dependency-research",
+        )
         assert claimed_research is not None and claimed_research.id == research.id
         research_lease_id = uuid.UUID(str(claimed_research.metadata_json["worker_lease_id"]))
         runtime.heartbeat(
@@ -447,6 +490,13 @@ def test_vertical_template_dependencies_defer_until_the_prerequisite_completes(p
     finish_session = session_factory()
     try:
         activate_tenant_session(finish_session, tenant_id)
+        _approve_pending_template_tasks(
+            session=finish_session,
+            queue_adapter=queue_adapter,
+            tenant_id=tenant_id,
+            task_ids=(sales.id,),
+        )
+        finish_session.commit()
         runtime = WorkerRuntimeService(finish_session, queue_adapter)
         claimed_sales = runtime.claim_next_task(
             tenant_id=tenant_id,

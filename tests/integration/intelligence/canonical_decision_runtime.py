@@ -17,12 +17,13 @@ from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
-from backend.domain.mission import Mission
+from backend.domain.mission import MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY, Mission
 from backend.domain.worker_lease import WorkerLease
 from backend.repositories.business_understanding_repository import BusinessUnderstandingRepository
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.business_understanding.service import BusinessUnderstandingService
 from backend.services.execution_coordinator import ExecutionCoordinator
+from backend.services.mission_bridge.queue_admission import build_runtime_queue_admission_metadata
 from backend.services.ontology.commercial_state import Goal, Kpi, KpiDirection
 from backend.services.ontology.decision_feedback import DecisionLearningSignal
 from backend.services.ontology.types import BusinessObjectRef, BusinessObjectType
@@ -130,7 +131,40 @@ def execute_canonical_action(
             )
         )
         setup.flush()
-        queued = ExecutionCoordinator(setup, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task_id)
+        coordinator = ExecutionCoordinator(setup, queue_adapter)
+        queued = coordinator.queue_task(tenant_id=tenant_id, task_id=task_id)
+        if not queued.ok and queued.state == ExecutionTaskState.PENDING_REVIEW.value:
+            mission = setup.get(Mission, mission_id)
+            assert mission is not None
+            mission.metadata_json = {
+                **dict(mission.metadata_json or {}),
+                MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY: build_runtime_queue_admission_metadata(
+                    mission_id=mission_id,
+                    tenant_id=tenant_id,
+                    materialized_task_ids=[task_id],
+                    planned_task_ids=[str(task_id)],
+                    queued_task_ids=[],
+                    already_queued_task_ids=[],
+                    pending_review_task_ids=[str(task_id)],
+                    denied_tasks=[],
+                    blockers=[
+                        {
+                            "task_id": str(task_id),
+                            "code": "policy_review_required",
+                            "message": "Execution coordinator routed the canonical proof task to policy review.",
+                            "state": queued.state,
+                            "reason": queued.reason,
+                        }
+                    ],
+                    now=datetime.now(UTC).isoformat(),
+                ),
+            }
+            queued = coordinator.approve_review_and_queue(
+                tenant_id=tenant_id,
+                task_id=task_id,
+                actor="human:canonical-decision-runtime-proof",
+                approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
+            )
         assert queued.ok is True
         setup.commit()
         runtime = WorkerRuntimeService(setup, queue_adapter)

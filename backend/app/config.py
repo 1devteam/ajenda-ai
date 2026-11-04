@@ -713,6 +713,12 @@ class Settings(BaseSettings):
         if not self.budget_policy_enabled and not self.budget_policy_observe_only:
             raise ValueError("AJENDA_BUDGET_POLICY_OBSERVE_ONLY must be true when AJENDA_BUDGET_POLICY_ENABLED=false")
 
+        if env == "production" and self.password_login_enabled and not self.customer_session_auth_ready:
+            raise ValueError(
+                "AJENDA_SESSION_SIGNING_SECRET must be at least 32 characters when "
+                "AJENDA_PASSWORD_LOGIN_ENABLED=true in production"
+            )
+
     def validate_database_identity(self, *, expected_identity: str) -> None:
         """Require this process to use its declared least-privilege DB role."""
         from backend.db.roles import validate_database_identity

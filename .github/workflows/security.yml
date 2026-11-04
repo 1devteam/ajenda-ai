@@ -24,6 +24,10 @@ jobs:
     name: Trivy Image Scan (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
+      # Docker is already the authoritative image-build surface. Serialize the
+      # scanner container pulls instead of downloading a release binary from
+      # GitHub for every matrix entry.
+      max-parallel: 1
       fail-fast: false
       matrix:
         include:
@@ -102,20 +106,21 @@ jobs:
           esac
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ajenda-ai-${{ matrix.name }}:scan-${{ github.sha }}
-          # Never reuse package-analysis results across identically tagged PR images.
-          cache: false
-          # Persist the scanner metadata and package findings for review; the
-          # command still fails closed below on HIGH/CRITICAL vulnerabilities.
-          format: json
-          output: trivy-${{ matrix.name }}.json
-          # Secret scanning is covered by gitleaks; keep Trivy on package CVEs.
-          scanners: vuln
-          severity: CRITICAL,HIGH
-          exit-code: "1"
-          ignore-unfixed: true
+        env:
+          IMAGE: ajenda-ai-${{ matrix.name }}:scan-${{ github.sha }}
+          REPORT: trivy-${{ matrix.name }}.json
+        run: |
+          # Pin the scanner version and scan the locally built image through
+          # Docker's daemon socket. This avoids the unavailable GitHub release
+          # asset bootstrap while preserving a fresh vulnerability database and
+          # a fail-closed HIGH/CRITICAL policy.
+          docker run --rm \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --volume "$PWD:/workspace" \
+            --workdir /workspace \
+            aquasec/trivy:0.70.0 \
+            image --format json --output "$REPORT" --scanners vuln \
+            --severity CRITICAL,HIGH --exit-code 1 --ignore-unfixed "$IMAGE"
 
       - name: Upload Trivy report (${{ matrix.name }})
         if: always()

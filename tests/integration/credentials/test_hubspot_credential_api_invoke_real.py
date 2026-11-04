@@ -17,6 +17,8 @@ from backend.services.network_egress import NetworkEgressResponse, VettedNetwork
 from backend.workers.handlers.tool_invoke import tool_invoke_handler
 from tests.integration.credentials.credential_e2e_support import auth_headers, provision_operational_tenant
 
+from ._invoke_authority_helpers import approve_ability_for_direct_invoke
+
 pytestmark = pytest.mark.integration
 
 
@@ -121,6 +123,7 @@ def test_hubspot_api_register_then_crm_research_invokes_adapter(
         requires_human_review=False,
     )
     try:
+        approve_ability_for_direct_invoke(task)
         result = tool_invoke_handler(
             task,
             {

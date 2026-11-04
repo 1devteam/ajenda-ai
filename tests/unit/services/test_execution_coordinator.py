@@ -10,6 +10,8 @@ import pytest
 from backend.domain.enums import ExecutionTaskState, MissionState
 from backend.domain.mission import MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY
 from backend.queue.base import QueueOperationResult
+from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
+from backend.services.abilities.runtime_governance import ability_authorized
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.tools.schemas import side_effect_authorized, tool_invocation_sha256
 
@@ -131,6 +133,19 @@ def test_queue_task_does_not_publish_to_queue_before_commit() -> None:
     assert task.status == ExecutionTaskState.QUEUED.value
     queue.enqueue_task.assert_not_called()
     queue.enqueue_task_idempotent.assert_not_called()
+
+
+def test_alias_action_requires_its_canonical_ability_review() -> None:
+    """Admission must not bypass review just because an action uses an alias."""
+
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id)
+    task.metadata_json = {
+        "task_type": "tool.invoke",
+        "tool_invocation": {"schema_version": 1, "action": "crm.research", "input": {"query": "Acme"}},
+    }
+
+    assert ExecutionCoordinator._requires_unapproved_ability_review(task) is True
 
 
 def test_queue_task_records_dispatch_after_transitioning_planned_task_to_queued() -> None:
@@ -285,6 +300,61 @@ def test_side_effect_task_requires_review_then_approval_issues_exact_action_gran
     )
 
 
+def test_approval_required_browser_task_requires_review_then_issues_ability_grant() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PLANNED.value)
+    task.metadata_json = {
+        "task_type": "tool.invoke",
+        "tool_invocation": {
+            "schema_version": 1,
+            "action": "web.browser_session",
+            "input": {"url": "https://example.test"},
+        },
+        "capability_reference": {"capability_id": str(uuid.uuid4())},
+        "adapter_reference": {"adapter_id": str(uuid.uuid4())},
+    }
+    coordinator = _coordinator_with_task(task=task)
+
+    review = coordinator.queue_task(tenant_id=tenant_id, task_id=task.id)
+
+    assert review.ok is False
+    assert review.reason == "ability manifest requires independent human approval"
+    assert task.status == ExecutionTaskState.PENDING_REVIEW.value
+
+    approved = coordinator.approve_review_and_queue(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        actor="human:reviewer",
+        approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+
+    assert approved.ok is True
+    assert ability_authorized(
+        task.metadata_json,
+        manifest=ABILITY_MANIFESTS_BY_ACTION["web.browser_session"],
+        tenant_id=tenant_id,
+        task_id=task.id,
+    )
+
+    revoked = coordinator.revoke_side_effect_approval(
+        tenant_id=tenant_id,
+        task_id=task.id,
+        actor="human:reviewer",
+        reason="review scope withdrawn",
+    )
+
+    assert revoked.reason == "approval_revoked"
+    grant = task.metadata_json["execution_constraints"]["ability_authorization"]
+    assert grant["revoked_by"] == "human:reviewer"
+    assert grant["revocation_reason"] == "review scope withdrawn"
+    assert not ability_authorized(
+        task.metadata_json,
+        manifest=ABILITY_MANIFESTS_BY_ACTION["web.browser_session"],
+        tenant_id=tenant_id,
+        task_id=task.id,
+    )
+
+
 def test_side_effect_approval_binds_dependency_outputs_before_hashing_and_queueing() -> None:
     tenant_id = str(uuid.uuid4())
     mission_id = uuid.uuid4()
@@ -389,7 +459,7 @@ def test_side_effect_approval_fails_closed_before_dependencies_complete() -> Non
 
     with pytest.raises(
         ValueError,
-        match="side-effect approval input binding failed: ability dependencies not complete",
+        match="review approval input binding deferred: ability dependencies not complete",
     ):
         coordinator.approve_review_and_queue(
             tenant_id=tenant_id,
@@ -397,6 +467,7 @@ def test_side_effect_approval_fails_closed_before_dependencies_complete() -> Non
             actor="admin:user-123",
             approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
         )
+    assert task.status == ExecutionTaskState.PENDING_REVIEW.value
 
     assert task.status == ExecutionTaskState.PENDING_REVIEW.value
     assert "execution_constraints" not in task.metadata_json

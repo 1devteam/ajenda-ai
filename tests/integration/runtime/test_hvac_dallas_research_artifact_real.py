@@ -9,6 +9,7 @@ gaps_open and cannot confirm.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -27,6 +28,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
+from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
 from backend.services.mission_composition.proposal_store import clear_proposals_for_tests
 from backend.services.quota_enforcement import QuotaEnforcementService
@@ -154,8 +156,25 @@ def test_hvac_dallas_research_persists_prospect_candidates_after_start(pg_engine
             launched = launch.json()
             assert launched["compile_status"] == "ready"
             assert launched["runtime_admitted"] is True
-            queued_task_ids = launched["queued_task_ids"]
-            assert queued_task_ids, launched
+            assert launched["queued_task_ids"] == []
+            pending_review_task_ids = launched["pending_review_task_ids"]
+            assert pending_review_task_ids, launched
+            queued_task_ids = []
+            coordinator = ExecutionCoordinator(setup, queue_adapter)
+            for pending_task_id in pending_review_task_ids:
+                try:
+                    approved = coordinator.approve_review_and_queue(
+                        tenant_id=str(tenant_id),
+                        task_id=uuid.UUID(pending_task_id),
+                        actor="human:hvac-dallas-runtime-proof",
+                        approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
+                    )
+                except ValueError as exc:
+                    assert "input binding deferred" in str(exc)
+                    continue
+                assert approved.ok is True
+                queued_task_ids.append(str(approved.task_id))
+            assert queued_task_ids
         setup.commit()
         task_id = uuid.UUID(queued_task_ids[0])
         runtime = WorkerRuntimeService(setup, queue_adapter)

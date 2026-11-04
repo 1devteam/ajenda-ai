@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.enums import ExecutionTaskState
@@ -12,7 +13,12 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
+from backend.services.abilities.manifest import AbilityManifest
 from backend.services.abilities.rollout_validation import validate_action_manifest_alignment
+from backend.services.abilities.runtime_governance import (
+    ability_authorized,
+    manifest_governance_snapshot,
+)
 from backend.services.credentials.runtime_authority import CredentialRuntimeAuthority, CredentialRuntimeAuthorityError
 from backend.services.operating_charter import OperatingCharterViolation, assert_action_allowed, load_operating_charter
 from backend.services.runtime_evidence_ledger import RuntimeCausalObservation, RuntimeEvidenceLedger
@@ -82,9 +88,10 @@ class ToolRuntimeAuthority:
 
         invocation, action, effective_side_effect_class = self.authorize(task=task, context=context)
         if isinstance(task.metadata_json, dict):
-            task.metadata_json = {
-                **task.metadata_json,
-                "runtime_causal_observations": [
+            existing_observations = task.metadata_json.get("runtime_causal_observations")
+            observations = list(existing_observations) if isinstance(existing_observations, list) else []
+            observations.extend(
+                [
                     RuntimeCausalObservation(
                         stage="input_binding",
                         decision="invocation_bound",
@@ -111,7 +118,11 @@ class ToolRuntimeAuthority:
                         selected_path=action.provider,
                         safe_metadata={"action": action.name, "side_effect_class": effective_side_effect_class.value},
                     ).model_dump(mode="json"),
-                ],
+                ]
+            )
+            task.metadata_json = {
+                **task.metadata_json,
+                "runtime_causal_observations": observations,
             }
         runtime_credentials = {}
         resolved_credential = self._resolve_runtime_credential(
@@ -181,7 +192,7 @@ class ToolRuntimeAuthority:
         invocation = self._enrich_invocation_from_metadata(invocation=invocation, metadata=task.metadata_json)
 
         action = self._registry.get(invocation.action)
-        self._validate_ability_manifest(action)
+        manifest = self._validate_ability_manifest(action)
         effective_side_effect_class = action.side_effect_for(invocation)
         if effective_side_effect_class.has_side_effect and task.status != ExecutionTaskState.RUNNING.value:
             raise ToolRuntimeAuthorityError("side-effecting tool.invoke action requires running task state")
@@ -228,6 +239,32 @@ class ToolRuntimeAuthority:
                 )
             except CapabilityActionValidationError as exc:
                 raise ToolRuntimeAuthorityError(f"tool.invoke promotion denied: {exc}") from exc
+
+            if manifest is not None:
+                approval_revalidated = (
+                    ability_authorized(
+                        task.metadata_json,
+                        manifest=manifest,
+                        tenant_id=task.tenant_id,
+                        task_id=task.id,
+                    )
+                    if manifest.approval_required
+                    else None
+                )
+                self._record_ability_governance_observation(
+                    task=task,
+                    manifest=manifest,
+                    approval_revalidated=approval_revalidated,
+                )
+                if manifest.approval_required and not approval_revalidated:
+                    self._record_ability_governance_denial(
+                        session=session,
+                        task=task,
+                        manifest=manifest,
+                    )
+                    raise ToolRuntimeAuthorityError(
+                        "tool.invoke ability manifest requires a current task-bound human approval"
+                    )
         finally:
             session.close()
         return invocation, action, effective_side_effect_class
@@ -328,7 +365,7 @@ class ToolRuntimeAuthority:
             raise ToolRuntimeAuthorityError(f"tool.invoke credential denied: {exc}") from exc
 
     @staticmethod
-    def _validate_ability_manifest(action: ActionDefinition) -> None:
+    def _validate_ability_manifest(action: ActionDefinition) -> AbilityManifest:
         manifest = ABILITY_MANIFESTS_BY_ACTION.get(action.name)
         if manifest is None:
             raise ToolRuntimeAuthorityError(f"tool.invoke action {action.name!r} has no ability manifest")
@@ -337,4 +374,91 @@ class ToolRuntimeAuthority:
         except ValueError as exc:
             raise ToolRuntimeAuthorityError(
                 f"tool.invoke action {action.name!r} ability manifest is invalid: {exc}"
+            ) from exc
+        return manifest
+
+    @staticmethod
+    def _record_ability_governance_observation(
+        *, task: ExecutionTask, manifest: AbilityManifest, approval_revalidated: bool | None
+    ) -> None:
+        """Carry safe policy facts into the existing worker-owned audit ledger."""
+
+        metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        observations = metadata.get("runtime_causal_observations")
+        items = list(observations) if isinstance(observations, list) else []
+        capability_reference = metadata.get("capability_reference")
+        adapter_reference = metadata.get("adapter_reference")
+        snapshot = manifest_governance_snapshot(manifest)
+        snapshot["capability_reference_present"] = isinstance(capability_reference, Mapping)
+        snapshot["adapter_reference_present"] = isinstance(adapter_reference, Mapping)
+        snapshot["ability_approval_revalidated"] = approval_revalidated
+        items.append(
+            RuntimeCausalObservation(
+                stage="ability_governance",
+                decision="ability_manifest_revalidated",
+                reason_code=(
+                    "human_approval_current"
+                    if approval_revalidated
+                    else "approval_not_required"
+                    if approval_revalidated is None
+                    else "human_approval_missing_or_invalid"
+                ),
+                transformation_id="ability-manifest-governance:v1",
+                selected_path=manifest.ability_id,
+                constraints=("manifest_alignment", "tenant_capability_adapter_authority"),
+                safe_metadata=snapshot,
+            ).model_dump(mode="json")
+        )
+        task.metadata_json = {**metadata, "ability_governance": snapshot, "runtime_causal_observations": items}
+
+    @staticmethod
+    def _record_ability_governance_denial(*, session: Any, task: ExecutionTask, manifest: AbilityManifest) -> None:
+        """Persist a safe denial fact before a provider can be invoked.
+
+        The worker records its terminal failure in its own transaction.  This
+        fresh authority transaction additionally preserves why the provider
+        boundary was closed, even if that later worker transition fails or is
+        retried.  No invocation input, destination, credential, or external
+        content enters the fact.
+        """
+
+        try:
+            persisted_mission_id = None
+            if task.mission_id is not None:
+                persisted_mission_id = session.scalar(
+                    select(Mission.id).where(
+                        Mission.id == task.mission_id,
+                        Mission.tenant_id == task.tenant_id,
+                    )
+                )
+            snapshot = manifest_governance_snapshot(manifest)
+            RuntimeEvidenceLedger(session, flush=True).append_fact(
+                tenant_id=task.tenant_id,
+                mission_id=persisted_mission_id,
+                category="ability_governance",
+                action="ability_approval_denied_at_execution",
+                producer="tool_runtime_authority",
+                actor="tool_runtime_authority",
+                details="Current task-bound ability approval was missing, expired, revoked, or invalid before provider invocation.",
+                facts={
+                    "task_id": str(task.id),
+                    "ability_id": manifest.ability_id,
+                    "action": manifest.action_name,
+                    "manifest_fingerprint": snapshot["manifest_fingerprint"],
+                    "approval_required": True,
+                    "reason_code": "human_approval_missing_or_invalid",
+                    "enforcement_boundary": "pre_provider_invocation",
+                    "mission_reference_status": "persisted" if persisted_mission_id is not None else "unverified",
+                    "original_mission_id": str(task.mission_id) if task.mission_id is not None else None,
+                },
+                causation_id=str(task.id),
+                correlation_id=str(persisted_mission_id) if persisted_mission_id is not None else None,
+            )
+            session.commit()
+        except SQLAlchemyError as exc:
+            rollback = getattr(session, "rollback", None)
+            if callable(rollback):
+                rollback()
+            raise ToolRuntimeAuthorityError(
+                "tool.invoke ability-governance denial audit is unavailable; provider execution remains blocked"
             ) from exc

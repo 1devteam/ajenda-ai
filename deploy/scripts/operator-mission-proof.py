@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -144,6 +145,71 @@ def auth(tenant_id: str, api_key: str) -> dict[str, str]:
     return {"X-Tenant-Id": tenant_id, "X-Api-Key": api_key}
 
 
+def approve_pending_review_tasks(
+    *,
+    headers: dict[str, str],
+    launched: dict[str, Any] | None = None,
+    pending_review_task_ids: list[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Approve launch-held ability tasks through the public review boundary.
+
+    Launch deliberately no longer queues approval-required abilities.  This
+    proof acts as the authorized reviewer for its isolated proof tenant, so it
+    must make that transition through the same API an operator would use.
+    """
+
+    approved_task_ids: list[str] = []
+    if launched is not None:
+        queued_task_ids = launched.get("queued_task_ids")
+        launch_pending_task_ids = launched.get("pending_review_task_ids")
+        blockers = launched.get("blockers")
+        if (
+            not isinstance(queued_task_ids, list)
+            or not isinstance(launch_pending_task_ids, list)
+            or not isinstance(blockers, list)
+        ):
+            raise ProofFailure(f"launch returned invalid task admission: {json.dumps(launched, sort_keys=True)}")
+        unexpected_blockers = [
+            blocker
+            for blocker in blockers
+            if not isinstance(blocker, dict) or blocker.get("code") != "policy_review_required"
+        ]
+        if unexpected_blockers:
+            raise ProofFailure(
+                f"launch returned non-review blockers: {json.dumps(unexpected_blockers, sort_keys=True)}"
+            )
+        approved_task_ids.extend(queued_task_ids)
+        pending_review_task_ids = launch_pending_task_ids
+    if pending_review_task_ids is None:
+        raise ProofFailure("review approval requires pending task ids")
+
+    deferred_task_ids: list[str] = []
+    for raw_task_id in pending_review_task_ids:
+        if not isinstance(raw_task_id, str) or not raw_task_id:
+            raise ProofFailure(f"review approval received invalid pending task id: {raw_task_id!r}")
+        try:
+            approved = request(
+                "POST",
+                API_BASE,
+                f"/v1/review-queue/tasks/{raw_task_id}/approve",
+                body={"approval_expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat()},
+                headers=headers,
+            )
+        except ProofFailure as exc:
+            # Binding a downstream task before its durable upstream output
+            # exists is deliberately rejected. Keep that task in review and
+            # retry it after worker progress; every other approval failure is
+            # proof failure, never an implicit authorization bypass.
+            if "HTTP 409" in str(exc) and "review approval input binding deferred:" in str(exc):
+                deferred_task_ids.append(raw_task_id)
+                continue
+            raise
+        if approved.get("status") != "queued":
+            raise ProofFailure(f"review approval did not queue task: {json.dumps(approved, sort_keys=True)}")
+        approved_task_ids.append(raw_task_id)
+    return approved_task_ids, deferred_task_ids
+
+
 def require_string(payload: dict[str, Any], key: str, context: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
@@ -151,17 +217,20 @@ def require_string(payload: dict[str, Any], key: str, context: str) -> str:
     return value.strip()
 
 
-def create_tenant_session(*, org_name: str) -> tuple[str, str]:
-    """Create one isolated proof tenant through the public onboarding boundary."""
+def create_tenant_session(*, org_name: str) -> tuple[str, str, dict[str, str]]:
+    """Create one isolated proof tenant and its owner review session publicly."""
 
     email = f"operator-proof-{uuid.uuid4().hex[:10]}@example.com"
+    password = f"OperatorProof-{uuid.uuid4().hex}!"
     signup = request(
         "POST",
         API_BASE,
         "/v1/onboarding/signup",
-        body={"org_name": org_name, "email": email},
+        body={"org_name": org_name, "email": email, "password": password},
         headers={"Idempotency-Key": str(uuid.uuid4())},
-        expected=201,
+        # Password-bearing public signup deliberately responds 202 while the
+        # legacy passwordless programmatic path retains 201.
+        expected=202,
     )
     if not signup.get("verification_code"):
         raise ProofFailure(
@@ -178,6 +247,13 @@ def create_tenant_session(*, org_name: str) -> tuple[str, str]:
     )
     tenant_id = require_string(verification, "tenant_id", "email verification")
     bootstrap_key = require_string(verification, "api_key", "email verification")
+    owner_session = request(
+        "POST",
+        API_BASE,
+        "/v1/auth/password",
+        body={"email": email, "password": password, "tenant_id": tenant_id},
+    )
+    access_token = require_string(owner_session, "access_token", "owner password login")
     promoted = request(
         "POST",
         API_BASE,
@@ -185,7 +261,7 @@ def create_tenant_session(*, org_name: str) -> tuple[str, str]:
         headers={**auth(tenant_id, bootstrap_key), "Idempotency-Key": str(uuid.uuid4())},
     )
     api_key = require_string(promoted, "api_key", "bootstrap promotion")
-    return tenant_id, api_key
+    return tenant_id, api_key, {"X-Tenant-Id": tenant_id, "Authorization": f"Bearer {access_token}"}
 
 
 def persist_proof_operating_charter(*, headers: dict[str, str]) -> None:
@@ -352,7 +428,7 @@ def main() -> int:
         raise ProofFailure("frontend root page did not contain the SPA mount point")
 
     log_phase("tenant_onboarding")
-    tenant_id, api_key = create_tenant_session(org_name="Ajenda Operator Proof")
+    tenant_id, api_key, reviewer_headers = create_tenant_session(org_name="Ajenda Operator Proof")
     headers = auth(tenant_id, api_key)
     log_phase("charter_persistence")
     persist_proof_operating_charter(headers=headers)
@@ -408,11 +484,12 @@ def main() -> int:
         f"/v1/missions/{mission_id}/launch",
         headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
-    queued_task_ids = launched.get("queued_task_ids")
-    if not isinstance(queued_task_ids, list) or not queued_task_ids:
-        raise ProofFailure(f"launch returned no queued task IDs: {json.dumps(launched, sort_keys=True)}")
-    if launched.get("blockers"):
-        raise ProofFailure(f"launch returned blockers: {launched['blockers']}")
+    log_phase("runtime_review_approval")
+    queued_task_ids, deferred_review_task_ids = approve_pending_review_tasks(
+        headers=reviewer_headers, launched=launched
+    )
+    if not queued_task_ids:
+        raise ProofFailure(f"launch admitted no executable task: {json.dumps(launched, sort_keys=True)}")
 
     log_phase("mission_terminal_poll")
     deadline = time.monotonic() + TIMEOUT_SECONDS
@@ -420,6 +497,12 @@ def main() -> int:
     lifecycle: dict[str, Any] | None = None
     runtime_evidence: dict[str, Any] | None = None
     while time.monotonic() < deadline:
+        if deferred_review_task_ids:
+            approved_task_ids, deferred_review_task_ids = approve_pending_review_tasks(
+                headers=reviewer_headers,
+                pending_review_task_ids=deferred_review_task_ids,
+            )
+            queued_task_ids.extend(approved_task_ids)
         lifecycle = request("GET", API_BASE, f"/v1/missions/{mission_id}/lifecycle", headers=headers)
         runtime_evidence = request("GET", API_BASE, f"/v1/missions/{mission_id}/runtime-evidence", headers=headers)
         mission_state = (lifecycle.get("mission") or {}).get("status")
@@ -511,7 +594,7 @@ def main() -> int:
         )
 
     log_phase("cross_tenant_denial")
-    other_tenant_id, other_api_key = create_tenant_session(org_name="Ajenda Operator Proof Isolation")
+    other_tenant_id, other_api_key, _ = create_tenant_session(org_name="Ajenda Operator Proof Isolation")
     _ = request(
         "GET",
         API_BASE,

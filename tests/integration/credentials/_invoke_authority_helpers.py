@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from backend.domain.capability import Capability
 from backend.domain.capability_adapter import CapabilityAdapter
+from backend.domain.execution_task import ExecutionTask
+from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
+from backend.services.abilities.runtime_governance import AbilityAuthorizationV1, manifest_fingerprint
+from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.schemas import ToolInvocation, tool_invocation_sha256
 
 
 def seed_capability_adapter_authority(
@@ -74,3 +80,40 @@ def side_effect_authorization(*, allowed_actions: list[str], approved_by: str = 
             }
         }
     }
+
+
+def approve_ability_for_direct_invoke(task: ExecutionTask, *, approved_by: str = "human:integration-reviewer") -> None:
+    """Attach the same bounded reviewer grant required by production runtime.
+
+    Credential tests construct a task directly to isolate adapter and credential
+    behavior.  They still need an explicit, task- and payload-bound reviewer
+    grant before that behavior is reachable.
+    """
+
+    raw_invocation = task.metadata_json.get("tool_invocation")
+    assert isinstance(raw_invocation, dict)
+    invocation = ToolInvocation.model_validate(raw_invocation)
+    # Runtime resolves registered aliases before looking up the manifest.  Keep
+    # direct-invocation fixtures on that same canonical authority path.
+    action = get_default_action_registry().get(invocation.action)
+    manifest = ABILITY_MANIFESTS_BY_ACTION.get(action.name)
+    if manifest is None or not manifest.approval_required:
+        return
+    approved_at = datetime.now(UTC)
+    metadata = dict(task.metadata_json)
+    constraints = dict(metadata.get("execution_constraints") or {})
+    constraints["ability_authorization"] = AbilityAuthorizationV1(
+        grant_id=uuid.uuid4(),
+        tenant_id=task.tenant_id,
+        task_id=task.id,
+        ability_id=manifest.ability_id,
+        manifest_fingerprint=manifest_fingerprint(manifest),
+        allowed_action=manifest.action_name,
+        invocation_sha256=tool_invocation_sha256(invocation),
+        reason="human_review_approved_for_direct_integration_invoke",
+        approved_by=approved_by,
+        approved_at=approved_at,
+        expires_at=approved_at + timedelta(hours=1),
+    ).model_dump(mode="json")
+    metadata["execution_constraints"] = constraints
+    task.metadata_json = metadata

@@ -18,6 +18,12 @@ from backend.repositories.execution_task_repository import ExecutionTaskReposito
 from backend.repositories.governance_event_repository import GovernanceEventRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.runtime.transitions import transition_mission, transition_task
+from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
+from backend.services.abilities.runtime_governance import (
+    AbilityAuthorizationV1,
+    ability_authorized,
+    manifest_fingerprint,
+)
 from backend.services.mission_bridge.queue_admission import record_reviewed_task_admission
 from backend.services.policy_guardian import PolicyGuardian
 from backend.services.quota_enforcement import QuotaEnforcementService
@@ -95,6 +101,20 @@ class ExecutionCoordinator:
                 task_id=task.id,
                 state=task.status,
                 reason="side-effecting action requires independent human approval",
+            )
+
+        if self._requires_unapproved_ability_review(task):
+            self._place_in_review(
+                task=task,
+                tenant_id=tenant_id,
+                reason="ability manifest requires independent human approval",
+            )
+            self._record_task_admission(task=task, held_for_review=True)
+            return CoordinationResult(
+                ok=False,
+                task_id=task.id,
+                state=task.status,
+                reason="ability manifest requires independent human approval",
             )
 
         policy_decision = self._policy.evaluate_task(task)
@@ -190,6 +210,31 @@ class ExecutionCoordinator:
             task_id=task.id,
         )
 
+    @staticmethod
+    def _requires_unapproved_ability_review(task: ExecutionTask) -> bool:
+        """Hold approval-required abilities until a task-bound grant exists."""
+
+        metadata = task.metadata_json or {}
+        raw_invocation = metadata.get("tool_invocation")
+        if not isinstance(raw_invocation, dict):
+            return False
+        try:
+            invocation = ToolInvocation.model_validate(raw_invocation)
+            action = get_default_action_registry().get(invocation.action)
+        except (TypeError, ValueError):
+            return False
+        manifest = ABILITY_MANIFESTS_BY_ACTION.get(action.name)
+        return bool(
+            manifest
+            and manifest.approval_required
+            and not ability_authorized(
+                metadata,
+                manifest=manifest,
+                tenant_id=task.tenant_id,
+                task_id=task.id,
+            )
+        )
+
     def _place_in_review(self, *, task: ExecutionTask, tenant_id: str, reason: str) -> None:
         transition_task(task, ExecutionTaskState.PENDING_REVIEW)
         task.requires_human_review = True
@@ -242,6 +287,7 @@ class ExecutionCoordinator:
         metadata = dict(task.metadata_json or {})
         invocation = metadata.get("tool_invocation")
         grant_payload: dict[str, object] | None = None
+        ability_grant_payload: dict[str, object] | None = None
         if isinstance(invocation, dict):
             action_name = invocation.get("action")
             if not isinstance(action_name, str) or not action_name.strip():
@@ -252,8 +298,11 @@ class ExecutionCoordinator:
             except (TypeError, ValueError) as exc:
                 raise ValueError("pending-review tool task has no valid action to approve") from exc
             constraints = dict(metadata.get("execution_constraints") or {})
-            if action.side_effect_for(parsed_invocation).has_side_effect:
-                parsed_invocation, binding_audit = self._bind_side_effect_invocation_for_approval(
+            manifest = ABILITY_MANIFESTS_BY_ACTION.get(action.name)
+            approval_required = bool(manifest and manifest.approval_required)
+            side_effecting = action.side_effect_for(parsed_invocation).has_side_effect
+            if side_effecting or approval_required:
+                parsed_invocation, binding_audit = self._bind_invocation_for_approval(
                     task=task,
                     metadata=metadata,
                     invocation=parsed_invocation,
@@ -263,9 +312,11 @@ class ExecutionCoordinator:
                     metadata["input_binding_audit"] = binding_audit
                 approved_at = datetime.now(UTC)
                 if approval_expires_at is None or approval_expires_at.tzinfo is None:
-                    raise ValueError("side-effect approval requires a timezone-aware expiry")
+                    raise ValueError("review approval requires a timezone-aware expiry")
                 if approval_expires_at <= approved_at:
-                    raise ValueError("side-effect approval expiry must be in the future")
+                    raise ValueError("review approval expiry must be in the future")
+            if side_effecting:
+                assert approval_expires_at is not None
                 grant_payload = {
                     "schema_version": 2,
                     "grant_id": str(uuid.uuid4()),
@@ -280,6 +331,23 @@ class ExecutionCoordinator:
                     "revoked_at": None,
                 }
                 constraints["side_effect_authorization"] = grant_payload
+            if approval_required:
+                assert manifest is not None
+                assert approval_expires_at is not None
+                ability_grant_payload = AbilityAuthorizationV1(
+                    grant_id=uuid.uuid4(),
+                    tenant_id=tenant_id,
+                    task_id=task.id,
+                    ability_id=manifest.ability_id,
+                    manifest_fingerprint=manifest_fingerprint(manifest),
+                    allowed_action=manifest.action_name,
+                    invocation_sha256=tool_invocation_sha256(parsed_invocation),
+                    reason="human_review_approved",
+                    approved_by=actor,
+                    approved_at=approved_at,
+                    expires_at=approval_expires_at,
+                ).model_dump(mode="json")
+                constraints["ability_authorization"] = ability_grant_payload
             metadata["execution_constraints"] = constraints
             if parsed_invocation.action == "gtm.social_publish":
                 metadata["social_publication_state"] = "authorized"
@@ -306,6 +374,7 @@ class ExecutionCoordinator:
                     "task_id": str(task.id),
                     "previous_status": previous_state,
                     "approval_grant": grant_payload,
+                    "ability_approval_grant": ability_grant_payload,
                 },
             )
         )
@@ -321,6 +390,7 @@ class ExecutionCoordinator:
                     "task_id": str(task.id),
                     "previous_status": previous_state,
                     "approval_grant": grant_payload,
+                    "ability_approval_grant": ability_grant_payload,
                 },
             )
         )
@@ -359,7 +429,7 @@ class ExecutionCoordinator:
         MissionRepository(self._session).update_metadata(mission=mission, metadata_json=metadata)
         self._session.flush()
 
-    def _bind_side_effect_invocation_for_approval(
+    def _bind_invocation_for_approval(
         self,
         *,
         task: ExecutionTask,
@@ -391,11 +461,61 @@ class ExecutionCoordinator:
                 task=task,
                 mission_tasks=mission_tasks,
             )
-        except (DependencyNotReadyError, InputBindingError) as exc:
-            raise ValueError(f"side-effect approval input binding failed: {exc}") from exc
+        except DependencyNotReadyError as exc:
+            raise ValueError(f"review approval input binding deferred: {exc}") from exc
+        except InputBindingError as exc:
+            self._fail_review_input_binding(task=task, tenant_id=task.tenant_id, error=exc)
+            raise ValueError(f"review approval input binding failed: {exc}") from exc
 
         rebound = invocation.model_copy(update={"input": bound_input})
         return rebound, audit
+
+    def _fail_review_input_binding(self, *, task: ExecutionTask, tenant_id: str, error: InputBindingError) -> None:
+        """Terminalize deterministic pre-provider binding failures visibly.
+
+        A reviewed dependent task can become impossible after its upstream work
+        completes without the required evidence.  It must not remain held
+        forever, and it must not be queued with a grant for a payload the
+        reviewer never saw.
+        """
+
+        transition_task(task, ExecutionTaskState.FAILED)
+        metadata = dict(task.metadata_json or {})
+        metadata["failure"] = {
+            "code": "INPUT_BINDING_FAILED",
+            "retryable": False,
+            "stage": "review_approval",
+        }
+        task.metadata_json = metadata
+        self._audit.append(
+            AuditEvent(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                category="compliance",
+                action="task_review_binding_failed",
+                actor="execution_coordinator",
+                details="Task approval failed because required upstream evidence could not bind to its invocation.",
+                payload_json={"task_id": str(task.id), "code": "INPUT_BINDING_FAILED"},
+            )
+        )
+        RuntimeEvidenceLedger(self._session, audit_repository=self._audit, flush=False).append_fact(
+            tenant_id=tenant_id,
+            mission_id=task.mission_id,
+            category="runtime_evidence",
+            action="review_approval_input_binding_failed",
+            producer="execution_coordinator",
+            actor="execution_coordinator",
+            details="Required upstream evidence could not bind before human-review approval; provider execution was blocked.",
+            facts={
+                "task_id": str(task.id),
+                "code": "INPUT_BINDING_FAILED",
+                "retryable": False,
+                "enforcement_boundary": "review_approval_pre_provider",
+            },
+            causation_id=str(task.id),
+            correlation_id=str(task.mission_id) if task.mission_id else None,
+        )
+        self._session.flush()
 
     def mark_dead_letter(self, *, tenant_id: str, task_id: uuid.UUID, reason: str) -> CoordinationResult:
         task = self._require_task(task_id=task_id, tenant_id=tenant_id)
@@ -451,6 +571,18 @@ class ExecutionCoordinator:
                 task.id,
                 task.status,
                 "side-effecting retry requires a current independent human approval",
+            )
+        if self._requires_unapproved_ability_review(task):
+            self._place_in_review(
+                task=task,
+                tenant_id=tenant_id,
+                reason="ability retry requires a current independent human approval",
+            )
+            return CoordinationResult(
+                False,
+                task.id,
+                task.status,
+                "ability retry requires a current independent human approval",
             )
         policy = self._policy.evaluate_task(task)
         if not policy.allowed:
@@ -575,17 +707,32 @@ class ExecutionCoordinator:
             raise ValueError(f"approval cannot be revoked from task status '{task.status}'")
         metadata = dict(task.metadata_json or {})
         constraints = dict(metadata.get("execution_constraints") or {})
-        raw_grant = constraints.get("side_effect_authorization")
-        if not isinstance(raw_grant, dict) or raw_grant.get("schema_version") != 2:
-            raise ValueError("task has no revocable side-effect approval")
-        if raw_grant.get("revoked_at") is not None:
-            raise ValueError("side-effect approval is already revoked")
+        raw_side_effect_grant = constraints.get("side_effect_authorization")
+        raw_ability_grant = constraints.get("ability_authorization")
+        has_side_effect_grant = (
+            isinstance(raw_side_effect_grant, dict) and raw_side_effect_grant.get("schema_version") == 2
+        )
+        has_ability_grant = isinstance(raw_ability_grant, dict) and raw_ability_grant.get("schema_version") == 1
+        if not has_side_effect_grant and not has_ability_grant:
+            raise ValueError("task has no revocable execution approval")
+        grants = [grant for grant in (raw_side_effect_grant, raw_ability_grant) if isinstance(grant, dict)]
+        if any(grant.get("revoked_at") is not None for grant in grants):
+            raise ValueError("execution approval is already revoked")
         revoked_at = datetime.now(UTC).isoformat()
-        grant = dict(raw_grant)
-        grant["revoked_at"] = revoked_at
-        grant["revoked_by"] = actor
-        grant["revocation_reason"] = reason
-        constraints["side_effect_authorization"] = grant
+        grants_by_key = {
+            "side_effect_authorization": raw_side_effect_grant,
+            "ability_authorization": raw_ability_grant,
+        }
+        revoked_grant_ids: dict[str, object] = {}
+        for key, raw_grant in grants_by_key.items():
+            if not isinstance(raw_grant, dict):
+                continue
+            grant = dict(raw_grant)
+            grant["revoked_at"] = revoked_at
+            grant["revoked_by"] = actor
+            grant["revocation_reason"] = reason
+            constraints[key] = grant
+            revoked_grant_ids[key] = grant.get("grant_id")
         metadata["execution_constraints"] = constraints
         task.metadata_json = metadata
         self._governance.append(
@@ -597,7 +744,7 @@ class ExecutionCoordinator:
                 decision="revoked",
                 payload_json={
                     "task_id": str(task.id),
-                    "grant_id": grant.get("grant_id"),
+                    "grant_ids": revoked_grant_ids,
                     "reason": reason,
                     "revoked_at": revoked_at,
                 },
@@ -610,10 +757,10 @@ class ExecutionCoordinator:
                 category="compliance",
                 action="task_review_revoked",
                 actor=actor,
-                details=f"Side-effect approval for task {task.id} was revoked before execution.",
+                details=f"Execution approval for task {task.id} was revoked before execution.",
                 payload_json={
                     "task_id": str(task.id),
-                    "grant_id": grant.get("grant_id"),
+                    "grant_ids": revoked_grant_ids,
                     "reason": reason,
                     "revoked_at": revoked_at,
                 },
