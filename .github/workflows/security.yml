@@ -24,9 +24,9 @@ jobs:
     name: Trivy Image Scan (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
-      # The Trivy binary is released through GitHub. Serialise the initial
-      # bootstrap so one cached, pinned binary serves the full image matrix
-      # rather than seven concurrent release downloads failing together.
+      # Docker is already the authoritative image-build surface. Serialize the
+      # scanner container pulls instead of downloading a release binary from
+      # GitHub for every matrix entry.
       max-parallel: 1
       fail-fast: false
       matrix:
@@ -105,30 +105,22 @@ jobs:
             *) echo "Unknown runtime contract: $RUNTIME_CONTRACT" >&2; exit 1 ;;
           esac
 
-      - name: Install pinned Trivy binary
-        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
-        with:
-          version: v0.70.0
-          cache: true
-
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ajenda-ai-${{ matrix.name }}:scan-${{ github.sha }}
-          # Never reuse package-analysis results across identically tagged PR images.
-          cache: false
-          # Use the separately installed binary cache while retaining fresh
-          # vulnerability database analysis for every image.
-          skip-setup-trivy: true
-          # Persist the scanner metadata and package findings for review; the
-          # command still fails closed below on HIGH/CRITICAL vulnerabilities.
-          format: json
-          output: trivy-${{ matrix.name }}.json
-          # Secret scanning is covered by gitleaks; keep Trivy on package CVEs.
-          scanners: vuln
-          severity: CRITICAL,HIGH
-          exit-code: "1"
-          ignore-unfixed: true
+        env:
+          IMAGE: ajenda-ai-${{ matrix.name }}:scan-${{ github.sha }}
+          REPORT: trivy-${{ matrix.name }}.json
+        run: |
+          # Pin the scanner version and scan the locally built image through
+          # Docker's daemon socket. This avoids the unavailable GitHub release
+          # asset bootstrap while preserving a fresh vulnerability database and
+          # a fail-closed HIGH/CRITICAL policy.
+          docker run --rm \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --volume "$PWD:/workspace" \
+            --workdir /workspace \
+            aquasec/trivy:0.70.0 \
+            image --format json --output "$REPORT" --scanners vuln \
+            --severity CRITICAL,HIGH --exit-code 1 --ignore-unfixed "$IMAGE"
 
       - name: Upload Trivy report (${{ matrix.name }})
         if: always()
