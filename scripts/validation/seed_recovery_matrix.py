@@ -20,6 +20,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
@@ -76,6 +77,11 @@ def _create_task(
     running: bool,
     heartbeat_age_seconds: int,
 ) -> dict[str, str | int]:
+    # This utility calls the coordinator/runtime services directly in order to
+    # create authoritative fixture state.  Their commits end PostgreSQL's
+    # transaction-local RLS setting, so activate it before every tenant-scoped
+    # phase rather than relying on the preceding phase's context.
+    activate_tenant_session(session, tenant_id)
     mission = Mission(
         tenant_id=tenant_id,
         objective=f"Recovery matrix fixture: {kind}",
@@ -106,17 +112,21 @@ def _create_task(
 
     worker_id = f"recovery-seed-{kind}"
     runtime = WorkerRuntimeService(session, queue)
+    activate_tenant_session(session, tenant_id)
     claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
     if claimed is None:
         raise RuntimeError(f"failed to claim {kind} fixture through WorkerRuntimeService")
+    activate_tenant_session(session, tenant_id)
     session.refresh(claimed)
     lease_id_raw = claimed.metadata_json.get("worker_lease_id")
     if not isinstance(lease_id_raw, str):
         raise RuntimeError(f"{kind} fixture did not receive a durable worker lease ID")
 
     if running:
+        activate_tenant_session(session, tenant_id)
         runtime.start_execution(tenant_id=tenant_id, lease_id=uuid.UUID(lease_id_raw), worker_id=worker_id)
 
+    activate_tenant_session(session, tenant_id)
     lease = session.scalar(
         select(WorkerLease).where(WorkerLease.id == uuid.UUID(lease_id_raw), WorkerLease.task_id == task.id)
     )

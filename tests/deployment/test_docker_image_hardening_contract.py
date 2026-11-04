@@ -11,6 +11,8 @@ WORKER_DOCKERFILE = Path("deploy/docker/worker.Dockerfile")
 MIGRATE_DOCKERFILE = Path("deploy/docker/migrate.Dockerfile")
 FRONTEND_DOCKERFILE = Path("deploy/docker/frontend.Dockerfile")
 HUBSPOT_DOCKERFILE = Path("services/hubspot_crm_adapter/Dockerfile")
+HUBSPOT_INGRESS_DOCKERFILE = Path("deploy/compose/hubspot-crm-ingress/Dockerfile")
+SECURITY_WORKFLOW = Path(".github/workflows/security.yml")
 
 PYTHON_RUNTIME_DOCKERFILES = (
     ROOT_DOCKERFILE,
@@ -18,6 +20,7 @@ PYTHON_RUNTIME_DOCKERFILES = (
     WORKER_DOCKERFILE,
     MIGRATE_DOCKERFILE,
 )
+PYTHON_BASE_IMAGE = "python:3.13-slim"
 
 
 def _read(path: Path) -> str:
@@ -49,10 +52,14 @@ def test_python_runtime_images_run_as_non_root_uid_1000() -> None:
 
 def test_python_runtime_images_do_not_ship_build_toolchains() -> None:
     for path in PYTHON_RUNTIME_DOCKERFILES:
-        # Final stage is the last python:3.12-slim FROM (builder uses "AS builder").
-        runtime_stage = _read(path).rsplit("FROM python:3.12-slim", 1)[-1]
+        text = _read(path)
+        # Builder and final stages must run the same supported interpreter.
+        assert text.count(f"FROM {PYTHON_BASE_IMAGE}") == 2, f"{path} must use {PYTHON_BASE_IMAGE} in both stages"
+        runtime_stage = text.rsplit(f"FROM {PYTHON_BASE_IMAGE}", 1)[-1]
         assert "build-essential" not in runtime_stage, f"{path} runtime stage must not install build-essential"
         assert "libpq5" in runtime_stage, f"{path} runtime stage must include libpq5"
+        assert "setuptools>=78.1.1" in runtime_stage, f"{path} runtime stage must retain the patched setuptools floor"
+        assert "pip uninstall --yes pip" in runtime_stage, f"{path} runtime stage must remove build-only pip"
 
 
 def test_api_images_include_autonomy_catalog_and_match_hardening() -> None:
@@ -78,5 +85,38 @@ def test_frontend_image_does_not_declare_credential_shaped_env_keys() -> None:
 def test_hubspot_adapter_image_runs_as_non_root() -> None:
     text = _read(HUBSPOT_DOCKERFILE)
 
+    assert text.startswith(f"FROM {PYTHON_BASE_IMAGE}")
     assert "USER 1000" in text
     assert "useradd --uid 1000" in text
+
+
+def test_nginx_runtime_images_refresh_fixable_alpine_security_updates() -> None:
+    for path in (FRONTEND_DOCKERFILE, HUBSPOT_INGRESS_DOCKERFILE):
+        text = _read(path)
+        assert "nginx:1.31.8-alpine" in text
+        assert "apk upgrade --no-cache" in text
+
+
+def test_security_workflow_scans_every_deployable_image_and_proves_python_runtime_contents() -> None:
+    workflow = _read(SECURITY_WORKFLOW)
+
+    for dockerfile in (
+        "Dockerfile",
+        "deploy/docker/api.Dockerfile",
+        "deploy/docker/worker.Dockerfile",
+        "deploy/docker/migrate.Dockerfile",
+        "deploy/docker/frontend.Dockerfile",
+        "services/hubspot_crm_adapter/Dockerfile",
+        "deploy/compose/hubspot-crm-ingress/Dockerfile",
+    ):
+        assert dockerfile in workflow
+
+    for contract in ("api", "worker", "migrate", "hubspot"):
+        assert f"runtime_contract: {contract}" in workflow
+
+    assert "Prove Python runtime image contents" in workflow
+    assert 'test "$(id -u)" = "1000"' in workflow
+    assert "pip executable is present in the final runtime image" in workflow
+    assert "pip module is present in the final runtime image" in workflow
+    assert "docker build --pull --no-cache" in workflow
+    assert "Upload Trivy report" in workflow

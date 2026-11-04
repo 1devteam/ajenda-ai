@@ -1,6 +1,12 @@
 # Ajenda AI Product Vertical Slice Build Contract
 
-> **Historical document.** Last accurate snapshot: 2026-06-21. Customer frontend, migrations `0031`–`0033`, central brain mode, HubSpot ingress, and CI live runtime proof on `main` post-date this contract. For current truth use [`README.md`](../../README.md), [`PROJECT_STATE_REPORT.md`](../PROJECT_STATE_REPORT.md), and [`SYSTEM_ARCHITECTURE.md`](../architecture/SYSTEM_ARCHITECTURE.md).
+> **Historical document.** Last accurate snapshot: 2026-06-21. Customer
+> frontend, migrations `0031`–`0033`, central brain mode, HubSpot ingress, and
+> later runtime work post-date this contract. For current truth use
+> [`README.md`](../../README.md), [`docs/README.md`](../README.md),
+> [`SYSTEM_ARCHITECTURE.md`](../architecture/SYSTEM_ARCHITECTURE.md), and the
+> applicable current deployment/proof contract. `PROJECT_STATE_REPORT.md` is a
+> preserved historical snapshot, not current status.
 
 **Last verified:** 2026-06-21 (`main` @ `6a14e40`)  
 **Architecture map:** [`docs/architecture/SYSTEM_ARCHITECTURE.md`](../architecture/SYSTEM_ARCHITECTURE.md)

@@ -14,7 +14,7 @@ def get_database_runtime(request: Request) -> DatabaseRuntime:
     return runtime
 
 
-def get_db_session(request: Request) -> Generator[Session, None, None]:
+def get_db_session(request: Request) -> Generator[Session]:
     """Yield a transactional DB session without tenant RLS context.
 
     Approved for: admin routes, health checks, metrics, auth bootstrap,
@@ -29,7 +29,7 @@ def get_db_session(request: Request) -> Generator[Session, None, None]:
     yield from runtime.session_scope()
 
 
-def get_tenant_db_session(request: Request) -> Generator[Session, None, None]:
+def get_tenant_db_session(request: Request) -> Generator[Session]:
     """Yield a transactional DB session with Row-Level Security activated.
 
     Reads ``request.state.tenant_id`` (set by TenantContextMiddleware) and

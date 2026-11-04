@@ -1,238 +1,124 @@
-variable "name_prefix" {
-  description = "Prefix for all resource names"
-  type        = string
-}
-
-variable "environment" {
-  description = "Environment name (staging or production)"
-  type        = string
-}
-
-variable "aws_region" {
-  description = "AWS region for CloudWatch log configuration"
-  type        = string
-}
-
-variable "vpc_id" {
-  description = "VPC ID"
-  type        = string
-}
-
-variable "public_subnet_ids" {
-  description = "IDs of public subnets for the ALB"
-  type        = list(string)
-}
-
-variable "private_subnet_ids" {
-  description = "IDs of private subnets for ECS tasks"
-  type        = list(string)
-}
-
-variable "sg_alb_id" {
-  description = "Security group ID for the ALB"
-  type        = string
-}
-
-variable "sg_ecs_api_id" {
-  description = "Security group ID for ECS API tasks"
-  type        = string
-}
-
-variable "sg_ecs_worker_id" {
-  description = "Security group ID for ECS Worker tasks"
-  type        = string
-}
-
-variable "sg_ecs_frontend_id" {
-  description = "Security group ID for ECS frontend tasks"
-  type        = string
-  default     = ""
-}
-
-variable "acm_certificate_arn" {
-  description = "ARN of the ACM certificate for the ALB HTTPS listener"
-  type        = string
-}
-
-variable "ecr_image_uri" {
-  description = "ECR image URI (without tag)"
-  type        = string
-}
-
-variable "image_tag" {
-  description = "Docker image tag to deploy"
-  type        = string
-  default     = "latest"
-}
-
-variable "secrets_read_policy_arn" {
-  description = "ARN of the IAM policy granting read access to Secrets Manager"
-  type        = string
-}
-
-variable "db_host" {
-  description = "RDS instance hostname"
-  type        = string
-}
-
-variable "db_port" {
-  description = "RDS instance port"
-  type        = number
-  default     = 5432
-}
-
-variable "db_name" {
-  description = "Database name"
-  type        = string
-}
-
-variable "db_username" {
-  description = "Database username"
-  type        = string
-}
-
-variable "redis_host" {
-  description = "Redis primary endpoint hostname"
-  type        = string
-}
-
-variable "db_password_secret_arn" {
-  description = "ARN of the Secrets Manager secret containing the DB password"
-  type        = string
-}
-
-variable "redis_auth_token_secret_arn" {
-  description = "ARN of the Secrets Manager secret containing the Redis AUTH token"
-  type        = string
-}
-
-variable "oidc_signing_key_secret_arn" {
-  description = "ARN of the Secrets Manager secret containing the OIDC signing key"
-  type        = string
-}
-
-variable "log_level" {
-  description = "Application log level"
-  type        = string
-  default     = "INFO"
-}
-
-variable "log_retention_days" {
-  description = "CloudWatch log retention in days"
-  type        = number
-  default     = 30
-}
-
-variable "api_cpu" {
-  description = "ECS API task CPU units (256, 512, 1024, 2048, 4096)"
-  type        = number
-  default     = 512
-}
-
-variable "api_memory" {
-  description = "ECS API task memory in MiB"
-  type        = number
-  default     = 1024
-}
-
-variable "api_desired_count" {
-  description = "Desired number of API tasks"
-  type        = number
-  default     = 2
-}
-
-variable "api_min_count" {
-  description = "Minimum number of API tasks (auto-scaling floor)"
-  type        = number
-  default     = 1
-}
-
-variable "api_max_count" {
-  description = "Maximum number of API tasks (auto-scaling ceiling)"
-  type        = number
-  default     = 10
-}
-
-variable "worker_cpu" {
-  description = "ECS Worker task CPU units"
-  type        = number
-  default     = 1024
-}
-
-variable "worker_memory" {
-  description = "ECS Worker task memory in MiB"
-  type        = number
-  default     = 2048
-}
-
-variable "worker_desired_count" {
-  description = "Desired number of Worker tasks"
-  type        = number
-  default     = 1
-}
-
-variable "worker_min_count" {
-  description = "Minimum number of Worker tasks"
-  type        = number
-  default     = 1
-}
-
-variable "worker_max_count" {
-  description = "Maximum number of Worker tasks"
-  type        = number
-  default     = 20
-}
-
-variable "enable_deletion_protection" {
-  description = "Enable deletion protection on the ALB"
-  type        = bool
-  default     = false
-}
-
-variable "alb_access_logs_bucket" {
-  description = "S3 bucket name for ALB access logs (empty string to disable)"
-  type        = string
-  default     = ""
-}
-
-variable "enable_customer_frontend" {
-  description = "Deploy customer frontend on ECS and route SPA traffic via ALB path rules"
-  type        = bool
-  default     = true
-}
-
-variable "ecr_frontend_image_uri" {
-  description = "ECR/GHCR image URI for the customer frontend (without tag)"
-  type        = string
-  default     = ""
-}
-
-variable "frontend_image_tag" {
-  description = "Customer frontend image tag"
-  type        = string
-  default     = "latest"
-}
-
-variable "frontend_cpu" {
-  description = "ECS frontend task CPU units"
-  type        = number
-  default     = 256
-}
-
-variable "frontend_memory" {
-  description = "ECS frontend task memory in MiB"
-  type        = number
-  default     = 512
-}
-
-variable "frontend_desired_count" {
-  description = "Desired number of frontend tasks"
-  type        = number
-  default     = 2
-}
-
-variable "tags" {
-  description = "Tags to apply to all resources"
+variable "name_prefix" { type = string }
+variable "environment" { type = string }
+variable "aws_region" { type = string }
+variable "vpc_id" { type = string }
+variable "public_subnet_ids" { type = list(string) }
+variable "private_subnet_ids" { type = list(string) }
+variable "sg_alb_id" { type = string }
+variable "sg_ecs_api_id" { type = string }
+variable "sg_ecs_worker_id" { type = string }
+variable "sg_ecs_frontend_id" { type = string }
+variable "acm_certificate_arn" { type = string }
+variable "secrets_read_policy_arns" {
+  description = "Runtime-specific ECS execution-role policies for Secrets Manager injection."
   type        = map(string)
-  default     = {}
+  validation {
+    condition = length(keys(var.secrets_read_policy_arns)) == 4 && alltrue([
+      for runtime in ["api", "worker", "assurance", "migrator"] : contains(keys(var.secrets_read_policy_arns), runtime)
+    ])
+    error_message = "secrets_read_policy_arns must contain exactly api, worker, assurance, and migrator entries."
+  }
 }
+variable "api_database_url_secret_arn" { type = string }
+variable "worker_database_url_secret_arn" { type = string }
+variable "assurance_database_url_secret_arn" { type = string }
+variable "migrator_database_url_secret_arn" { type = string }
+
+variable "runtime_environment" {
+  description = "Non-secret canonical AJENDA_* runtime configuration."
+  type        = map(string)
+  validation {
+    condition     = alltrue([for required in ["AJENDA_ENV", "AJENDA_LOG_LEVEL", "AJENDA_QUEUE_ADAPTER", "AJENDA_WORKER_TENANT_MODE"] : contains(keys(var.runtime_environment), required)])
+    error_message = "runtime_environment must include the canonical environment, logging, queue, and worker-tenant settings."
+  }
+  validation {
+    condition     = !contains(keys(var.runtime_environment), "AJENDA_DATABASE_URL") && !contains(keys(var.runtime_environment), "AJENDA_DATABASE_IDENTITY")
+    error_message = "Database URLs and role identities are task-specific and may not be supplied through runtime_environment."
+  }
+}
+
+variable "runtime_secret_arns" {
+  description = "Canonical runtime secret-name to Secrets Manager ARN map; values never enter Terraform state."
+  type        = map(string)
+  validation {
+    condition     = alltrue([for required in ["AJENDA_QUEUE_URL", "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY", "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY"] : contains(keys(var.runtime_secret_arns), required)])
+    error_message = "runtime_secret_arns must include the queue URL and both required encryption keys."
+  }
+  validation {
+    condition     = !contains(keys(var.runtime_secret_arns), "AJENDA_DATABASE_URL")
+    error_message = "Database URL secrets are role-specific inputs."
+  }
+}
+
+variable "api_image" {
+  type = string
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.api_image))
+    error_message = "api_image must be an immutable OCI digest reference."
+  }
+}
+variable "worker_image" {
+  type = string
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.worker_image))
+    error_message = "worker_image must be an immutable OCI digest reference."
+  }
+}
+variable "assurance_image" {
+  type = string
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.assurance_image))
+    error_message = "assurance_image must be an immutable OCI digest reference."
+  }
+}
+variable "migrator_image" {
+  type = string
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.migrator_image))
+    error_message = "migrator_image must be an immutable OCI digest reference."
+  }
+}
+variable "frontend_image" {
+  type = string
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.frontend_image))
+    error_message = "frontend_image must be an immutable OCI digest reference."
+  }
+}
+
+variable "api_cpu" { type = number }
+variable "api_memory" { type = number }
+variable "api_max_count" { type = number }
+variable "worker_cpu" { type = number }
+variable "worker_memory" { type = number }
+variable "worker_max_count" { type = number }
+variable "assurance_cpu" { type = number }
+variable "assurance_memory" { type = number }
+variable "assurance_interval_seconds" {
+  type    = number
+  default = 300
+}
+variable "migrator_cpu" {
+  type    = number
+  default = 512
+}
+variable "migrator_memory" {
+  type    = number
+  default = 1024
+}
+variable "frontend_cpu" { type = number }
+variable "frontend_memory" { type = number }
+variable "enable_customer_frontend" {
+  type    = bool
+  default = true
+}
+variable "enable_deletion_protection" {
+  type    = bool
+  default = false
+}
+variable "alb_access_logs_bucket" {
+  type    = string
+  default = ""
+}
+variable "log_retention_days" { type = number }
+variable "tags" { type = map(string) }

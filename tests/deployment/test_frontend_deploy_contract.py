@@ -28,7 +28,7 @@ def test_compose_declares_frontend_service() -> None:
     compose = _read(COMPOSE_FILE)
     assert "frontend:" in compose
     assert "deploy/docker/frontend.Dockerfile" in compose
-    assert '"8080:80"' in compose or "8080:80" in compose
+    assert '"127.0.0.1:${AJENDA_COMPOSE_FRONTEND_HOST_PORT:-8080}:80"' in compose
 
 
 def test_dev_compose_declares_frontend_service() -> None:
@@ -41,7 +41,8 @@ def test_dev_compose_declares_frontend_service() -> None:
 def test_frontend_dockerfile_builds_vite_app_and_serves_with_nginx() -> None:
     dockerfile = _read(FRONTEND_DOCKERFILE)
     assert "npm run build" in dockerfile
-    assert "nginx:1.27-alpine" in dockerfile
+    assert "nginx:1.31.8-alpine" in dockerfile
+    assert "apk upgrade --no-cache" in dockerfile
     assert "VITE_API_BASE_URL=" in dockerfile
     assert "rm -f .env" in dockerfile
     # Credential-shaped keys must never appear in image ENV metadata.

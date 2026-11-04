@@ -4,9 +4,13 @@ set -euo pipefail
 COMPOSE_FILE="${AJENDA_PROOF_COMPOSE_FILE:-deploy/compose/docker-compose.prod.yml}"
 COMPOSE_ENV_FILE="${AJENDA_PROOF_COMPOSE_ENV_FILE:-deploy/compose/.env.prod}"
 COMPOSE_PROJECT_NAME="${AJENDA_PROOF_COMPOSE_PROJECT_NAME:-ajenda-ai}"
-API_BASE_URL="${AJENDA_PROOF_API_BASE_URL:-http://localhost:8000}"
-FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:8080}"
-PROMETHEUS_BASE_URL="${AJENDA_PROOF_PROMETHEUS_BASE_URL:-http://localhost:9090}"
+COMPOSE_API_HOST_PORT="${AJENDA_PROOF_COMPOSE_API_HOST_PORT:-8000}"
+COMPOSE_FRONTEND_HOST_PORT="${AJENDA_PROOF_COMPOSE_FRONTEND_HOST_PORT:-8080}"
+COMPOSE_PROMETHEUS_HOST_PORT="${AJENDA_PROOF_COMPOSE_PROMETHEUS_HOST_PORT:-9090}"
+COMPOSE_OTEL_HOST_PORT="${AJENDA_PROOF_COMPOSE_OTEL_HOST_PORT:-4317}"
+API_BASE_URL="${AJENDA_PROOF_API_BASE_URL:-http://localhost:${COMPOSE_API_HOST_PORT}}"
+FRONTEND_BASE_URL="${AJENDA_PROOF_FRONTEND_BASE_URL:-http://localhost:${COMPOSE_FRONTEND_HOST_PORT}}"
+PROMETHEUS_BASE_URL="${AJENDA_PROOF_PROMETHEUS_BASE_URL:-http://localhost:${COMPOSE_PROMETHEUS_HOST_PORT}}"
 PROMETHEUS_JOB_NAME="${AJENDA_PROOF_PROMETHEUS_JOB_NAME:-ajenda-api}"
 TIMEOUT_SECONDS="${AJENDA_PROOF_TIMEOUT_SECONDS:-90}"
 POLL_SECONDS="${AJENDA_PROOF_POLL_SECONDS:-2}"
@@ -30,7 +34,12 @@ require_command() {
 }
 
 compose() {
-  docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  AJENDA_COMPOSE_ENV_FILE="$COMPOSE_ENV_FILE" \
+    AJENDA_COMPOSE_API_HOST_PORT="$COMPOSE_API_HOST_PORT" \
+    AJENDA_COMPOSE_FRONTEND_HOST_PORT="$COMPOSE_FRONTEND_HOST_PORT" \
+    AJENDA_COMPOSE_PROMETHEUS_HOST_PORT="$COMPOSE_PROMETHEUS_HOST_PORT" \
+    AJENDA_COMPOSE_OTEL_HOST_PORT="$COMPOSE_OTEL_HOST_PORT" \
+    docker compose -p "$COMPOSE_PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
 wait_for_http_ok() {
@@ -117,6 +126,12 @@ fi
 if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then
   fail "compose env file not found: $COMPOSE_ENV_FILE"
 fi
+
+# Compose resolves service-level `env_file` paths relative to the Compose file.
+# The proof accepts a repository-relative path for operator ergonomics, but the
+# same value is also injected into the Compose model.  Normalize it once so a
+# valid relative path is not resolved a second time beneath deploy/compose.
+COMPOSE_ENV_FILE="$(cd "$(dirname "$COMPOSE_ENV_FILE")" && pwd -P)/$(basename "$COMPOSE_ENV_FILE")"
 
 log "validating compose configuration"
 compose config --quiet

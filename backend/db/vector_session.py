@@ -42,7 +42,7 @@ class VectorDatabaseRuntime:
     def session_factory(self) -> sessionmaker[Session]:
         return self._session_factory
 
-    def session_scope(self) -> Generator[Session, None, None]:
+    def session_scope(self) -> Generator[Session]:
         session = self._session_factory()
         try:
             yield session
@@ -54,10 +54,10 @@ class VectorDatabaseRuntime:
             session.close()
 
     @contextmanager
-    def session_context(self) -> Generator[Session, None, None]:
+    def session_context(self) -> Generator[Session]:
         yield from self.session_scope()
 
-    def tenant_session_scope(self, tenant_id: str) -> Generator[Session, None, None]:
+    def tenant_session_scope(self, tenant_id: str) -> Generator[Session]:
         session = self._session_factory()
         try:
             session.execute(
@@ -73,7 +73,7 @@ class VectorDatabaseRuntime:
             session.close()
 
     @contextmanager
-    def tenant_session_context(self, tenant_id: str) -> Generator[Session, None, None]:
+    def tenant_session_context(self, tenant_id: str) -> Generator[Session]:
         yield from self.tenant_session_scope(tenant_id)
 
     def ensure_schema(self) -> None:

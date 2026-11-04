@@ -5,7 +5,7 @@
 #   - ElastiCache Redis 7 replication group (cluster mode disabled)
 #   - Subnet group spanning all private subnets
 #   - KMS key for encryption at rest
-#   - AUTH token for in-transit authentication
+#   - TLS transport encryption; application credential values stay outside Terraform
 #   - CloudWatch alarms for CPU, memory, and evictions
 ###############################################################################
 
@@ -100,10 +100,9 @@ resource "aws_elasticache_replication_group" "main" {
   security_group_ids = [var.security_group_id]
 
   # Security
-  at_rest_encryption_enabled  = true
-  transit_encryption_enabled  = true
-  auth_token                  = var.auth_token
-  kms_key_id                  = aws_kms_key.redis.arn
+  at_rest_encryption_enabled = true
+  transit_encryption_enabled = true
+  kms_key_id                 = aws_kms_key.redis.arn
 
   # Availability
   automatic_failover_enabled = var.num_cache_clusters > 1

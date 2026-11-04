@@ -3,7 +3,7 @@
 **Status:** Active  
 **Effective date:** May 23, 2026  
 **Owner:** Architecture + Runtime Governance
-**Last reviewed:** July 7, 2026
+**Last reviewed:** November 2, 2026
 **Source-of-truth precedence:** Implementation/tests/runtime proof > PROJECT_SPEC.md > architecture docs
 
 ---
@@ -29,9 +29,10 @@ This policy applies to all canonical and operational docs that influence impleme
 
 - `PROJECT_SPEC.md`
 - `README.md`
+- `docs/README.md`
 - `docs/architecture/SYSTEM_ARCHITECTURE.md`
 - `docs/architecture/ADR_INDEX.md`
-- `docs/PROJECT_STATE_REPORT.md`
+- `docs/deployment/production-env-contract.md`
 - `docs/validation/live-runtime-matrix.md`
 - `docs/validation/live-runtime-proof-release-gate.md`
 
@@ -45,8 +46,9 @@ This policy applies to all canonical and operational docs that influence impleme
 
 ### Tier-3 state and reporting docs
 
-- `docs/PROJECT_STATE_REPORT.md`
 - dated assessments, checkpoints, and progress reports
+- audit, remediation, and planning records whose stated status is historical,
+  superseded, proposed, or point-in-time
 
 ---
 
@@ -124,18 +126,30 @@ Action: block promotion until reconciled.
 
 ## 7) CI and enforcement model
 
-Enforcement progression:
+### Current automated enforcement
 
-1. **Phase A (warn mode):** detect and report drift indicators in CI output.
-2. **Phase B (soft fail):** fail PRs for Tier-1 drift and stale Tier-1 review dates.
-3. **Phase C (hard fail):** fail PRs for Tier-1 contradictions and D3 drift indicators.
+The repository currently runs a limited drift sentinel at
+`scripts/validation/contract_drift_check.py`. It checks authority-ledger shape,
+some README route-family parity, referenced proof paths, and the presence/format
+of this policy's review metadata. It may emit warnings for documentation drift;
+it does **not** prove every prose claim is current, does not independently
+validate every review date against the SLA, and does not convert a green result
+into runtime or deployment proof.
 
-Minimum checks expected from drift sentinel tooling:
+Dedicated tests also guard selected ADR/index and deployment/runbook contracts.
+Those checks are intentionally narrow. Reviewers remain responsible for tracing
+claims to implementation, migration, configuration, and observed proof.
 
-- canonical doc presence (`PROJECT_SPEC.md`, Tier-1 files),
-- route inventory parity (README/contract docs vs router registry),
-- stale-date detection vs SLA thresholds,
-- release-gate row references for changed runtime contracts.
+### Intended enforcement progression
+
+1. **Current baseline:** targeted contract checks plus human source review.
+2. **Future soft fail:** fail Tier-1 omissions and machine-detectable stale
+   metadata once a complete, reviewed document inventory exists.
+3. **Future hard fail:** block promotion for machine-detectable Tier-1/D3
+   contradictions with an approved exception workflow.
+
+Do not claim either future stage is active until its CI implementation and
+failure behavior are themselves proven.
 
 ---
 
@@ -185,4 +199,5 @@ Freshness governance is considered operational when:
 3. PR template includes docs-impact requirements.
 4. D3 drift blocks promotion.
 
-Until then, this policy is mandatory guidance with progressive enforcement rollout.
+Until the intended stages are implemented, this policy remains binding review
+conduct with deliberately limited automated enforcement.

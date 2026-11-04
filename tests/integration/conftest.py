@@ -123,7 +123,7 @@ def _postgresql_string_literal(value: str) -> str:
 
 
 @pytest.fixture(scope="session")
-def postgres_container() -> Generator[Any, None, None]:
+def postgres_container() -> Generator[Any]:
     postgres_container_cls, _ = _testcontainer_classes()
     password = f"test-{token_urlsafe(24)}"
     with postgres_container_cls(
@@ -136,7 +136,7 @@ def postgres_container() -> Generator[Any, None, None]:
 
 
 @pytest.fixture(scope="session")
-def redis_container() -> Generator[Any, None, None]:
+def redis_container() -> Generator[Any]:
     _, redis_container_cls = _testcontainer_classes()
     with redis_container_cls(image="redis:7-alpine") as redis:
         yield redis
@@ -155,7 +155,7 @@ def redis_url(redis_container: Any) -> str:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def integration_env(pg_url: str, redis_url: str) -> Generator[None, None, None]:
+def integration_env(pg_url: str, redis_url: str) -> Generator[None]:
     previous = _set_env(pg_url, redis_url)
     try:
         yield
@@ -284,7 +284,7 @@ def transfer_public_table_ownership_to_migrator(pg_engine):
 
 
 @pytest.fixture()
-def pg_session(pg_engine) -> Generator[Session, None, None]:
+def pg_session(pg_engine) -> Generator[Session]:
     """Provide a real Postgres Session that is rolled back after each test."""
     connection = pg_engine.connect()
     transaction = connection.begin()

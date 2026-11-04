@@ -330,3 +330,15 @@ def test_recovery_rows_are_supported_and_declared_runner_backed() -> None:
     assert RECOVERY_ROWS <= supported
     assert RECOVERY_ROWS <= recovery_scenarios
     assert RECOVERY_ROWS <= runner_backed
+
+
+def test_recovery_runner_reads_authoritative_redis_v2_payload_hashes() -> None:
+    source = RUNNER.read_text(encoding="utf-8")
+    start = source.index("recovery_task_evidence()")
+    end = source.index("recovery_endpoint_call()", start)
+    recovery_evidence = source[start:end]
+
+    assert 'HVALS "ajenda:queue:${AJENDA_TENANT_ID}:v2:pending-payloads"' in recovery_evidence
+    assert 'HVALS "ajenda:queue:${AJENDA_TENANT_ID}:v2:processing-payloads"' in recovery_evidence
+    assert 'LRANGE "ajenda:queue:${AJENDA_TENANT_ID}:pending"' not in recovery_evidence
+    assert 'LRANGE "ajenda:queue:${AJENDA_TENANT_ID}:processing"' not in recovery_evidence

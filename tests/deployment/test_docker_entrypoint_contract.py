@@ -105,5 +105,6 @@ def test_root_and_api_dockerfiles_share_non_root_runtime_user() -> None:
 def test_frontend_image_builds_static_assets_with_nginx() -> None:
     dockerfile = _read(FRONTEND_DOCKERFILE)
     assert "npm run build" in dockerfile
-    assert "nginx:1.27-alpine" in dockerfile
+    assert "nginx:1.31.8-alpine" in dockerfile
+    assert "apk upgrade --no-cache" in dockerfile
     assert "deploy/nginx/" in dockerfile
