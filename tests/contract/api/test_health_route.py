@@ -27,7 +27,7 @@ def test_api_startup_rejects_schema_behind_before_queue_or_request_handling(
     def _schema_behind(_self: object) -> None:
         raise SchemaRevisionError(
             status="behind",
-            expected_heads=("0063_evidence_logical_identity",),
+            expected_heads=("0064_force_audit_event_rls",),
             actual_heads=("0060_reaffirm_need_rls",),
         )
 

@@ -112,6 +112,7 @@ class ProviderCredentialManagementService:
         ] = "hubspot",
         secret_value: str | None = None,
         use_platform_master_key: bool = False,
+        platform_master_provisioned_by_operator: bool = False,
         allowed_actions: list[str] | None = None,
         allowed_side_effect_classes: list[str] | None = None,
         trusted_destination_hosts: list[str] | None = None,
@@ -125,6 +126,14 @@ class ProviderCredentialManagementService:
             )
         if normalized_provider == "external_social" and use_platform_master_key:
             raise ProviderCredentialManagementError("external_social does not support platform master credentials")
+        if (
+            normalized_provider == "external_crm"
+            and use_platform_master_key
+            and not platform_master_provisioned_by_operator
+        ):
+            raise ProviderCredentialManagementError(
+                "HubSpot platform master credentials may only be provisioned by the operator lifecycle"
+            )
 
         warning: str | None = None
         credential_type = self._resolve_credential_type(

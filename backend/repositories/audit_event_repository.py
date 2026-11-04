@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.domain.audit_event import AuditEvent
 
 
@@ -16,6 +17,7 @@ class AuditEventRepository:
         self._session = session
 
     def append(self, event: AuditEvent) -> AuditEvent:
+        self._activate_tenant(event)
         self._session.add(event)
         self._session.flush()
         self._session.refresh(event)
@@ -24,8 +26,19 @@ class AuditEventRepository:
     def append_unflushed(self, event: AuditEvent) -> AuditEvent:
         """Stage an audit fact in the caller's transaction without flushing."""
 
+        self._activate_tenant(event)
         self._session.add(event)
         return event
+
+    def _activate_tenant(self, event: AuditEvent) -> None:
+        """Bind every audit write to its event tenant before persistence.
+
+        Audit facts are emitted from API, worker, assurance, and control-plane
+        paths. The repository owns final RLS context activation so audit
+        durability cannot depend on each caller remembering it.
+        """
+
+        activate_tenant_session(self._session, event.tenant_id)
 
     def get_for_tenant(self, *, event_id: uuid.UUID, tenant_id: str) -> AuditEvent | None:
         """Read one immutable event without exposing another tenant's row."""
@@ -46,10 +59,6 @@ class AuditEventRepository:
             AuditEvent.category == "ui_interaction",
             AuditEvent.payload_json["runtime_evidence"]["correlation_id"].astext == interaction_id,
         )
-        return list(self._session.scalars(stmt))
-
-    def list_for_mission(self, mission_id: uuid.UUID) -> list[AuditEvent]:
-        stmt = select(AuditEvent).where(AuditEvent.mission_id == mission_id)
         return list(self._session.scalars(stmt))
 
     def list_for_mission_for_tenant(self, *, mission_id: uuid.UUID, tenant_id: str) -> list[AuditEvent]:
