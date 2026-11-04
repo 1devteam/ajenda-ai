@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -142,6 +143,47 @@ def request(
 
 def auth(tenant_id: str, api_key: str) -> dict[str, str]:
     return {"X-Tenant-Id": tenant_id, "X-Api-Key": api_key}
+
+
+def approve_pending_review_tasks(*, headers: dict[str, str], launched: dict[str, Any]) -> list[str]:
+    """Approve launch-held ability tasks through the public review boundary.
+
+    Launch deliberately no longer queues approval-required abilities.  This
+    proof acts as the authorized reviewer for its isolated proof tenant, so it
+    must make that transition through the same API an operator would use.
+    """
+
+    queued_task_ids = launched.get("queued_task_ids")
+    pending_review_task_ids = launched.get("pending_review_task_ids")
+    blockers = launched.get("blockers")
+    if (
+        not isinstance(queued_task_ids, list)
+        or not isinstance(pending_review_task_ids, list)
+        or not isinstance(blockers, list)
+    ):
+        raise ProofFailure(f"launch returned invalid task admission: {json.dumps(launched, sort_keys=True)}")
+    unexpected_blockers = [
+        blocker
+        for blocker in blockers
+        if not isinstance(blocker, dict) or blocker.get("code") != "policy_review_required"
+    ]
+    if unexpected_blockers:
+        raise ProofFailure(f"launch returned non-review blockers: {json.dumps(unexpected_blockers, sort_keys=True)}")
+    approved_task_ids = list(queued_task_ids)
+    for raw_task_id in pending_review_task_ids:
+        if not isinstance(raw_task_id, str) or not raw_task_id:
+            raise ProofFailure(f"launch returned invalid pending review task: {json.dumps(launched, sort_keys=True)}")
+        approved = request(
+            "POST",
+            API_BASE,
+            f"/v1/review-queue/tasks/{raw_task_id}/approve",
+            body={"approval_expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat()},
+            headers=headers,
+        )
+        if approved.get("status") != "queued":
+            raise ProofFailure(f"review approval did not queue task: {json.dumps(approved, sort_keys=True)}")
+        approved_task_ids.append(raw_task_id)
+    return approved_task_ids
 
 
 def require_string(payload: dict[str, Any], key: str, context: str) -> str:
@@ -408,11 +450,10 @@ def main() -> int:
         f"/v1/missions/{mission_id}/launch",
         headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
-    queued_task_ids = launched.get("queued_task_ids")
-    if not isinstance(queued_task_ids, list) or not queued_task_ids:
-        raise ProofFailure(f"launch returned no queued task IDs: {json.dumps(launched, sort_keys=True)}")
-    if launched.get("blockers"):
-        raise ProofFailure(f"launch returned blockers: {launched['blockers']}")
+    log_phase("runtime_review_approval")
+    queued_task_ids = approve_pending_review_tasks(headers=headers, launched=launched)
+    if not queued_task_ids:
+        raise ProofFailure(f"launch admitted no executable task: {json.dumps(launched, sort_keys=True)}")
 
     log_phase("mission_terminal_poll")
     deadline = time.monotonic() + TIMEOUT_SECONDS

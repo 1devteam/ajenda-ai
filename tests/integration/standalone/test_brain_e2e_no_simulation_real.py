@@ -27,6 +27,7 @@ from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.handlers.tool_invoke import tool_invoke_handler
 from backend.workers.task_dispatcher import TaskDispatcher
+from tests.integration.credentials._invoke_authority_helpers import approve_ability_for_direct_invoke
 from tests.integration.operating_charter_support import persist_test_operating_charter
 from tests.integration.standalone.gmail_e2e_support import resolve_gmail_access_token_for_e2e
 from tests.integration.standalone.hubspot_e2e_support import resolve_hubspot_access_token
@@ -197,6 +198,7 @@ def test_standalone_brain_http_credential_register_write_research_upsert_no_simu
             jurisdiction="US-ALL",
             requires_human_review=False,
         )
+        approve_ability_for_direct_invoke(write_task)
         write_result = tool_invoke_handler(write_task, context)
         _assert_not_simulated(write_result["output"])
         worker_session.commit()
@@ -231,6 +233,7 @@ def test_standalone_brain_http_credential_register_write_research_upsert_no_simu
             jurisdiction="US-ALL",
             requires_human_review=False,
         )
+        approve_ability_for_direct_invoke(research_task)
         research_result = tool_invoke_handler(research_task, context)
         _assert_not_simulated(research_result["output"])
         assert research_result["output"]["plugin_required"] is False
@@ -270,6 +273,7 @@ def test_standalone_brain_http_credential_register_write_research_upsert_no_simu
             jurisdiction="US-ALL",
             requires_human_review=False,
         )
+        approve_ability_for_direct_invoke(upsert_task)
         upsert_result = tool_invoke_handler(upsert_task, context)
         _assert_not_simulated(upsert_result["output"])
         assert upsert_result["output"]["status"] == "upserted_internal"
@@ -451,6 +455,7 @@ def test_hubspot_plugin_live_adapter_and_api_no_simulation(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(research_task)
     research_result = tool_invoke_handler(research_task, context)
     _assert_not_simulated(research_result["output"])
     assert research_result["output"].get("plugin_required") is True or research_result["output"].get("source") in {
@@ -498,6 +503,7 @@ def test_hubspot_plugin_live_adapter_and_api_no_simulation(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(upsert_task)
     upsert_result = tool_invoke_handler(upsert_task, context)
     upsert_output = upsert_result["output"]
     assert upsert_output.get("status") != "simulated"
@@ -576,6 +582,7 @@ def test_gmail_plugin_live_api_no_simulation(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(check_task)
     try:
         check_result = tool_invoke_handler(check_task, context)
     except ValueError as exc:
@@ -628,6 +635,7 @@ def test_gmail_plugin_live_api_no_simulation(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(send_task)
     send_result = tool_invoke_handler(send_task, context)
     send_output = send_result["output"]
     assert send_output.get("status") != "simulated"

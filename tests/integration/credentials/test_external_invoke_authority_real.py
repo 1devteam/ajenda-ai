@@ -17,7 +17,11 @@ from backend.services.network_egress import NetworkEgressResponse, VettedNetwork
 from backend.workers.handlers.tool_invoke import tool_invoke_handler
 from tests.integration.operating_charter_support import persist_test_operating_charter
 
-from ._invoke_authority_helpers import seed_capability_adapter_authority, side_effect_authorization
+from ._invoke_authority_helpers import (
+    approve_ability_for_direct_invoke,
+    seed_capability_adapter_authority,
+    side_effect_authorization,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -119,6 +123,7 @@ def test_cross_tenant_credential_reference_denied_at_invoke(
         requires_human_review=False,
     )
 
+    approve_ability_for_direct_invoke(task)
     with pytest.raises(Exception, match=r"credential denied.*not visible"):
         tool_invoke_handler(
             task,
@@ -194,6 +199,7 @@ def test_sales_research_credentialed_invoke_without_capability_monkeypatch(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(task)
     result = tool_invoke_handler(
         task,
         {
@@ -319,6 +325,7 @@ def test_gmail_oauth_refresh_then_email_check_invoke_without_capability_monkeypa
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(task)
     result = tool_invoke_handler(
         task,
         {
@@ -404,6 +411,7 @@ def test_crm_upsert_credentialed_invoke_without_capability_monkeypatch(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(task)
     result = tool_invoke_handler(
         task,
         {
@@ -524,6 +532,7 @@ def test_linkedin_profile_read_invoke_without_capability_monkeypatch(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(task)
     result = tool_invoke_handler(
         task,
         {
@@ -600,6 +609,7 @@ def test_salesforce_soql_read_invoke_without_capability_monkeypatch(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(task)
     result = tool_invoke_handler(
         task,
         {
@@ -700,6 +710,7 @@ def test_google_calendar_events_read_invoke_without_capability_monkeypatch(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(task)
     result = tool_invoke_handler(
         task,
         {
@@ -798,6 +809,7 @@ def test_github_repo_read_invoke_without_capability_monkeypatch(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(task)
     result = tool_invoke_handler(
         task,
         {
