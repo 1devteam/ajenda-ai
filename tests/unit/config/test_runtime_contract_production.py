@@ -59,6 +59,8 @@ def _settings(**overrides) -> Settings:
         "oidc_jwks_uri": "https://idp.example.com/realms/ajenda/protocol/openid-connect/certs",
         "oidc_issuer": "https://idp.example.com/realms/ajenda",
         "oidc_audience": "ajenda-api",
+        "password_login_enabled": True,
+        "session_signing_secret": "s" * 48,
         "rate_limit_requests": 100,
         "rate_limit_window_seconds": 60,
         "authz_policy_mode": "rbac",
@@ -114,6 +116,20 @@ class TestValidProductionConfig:
     def test_development_with_local_queue_is_allowed(self) -> None:
         settings = _settings(env="development", queue_adapter="local", queue_url=None)
         settings.validate_runtime_contract()  # Must not raise
+
+
+class TestCustomerSessionProductionGuards:
+    @pytest.mark.parametrize("secret", [None, "", " " * 32, "s" * 31])
+    def test_enabled_password_login_without_usable_session_secret_raises(self, secret: str | None) -> None:
+        settings = _settings(session_signing_secret=secret)
+
+        with pytest.raises(ValueError, match="AJENDA_SESSION_SIGNING_SECRET must be at least 32 characters"):
+            settings.validate_runtime_contract()
+
+    def test_disabled_password_login_does_not_require_a_session_secret(self) -> None:
+        settings = _settings(password_login_enabled=False, session_signing_secret="")
+
+        settings.validate_runtime_contract()
 
 
 # ---------------------------------------------------------------------------

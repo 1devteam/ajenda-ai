@@ -52,6 +52,7 @@ PRODUCTION_REQUIRED_APP_ENV = frozenset(
         "AJENDA_OIDC_AUDIENCE",
         "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY",
         "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY",
+        "AJENDA_SESSION_SIGNING_SECRET",
         "AJENDA_AUTHZ_POLICY_MODE",
         "AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS",
         "AJENDA_EMAIL_PROVIDER",
@@ -80,6 +81,7 @@ LIVE_PROOF_REQUIRED_APP_ENV = frozenset(
         "AJENDA_OIDC_JWKS_URI",
         "AJENDA_OIDC_AUDIENCE",
         "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY",
+        "AJENDA_SESSION_SIGNING_SECRET",
     }
 )
 
@@ -255,6 +257,7 @@ def test_production_env_template_uses_supported_settings_env_names() -> None:
     assert "POSTGRES_PASSWORD=CHANGE_ME_USE_STRONG_RANDOM_PASSWORD" in env_template
     assert "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY=CHANGE_ME_GENERATE_WITH_FERNET" in env_template
     assert "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY=CHANGE_ME_GENERATE_WITH_FERNET" in env_template
+    assert "AJENDA_SESSION_SIGNING_SECRET=CHANGE_ME_GENERATE_40_PLUS_CHAR_SECRET" in env_template
 
 
 def test_k8s_config_and_secret_partition_canonical_env_names() -> None:
@@ -300,6 +303,8 @@ def test_live_runtime_proof_workflow_writes_canonical_compose_env_file() -> None
         Path(".github/workflows/premerge-live-runtime-proof.yml"),
     ):
         workflow_text = _read(workflow_path)
+        assert "session_signing_secret = token_urlsafe(48)" in workflow_text
+        assert 'f"AJENDA_SESSION_SIGNING_SECRET={session_signing_secret}"' in workflow_text
         assert '"AJENDA_WORKER_TENANT_MODE=multi"' in workflow_text
         assert 'AJENDA_PROOF_START_SERVICES: "1"' in workflow_text
         assert 'AJENDA_PROOF_BOOTSTRAP_ROLES: "1"' in workflow_text

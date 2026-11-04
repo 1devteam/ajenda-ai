@@ -423,6 +423,8 @@ def _settings_with_confidence_floor(value: float) -> Settings:
         oidc_jwks_uri="https://idp.example.com/realms/ajenda/protocol/openid-connect/certs",
         oidc_issuer="https://idp.example.com/realms/ajenda",
         oidc_audience="ajenda-api",
+        password_login_enabled=True,
+        session_signing_secret="s" * 48,
         rate_limit_requests=100,
         rate_limit_window_seconds=60,
         authz_policy_mode="rbac",

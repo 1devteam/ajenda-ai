@@ -10,6 +10,7 @@ def test_compose_production_env_documents_webhook_secret_encryption_key() -> Non
     assert "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV=" in content
     assert "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY=" in content
     assert "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV=" in content
+    assert "AJENDA_SESSION_SIGNING_SECRET=CHANGE_ME_GENERATE_40_PLUS_CHAR_SECRET" in content
     assert "Fernet.generate_key()" in content
     assert "CHANGE_ME_GENERATE_WITH_FERNET" in content
 
@@ -19,6 +20,7 @@ def test_k8s_secret_example_documents_webhook_secret_encryption_key() -> None:
 
     assert "AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY" in content
     assert "AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY" in content
+    assert "AJENDA_SESSION_SIGNING_SECRET" in content
     assert "<REPLACE_FERNET_KEY>" in content
 
 

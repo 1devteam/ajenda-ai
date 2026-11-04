@@ -328,7 +328,7 @@ jobs:
 
           from base64 import urlsafe_b64encode
           from pathlib import Path
-          from secrets import token_bytes
+          from secrets import token_bytes, token_urlsafe
           from uuid import uuid4
 
           env_path = Path("deploy/compose/.env.prod")
@@ -337,12 +337,15 @@ jobs:
           # Isolated proof stack: valid, unpredictable key shared by API, worker,
           # and assurance through the same Compose env_file; never use live keys.
           runtime_fernet_key = urlsafe_b64encode(token_bytes(32)).decode("ascii")
+          session_signing_secret = token_urlsafe(48)
           print(f"::add-mask::{runtime_fernet_key}")
+          print(f"::add-mask::{session_signing_secret}")
           env_path.write_text(
               "\n".join(
                   [
                       f"POSTGRES_PASSWORD={postgres_password}",
                       f"AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY={runtime_fernet_key}",
+                      f"AJENDA_SESSION_SIGNING_SECRET={session_signing_secret}",
                       f"AJENDA_API_DATABASE_PASSWORD={postgres_password}-api",
                       f"AJENDA_WORKER_DATABASE_PASSWORD={postgres_password}-worker",
                       f"AJENDA_ASSURANCE_DATABASE_PASSWORD={postgres_password}-assurance",
