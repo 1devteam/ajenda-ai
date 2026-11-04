@@ -111,6 +111,7 @@ def test_register_platform_master_emits_warning(session_factory) -> None:
             credential_id="hubspot-shared",
             provider="external_crm",
             use_platform_master_key=True,
+            platform_master_provisioned_by_operator=True,
             actor_id="user-1",
         )
         session.commit()
@@ -119,6 +120,20 @@ def test_register_platform_master_emits_warning(session_factory) -> None:
     assert result.summary.uses_platform_master_key is True
     assert result.warning is not None
     assert "WARNING" in result.warning
+
+
+def test_register_hubspot_platform_master_requires_operator_lifecycle(session_factory) -> None:
+    tenant_id = str(uuid.uuid4())
+    with session_factory() as session:
+        service = _service(session, platform_master=True)
+        with pytest.raises(ProviderCredentialManagementError, match="operator lifecycle"):
+            service.register(
+                tenant_id=tenant_id,
+                credential_id="hubspot-shared",
+                provider="external_crm",
+                use_platform_master_key=True,
+                actor_id="user-1",
+            )
 
 
 def test_register_smtp_email_credential(session_factory) -> None:

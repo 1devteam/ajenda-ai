@@ -11,7 +11,7 @@ def test_restored_rls_migration_is_single_current_head() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
 
-    assert heads == ["0063_evidence_logical_identity"]
+    assert heads == ["0064_force_audit_event_rls"]
     assert len(heads[0]) <= 32
 
 

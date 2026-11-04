@@ -56,6 +56,7 @@ def test_provision_auto_registers_platform_hubspot_credential(mock_mgmt_cls: Mag
         provider="external_crm",
         integration="hubspot",
         use_platform_master_key=True,
+        platform_master_provisioned_by_operator=True,
         actor_id="system:admin",
     )
 

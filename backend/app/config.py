@@ -177,7 +177,7 @@ class Settings(BaseSettings):
         alias="AJENDA_HUBSPOT_PLATFORM_MASTER_KEY",
     )
     hubspot_platform_master_auto_provision: bool = Field(
-        default=True,
+        default=False,
         alias="AJENDA_HUBSPOT_PLATFORM_MASTER_AUTO_PROVISION",
     )
 

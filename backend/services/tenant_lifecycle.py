@@ -239,6 +239,7 @@ class TenantLifecycleService:
             provider="external_crm",
             integration="hubspot",
             use_platform_master_key=True,
+            platform_master_provisioned_by_operator=True,
             actor_id=f"system:{actor}",
         )
 

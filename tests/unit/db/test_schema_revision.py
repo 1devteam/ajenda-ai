@@ -18,18 +18,18 @@ def _engine_with_revision(*revisions: str):
 
 
 def test_verify_schema_revision_accepts_exact_single_runtime_head(monkeypatch: pytest.MonkeyPatch) -> None:
-    engine = _engine_with_revision("0063_evidence_logical_identity")
-    monkeypatch.setattr(schema_revision, "expected_schema_heads", lambda: ("0063_evidence_logical_identity",))
+    engine = _engine_with_revision("0064_force_audit_event_rls")
+    monkeypatch.setattr(schema_revision, "expected_schema_heads", lambda: ("0064_force_audit_event_rls",))
 
     check = schema_revision.verify_schema_revision(engine)
 
     assert check.status == "ready"
-    assert check.actual_heads == check.expected_heads == ("0063_evidence_logical_identity",)
+    assert check.actual_heads == check.expected_heads == ("0064_force_audit_event_rls",)
 
 
 def test_verify_schema_revision_rejects_stale_database(monkeypatch: pytest.MonkeyPatch) -> None:
     engine = _engine_with_revision("0060_reaffirm_need_rls")
-    monkeypatch.setattr(schema_revision, "expected_schema_heads", lambda: ("0063_evidence_logical_identity",))
+    monkeypatch.setattr(schema_revision, "expected_schema_heads", lambda: ("0064_force_audit_event_rls",))
 
     with pytest.raises(schema_revision.SchemaRevisionError, match="behind") as exc_info:
         schema_revision.verify_schema_revision(engine)
@@ -40,7 +40,7 @@ def test_verify_schema_revision_rejects_stale_database(monkeypatch: pytest.Monke
 
 def test_verify_schema_revision_rejects_missing_revision_table(monkeypatch: pytest.MonkeyPatch) -> None:
     engine = create_engine("sqlite://")
-    monkeypatch.setattr(schema_revision, "expected_schema_heads", lambda: ("0063_evidence_logical_identity",))
+    monkeypatch.setattr(schema_revision, "expected_schema_heads", lambda: ("0064_force_audit_event_rls",))
 
     with pytest.raises(schema_revision.SchemaRevisionError, match="unavailable") as exc_info:
         schema_revision.verify_schema_revision(engine)
@@ -51,4 +51,4 @@ def test_verify_schema_revision_rejects_missing_revision_table(monkeypatch: pyte
 def test_expected_schema_heads_is_the_repository_single_head() -> None:
     schema_revision.expected_schema_heads.cache_clear()
 
-    assert schema_revision.expected_schema_heads() == ("0063_evidence_logical_identity",)
+    assert schema_revision.expected_schema_heads() == ("0064_force_audit_event_rls",)

@@ -724,9 +724,9 @@ export default function CredentialsPage() {
           </label>
 
           {integration === "hubspot" && platformHubspot ? (
-            <p className="notice success">
-              HubSpot CRM is already included with Ajenda via platform master key ({platformHubspot.credential_id}).
-              Connect your own PAK below only if you want tenant-owned credentials.
+            <p className="notice warning">
+              An operator-managed HubSpot connection ({platformHubspot.credential_id}) is present. It is not a
+              tenant-owned credential; connect your own PAK for customer-controlled HubSpot access.
             </p>
           ) : null}
 
@@ -737,24 +737,9 @@ export default function CredentialsPage() {
                 <input
                   type="password"
                   value={form.secret_value ?? ""}
-                  disabled={form.use_platform_master_key}
                   onChange={(event) => setForm({ ...form, secret_value: event.target.value })}
                   placeholder="Paste HubSpot PAK (Bearer token)"
                 />
-              </label>
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={form.use_platform_master_key}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      use_platform_master_key: event.target.checked,
-                      secret_value: event.target.checked ? "" : form.secret_value,
-                    })
-                  }
-                />
-                Use platform master key (operator-managed; shared blast radius)
               </label>
             </>
           ) : (integration === "gmail" || integration === "smtp") && platformAjendaEmail ? (
@@ -1026,7 +1011,7 @@ export default function CredentialsPage() {
                 <div>
                   <strong>{item.credential_id}</strong> · {item.provider} · {item.credential_type}
                   {item.uses_platform_master_key ? (
-                    <span className="status-pill included">Included with Ajenda</span>
+                    <span className="status-pill included">Operator-managed</span>
                   ) : null}
                 </div>
                 <div>hosts: {item.trusted_destination_hosts.join(", ") || "—"}</div>
