@@ -25,6 +25,7 @@ Ajenda AI production deployments must not rely on development defaults.
 | `AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY_PREV` | no | yes | Previous Fernet key during webhook key-rotation migration windows. |
 | `AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY` | yes | yes | Fernet key for provider runtime credential encryption. |
 | `AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY_PREV` | no | yes | Previous Fernet key during provider credential key-rotation migration windows. |
+| `AJENDA_SESSION_SIGNING_SECRET` | yes while customer sessions are enabled | yes | Shared 32+ character secret used to issue and validate customer browser-session tokens. |
 | `AJENDA_AUTHZ_POLICY_MODE` | yes | no | rbac, shadow_opa, or enforce_opa. |
 | `AJENDA_AUTHZ_OPA_URL` | conditional | no | Required when policy mode is shadow_opa or enforce_opa. |
 | `AJENDA_AUTHZ_OPA_TIMEOUT_SECONDS` | yes | no | OPA request timeout. |
@@ -69,6 +70,14 @@ Store these values in a secrets manager and expose them as:
 AJENDA_WEBHOOK_SECRET_ENCRYPTION_KEY
 AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY
 
+Generate the independent customer-session signing secret with:
+
+python -c 'import secrets; print(secrets.token_urlsafe(48))'
+
+Store it as `AJENDA_SESSION_SIGNING_SECRET`. Every API replica that serves
+customer sessions must receive the same value. Production startup rejects an
+enabled password-login configuration without a 32+ character value.
+
 Do not use deterministic development/test keys in production.
 
 ## Worker tenant assignment
@@ -87,6 +96,7 @@ Settings.validate_runtime_contract() rejects production deployments that use:
 - local queue adapter,
 - Redis adapter without AJENDA_QUEUE_URL,
 - localhost OIDC issuer/JWKS,
+- enabled password login without a 32+ character AJENDA_SESSION_SIGNING_SECRET,
 - missing or invalid webhook/runtime secret encryption key,
 - deterministic development/test webhook/runtime key,
 - default or blank worker tenant id,
