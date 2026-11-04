@@ -106,6 +106,46 @@ def test_operator_proof_approves_launch_held_ability_tasks_through_public_api(mo
     assert all(call["body"] and call["body"].get("approval_expires_at") for call in calls)
 
 
+def test_operator_proof_uses_an_owner_session_for_review_approval(monkeypatch) -> None:
+    module = _load_operator_proof()
+    calls: list[dict[str, Any]] = []
+
+    def fake_request(
+        method: str,
+        _base: str,
+        path: str,
+        *,
+        body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        expected: int | tuple[int, ...] = 200,
+    ) -> dict[str, Any]:
+        calls.append({"method": method, "path": path, "body": body, "headers": headers, "expected": expected})
+        if path == "/v1/onboarding/signup":
+            return {"verification_code": "123456"}
+        if path == "/v1/onboarding/verify-email":
+            return {"tenant_id": "tenant", "api_key": "bootstrap-key"}
+        if path == "/v1/auth/password":
+            return {"access_token": "owner-session"}
+        if path == "/v1/onboarding/promote-bootstrap-key":
+            return {"api_key": "operational-key"}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(module, "request", fake_request)
+
+    tenant_id, api_key, reviewer_headers = module.create_tenant_session(org_name="Operator proof")
+
+    assert (tenant_id, api_key) == ("tenant", "operational-key")
+    assert reviewer_headers == {"X-Tenant-Id": "tenant", "Authorization": "Bearer owner-session"}
+    signup = calls[0]
+    assert signup["body"] and signup["body"].get("password")
+    login = next(call for call in calls if call["path"] == "/v1/auth/password")
+    assert login["body"] == {
+        "email": signup["body"]["email"],
+        "password": signup["body"]["password"],
+        "tenant_id": "tenant",
+    }
+
+
 def test_operator_proof_rejects_non_review_launch_blocker(monkeypatch) -> None:
     module = _load_operator_proof()
     monkeypatch.setattr(module, "request", lambda *_args, **_kwargs: {"status": "queued"})

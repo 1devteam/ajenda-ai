@@ -13,6 +13,7 @@ from backend.domain.capability_adapter import CapabilityAdapter
 from backend.domain.execution_task import ExecutionTask
 from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
 from backend.services.abilities.runtime_governance import AbilityAuthorizationV1, manifest_fingerprint
+from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ToolInvocation, tool_invocation_sha256
 
 
@@ -92,7 +93,10 @@ def approve_ability_for_direct_invoke(task: ExecutionTask, *, approved_by: str =
     raw_invocation = task.metadata_json.get("tool_invocation")
     assert isinstance(raw_invocation, dict)
     invocation = ToolInvocation.model_validate(raw_invocation)
-    manifest = ABILITY_MANIFESTS_BY_ACTION.get(invocation.action)
+    # Runtime resolves registered aliases before looking up the manifest.  Keep
+    # direct-invocation fixtures on that same canonical authority path.
+    action = get_default_action_registry().get(invocation.action)
+    manifest = ABILITY_MANIFESTS_BY_ACTION.get(action.name)
     if manifest is None or not manifest.approval_required:
         return
     approved_at = datetime.now(UTC)

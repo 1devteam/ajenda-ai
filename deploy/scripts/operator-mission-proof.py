@@ -193,15 +193,16 @@ def require_string(payload: dict[str, Any], key: str, context: str) -> str:
     return value.strip()
 
 
-def create_tenant_session(*, org_name: str) -> tuple[str, str]:
-    """Create one isolated proof tenant through the public onboarding boundary."""
+def create_tenant_session(*, org_name: str) -> tuple[str, str, dict[str, str]]:
+    """Create one isolated proof tenant and its owner review session publicly."""
 
     email = f"operator-proof-{uuid.uuid4().hex[:10]}@example.com"
+    password = f"OperatorProof-{uuid.uuid4().hex}!"
     signup = request(
         "POST",
         API_BASE,
         "/v1/onboarding/signup",
-        body={"org_name": org_name, "email": email},
+        body={"org_name": org_name, "email": email, "password": password},
         headers={"Idempotency-Key": str(uuid.uuid4())},
         expected=201,
     )
@@ -220,6 +221,13 @@ def create_tenant_session(*, org_name: str) -> tuple[str, str]:
     )
     tenant_id = require_string(verification, "tenant_id", "email verification")
     bootstrap_key = require_string(verification, "api_key", "email verification")
+    owner_session = request(
+        "POST",
+        API_BASE,
+        "/v1/auth/password",
+        body={"email": email, "password": password, "tenant_id": tenant_id},
+    )
+    access_token = require_string(owner_session, "access_token", "owner password login")
     promoted = request(
         "POST",
         API_BASE,
@@ -227,7 +235,7 @@ def create_tenant_session(*, org_name: str) -> tuple[str, str]:
         headers={**auth(tenant_id, bootstrap_key), "Idempotency-Key": str(uuid.uuid4())},
     )
     api_key = require_string(promoted, "api_key", "bootstrap promotion")
-    return tenant_id, api_key
+    return tenant_id, api_key, {"X-Tenant-Id": tenant_id, "Authorization": f"Bearer {access_token}"}
 
 
 def persist_proof_operating_charter(*, headers: dict[str, str]) -> None:
@@ -394,7 +402,7 @@ def main() -> int:
         raise ProofFailure("frontend root page did not contain the SPA mount point")
 
     log_phase("tenant_onboarding")
-    tenant_id, api_key = create_tenant_session(org_name="Ajenda Operator Proof")
+    tenant_id, api_key, reviewer_headers = create_tenant_session(org_name="Ajenda Operator Proof")
     headers = auth(tenant_id, api_key)
     log_phase("charter_persistence")
     persist_proof_operating_charter(headers=headers)
@@ -451,7 +459,7 @@ def main() -> int:
         headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )
     log_phase("runtime_review_approval")
-    queued_task_ids = approve_pending_review_tasks(headers=headers, launched=launched)
+    queued_task_ids = approve_pending_review_tasks(headers=reviewer_headers, launched=launched)
     if not queued_task_ids:
         raise ProofFailure(f"launch admitted no executable task: {json.dumps(launched, sort_keys=True)}")
 
@@ -552,7 +560,7 @@ def main() -> int:
         )
 
     log_phase("cross_tenant_denial")
-    other_tenant_id, other_api_key = create_tenant_session(org_name="Ajenda Operator Proof Isolation")
+    other_tenant_id, other_api_key, _ = create_tenant_session(org_name="Ajenda Operator Proof Isolation")
     _ = request(
         "GET",
         API_BASE,
