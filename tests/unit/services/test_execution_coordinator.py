@@ -135,6 +135,19 @@ def test_queue_task_does_not_publish_to_queue_before_commit() -> None:
     queue.enqueue_task_idempotent.assert_not_called()
 
 
+def test_alias_action_requires_its_canonical_ability_review() -> None:
+    """Admission must not bypass review just because an action uses an alias."""
+
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id)
+    task.metadata_json = {
+        "task_type": "tool.invoke",
+        "tool_invocation": {"schema_version": 1, "action": "crm.research", "input": {"query": "Acme"}},
+    }
+
+    assert ExecutionCoordinator._requires_unapproved_ability_review(task) is True
+
+
 def test_queue_task_records_dispatch_after_transitioning_planned_task_to_queued() -> None:
     tenant_id = str(uuid.uuid4())
     task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PLANNED.value)

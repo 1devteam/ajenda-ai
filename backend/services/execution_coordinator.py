@@ -220,9 +220,10 @@ class ExecutionCoordinator:
             return False
         try:
             invocation = ToolInvocation.model_validate(raw_invocation)
+            action = get_default_action_registry().get(invocation.action)
         except (TypeError, ValueError):
             return False
-        manifest = ABILITY_MANIFESTS_BY_ACTION.get(invocation.action)
+        manifest = ABILITY_MANIFESTS_BY_ACTION.get(action.name)
         return bool(
             manifest
             and manifest.approval_required
@@ -297,7 +298,7 @@ class ExecutionCoordinator:
             except (TypeError, ValueError) as exc:
                 raise ValueError("pending-review tool task has no valid action to approve") from exc
             constraints = dict(metadata.get("execution_constraints") or {})
-            manifest = ABILITY_MANIFESTS_BY_ACTION.get(parsed_invocation.action)
+            manifest = ABILITY_MANIFESTS_BY_ACTION.get(action.name)
             approval_required = bool(manifest and manifest.approval_required)
             side_effecting = action.side_effect_for(parsed_invocation).has_side_effect
             if side_effecting or approval_required:
