@@ -65,8 +65,8 @@ def test_worker_loop_runs_bounded_tenant_scoped_recovery(monkeypatch: pytest.Mon
     calls: list[str] = []
 
     class MaintainerStub:
-        def __init__(self, session_arg: object, queue_arg: object) -> None:
-            calls.append("init")
+        def __init__(self, session_arg: object, queue_arg: object, *, tenant_id: str | None = None) -> None:
+            calls.append(f"init:{tenant_id}")
 
         def recover_expired_leases(self) -> SimpleNamespace:
             calls.append("recover")
@@ -77,7 +77,7 @@ def test_worker_loop_runs_bounded_tenant_scoped_recovery(monkeypatch: pytest.Mon
 
     loop._maybe_recover_expired_leases("tenant-loop-contract")
 
-    assert calls == ["init", "recover"]
+    assert calls == ["init:tenant-loop-contract", "recover"]
     assert session.closed is True
 
 

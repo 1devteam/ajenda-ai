@@ -41,7 +41,7 @@ def test_manual_global_recovery_records_human_trigger_identity() -> None:
     service = object.__new__(OperationsService)
     service._session = _Session()
     service._audit = _Audit()
-    service._maintainer = _Maintainer()
+    service._recover_all_tenants = _Maintainer().recover_expired_leases
 
     summary = service.trigger_recovery(
         actor="user:admin-1",

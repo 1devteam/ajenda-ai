@@ -7,18 +7,18 @@ name = "ajenda-ai"
 version = "1.2.0"
 description = "Ajenda AI — Production-grade governed-runtime backend"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
   # FastAPI 0.136+ retains nested routers as internal placeholders in
   # app.routes. Route-inventory contracts use FastAPI's public OpenAPI view,
   # which remains the flattened client-facing route contract.
-  "fastapi>=0.115,<0.162",
+  "fastapi>=0.115,<0.163",
   "uvicorn[standard]>=0.30,<1.0",
   "sqlalchemy>=2.0,<3.0",
   "alembic>=1.13,<2.0",
   "psycopg[binary]>=3.2,<4.0",
-  "pydantic==2.14.1",
-  "pydantic-settings==2.16.1",
+  "pydantic==2.14.2",
+  "pydantic-settings==2.16.2",
   "python-json-logger>=2.0,<5.0",
   # Auth — cryptographic hashing and JWT verification
   "argon2-cffi>=25.1.0,<26.0",
@@ -34,8 +34,10 @@ dependencies = [
   "ddgs>=9.0,<10.0",
   # Governed browser execution; the worker image installs the pinned Chromium binary.
   "playwright==1.64.1",
-  # Security floor: GHSA-6v7p-g79w-8964 is fixed in msgpack 1.2.1.
-  "msgpack>=1.2.1,<2.0",
+  # Security floor: CVE-2026-114613 is fixed in msgpack 1.2.3.
+  "msgpack>=1.2.3,<2.0",
+  # Keep the runtime image above the fixed proxy-TLS and chunk-parser CVEs.
+  "urllib3>=2.8.0,<3.0",
 
   # Observability
   "prometheus-client>=0.20,<1.0",
@@ -80,14 +82,13 @@ markers = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py312"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "RUF"]
 ignore = [
   "N818",   # Exception names don't need Error suffix
   "B008",   # FastAPI Depends() in function signatures is the canonical pattern
-  "UP046",  # Generic[T] subclass syntax — Python 3.12 type params not yet universal
   "E501",   # Line length — enforced by formatter, not linter
 ]
 
@@ -96,7 +97,7 @@ ignore = [
 "tests/**" = ["RUF059", "B017", "RUF012"]       # Test helpers — mock unpacking patterns are intentional
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 strict = true
 warn_unused_configs = true
 packages = ["backend"]

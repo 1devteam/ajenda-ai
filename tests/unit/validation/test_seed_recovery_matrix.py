@@ -46,3 +46,10 @@ def test_seeder_requires_isolated_validation_environment() -> None:
 
     assert result.returncode == 1
     assert "isolated" in (result.stderr + result.stdout).lower()
+
+
+def test_seeder_reactivates_tenant_rls_between_authoritative_fixture_phases() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "from backend.db.tenant_session import activate_tenant_session" in source
+    assert source.count("activate_tenant_session(session, tenant_id)") == 5

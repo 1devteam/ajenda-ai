@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# rollback.sh — Ajenda AI production rollback script
+# rollback.sh — Kubernetes reference rollback helper
 #
 # Usage:
 #   ./rollback.sh [--namespace <ns>] [--revision <n>]
@@ -9,7 +9,12 @@
 #   ./rollback.sh --revision 3             # Roll back to specific revision
 #   ./rollback.sh --namespace ajenda-staging
 #
-# Prerequisites:
+# Status:
+#   This is not Ajenda's hosted production rollback path. Kubernetes manifests
+#   are non-operational reference material; see deploy/k8s/README.md. The
+#   controlled ECS procedure is deploy/scripts/ecs-rollback.sh.
+#
+# Prerequisites for reference use only:
 #   - kubectl configured with cluster access
 #   - Sufficient RBAC permissions to update Deployments
 #

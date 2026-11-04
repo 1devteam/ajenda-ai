@@ -77,7 +77,7 @@ class _DatabaseRuntimeLike(Protocol):
 
 
 @contextmanager
-def _db_session_context(db_runtime: _DatabaseRuntimeLike) -> Generator[Session, None, None]:
+def _db_session_context(db_runtime: _DatabaseRuntimeLike) -> Generator[Session]:
     if hasattr(db_runtime, "session_context"):
         with db_runtime.session_context() as session:
             yield session

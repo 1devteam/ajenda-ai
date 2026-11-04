@@ -83,6 +83,11 @@ jobs:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
     needs: [version, tag]
+    outputs:
+      api_digest: ${{ steps.api.outputs.digest }}
+      worker_digest: ${{ steps.worker.outputs.digest }}
+      migrate_digest: ${{ steps.migrate.outputs.digest }}
+      frontend_digest: ${{ steps.frontend.outputs.digest }}
     permissions:
       contents: read
       packages: write
@@ -126,6 +131,7 @@ jobs:
           echo "API tags: ${api_tags}"
 
       - name: Build and push API image
+        id: api
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -138,6 +144,7 @@ jobs:
           sbom: true
 
       - name: Build and push worker image
+        id: worker
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -150,6 +157,7 @@ jobs:
           sbom: true
 
       - name: Build and push migrate image
+        id: migrate
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -162,6 +170,7 @@ jobs:
           sbom: true
 
       - name: Build and push frontend image
+        id: frontend
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -176,12 +185,97 @@ jobs:
           sbom: true
 
   # ─────────────────────────────────────────────────────────────────────────
-  # Job 4: Create a GitHub Release only for newly created version tags
+  # Job 4: Scan the exact immutable artifacts published above.  Tags are
+  # mutable pointers; the Buildx digest is the release identity that must pass
+  # the security gate before a GitHub Release is created.
+  # ─────────────────────────────────────────────────────────────────────────
+  release-image-security:
+    name: Scan Published Image Digest (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    needs: docker-publish
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            image: ${{ github.repository }}
+            digest: ${{ needs.docker-publish.outputs.api_digest }}
+            runtime_contract: api
+          - name: worker
+            image: ${{ github.repository }}-worker
+            digest: ${{ needs.docker-publish.outputs.worker_digest }}
+            runtime_contract: worker
+          - name: migrate
+            image: ${{ github.repository }}-migrate
+            digest: ${{ needs.docker-publish.outputs.migrate_digest }}
+            runtime_contract: migrate
+          - name: frontend
+            image: ${{ github.repository }}-frontend
+            digest: ${{ needs.docker-publish.outputs.frontend_digest }}
+            runtime_contract: ""
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scan immutable published image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ matrix.image }}@${{ matrix.digest }}
+          cache: false
+          format: json
+          output: trivy-release-${{ matrix.name }}.json
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Prove immutable Python runtime contents (${{ matrix.name }})
+        if: matrix.runtime_contract != ''
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ matrix.image }}@${{ matrix.digest }}
+          RUNTIME_CONTRACT: ${{ matrix.runtime_contract }}
+        run: |
+          docker pull "$IMAGE"
+          docker run --rm --entrypoint /bin/sh "$IMAGE" -ec '
+            test "$(id -u)" = "1000"
+            if command -v pip >/dev/null 2>&1; then
+              echo "pip executable is present in the published runtime image" >&2
+              exit 1
+            fi
+            if python -c "import pip" >/dev/null 2>&1; then
+              echo "pip module is present in the published runtime image" >&2
+              exit 1
+            fi
+          '
+          case "$RUNTIME_CONTRACT" in
+            api) docker run --rm --entrypoint python "$IMAGE" -c 'import backend.main' ;;
+            worker) docker run --rm --entrypoint python "$IMAGE" -c 'import playwright, backend.workers.worker_loop' ;;
+            migrate) docker run --rm --entrypoint python "$IMAGE" -c 'import alembic, backend.db.schema_revision' ;;
+            *) echo "Unknown runtime contract: $RUNTIME_CONTRACT" >&2; exit 1 ;;
+          esac
+
+      - name: Upload immutable-image Trivy report (${{ matrix.name }})
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: trivy-release-${{ matrix.name }}-${{ github.sha }}
+          path: trivy-release-${{ matrix.name }}.json
+          if-no-files-found: warn
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 5: Create a GitHub Release only for newly created version tags
   # ─────────────────────────────────────────────────────────────────────────
   github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [version, tag, docker-publish]
+    needs: [version, tag, docker-publish, release-image-security]
     if: needs.tag.outputs.created == 'true'
     permissions:
       contents: write

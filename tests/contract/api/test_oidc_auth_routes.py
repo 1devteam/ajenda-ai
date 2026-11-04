@@ -24,11 +24,11 @@ from backend.services.oidc_login_service import (
 
 
 @pytest.fixture()
-def auth_client() -> Generator[TestClient, None, None]:
+def auth_client() -> Generator[TestClient]:
     app = FastAPI()
     app.include_router(router, prefix="/v1")
 
-    def _override_db() -> Generator[MagicMock, None, None]:
+    def _override_db() -> Generator[MagicMock]:
         db = MagicMock(spec=Session)
         yield db
 

@@ -8,10 +8,10 @@ const missions = [
 
 export default function ProductPreview() {
   return (
-    <div className="product-preview" aria-label="Ajenda AI Command Center preview">
+    <div className="product-preview" aria-label="Illustrative Ajenda AI Command Center preview">
       <div className="preview-topbar">
         <span className="preview-brand">ajenda-ai</span>
-        <span className="preview-status"><i /> System online</span>
+        <span className="preview-status"><i /> Illustrative preview</span>
       </div>
       <div className="preview-body">
         <aside className="preview-sidebar" aria-hidden>
@@ -34,7 +34,7 @@ export default function ProductPreview() {
             <span><small>Completed today</small><strong>4</strong></span>
           </div>
           <div className="preview-work">
-            <div className="preview-work-header"><strong>Active work</strong><small>Live mission data</small></div>
+            <div className="preview-work-header"><strong>Example work</strong><small>Illustrative data</small></div>
             {missions.map((mission) => (
               <div className="preview-mission" key={mission.title}>
                 <span><Check aria-hidden /> {mission.title}</span>

@@ -336,8 +336,11 @@ recovery_task_evidence() {
   db_query "SELECT status,retry_count FROM execution_tasks WHERE id='${task_id}';" "$outdir/task_state.tsv" || true
   db_query "SELECT id::text,status,holder_identity FROM worker_leases WHERE task_id='${task_id}' ORDER BY created_at DESC LIMIT 5;" "$outdir/lease_state.tsv" || true
   db_query "SELECT id::text,category,action,actor,created_at::text,payload_json::text FROM audit_events WHERE payload_json->>'task_id'='${task_id}' ORDER BY created_at DESC LIMIT 20;" "$outdir/task_audit.tsv" || true
-  redis_cmd "$outdir/pending_payloads.txt" LRANGE "ajenda:queue:${AJENDA_TENANT_ID}:pending" 0 -1 || true
-  redis_cmd "$outdir/processing_payloads.txt" LRANGE "ajenda:queue:${AJENDA_TENANT_ID}:processing" 0 -1 || true
+  # RedisQueueAdapter's authoritative schema stores payloads in v2 hashes;
+  # legacy list keys are only migration compatibility surfaces and cannot
+  # establish queue-recovery evidence for current runtime work.
+  redis_cmd "$outdir/pending_payloads.txt" HVALS "ajenda:queue:${AJENDA_TENANT_ID}:v2:pending-payloads" || true
+  redis_cmd "$outdir/processing_payloads.txt" HVALS "ajenda:queue:${AJENDA_TENANT_ID}:v2:processing-payloads" || true
 }
 
 recovery_endpoint_call() {

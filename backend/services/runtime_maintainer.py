@@ -33,6 +33,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
@@ -99,14 +100,24 @@ class RuntimeMaintainer:
         queue: QueueAdapter,
         expiry_seconds: int = 60,
         max_retries: int = DEFAULT_MAX_RETRIES,
+        tenant_id: str | None = None,
     ) -> None:
         self._session = session
         self._queue = queue
         self._expiry_seconds = expiry_seconds
         self._max_retries = max_retries
+        # Runtime roles deliberately cannot bypass PostgreSQL RLS.  Callers
+        # that recover a known tenant must supply that scope so maintenance
+        # survives the commits required by durable recovery transitions.
+        self._tenant_id = tenant_id
         self._audit = AuditEventRepository(session)
         self._dispatches = RuntimeQueueDispatchService(session, queue)
         self._billing_meters = BillingMeterDispatchService(session)
+
+    def _activate_tenant_scope(self) -> None:
+        """Restore the transaction-local RLS scope after a durable commit."""
+        if self._tenant_id is not None:
+            activate_tenant_session(self._session, self._tenant_id)
 
     def recover_expired_leases(self) -> RecoverySummary:
         """Find expired leases and recover their associated tasks.
@@ -114,9 +125,12 @@ class RuntimeMaintainer:
         Returns a RecoverySummary with counts of expired leases, re-queued
         tasks, dead-lettered tasks, and claimed-task/active-lease mismatches.
         """
+        self._activate_tenant_scope()
         threshold = datetime.now(UTC) - timedelta(seconds=self._expiry_seconds)
         dispatch_summary = self.publish_runtime_queue_dispatches()
+        self._activate_tenant_scope()
         billing_meter_summary = self.publish_billing_meter_dispatches()
+        self._activate_tenant_scope()
 
         stmt = (
             select(WorkerLease, ExecutionTask)
@@ -140,6 +154,7 @@ class RuntimeMaintainer:
 
         for lease, task in self._session.execute(stmt).all():
             try:
+                self._activate_tenant_scope()
                 original_task_status = task.status
                 original_lease_status = lease.status
 
@@ -401,11 +416,13 @@ class RuntimeMaintainer:
     def publish_runtime_queue_dispatches(self, *, limit: int = 25) -> DispatchPublishSummary:
         """Publish committed dispatch intents and reconcile cancelled queue artifacts."""
 
+        self._activate_tenant_scope()
         return self._dispatches.publish_due(limit=limit)
 
     def publish_billing_meter_dispatches(self, *, limit: int = 25) -> BillingMeterPublishSummary:
         """Deliver committed Stripe metering intents with durable retry state."""
 
+        self._activate_tenant_scope()
         return self._billing_meters.publish_due(limit=limit)
 
     def reconcile_deliverable_read_models(self) -> int:
@@ -416,6 +433,7 @@ class RuntimeMaintainer:
         messages, credentials, approvals, or provider authority.
         """
 
+        self._activate_tenant_scope()
         tenant_ids = set(self._session.scalars(select(ExecutionTask.tenant_id).distinct()).all())
         if not tenant_ids:
             return 0
@@ -444,6 +462,7 @@ class RuntimeMaintainer:
         return reconciled
 
     def _reconcile_queue_processing_payloads(self) -> RecoverySummary:
+        self._activate_tenant_scope()
         tenant_ids = set(self._session.scalars(select(ExecutionTask.tenant_id)).all())
         requeued_count = 0
         dead_lettered_count = 0
@@ -451,6 +470,7 @@ class RuntimeMaintainer:
 
         for tenant_id in tenant_ids:
             for inspection in self._queue.list_processing(tenant_id=tenant_id):
+                self._activate_tenant_scope()
                 if inspection.error is not None or inspection.message is None:
                     mismatched_state_count += 1
                     logger.error(
@@ -565,6 +585,7 @@ class RuntimeMaintainer:
         )
 
     def _active_lease_for_task(self, *, tenant_id: str, task_id: object) -> WorkerLease | None:
+        self._activate_tenant_scope()
         stmt = select(WorkerLease).where(
             WorkerLease.tenant_id == tenant_id,
             WorkerLease.task_id == task_id,
@@ -573,6 +594,7 @@ class RuntimeMaintainer:
         return self._session.scalars(stmt).first()
 
     def _latest_lease_holder(self, *, tenant_id: str, task_id: object) -> str | None:
+        self._activate_tenant_scope()
         stmt = (
             select(WorkerLease)
             .where(WorkerLease.tenant_id == tenant_id, WorkerLease.task_id == task_id)

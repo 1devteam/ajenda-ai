@@ -15,9 +15,10 @@ permissions:
 jobs:
   # ─────────────────────────────────────────────────────────────────────────
   # Job 1: Trivy — scan every image that can be built for an Ajenda runtime.
+  #
   # The root API image alone is not a sufficient security boundary: worker,
   # migrator, frontend, and optional HubSpot paths have independent final
-  # layers. Keep this list aligned with Docker build surfaces in Compose.
+  # layers.  Keep this list aligned with the Docker build surfaces in Compose.
   # ─────────────────────────────────────────────────────────────────────────
   trivy-image:
     name: Trivy Image Scan (${{ matrix.name }})
@@ -71,6 +72,9 @@ jobs:
           if [[ -n "$BUILD_ARG" ]]; then
             args+=(--build-arg "$BUILD_ARG")
           fi
+          # --no-cache alone does not refresh a locally cached mutable base
+          # tag.  Pull first so this gate evaluates the current upstream base
+          # image rather than a runner-cache historical artifact.
           docker build --pull --no-cache --file "${{ matrix.dockerfile }}" "${args[@]}" --tag "$IMAGE" .
 
       - name: Prove Python runtime image contents (${{ matrix.name }})
@@ -79,6 +83,9 @@ jobs:
           IMAGE: ajenda-ai-${{ matrix.name }}:scan-${{ github.sha }}
           RUNTIME_CONTRACT: ${{ matrix.runtime_contract }}
         run: |
+          # The Dockerfile text is a drift guard; these checks prove the final
+          # image is non-root, has no pip executable/module, and still imports
+          # the process-specific serving code as its configured runtime user.
           docker run --rm --entrypoint /bin/sh "$IMAGE" -ec '
             test "$(id -u)" = "1000"
             if command -v pip >/dev/null 2>&1; then
@@ -113,6 +120,8 @@ jobs:
           # Use the separately installed binary cache while retaining fresh
           # vulnerability database analysis for every image.
           skip-setup-trivy: true
+          # Persist the scanner metadata and package findings for review; the
+          # command still fails closed below on HIGH/CRITICAL vulnerabilities.
           format: json
           output: trivy-${{ matrix.name }}.json
           # Secret scanning is covered by gitleaks; keep Trivy on package CVEs.

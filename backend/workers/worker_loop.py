@@ -172,7 +172,7 @@ class WorkerLoop:
         session = self.session_factory()
         try:
             activate_tenant_session(session, tenant_id)
-            summary = RuntimeMaintainer(session, self.queue).recover_expired_leases()
+            summary = RuntimeMaintainer(session, self.queue, tenant_id=tenant_id).recover_expired_leases()
             if (
                 summary.expired_lease_count
                 or summary.requeued_task_count

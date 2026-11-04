@@ -151,13 +151,12 @@ def test_trigger_recovery_delegates_to_runtime_maintainer_with_human_attribution
         dead_lettered_count=1,
         mismatched_state_count=0,
     )
-    service._maintainer = MagicMock()
-    service._maintainer.recover_expired_leases.return_value = expected_summary
+    service._recover_all_tenants = MagicMock(return_value=expected_summary)
 
     result = service.trigger_recovery(actor="user:admin-1", actor_tenant_id="admin-home-tenant")
 
     assert result is expected_summary
-    service._maintainer.recover_expired_leases.assert_called_once_with()
+    service._recover_all_tenants.assert_called_once_with()
 
 
 def test_trigger_recovery_propagates_runtime_maintainer_failure() -> None:
@@ -165,10 +164,9 @@ def test_trigger_recovery_propagates_runtime_maintainer_failure() -> None:
     queue = MagicMock()
     service = OperationsService(session, queue)
 
-    service._maintainer = MagicMock()
-    service._maintainer.recover_expired_leases.side_effect = RuntimeError("recovery failed")
+    service._recover_all_tenants = MagicMock(side_effect=RuntimeError("recovery failed"))
 
     with pytest.raises(RuntimeError, match="recovery failed"):
         service.trigger_recovery(actor="user:admin-1", actor_tenant_id="admin-home-tenant")
 
-    service._maintainer.recover_expired_leases.assert_called_once_with()
+    service._recover_all_tenants.assert_called_once_with()

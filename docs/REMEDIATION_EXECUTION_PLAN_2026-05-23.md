@@ -1,6 +1,11 @@
 # AJENDA-AI Remediation Execution Plan (Schema-Aligned, Safe-PR Bundles)
 
-> **Historical document.** Many bundles in this plan are merged or superseded. Current architecture and product gaps: [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md). Current status: [`docs/PROJECT_STATE_REPORT.md`](PROJECT_STATE_REPORT.md).
+> **Historical document.** Many bundles in this plan are merged or superseded.
+> For current architecture and product/proof status, use
+> [`docs/architecture/SYSTEM_ARCHITECTURE.md`](architecture/SYSTEM_ARCHITECTURE.md),
+> [`docs/README.md`](README.md), and the applicable current deployment or
+> validation contract. `PROJECT_STATE_REPORT.md` is retained as an October 3,
+> 2026 historical snapshot, not current status.
 
 ## Objective
 

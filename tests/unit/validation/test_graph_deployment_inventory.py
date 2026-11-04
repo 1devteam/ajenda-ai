@@ -26,6 +26,24 @@ def test_browser_deployment_inventory_exposes_dependency_image_and_startup_edges
     assert inventory["unknowns"][0]["id"] == "deployment-browser:flag-value-externalized"
 
 
+def test_deployment_inventory_maps_cde_owners_for_graph_impact_analysis() -> None:
+    inventory = collect_deployment_inventory(Path(__file__).parents[3])
+
+    node_by_id = {node["id"]: node for node in inventory["nodes"]}
+    edge_pairs = {(edge["from"], edge["to"], edge["type"]) for edge in inventory["edges"]}
+
+    assert node_by_id["deployment:cde-ecs-module"]["source"] == "infra/modules/ecs/main.tf"
+    assert node_by_id["deployment:cde-promotion"]["source"] == "deploy/scripts/ecs-promote.sh"
+    assert node_by_id["deployment:cde-rds-module"]["source"] == "infra/modules/rds/main.tf"
+    assert node_by_id["deployment:cde-promotion-runbook"]["source"] == "ops/runbooks/deployment.md"
+    assert (
+        "deployment:cde-promotion",
+        "runtime:api",
+        "starts_after_migration",
+    ) in edge_pairs
+    assert inventory["metrics"]["cde_node_count"] == 32
+
+
 def test_browser_deployment_inventory_fails_closed_when_support_is_missing(tmp_path: Path) -> None:
     for relative in (
         "pyproject.toml",

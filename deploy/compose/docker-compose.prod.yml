@@ -6,7 +6,7 @@ services:
       args:
         NGINX_CONF: deploy/nginx/frontend.compose.conf
     ports:
-      - "127.0.0.1:8080:80"
+      - "127.0.0.1:${AJENDA_COMPOSE_FRONTEND_HOST_PORT:-8080}:80"
     depends_on:
       api:
         condition: service_healthy
@@ -22,7 +22,7 @@ services:
       context: ../..
       dockerfile: deploy/docker/api.Dockerfile
     env_file:
-      - .env.prod
+      - ${AJENDA_COMPOSE_ENV_FILE:-.env.prod}
     environment:
       AJENDA_DATABASE_IDENTITY: api
       AJENDA_DATABASE_URL: postgresql+psycopg://ajenda_api:${AJENDA_API_DATABASE_PASSWORD:?AJENDA_API_DATABASE_PASSWORD must be set}@db:5432/ajenda
@@ -36,7 +36,7 @@ services:
       otel-collector:
         condition: service_started
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${AJENDA_COMPOSE_API_HOST_PORT:-8000}:8000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "/app/deploy/scripts/readinesscheck.sh"]
@@ -49,7 +49,7 @@ services:
       context: ../..
       dockerfile: deploy/docker/worker.Dockerfile
     env_file:
-      - .env.prod
+      - ${AJENDA_COMPOSE_ENV_FILE:-.env.prod}
     environment:
       AJENDA_DATABASE_IDENTITY: worker
       AJENDA_DATABASE_URL: postgresql+psycopg://ajenda_worker:${AJENDA_WORKER_DATABASE_PASSWORD:?AJENDA_WORKER_DATABASE_PASSWORD must be set}@db:5432/ajenda
@@ -67,7 +67,7 @@ services:
       context: ../..
       dockerfile: deploy/docker/worker.Dockerfile
     env_file:
-      - .env.prod
+      - ${AJENDA_COMPOSE_ENV_FILE:-.env.prod}
     entrypoint: ["sh", "/app/deploy/scripts/start-assurance.sh"]
     environment:
       AJENDA_DATABASE_IDENTITY: assurance
@@ -85,7 +85,7 @@ services:
       context: ../..
       dockerfile: deploy/docker/migrate.Dockerfile
     env_file:
-      - .env.prod
+      - ${AJENDA_COMPOSE_ENV_FILE:-.env.prod}
     environment:
       AJENDA_DATABASE_IDENTITY: migrator
       AJENDA_DATABASE_URL: postgresql+psycopg://ajenda_migrator:${AJENDA_MIGRATOR_DATABASE_PASSWORD:?AJENDA_MIGRATOR_DATABASE_PASSWORD must be set}@db:5432/ajenda
@@ -146,7 +146,7 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus-alerts.yml:/etc/prometheus/alerts/prometheus-alerts.yml:ro
     ports:
-      - "127.0.0.1:9090:9090"
+      - "127.0.0.1:${AJENDA_COMPOSE_PROMETHEUS_HOST_PORT:-9090}:9090"
     restart: unless-stopped
 
   otel-collector:
@@ -155,7 +155,7 @@ services:
     volumes:
       - ../k8s/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
     ports:
-      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:${AJENDA_COMPOSE_OTEL_HOST_PORT:-4317}:4317"
     restart: unless-stopped
 
   hubspot-crm-adapter:

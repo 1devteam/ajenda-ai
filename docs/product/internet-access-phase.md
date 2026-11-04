@@ -1,7 +1,7 @@
 # Internet Access Phase — Progressive Open-Web Value
 
 **Status:** Active (combined lane shipped)  
-**Last updated:** 2026-07-27  
+**Last updated:** 2026-11-01
 **Source of truth:** `backend/services/internet/`, registered actions, tests, `scripts/validation/internet_live_proof.py`
 
 ## Purpose
@@ -42,9 +42,14 @@ AJENDA_OPEN_WRITE_MAX_PER_HOUR=20
 
 1. Vet the start URL and every requested origin with `NetworkEgressAuthority.vet_https_url` before Chromium starts.
 2. Launch browser + **new context** for this call only.
-3. Execute at most 12 declared read-only steps (`navigate`, `observe`, `extract`); no authentication or external writes.
-4. Re-vet redirects, frames, and subresources against the origin allow-list.
+3. Execute at most 12 declared read-only steps (`navigate`, `observe`, `extract`, `click`); browser network traffic is restricted to `GET`/`HEAD`, so a click that triggers a non-read request fails the observation.
+4. Block WebSockets, service workers, downloads, credential-bearing URLs, non-HTTPS URLs, and origin/port escapes; re-vet redirects, frames, and subresources against the origin allow-list.
 5. Close context and browser in `finally` — never reuse across tenants or leases.
+
+The browser feature remains disabled by default. Unit and controlled tests establish
+the transport contract; a target-environment Chromium proof is required before a
+browser rollout is claimed. See
+[`09-IMPLEMENTATION-CLOSURE-AND-OPEN-PROOF.md`](../audits/public-research-rebuild/09-IMPLEMENTATION-CLOSURE-AND-OPEN-PROOF.md).
 
 ## Open write
 
@@ -62,7 +67,8 @@ AJENDA_BROWSER_SESSION_ENABLED=true python scripts/validation/internet_live_proo
 AJENDA_OPEN_WRITE_ENABLED=true python scripts/validation/internet_live_proof.py --open-write
 ```
 
-Exit 0 requires at least one of search / page_read with `real: true` when network is available.
+Exit 0 requires at least one of search / page_read with `real: true` when network is available. This is an
+observation-transport check, not proof of a verified company or completed commercial mission.
 
 ## Runtime support
 

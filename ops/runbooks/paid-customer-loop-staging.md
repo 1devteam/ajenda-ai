@@ -2,7 +2,7 @@
 
 Prove the stranger-ready product path on Docker Compose before production cutover.
 
-**Prerequisites:** Docker, `docker compose`, curl, Python 3.12+
+**Prerequisites:** Docker, `docker compose`, curl, Python 3.13+
 
 ---
 
@@ -151,5 +151,5 @@ Before switching production env to Resend + live Stripe:
 docker compose \
   --env-file deploy/compose/.env.prod \
   -f deploy/compose/docker-compose.prod.yml \
-  down -v
+  down --remove-orphans
 ```
