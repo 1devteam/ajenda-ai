@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
+from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
+from backend.services.abilities.runtime_governance import AbilityAuthorizationV1, manifest_fingerprint
 from backend.services.credentials.runtime_authority import (
     CredentialRecord,
     CredentialRuntimeAuthority,
@@ -11,7 +16,7 @@ from backend.services.network_egress import NetworkEgressResponse, VettedNetwork
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.provider_read_actions import ProviderExternalReadInput
 from backend.services.tools.runtime_authority import ToolRuntimeAuthority, ToolRuntimeAuthorityError
-from backend.services.tools.schemas import SideEffectClass
+from backend.services.tools.schemas import SideEffectClass, ToolInvocation, tool_invocation_sha256
 from tests.unit.tools.test_tool_runtime_authority import _context, _task
 
 
@@ -73,6 +78,35 @@ def _reference(**overrides: object) -> dict[str, object]:
     }
     values.update(overrides)
     return values
+
+
+def _approved_task(**kwargs: object):
+    """Build a reviewed task so these tests reach the credential/egress boundary.
+
+    ``provider.external_read`` is deliberately approval-required.  These tests
+    exercise its lower credential and network controls, so they must model the
+    preceding human-review grant rather than bypassing the new runtime gate.
+    """
+
+    task = _task(**kwargs)
+    manifest = ABILITY_MANIFESTS_BY_ACTION["provider.external_read"]
+    approved_at = datetime.now(UTC)
+    constraints = task.metadata_json.setdefault("execution_constraints", {})
+    assert isinstance(constraints, dict)
+    constraints["ability_authorization"] = AbilityAuthorizationV1(
+        grant_id=uuid.uuid4(),
+        tenant_id=task.tenant_id,
+        task_id=task.id,
+        ability_id=manifest.ability_id,
+        manifest_fingerprint=manifest_fingerprint(manifest),
+        allowed_action=manifest.action_name,
+        invocation_sha256=tool_invocation_sha256(ToolInvocation.model_validate(task.metadata_json["tool_invocation"])),
+        reason="human_review_approved_for_provider_read_test",
+        approved_by="human:provider-read-test",
+        approved_at=approved_at,
+        expires_at=approved_at + timedelta(hours=1),
+    ).model_dump(mode="json")
+    return task
 
 
 def test_provider_external_read_rejects_write_methods_and_raw_secret_input() -> None:
@@ -145,7 +179,7 @@ def test_provider_external_read_rejects_credential_bearing_urls_before_egress(
 
     with pytest.raises(ValueError, match=r"invalid input for action provider\.external_read"):
         authority.execute(
-            task=_task(
+            task=_approved_task(
                 action="provider.external_read",
                 input_payload={"method": "GET", "url": "https://example.com/resource?api_key=raw"},
                 metadata={"credential_reference": _reference()},
@@ -170,7 +204,7 @@ def test_provider_external_read_uses_egress_and_redacts_runtime_outputs(
     )
 
     result = authority.execute(
-        task=_task(
+        task=_approved_task(
             action="provider.external_read",
             input_payload={"method": "GET", "url": "https://example.com/resource"},
             metadata={"credential_reference": _reference()},
@@ -204,7 +238,7 @@ def test_provider_external_read_rejects_untrusted_host_before_egress_and_auth_in
 
     with pytest.raises(ValueError, match="not trusted for credential"):
         authority.execute(
-            task=_task(
+            task=_approved_task(
                 action="provider.external_read",
                 input_payload={
                     "method": "GET",
@@ -233,7 +267,7 @@ def test_provider_external_read_invocation_allowed_hosts_cannot_expand_trusted_d
     )
 
     result = authority.execute(
-        task=_task(
+        task=_approved_task(
             action="provider.external_read",
             input_payload={
                 "method": "GET",
@@ -262,7 +296,7 @@ def test_provider_external_read_private_destination_remains_blocked_by_network_e
 
     with pytest.raises(ValueError, match="blocked local hostname"):
         authority.execute(
-            task=_task(
+            task=_approved_task(
                 action="provider.external_read",
                 input_payload={"method": "GET", "url": "https://localhost/resource"},
                 metadata={"credential_reference": _reference()},
@@ -291,7 +325,7 @@ def test_provider_external_read_credential_denials(monkeypatch: pytest.MonkeyPat
         )
         with pytest.raises(ToolRuntimeAuthorityError, match=message):
             authority.execute(
-                task=_task(
+                task=_approved_task(
                     action="provider.external_read",
                     input_payload={"method": "GET", "url": "https://example.com/resource"},
                     metadata=metadata,

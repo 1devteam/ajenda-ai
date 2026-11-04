@@ -61,6 +61,7 @@ from backend.domain.mission import Mission
 from backend.queue.base import QueueAdapter
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.mission_repository import MissionRepository
+from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
 from backend.services.autonomy.disclaimer_catalog import catalog_entries_for_api
 from backend.services.brain_capability_check import build_brain_capability_report
 from backend.services.brain_mission_catalog import BRAIN_MISSIONS
@@ -337,6 +338,8 @@ def launch_task(
     )
     db.flush()
 
+    manifest = ABILITY_MANIFESTS_BY_ACTION.get(action.name)
+
     task = ExecutionTask(
         tenant_id=str(tenant_id),
         mission_id=mission.id,
@@ -353,7 +356,10 @@ def launch_task(
         ),
         compliance_category="operational",
         jurisdiction="US-ALL",
-        requires_human_review=launch_authority.requires_human_review,
+        # A manifest-required approval is independent of an autonomy
+        # acknowledgment. It must be issued by the existing task review owner
+        # and bound to this exact invocation before queue admission.
+        requires_human_review=launch_authority.requires_human_review or bool(manifest and manifest.approval_required),
     )
     db.add(task)
     db.flush()

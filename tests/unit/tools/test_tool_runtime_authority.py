@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from backend.domain.business_profile import BusinessProfile
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
+from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
+from backend.services.abilities.runtime_governance import AbilityAuthorizationV1, manifest_fingerprint
 from backend.services.credentials.runtime_authority import (
     CredentialRecord,
     CredentialRequirement,
@@ -22,12 +26,28 @@ from backend.services.tools.schemas import (
     RecordSearchInput,
     SideEffectClass,
     ToolInvocation,
+    tool_invocation_sha256,
 )
 
 
 class _Session:
     def execute(self, *_args: object, **_kwargs: object) -> None:
         return None
+
+    def scalar(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+    def add(self, _event: object) -> None:
+        pass
+
+    def flush(self) -> None:
+        pass
+
+    def refresh(self, _event: object) -> None:
+        pass
+
+    def commit(self) -> None:
+        pass
 
     def close(self) -> None:
         pass
@@ -161,6 +181,78 @@ def test_runtime_authority_returns_deterministic_promotion_denial(monkeypatch: p
         )
     assert len(activated) == 1
     assert activated[0][1] == "tenant"
+
+
+def test_runtime_authority_requires_current_grant_for_approval_required_browser_ability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.services.tools import runtime_authority
+
+    monkeypatch.setattr(runtime_authority, "validate_capability_action_authority", lambda **_kwargs: None)
+    task = _task(action="web.browser_session", input_payload={"url": "https://example.test"})
+    task.metadata_json["capability_reference"] = {"capability_id": str(uuid.uuid4())}
+    task.metadata_json["adapter_reference"] = {"adapter_id": str(uuid.uuid4())}
+
+    with pytest.raises(ToolRuntimeAuthorityError, match="requires a current task-bound human approval"):
+        ToolRuntimeAuthority().authorize(task=task, context=_context())
+
+    denied_observations = task.metadata_json["runtime_causal_observations"]
+    assert denied_observations[-1]["stage"] == "ability_governance"
+    assert denied_observations[-1]["reason_code"] == "human_approval_missing_or_invalid"
+
+    manifest = ABILITY_MANIFESTS_BY_ACTION["web.browser_session"]
+    approved_at = datetime.now(UTC)
+    task.metadata_json["execution_constraints"] = {
+        "ability_authorization": AbilityAuthorizationV1(
+            grant_id=uuid.uuid4(),
+            tenant_id=task.tenant_id,
+            task_id=task.id,
+            ability_id=manifest.ability_id,
+            manifest_fingerprint=manifest_fingerprint(manifest),
+            allowed_action=manifest.action_name,
+            invocation_sha256=tool_invocation_sha256(task.metadata_json["tool_invocation"]),
+            reason="human_review_approved",
+            approved_by="human:reviewer",
+            approved_at=approved_at,
+            expires_at=approved_at + timedelta(hours=1),
+        ).model_dump(mode="json")
+    }
+
+    ToolRuntimeAuthority().authorize(task=task, context=_context())
+    observations = task.metadata_json["runtime_causal_observations"]
+    assert observations[-1]["stage"] == "ability_governance"
+    assert observations[-1]["safe_metadata"]["ability_id"] == "web-browser-session"
+    assert observations[-1]["safe_metadata"]["ability_approval_revalidated"] is True
+
+
+def test_runtime_authority_fails_closed_when_ability_denial_audit_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A denial-record outage must block execution without exposing DB detail."""
+
+    from backend.services.tools import runtime_authority
+
+    class BrokenAuditSession(_Session):
+        rolled_back = False
+
+        def scalar(self, *_args: object, **_kwargs: object) -> None:
+            raise OperationalError("SELECT missions", {}, RuntimeError("database unavailable"))
+
+        def rollback(self) -> None:
+            self.rolled_back = True
+
+    session = BrokenAuditSession()
+    monkeypatch.setattr(runtime_authority, "validate_capability_action_authority", lambda **_kwargs: None)
+    task = _task(action="web.browser_session", input_payload={"url": "https://example.test"})
+    task.metadata_json["capability_reference"] = {"capability_id": str(uuid.uuid4())}
+    task.metadata_json["adapter_reference"] = {"adapter_id": str(uuid.uuid4())}
+    context = {**_context(), "session_factory": lambda: session}
+
+    with pytest.raises(ToolRuntimeAuthorityError, match="denial audit is unavailable") as exc_info:
+        ToolRuntimeAuthority().authorize(task=task, context=context)
+
+    assert "database unavailable" not in str(exc_info.value)
+    assert session.rolled_back is True
 
 
 def _credential_registry() -> ActionRegistry:

@@ -6,6 +6,8 @@ from backend.domain.capability import Capability
 from backend.domain.capability_adapter import CapabilityAdapter
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.lineage_record import LineageRecord
+from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
+from backend.services.abilities.runtime_governance import manifest_governance_snapshot
 
 
 def _build_task_metadata(
@@ -35,6 +37,10 @@ def _build_task_metadata(
         metadata["capability_reference"] = {"capability_id": str(capability.id)}
     if adapter is not None:
         metadata["adapter_reference"] = {"adapter_id": str(adapter.id)}
+
+    manifest = ABILITY_MANIFESTS_BY_ACTION.get(action_name)
+    if manifest is not None:
+        metadata["ability_governance"] = manifest_governance_snapshot(manifest)
 
     if autonomy_acknowledgment is not None:
         execution_constraints: dict[str, Any] = {}

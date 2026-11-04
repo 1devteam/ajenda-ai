@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -35,6 +36,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
+from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.internet.contracts import PageSnapshot
 from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
 from backend.services.mission_composition.proposal_store import clear_proposals_for_tests
@@ -136,6 +138,44 @@ def _build_app(*, tenant_id: uuid.UUID, session, queue_adapter) -> FastAPI:
     return app
 
 
+def _approve_ready_pending_tasks(*, session, queue_adapter, tenant_id: str, mission_id: uuid.UUID) -> bool:
+    """Approve only tasks whose final, dependency-bound payload is available."""
+
+    tasks = list(
+        session.scalars(
+            select(ExecutionTask).where(
+                ExecutionTask.tenant_id == tenant_id,
+                ExecutionTask.mission_id == mission_id,
+            )
+        )
+    )
+    pending_reviews = [task for task in tasks if task.status == ExecutionTaskState.PENDING_REVIEW.value]
+    if not pending_reviews:
+        return False
+    coordinator = ExecutionCoordinator(session, queue_adapter)
+    changed_any = False
+    for task in pending_reviews:
+        try:
+            approved = coordinator.approve_review_and_queue(
+                tenant_id=tenant_id,
+                task_id=task.id,
+                actor="human:public-research-runtime-proof",
+                approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
+            )
+        except ValueError as exc:
+            if "input binding deferred" in str(exc):
+                continue
+            if "review approval input binding failed" not in str(exc):
+                raise
+            changed_any = True
+            continue
+        assert approved.ok is True
+        changed_any = True
+    if changed_any:
+        session.commit()
+    return changed_any
+
+
 def _drain_mission(*, session, factory, queue_adapter, tenant_id: str, mission_id: uuid.UUID) -> None:
     """Execute every admitted task through the canonical queue/lease path."""
 
@@ -151,6 +191,13 @@ def _drain_mission(*, session, factory, queue_adapter, tenant_id: str, mission_i
         )
         if tasks and all(task.status == ExecutionTaskState.COMPLETED.value for task in tasks):
             return
+        if _approve_ready_pending_tasks(
+            session=session,
+            queue_adapter=queue_adapter,
+            tenant_id=tenant_id,
+            mission_id=mission_id,
+        ):
+            continue
         worker_id = f"live-public-research-{sequence}"
         runtime = WorkerRuntimeService(session, queue_adapter)
         claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
@@ -242,7 +289,11 @@ def test_live_public_research_preserves_provider_attempts_and_evidence_outcome(
             assert launched_response.status_code == 200, launched_response.text
             launched = launched_response.json()
             assert launched["runtime_admitted"] is True
-            assert launched["queued_task_ids"]
+            # The composition may contain both an independently admissible
+            # public-read root and review-held, evidence-bound dependents.
+            # ``_drain_mission`` proves either path reaches the same governed
+            # queue/lease/dispatcher boundary.
+            assert launched["queued_task_ids"] or launched["pending_review_task_ids"]
         setup.commit()
         _drain_mission(
             session=setup,
@@ -453,7 +504,16 @@ def test_disabled_browser_observation_fails_after_canonical_dispatch(pg_engine, 
             mission_id = uuid.UUID(confirmed_response.json()["mission_id"])
             launched_response = client.post(f"/v1/missions/{mission_id}/launch")
             assert launched_response.status_code == 200, launched_response.text
-            assert launched_response.json()["queued_task_ids"]
+            launched = launched_response.json()
+            assert launched["pending_review_task_ids"]
+            task_id = uuid.UUID(launched["pending_review_task_ids"][0])
+            approved = ExecutionCoordinator(setup, queue_adapter).approve_review_and_queue(
+                tenant_id=tenant_text,
+                task_id=task_id,
+                actor="human:browser-proof-reviewer",
+                approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
+            )
+            assert approved.ok is True
             setup.commit()
 
         runtime = WorkerRuntimeService(setup, queue_adapter)
@@ -484,6 +544,12 @@ def test_disabled_browser_observation_fails_after_canonical_dispatch(pg_engine, 
         )
         assert task is not None
         assert task.status == ExecutionTaskState.FAILED.value
+        governance = task.metadata_json["ability_governance"]
+        assert governance["ability_id"] == "web-browser-session"
+        assert governance["approval_required"] is True
+        grant = task.metadata_json["execution_constraints"]["ability_authorization"]
+        assert grant["allowed_action"] == "web.browser_session"
+        assert grant["approved_by"] == "human:browser-proof-reviewer"
         failure = task.metadata_json.get("failure") or {}
         assert "web page observation requirements were not satisfied" in str(failure)
         lease = verify.get(WorkerLease, lease_id)
@@ -537,7 +603,16 @@ def test_live_browser_observation_persists_through_canonical_runtime(pg_engine, 
             mission_id = uuid.UUID(confirmed_response.json()["mission_id"])
             launched_response = client.post(f"/v1/missions/{mission_id}/launch")
             assert launched_response.status_code == 200, launched_response.text
-            assert launched_response.json()["queued_task_ids"]
+            launched = launched_response.json()
+            assert launched["pending_review_task_ids"]
+            task_id = uuid.UUID(launched["pending_review_task_ids"][0])
+            approved = ExecutionCoordinator(setup, queue_adapter).approve_review_and_queue(
+                tenant_id=tenant_text,
+                task_id=task_id,
+                actor="human:browser-proof-reviewer",
+                approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
+            )
+            assert approved.ok is True
             setup.commit()
 
         runtime = WorkerRuntimeService(setup, queue_adapter)
@@ -638,6 +713,31 @@ def test_provider_failure_remains_distinct_from_valid_empty_research(pg_engine, 
         setup.commit()
 
         for sequence in range(12):
+            _approve_ready_pending_tasks(
+                session=setup,
+                queue_adapter=queue_adapter,
+                tenant_id=tenant_text,
+                mission_id=mission_id,
+            )
+            setup.expire_all()
+            tasks = list(
+                setup.scalars(
+                    select(ExecutionTask).where(
+                        ExecutionTask.tenant_id == tenant_text,
+                        ExecutionTask.mission_id == mission_id,
+                    )
+                )
+            )
+            verifier = next(
+                (
+                    task
+                    for task in tasks
+                    if task.metadata_json["tool_invocation"]["action"] == "research.verify_public_candidates"
+                ),
+                None,
+            )
+            if verifier is not None and verifier.status == ExecutionTaskState.FAILED.value:
+                break
             runtime = WorkerRuntimeService(setup, queue_adapter)
             claimed = runtime.claim_next_task(tenant_id=tenant_text, worker_id=f"provider-failure-{sequence}")
             if claimed is None:
@@ -716,7 +816,11 @@ def test_provider_failure_remains_distinct_from_valid_empty_research(pg_engine, 
             for attempt in attempts
         )
         assert verifier.status == ExecutionTaskState.FAILED.value
-        assert "binding_required" in verifier.metadata_json["failure"]["message"]
+        assert verifier.metadata_json["failure"] == {
+            "code": "INPUT_BINDING_FAILED",
+            "retryable": False,
+            "stage": "review_approval",
+        }
     finally:
         verify.close()
 

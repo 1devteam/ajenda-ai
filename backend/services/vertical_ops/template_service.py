@@ -30,6 +30,7 @@ from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import (
     MISSION_PLAN_CONTRACT_SCHEMA_VERSION,
+    MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY,
     MISSION_TASK_GRAPH_METADATA_KEY,
     Mission,
     build_mission_plan_contract_metadata,
@@ -39,8 +40,10 @@ from backend.queue.base import QueueAdapter
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
 from backend.services.abilities.manifest import AbilityRiskLevel
+from backend.services.abilities.runtime_governance import manifest_governance_snapshot
 from backend.services.abilities.vertical_role_catalog import RoleBindingStatus, get_vertical_role
 from backend.services.execution_coordinator import CoordinationResult, ExecutionCoordinator
+from backend.services.mission_bridge.queue_admission import build_runtime_queue_admission_metadata
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import CredentialReference, SideEffectClass, ToolInvocation
 from backend.services.vertical_ops.channel_state import SocialPublicationState
@@ -513,6 +516,7 @@ class VerticalOpsTemplateService:
             self.ensure_runtime_queue_allowed(template_id=template_id)
 
         task_repo = ExecutionTaskRepository(session)
+        resolved_tasks: dict[uuid.UUID, ExecutionTask] = {}
         to_queue: list[uuid.UUID] = []
         results: list[CoordinationResult] = []
         queued: list[uuid.UUID] = []
@@ -531,6 +535,7 @@ class VerticalOpsTemplateService:
                 )
                 blocked.append(task_id)
                 continue
+            resolved_tasks[task_id] = task
             if task.status == ExecutionTaskState.QUEUED.value:
                 results.append(
                     CoordinationResult(
@@ -563,11 +568,96 @@ class VerticalOpsTemplateService:
                 queued.append(task_id)
             else:
                 blocked.append(task_id)
+        self._record_template_queue_admissions(
+            session=session,
+            tenant_id=tenant_id,
+            tasks=resolved_tasks,
+            results=results,
+        )
         return VerticalTemplateQueueResult(
             results=tuple(results),
             queued_task_ids=tuple(queued),
             blocked_task_ids=tuple(blocked),
         )
+
+    @staticmethod
+    def _record_template_queue_admissions(
+        *,
+        session: Session,
+        tenant_id: str,
+        tasks: Mapping[uuid.UUID, ExecutionTask],
+        results: list[CoordinationResult],
+    ) -> None:
+        """Write the review-release receipt for template-created runtime tasks.
+
+        A vertical template has its own materialization owner, but it uses the
+        shared coordinator and review release path.  Without this receipt a
+        task correctly held for manifest approval could never be released by
+        the tenant review endpoint.
+        """
+
+        results_by_id = {result.task_id: result for result in results}
+        tasks_by_mission: dict[uuid.UUID, list[ExecutionTask]] = {}
+        for task in tasks.values():
+            if task.mission_id is not None:
+                tasks_by_mission.setdefault(task.mission_id, []).append(task)
+
+        for mission_id, mission_tasks in tasks_by_mission.items():
+            mission = session.get(Mission, mission_id)
+            if mission is None or mission.tenant_id != tenant_id:
+                continue
+            metadata = dict(mission.metadata_json or {})
+            previous = metadata.get(MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY)
+            previous_receipt = previous if isinstance(previous, dict) else {}
+
+            def _strings(key: str, receipt: Mapping[str, Any] = previous_receipt) -> list[str]:
+                return [str(value) for value in receipt.get(key, []) if isinstance(value, str)]
+
+            batch_ids = [str(task.id) for task in mission_tasks]
+            queued = _strings("queued_execution_task_ids")
+            pending = _strings("pending_review_execution_task_ids")
+            blockers = [dict(item) for item in previous_receipt.get("blockers", []) if isinstance(item, dict)]
+            blockers = [item for item in blockers if str(item.get("task_id") or "") not in batch_ids]
+
+            for task in mission_tasks:
+                result = results_by_id.get(task.id)
+                if result is None:
+                    continue
+                task_id = str(task.id)
+                if result.ok and task_id not in queued:
+                    queued.append(task_id)
+                if result.state == ExecutionTaskState.PENDING_REVIEW.value and task_id not in pending:
+                    pending.append(task_id)
+                    blockers.append(
+                        {
+                            "task_id": task_id,
+                            "code": "policy_review_required",
+                            "message": "Execution coordinator routed the template task to policy review.",
+                            "state": result.state,
+                            "reason": result.reason,
+                        }
+                    )
+
+            queued = list(dict.fromkeys(queued))
+            pending = [task_id for task_id in dict.fromkeys(pending) if task_id not in queued]
+            materialized = list(dict.fromkeys(_strings("materialized_execution_task_ids") + batch_ids))
+            planned = list(dict.fromkeys(_strings("planned_execution_task_ids") + batch_ids))
+            metadata[MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY] = build_runtime_queue_admission_metadata(
+                mission_id=mission_id,
+                tenant_id=tenant_id,
+                materialized_task_ids=[uuid.UUID(task_id) for task_id in materialized],
+                planned_task_ids=planned,
+                queued_task_ids=queued,
+                already_queued_task_ids=[],
+                pending_review_task_ids=pending,
+                denied_tasks=[
+                    dict(item) for item in previous_receipt.get("denied_tasks", []) if isinstance(item, dict)
+                ],
+                blockers=blockers,
+                now=datetime.now(UTC).isoformat(),
+            )
+            mission.metadata_json = metadata
+        session.flush()
 
     def apply_and_queue(
         self,
@@ -675,6 +765,7 @@ class VerticalOpsTemplateService:
             role.requires_human_review
             or binding.requires_human_review
             or binding.risk_level in {AbilityRiskLevel.HIGH, AbilityRiskLevel.CRITICAL}
+            or bool(manifest and manifest.approval_required)
             or side_effect
             in {
                 SideEffectClass.EXTERNAL_SEND,
@@ -700,6 +791,8 @@ class VerticalOpsTemplateService:
             "dependency_step_keys": list(step.depends_on),
             "graph_node_key": step.step_key,
         }
+        if manifest is not None:
+            metadata_json["ability_governance"] = manifest_governance_snapshot(manifest)
         if step.action_name == "gtm.social_publish":
             metadata_json["social_publication_state"] = SocialPublicationState.DRAFT.value
         if credential_payload is not None:

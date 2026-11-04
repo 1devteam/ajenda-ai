@@ -17,7 +17,7 @@ Task state machine (with 'recovering' state added in migration 0004,
     blocked → queued
     failed → queued | pending_review | dead_lettered
     dead_lettered → queued | pending_review
-    pending_review → queued | cancelled
+    pending_review → queued | cancelled | failed
 
 The 'recovering' state is entered when a worker's lease expires while the
 task is in 'running' state. RuntimeMaintainer transitions running→recovering,
@@ -105,7 +105,9 @@ class StateMachine:
         # pending_review: entered by PolicyGuardian when a task requires human
         # approval before execution (e.g. employment/financial decisions in
         # regulated jurisdictions). Approved → queued; rejected → cancelled.
-        "pending_review": {"queued", "cancelled"},
+        # A reviewer can also expose a deterministic, unbindable downstream
+        # payload before execution; that fails closed without a provider call.
+        "pending_review": {"queued", "cancelled", "failed"},
     }
 
     _BRANCH_ALLOWED: ClassVar[dict[str, set[str]]] = {

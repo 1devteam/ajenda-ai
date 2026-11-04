@@ -15,6 +15,8 @@ from backend.repositories.capability_repository import CapabilityRepository
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.outcome_review_repository import OutcomeReviewRepository
+from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
+from backend.services.abilities.runtime_governance import manifest_governance_snapshot
 from backend.services.mission_runtime_projection import (
     build_execution_task_payload,
     build_runtime_task_materialization_metadata,
@@ -120,7 +122,12 @@ class MissionRuntimeTaskMaterializationService:
                 try:
                     action = get_default_action_registry().get(action_name)
                     tool_invocation = ToolInvocation.model_validate(invocation)
-                    requires_human_review = action.side_effect_for(tool_invocation).has_side_effect
+                    manifest = ABILITY_MANIFESTS_BY_ACTION.get(action.name)
+                    requires_human_review = action.side_effect_for(tool_invocation).has_side_effect or bool(
+                        manifest and manifest.approval_required
+                    )
+                    if manifest is not None:
+                        payload["ability_governance"] = manifest_governance_snapshot(manifest)
                 except (TypeError, ValueError):
                     requires_human_review = True
             task = ExecutionTask(

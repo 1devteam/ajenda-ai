@@ -143,7 +143,10 @@ def _is_sensitive_key(key: object, *, additional_sensitive_keys: set[str]) -> bo
     if exact_key in additional_sensitive_keys:
         return True
     normalized = _normalize_fragment_key(key)
-    if normalized == "side_effect_authorization":
+    # These task-bound governance grants contain no credential material and
+    # are independently payload-validated before use. They must remain visible
+    # to the runtime authority; their name is not an HTTP Authorization header.
+    if normalized in {"side_effect_authorization", "ability_authorization"}:
         return False
     return any(fragment in normalized for fragment in SENSITIVE_KEY_FRAGMENTS)
 
