@@ -92,7 +92,9 @@ def approve_ability_for_direct_invoke(task: ExecutionTask, *, approved_by: str =
     raw_invocation = task.metadata_json.get("tool_invocation")
     assert isinstance(raw_invocation, dict)
     invocation = ToolInvocation.model_validate(raw_invocation)
-    manifest = ABILITY_MANIFESTS_BY_ACTION[invocation.action]
+    manifest = ABILITY_MANIFESTS_BY_ACTION.get(invocation.action)
+    if manifest is None or not manifest.approval_required:
+        return
     approved_at = datetime.now(UTC)
     metadata = dict(task.metadata_json)
     constraints = dict(metadata.get("execution_constraints") or {})
