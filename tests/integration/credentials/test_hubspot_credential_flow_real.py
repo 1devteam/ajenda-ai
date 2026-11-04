@@ -16,6 +16,8 @@ from backend.workers.handlers.tool_invoke import tool_invoke_handler
 from tests.integration.credentials.credential_e2e_support import auth_headers, provision_operational_tenant
 from tests.integration.operating_charter_support import persist_test_operating_charter
 
+from ._invoke_authority_helpers import approve_ability_for_direct_invoke
+
 pytestmark = pytest.mark.integration
 
 
@@ -180,6 +182,7 @@ def test_crm_research_and_upsert_happy_path_via_adapter_contract(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(research_task)
     research_result = tool_invoke_handler(research_task, context)
     assert research_result["output"]["real"] is True
     assert "hubspot-crm-ingress" in search_authority.request.call_args.kwargs["url"]
@@ -220,6 +223,7 @@ def test_crm_research_and_upsert_happy_path_via_adapter_contract(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(upsert_task)
     upsert_result = tool_invoke_handler(upsert_task, context)
     assert upsert_result["output"]["real"] is True
     assert upsert_result["output"]["status"] == "upserted_real"
@@ -269,6 +273,7 @@ def test_crm_research_falls_back_when_adapter_returns_error(
         jurisdiction="US-ALL",
         requires_human_review=False,
     )
+    approve_ability_for_direct_invoke(task)
     result = tool_invoke_handler(
         task,
         {

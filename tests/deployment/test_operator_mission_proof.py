@@ -68,6 +68,60 @@ def test_operator_proof_charter_matches_the_authoritative_default_contract() -> 
     assert "from backend." not in Path("deploy/scripts/operator-mission-proof.py").read_text(encoding="utf-8")
 
 
+def test_operator_proof_approves_launch_held_ability_tasks_through_public_api(monkeypatch) -> None:
+    module = _load_operator_proof()
+    calls: list[dict[str, Any]] = []
+
+    def fake_request(
+        method: str,
+        _base: str,
+        path: str,
+        *,
+        body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        expected: int | tuple[int, ...] = 200,
+    ) -> dict[str, Any]:
+        calls.append({"method": method, "path": path, "body": body, "headers": headers, "expected": expected})
+        return {"status": "queued"}
+
+    monkeypatch.setattr(module, "request", fake_request)
+
+    task_ids = module.approve_pending_review_tasks(
+        headers={"X-Tenant-Id": "tenant", "X-Api-Key": "proof-key"},
+        launched={
+            "queued_task_ids": ["already-queued"],
+            "pending_review_task_ids": ["review-one", "review-two"],
+            "blockers": [
+                {"code": "policy_review_required", "task_id": "review-one"},
+                {"code": "policy_review_required", "task_id": "review-two"},
+            ],
+        },
+    )
+
+    assert task_ids == ["already-queued", "review-one", "review-two"]
+    assert [(call["method"], call["path"]) for call in calls] == [
+        ("POST", "/v1/review-queue/tasks/review-one/approve"),
+        ("POST", "/v1/review-queue/tasks/review-two/approve"),
+    ]
+    assert all(call["body"] and call["body"].get("approval_expires_at") for call in calls)
+
+
+def test_operator_proof_rejects_non_review_launch_blocker(monkeypatch) -> None:
+    module = _load_operator_proof()
+    monkeypatch.setattr(module, "request", lambda *_args, **_kwargs: {"status": "queued"})
+    import pytest
+
+    with pytest.raises(module.ProofFailure, match="non-review blockers"):
+        module.approve_pending_review_tasks(
+            headers={},
+            launched={
+                "queued_task_ids": [],
+                "pending_review_task_ids": [],
+                "blockers": [{"code": "queue_task_failed"}],
+            },
+        )
+
+
 def test_operator_proof_provisions_and_verifies_software_fixtures(monkeypatch) -> None:
     module = _load_operator_proof()
     records: dict[str, dict[str, Any]] = {}
