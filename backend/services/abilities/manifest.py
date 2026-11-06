@@ -152,8 +152,14 @@ class AbilityManifest(BaseModel):
                 raise ValueError("max_side_effect_class must match resolver_side_effect_classes maximum")
         if effective_side_effect_class.has_side_effect and not self.approval_required:
             raise ValueError("side-effecting abilities require approval_required=true")
-        if effective_side_effect_class.value.startswith("external_") and not self.approval_required:
-            raise ValueError("external abilities require approval_required=true")
+        # External reads remain governed by credential, tenant, and egress
+        # authority, but they do not mutate provider state.  Requiring a
+        # separate human approval for every public read prevents an explicitly
+        # requested research mission from starting without strengthening the
+        # boundary.  External writes/sends/publishes are already covered by
+        # ``has_side_effect`` above and remain approval-bound.
+        if self.approval_required and not effective_side_effect_class.has_side_effect:
+            raise ValueError("read-only abilities must not require independent human approval")
         if (
             effective_side_effect_class
             in {

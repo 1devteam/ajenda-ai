@@ -64,6 +64,7 @@ def _runtime_deliverable_request(intent: MissionIntent) -> DeliverableRequest | 
             "read_crm",
             "qualify_prospects",
             "prepare_outreach",
+            "prepare_social_drafts",
             "observe_web_page",
             "verify_public_identity",
         }
@@ -91,6 +92,8 @@ def _runtime_deliverable_request(intent: MissionIntent) -> DeliverableRequest | 
         )
     if "prepare_outreach" in outcomes:
         fields.append(DeliverableFieldRequirement(field_key="drafts", source_text="introduction drafts"))
+    if "prepare_social_drafts" in outcomes:
+        fields.append(DeliverableFieldRequirement(field_key="social_drafts", source_text="LinkedIn post drafts"))
     if "observe_web_page" in outcomes:
         fields.extend(
             (

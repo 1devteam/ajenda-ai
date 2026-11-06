@@ -403,6 +403,12 @@ INTRODUCTION_DRAFTS_SCHEMA = CompositionArtifactSchema(
     ),
 )
 
+SOCIAL_DRAFTS_SCHEMA = CompositionArtifactSchema(
+    artifact_key="social_drafts",
+    producer_job="social.prepare_drafts",
+    fields=(ArtifactFieldProjection(deliverable_field="social_drafts", json_path="$[].content", scope="per_item"),),
+)
+
 INTERNAL_CRM_RECORDS_SCHEMA = CompositionArtifactSchema(
     artifact_key="internal_crm_records",
     producer_job="crm.internal_persistence",
@@ -460,6 +466,7 @@ ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     RESEARCHED_PROSPECTS_SCHEMA.artifact_key: RESEARCHED_PROSPECTS_SCHEMA,
     ENRICHED_PROSPECTS_SCHEMA.artifact_key: ENRICHED_PROSPECTS_SCHEMA,
     INTRODUCTION_DRAFTS_SCHEMA.artifact_key: INTRODUCTION_DRAFTS_SCHEMA,
+    SOCIAL_DRAFTS_SCHEMA.artifact_key: SOCIAL_DRAFTS_SCHEMA,
     INTERNAL_CRM_RECORDS_SCHEMA.artifact_key: INTERNAL_CRM_RECORDS_SCHEMA,
     CRM_RECORDS_SCHEMA.artifact_key: CRM_RECORDS_SCHEMA,
     PIPELINE_RECORDS_SCHEMA.artifact_key: PIPELINE_RECORDS_SCHEMA,

@@ -147,6 +147,10 @@ def has_usable_research_scope(intent: MissionIntent) -> bool:
         if entity.name and entity.type in {"company", "person", "competitor_set", "contact"}:
             return True
         attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+        if attrs.get("relation") == "reference_company_business_type" and (
+            entity.name or attrs.get("reference_company")
+        ):
+            return True
         if attrs.get("research_mode") == "competitors" and (entity.name or attrs.get("seed_company")):
             return True
     source = _instruction_text(intent)

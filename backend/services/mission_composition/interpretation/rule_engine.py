@@ -68,6 +68,11 @@ _DRAFT_PATTERNS = (
     r"outreach",
     r"personalized",
 )
+_SOCIAL_DRAFT_PATTERNS = (
+    r"\b(?:linkedin|social(?:\s+media)?)\b[^.!?]{0,100}\b(?:post|posts|content|copy|updates?)\b[^.!?]{0,48}\b(?:draft|drafts|copy|for\s+review|review)\b",
+    r"\b(?:draft|drafts|prepare|write|create|save)\b[^.!?]{0,100}\b(?:linkedin|social(?:\s+media)?)\b[^.!?]{0,48}\b(?:post|posts|content|copy|updates?)\b",
+    r"\b(?:post|posts|content|copy|updates?)\b[^.!?]{0,80}\b(?:for\s+linkedin|on\s+linkedin|on\s+social)\b[^.!?]{0,48}\b(?:draft|drafts|review)\b",
+)
 _QUALIFY_PATTERNS = (
     r"\bqualify\b",
     r"strong prospects",
@@ -95,8 +100,11 @@ _RESEARCH_PATTERNS = (
     r"\bresearch\b[^.!?]{0,120}\b(?:ajenda\s+)?internal\s+crm\s+records?\b",
     r"\bfind\b",
     r"\bdiscover\b",
+    r"\blook\s+up\b",
     r"companies in",
     r"prospects",
+    r"\bpeers?\b",
+    r"\balternatives?\b",
     r"competitors?",
     r"competors?",
 )
@@ -277,8 +285,8 @@ _CRM_UPDATE_PATTERNS = (
     # records to create/update before naming the internal CRM as the system
     # of record (for example, "persist the following contacts to Ajenda
     # internal CRM" or "create/update account, contact, and deal records").
-    r"\b(?:persist|save|write|upsert|create|update)\b[^.!?]{0,140}\b(?:account|accounts|company|companies|contact|contacts|deal|deals|opportunit(?:y|ies)|record|records)\b[^.!?]{0,100}\b(?:ajenda\s+)?(?:internal\s+)?crm\b",
-    r"\b(?:create|update|save|persist|write|upsert)\b[^.!?]{0,120}\b(?:account|accounts|company|companies|contact|contacts|deal|deals|opportunit(?:y|ies)|record|records)\b",
+    r"\b(?:persist|save|write|upsert|create|update)\b[^.!?]{0,140}\b(?:account|accounts|company|companies|contact|contacts|prospect|prospects|lead|leads|deal|deals|opportunit(?:y|ies)|record|records)\b[^.!?]{0,100}\b(?:ajenda\s+)?(?:internal\s+)?crm\b",
+    r"\b(?:create|update|save|persist|write|upsert)\b[^.!?]{0,120}\b(?:account|accounts|company|companies|contact|contacts|prospect|prospects|lead|leads|deal|deals|opportunit(?:y|ies)|record|records)\b[^.!?]{0,80}\b(?:crm|hubspot|pipeline)\b",
     r"\badd (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
     r"\bsave (?:them|it|these|those)\s+to\s+(?:the\s+)?(?:crm|hubspot|pipeline)\b",
     # Natural "save / add to contacts" language (Google Contacts, CRM, or internal contact book).
@@ -429,6 +437,61 @@ _COMPETITORS_OF_BARE = re.compile(
     r"(?=$|[\s,;.:]|\band\b)",
     re.IGNORECASE,
 )
+# A reference company names an evidence dependency, not the prospect itself.
+# These forms intentionally describe one semantic relation with different
+# ordinary-language directives. Captures stop before action/deliverable verbs.
+_RELATED_COMPANY_PATTERNS = (
+    re.compile(
+        r"\b(?:look\s+up|research|investigate)\s+https?://(?:www\.)?"
+        r"(?P<name>[A-Za-z0-9][A-Za-z0-9.-]+\.[A-Za-z]{2,})[^\s]*\s+"
+        r"(?:and|then)\s+(?:find|identify|discover|research)\s+"
+        r"(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
+        r"(?:companies|businesses|firms|providers|prospects?|peers|competitors?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:same|similar|matching|related|comparable)\s+"
+        r"(?:(?:business\s+)?(?:category|type|industry|kind)|kind\s+of\s+business|line\s+of\s+business)\s+"
+        r"(?:as|to|of)\s+"
+        r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,4})"
+        r"(?=$|[\s,;.:]|\band\b)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:companies|businesses|firms|providers|prospects?|peers|alternatives|competitors)\s+"
+        r"(?:similar|comparable|related)\s+(?:to|with)\s+"
+        r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,4})"
+        r"(?=$|[\s,;.:]|\band\b)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:companies|businesses|firms|providers|prospects?|peers)\s+like\s+"
+        r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,4})"
+        r"(?=$|[\s,;.:]|\band\b)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:peers|alternatives|competitors)\s+(?:to|for)\s+"
+        r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,4})"
+        r"(?=$|[\s,;.:]|\band\b)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:look\s+up|research|investigate)\s+"
+        r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,4})\s+"
+        r"(?:and|then)\s+(?:find|identify|discover|research)\s+"
+        r"(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
+        r"(?:companies|businesses|firms|providers|prospects?|peers|competitors?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:find|identify|discover|research)\s+"
+        r"(?:companies|businesses|firms|providers|prospects?|peers)\s+like\s+"
+        r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,4})"
+        r"(?=$|[\s,;.:]|\band\b)",
+        re.IGNORECASE,
+    ),
+)
 _LEADING_VERB_WORDS = frozenset(
     {
         "research",
@@ -526,7 +589,10 @@ _BUSINESS_NEED_REVIEW_CLAUSE = re.compile(
     r".*\b(?:need|assessment|business\s+condition|candidate\s+responses?|next\s+action)\b",
     re.IGNORECASE,
 )
-_EXPLICIT_WEB_URL = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
+_EXPLICIT_WEB_URL = re.compile(
+    r"https?://[^\s<>()]+|\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?:/[^\s<>()]*)?",
+    re.IGNORECASE,
+)
 
 
 def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
@@ -664,6 +730,60 @@ def _extract_competitors_of(text: str) -> list[TargetEntity]:
     ]
 
 
+def _extract_related_company(text: str) -> list[TargetEntity]:
+    """Compile reference-company peer language into one evidence relation."""
+
+    for pattern in _RELATED_COMPANY_PATTERNS:
+        match = pattern.search(text)
+        if match is None:
+            continue
+        name = match.group("name").strip(" ,.;:")
+        name = re.split(
+            r"[!?]|[.](?=\s+(?:produce|create|prepare|do|then|find|identify|research)\b)",
+            name,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0].strip(" ,.;:")
+        name = re.sub(
+            r"\s+\b(?:and|then|to)\s+(?:find|identify|discover|research|produce|create|prepare)\b.*$",
+            "",
+            name,
+            flags=re.IGNORECASE,
+        ).strip(" ,.;:")
+        if len(name) < 2 or name.casefold() in {
+            "a company",
+            "a business",
+            "companies",
+            "businesses",
+            "prospects",
+        }:
+            continue
+        domain = (
+            name.casefold().removeprefix("www.")
+            if re.fullmatch(
+                r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}",
+                name,
+                flags=re.IGNORECASE,
+            )
+            else None
+        )
+        return [
+            TargetEntity(
+                type="company",
+                name=name,
+                domain=domain,
+                attributes={
+                    "research_mode": "related_business_type",
+                    "relation": "reference_company_business_type",
+                    "reference_company": name,
+                },
+                provenance="explicit",
+                confidence=0.95,
+            )
+        ]
+    return []
+
+
 def _extract_industry_location_entities(text: str) -> list[TargetEntity]:
     matches = list(_SOFTWARE_RND_LOCATION.finditer(text)) + list(_INDUSTRY_LOCATION.finditer(text))
     matches.sort(key=lambda item: item.start())
@@ -732,7 +852,12 @@ def _extract_industry_audience_entities(text: str) -> list[TargetEntity]:
 def _extract_target_entities(text: str) -> list[TargetEntity]:
     """Retain explicit research / connector targets (competitors, market, CRM company)."""
 
-    entities: list[TargetEntity] = []
+    entities = _extract_competitors_of(text)
+    if not entities:
+        entities = _extract_related_company(text)
+    if entities:
+        return entities
+    entities = []
     # A browser observation is only executable when its URL becomes typed
     # intent data.  Keep the URL as a web_page entity so the resolver can
     # provide target_url without scraping the raw instruction downstream.
@@ -747,7 +872,6 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
                 confidence=0.99,
             )
         )
-    entities.extend(_extract_competitors_of(text))
     entities.extend(_extract_industry_location_entities(text))
     if not entities:
         entities.extend(_extract_industry_audience_entities(text))
@@ -937,6 +1061,13 @@ def _success_for_outcomes(
         success.append(
             SuccessCriterion(
                 description=f"{n} personalized introduction drafts are ready for review",
+                measurable=True,
+            )
+        )
+    if "prepare_social_drafts" in outcomes:
+        success.append(
+            SuccessCriterion(
+                description=f"{n} distinct LinkedIn post drafts are saved for review with supporting source links and no publication",
                 measurable=True,
             )
         )
@@ -1202,7 +1333,10 @@ def _classify_clause(
         and not _contains_any(lower, _NO_EXTERNAL_ACTION_PATTERNS)
     ):
         outcomes.append("read_contacts")
-    if _contains_any(lower, _DRAFT_PATTERNS):
+    social_draft_requested = _contains_any(lower, _SOCIAL_DRAFT_PATTERNS)
+    if social_draft_requested:
+        outcomes.append("prepare_social_drafts")
+    elif _contains_any(lower, _DRAFT_PATTERNS):
         outcomes.append("prepare_outreach")
     if _contains_any(lower, _SEND_PATTERNS) and not _contains_any(lower, _NO_SEND_PATTERNS):
         outcomes.append("send_outreach")
@@ -1257,7 +1391,11 @@ def _classify_clause(
         or profile_context
         or _contains_any(
             lower,
-            _NO_SEND_PATTERNS + _CONDITIONAL_SEND_PATTERNS + _CRM_NEGATION_PATTERNS + _NO_EXTERNAL_ACTION_PATTERNS,
+            _NO_SEND_PATTERNS
+            + _CONDITIONAL_SEND_PATTERNS
+            + _CRM_NEGATION_PATTERNS
+            + _PUBLISH_NEGATION_PATTERNS
+            + _NO_EXTERNAL_ACTION_PATTERNS,
         )
     )
     if external_action_forbidden and re.search(

@@ -75,6 +75,43 @@ def test_preview_is_non_authoritative_and_records_graph_expectations() -> None:
     assert preview.grants_execution_authority is False
 
 
+def test_preview_offers_non_authoritative_relation_advancement() -> None:
+    preview = build_shadow_preview(
+        proposal_id="proposal-relation",
+        preview_id="preview-relation",
+        task_graph={
+            "nodes": [
+                {
+                    "key": "research",
+                    "metadata": {"action": "web.research"},
+                    "input_contract": {
+                        "tool_invocation": {
+                            "action": "web.research",
+                            "input": {
+                                "query": "1DevTeam",
+                                "relation_requirements": [
+                                    {
+                                        "relation": "reference_company_business_type",
+                                        "reference_company": "1DevTeam",
+                                    }
+                                ],
+                            },
+                        }
+                    },
+                }
+            ],
+            "metadata": {},
+        },
+        planned_artifact_keys=("verified_prospect_candidates",),
+        coverage_assessment=None,
+        epistemic_context=None,
+    )
+
+    assert len(preview.advisory_recommendations) == 1
+    assert "anchor evidence" in preview.advisory_recommendations[0]
+    assert preview.grants_execution_authority is False
+
+
 def test_reconciliation_aligns_only_when_runtime_artifact_and_completion_match() -> None:
     preview = build_shadow_preview(
         proposal_id="proposal-1",

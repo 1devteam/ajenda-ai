@@ -72,6 +72,7 @@ class DeliverableProjection(BaseModel):
 # "drafts" is currently equivalent to a declared artifact as a whole.
 _WHOLE_ARTIFACT_BINDINGS: dict[DeliverableFieldKey, tuple[str, ...]] = {
     "drafts": ("introduction_drafts",),
+    "social_drafts": ("social_drafts",),
     "source_url": ("web_page_observation", "public_identity_observation"),
     "final_url": ("web_page_observation", "public_identity_observation"),
     "title": ("web_page_observation", "public_identity_observation"),

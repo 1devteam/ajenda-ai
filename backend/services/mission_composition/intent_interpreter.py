@@ -64,6 +64,7 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _RESEARCH_PATTERNS,
     _SALESFORCE_QUERY_PATTERNS,
     _SEND_CONTRADICTION_PATTERNS,
+    _SOCIAL_DRAFT_PATTERNS,
     _contains_any,
     _contains_unnegated_send,
     _evidence,
@@ -256,7 +257,8 @@ def interpret_instruction(
     wants_send = _contains_unnegated_send(lower) and not conditional_send
     wants_business_profile = _contains_any(lower, _BUSINESS_PROFILE_READ_PATTERNS)
     uses_business_profile = _contains_any(lower, _BUSINESS_PROFILE_CONTEXT_PATTERNS)
-    wants_draft = _contains_any(lower, _DRAFT_PATTERNS)
+    wants_social_draft = _contains_any(lower, _SOCIAL_DRAFT_PATTERNS)
+    wants_draft = _contains_any(lower, _DRAFT_PATTERNS) and not wants_social_draft
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
     wants_email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
     internal_crm_requested = _contains_any(lower, _INTERNAL_CRM_PATTERNS)
@@ -588,7 +590,18 @@ def interpret_instruction(
                 rule_id="connector.salesforce_query",
             )
         )
-    if wants_draft:
+    if wants_social_draft:
+        outcomes.append("prepare_social_drafts")
+        evidence.append(
+            _evidence(
+                field_path="requested_outcomes.prepare_social_drafts",
+                source="explicit",
+                normalized_value="prepare_social_drafts",
+                confidence=0.98,
+                rule_id="alias.social_draft",
+            )
+        )
+    elif wants_draft:
         outcomes.append("prepare_outreach")
         evidence.append(
             _evidence(
@@ -672,7 +685,7 @@ def interpret_instruction(
     # Explicit draft language is already handled by the deterministic draft
     # patterns; prevent fuzzy matching from misclassifying "prepare drafts" as
     # the unrelated accounting outcome "prepare invoice drafts".
-    if wants_draft:
+    if wants_draft or wants_social_draft:
         fuzzy_already.add("prepare_outreach")
         fuzzy_already.add("prepare_invoice_drafts")
     if calendar_write_requested and not calendar_read_intent:
@@ -817,7 +830,7 @@ def interpret_instruction(
         # Desired but deferred — do not emit send_outreach as ready outcome.
         if "send_outreach" in outcomes:
             outcomes = [o for o in outcomes if o != "send_outreach"]
-    elif no_send or (wants_draft and not wants_send):
+    elif no_send or ((wants_draft or wants_social_draft) and not wants_send):
         send_policy = SendPolicy(
             mode="forbid",
             condition="none",
@@ -1053,6 +1066,16 @@ def interpret_instruction(
             material = True
             if "read_email" not in mapped:
                 mapped.append("read_email")
+        if wants_social_draft and re.search(
+            r"\b(?:save|prepare|keep)\b[^.!?]{0,80}\b(?:post|posts|draft|drafts)\b",
+            clause_text,
+            flags=re.IGNORECASE,
+        ):
+            recognized = True
+            material = True
+            mapped = [item for item in mapped if item != "prepare_outreach"]
+            if "prepare_social_drafts" not in mapped:
+                mapped.append("prepare_social_drafts")
         # Non-material filler: short politeness without risk keywords.
         if not material and len(clause_text.split()) <= 3:
             status = "non_material"
@@ -1296,7 +1319,7 @@ def interpret_instruction(
         approval = "explicit_approval_for_send"
     elif send_policy.mode == "conditional":
         approval = "explicit_approval_for_send"
-    elif wants_draft:
+    elif wants_draft or wants_social_draft:
         approval = "review_before_external_action"
 
     if profile_context.get("company") or profile_context.get("business_name"):

@@ -91,21 +91,66 @@ def email_draft_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Actio
 
 def social_draft_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
     inp = GtmSocialDraftInput.model_validate(inv.input)
-    content_hash = hashlib.sha256(inp.content.encode("utf-8")).hexdigest()
-    draft = {
+    context = dict(inp.context)
+    requested = max(1, min(int(context.get("draft_count") or 1), 20))
+    upstream = context.get("upstream")
+    report = upstream.get("research_report") if isinstance(upstream, dict) else None
+    rows = report.get("comparison") if isinstance(report, dict) else None
+    rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    posts: list[dict[str, Any]] = []
+    angles = ("what we learned", "services and fit", "a useful takeaway")
+    for index in range(requested):
+        row = rows[index % len(rows)] if rows else {}
+        company = str(row.get("company") or "the company").strip()
+        summary_text = " ".join(str(row.get("summary") or "").split())
+        facts = [
+            str(row.get("product_description") or "").strip(),
+            "Services: " + ", ".join(str(value).strip() for value in row.get("services", []) if str(value).strip())
+            if isinstance(row.get("services"), list) and row.get("services")
+            else "",
+            "Differentiators: "
+            + ", ".join(str(value).strip() for value in row.get("differentiators", []) if str(value).strip())
+            if isinstance(row.get("differentiators"), list) and row.get("differentiators")
+            else "",
+        ]
+        profile_text = " ".join(value for value in facts if value)
+        summary_text = profile_text or summary_text
+        source = next((str(item).strip() for item in (row.get("sources") or []) if str(item).strip()), "")
+        if not summary_text or summary_text == "No supported summary available.":
+            continue
+        angle = angles[index % len(angles)]
+        source_suffix = f" Source: {source}" if source else ""
+        prefix = f"{company} — {angle}: "
+        excerpt_limit = max(20, 280 - len(prefix) - len(source_suffix) - 1)
+        excerpt = summary_text[: min(150, excerpt_limit)].rstrip()
+        content = f"{prefix}{excerpt}.{source_suffix}"[:280]
+        posts.append(
+            {
+                "platform": inp.platform,
+                "content": content,
+                "content_hash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                "status": "draft",
+                "real": False,
+                "source_urls": [source] if source else [],
+                "context": {**context, "angle": angle, "evidence_backed": True},
+            }
+        )
+    output: dict[str, Any] = {
         "platform": inp.platform,
-        "content": inp.content,
-        "content_hash": content_hash,
+        "content": posts[0]["content"] if posts else inp.content,
+        "content_hash": hashlib.sha256((posts[0]["content"] if posts else inp.content).encode("utf-8")).hexdigest(),
         "status": "draft",
         "real": False,
-        "context": inp.context,
+        "context": context,
+        "social_drafts": posts,
+        "draft_count": len(posts),
     }
-    summary = f"Social draft prepared for {inp.platform}"
+    summary = f"Prepared {len(posts)} evidence-backed social draft(s) for {inp.platform}"
     return ActionResult(
         action=inv.action,
         provider="local_gtm",
         side_effect_class=SideEffectClass.NONE,
-        output=draft,
-        evidence=[_make_evidence(inv.action, "local_gtm", ctx, summary, draft)],
+        output=output,
+        evidence=[_make_evidence(inv.action, "local_gtm", ctx, summary, output)],
         summary=summary,
     )

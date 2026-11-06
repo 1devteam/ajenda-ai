@@ -24,6 +24,18 @@ _POLICY_RE = re.compile(r"CREATE\s+POLICY\s+([A-Za-z0-9_]+)\s+ON\s+([A-Za-z0-9_]
 _HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete", "request", "head", "options"})
 _NETWORK_LIBRARIES = frozenset({"httpx", "requests", "smtplib"})
 
+_RESEARCH_RELATION_CONTRACTS = {
+    "reference_company_business_type": {
+        "schema": "backend/services/tools/schemas.py",
+        "producer": "backend/services/mission_composition/interpretation/rule_engine.py",
+        "serializer": "backend/services/mission_composition/action_input_research.py",
+        "resolver": "backend/services/tools/standalone_actions.py",
+        "observer": "backend/services/mission_composition/shadow_preview.py",
+        "action": "action:web.research",
+        "artifact": "artifact:prospect_candidates",
+    }
+}
+
 
 def _module_for_path(repo_root: Path, path: Path) -> str:
     rel = path.relative_to(repo_root).with_suffix("")
@@ -255,22 +267,22 @@ def _rls_semantics(
     }
 
     for migration in inventory["migrations"]:
-        source = str(migration["source"])
-        migration_id = f"migration:{Path(source).stem}"
-        nodes.append({"id": migration_id, "type": "migration", "source": source})
+        migration_source = str(migration["source"])
+        migration_id = f"migration:{Path(migration_source).stem}"
+        nodes.append({"id": migration_id, "type": "migration", "source": migration_source})
         for table in migration["tables"]:
             edges.append(
                 {
                     "from": migration_id,
                     "to": f"db:table:{table}",
                     "type": "creates_or_alters_table",
-                    "evidence": source,
+                    "evidence": migration_source,
                 }
             )
 
     for table in sorted(inventory["columns"]):
         sources = sorted(inventory["touched_by"].get(table, set()))
-        source = sources[-1] if sources else None
+        table_source = sources[-1] if sources else None
         tenant_associated = "tenant_id" in inventory["columns"][table]
         policy_names = sorted(inventory["policies"].get(table, set()))
         tenant_policies = [name for name in policy_names if name != "admin_bypass"]
@@ -291,13 +303,13 @@ def _rls_semantics(
             "rls_complete": rls_complete,
             "rls_exempt": exempt_reason is not None,
         }
-        if source:
-            node["source"] = source
+        if table_source:
+            node["source"] = table_source
         if exempt_reason:
             node["rls_exempt_reason"] = exempt_reason
         nodes.append(node)
 
-        evidence = source or "alembic/versions"
+        evidence = table_source or "alembic/versions"
         edges.append(
             {"from": f"db:table:{table}", "to": "external:postgresql", "type": "stored_in", "evidence": evidence}
         )
@@ -413,9 +425,9 @@ def _network_calls(tree: ast.Module) -> list[dict[str, Any]]:
         arguments = [*item.args, *(keyword.value for keyword in item.keywords)]
         for argument in arguments:
             for descendant in ast.walk(argument):
-                value = _literal_string(descendant)
-                if value and value.startswith(("https://", "http://")):
-                    literal_urls.append(value)
+                literal_url = _literal_string(descendant)
+                if literal_url and literal_url.startswith(("https://", "http://")):
+                    literal_urls.append(literal_url)
         hosts = sorted(
             {hostname for url in literal_urls if (hostname := (urlparse(url).hostname or "").lower().strip())}
         )
@@ -496,6 +508,86 @@ def _egress_semantics(
     return nodes, edges, findings
 
 
+def _research_relation_semantics(
+    repo_root: Path,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Map evidence-dependent business relations hidden inside generic actions."""
+
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    for relation, contract in _RESEARCH_RELATION_CONTRACTS.items():
+        observed: dict[str, str] = {}
+        missing: list[str] = []
+        for role in ("schema", "producer", "serializer", "resolver", "observer"):
+            source = str(contract[role])
+            path = repo_root / source
+            if path.exists() and relation in path.read_text(encoding="utf-8"):
+                observed[role] = source
+            else:
+                missing.append(role)
+        if missing:
+            findings.append(
+                {
+                    "id": f"research-relation-incomplete:{relation}",
+                    "category": "action-contract",
+                    "severity": "medium",
+                    "summary": f"Research relation {relation} is missing required semantic owners",
+                    "details": {"missing_roles": missing},
+                    "evidence": sorted(observed.values()),
+                    "related_nodes": [str(contract["action"]), str(contract["artifact"])],
+                    "blocking": True,
+                    "classification": "violation",
+                    "reason": None,
+                }
+            )
+            continue
+        relation_id = f"relation:{relation}"
+        nodes.append(
+            {
+                "id": relation_id,
+                "type": "semantic_relation_contract",
+                "label": relation,
+                "source": observed["schema"],
+                "evidence_roles": observed,
+            }
+        )
+        role_edge_types = {
+            "schema": "validates_relation",
+            "producer": "produces_relation",
+            "serializer": "serializes_relation",
+            "resolver": "resolves_relation",
+            "observer": "advises_on_relation",
+        }
+        for role, edge_type in role_edge_types.items():
+            module = _module_for_path(repo_root, repo_root / observed[role])
+            edges.append(
+                {
+                    "from": f"py:{module}",
+                    "to": relation_id,
+                    "type": edge_type,
+                    "evidence": observed[role],
+                }
+            )
+        edges.extend(
+            [
+                {
+                    "from": str(contract["action"]),
+                    "to": relation_id,
+                    "type": "requires_relation_resolution",
+                    "evidence": observed["resolver"],
+                },
+                {
+                    "from": relation_id,
+                    "to": str(contract["artifact"]),
+                    "type": "constrains_artifact",
+                    "evidence": observed["resolver"],
+                },
+            ]
+        )
+    return nodes, edges, findings
+
+
 def _apply_acknowledgements(findings: list[dict[str, Any]], overlay: dict[str, Any]) -> list[dict[str, Any]]:
     acknowledgements = {str(item["id"]): item for item in overlay.get("acknowledged_findings", []) if item.get("id")}
     result: list[dict[str, Any]] = []
@@ -512,13 +604,14 @@ def _apply_acknowledgements(findings: list[dict[str, Any]], overlay: dict[str, A
 def collect_semantic_inventory(repo_root: Path, overlay: dict[str, Any]) -> dict[str, Any]:
     db_nodes, db_edges, db_findings = _rls_semantics(repo_root, overlay)
     egress_nodes, egress_edges, egress_findings = _egress_semantics(repo_root, overlay)
+    relation_nodes, relation_edges, relation_findings = _research_relation_semantics(repo_root)
     overlay_findings = [dict(item) for item in overlay.get("semantic_findings", [])]
     findings = _apply_acknowledgements(
-        [*db_findings, *egress_findings, *overlay_findings],
+        [*db_findings, *egress_findings, *relation_findings, *overlay_findings],
         overlay,
     )
     return {
-        "nodes": [*db_nodes, *egress_nodes],
-        "edges": [*db_edges, *egress_edges],
+        "nodes": [*db_nodes, *egress_nodes, *relation_nodes],
+        "edges": [*db_edges, *egress_edges, *relation_edges],
         "findings": findings,
     }
