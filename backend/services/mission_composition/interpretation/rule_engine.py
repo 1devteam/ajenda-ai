@@ -268,6 +268,7 @@ _CALENDAR_MUTATION_PATTERNS = (
 )
 # Mutation verbs only — naming HubSpot/CRM as a read source must not imply upsert.
 _CRM_UPDATE_PATTERNS = (
+    r"\b(?:using|in)\s+(?:the\s+)?(?:ajenda\s+)?internal\s+crm(?:\s+only)?\b[^.!?]{0,120}\b(?:create|update|save|persist|write|upsert)\b[^.!?]{0,160}\b(?:account|accounts|company|companies|contact|contacts|prospect|prospects|lead|leads|deal|deals|opportunit(?:y|ies)|record|records)\b",
     r"\bpersist (?:them|it|these|those|each|the\s+(?:prospects?|leads?|companies))?\s*(?:to|into|in)\s+(?:the\s+)?(?:ajenda\s+)?(?:internal\s+)?crm\b",
     r"\bpersist\s+(?:only\s+)?(?:approved\s+)?(?:the\s+)?(?:prospects?|leads?|companies|records?)\s+(?:to|into|in)\s+(?:the\s+)?(?:ajenda\s+)?(?:internal\s+)?crm\b",
     r"\bupdate (?:the )?(?:crm|pipeline|hubspot)\b",

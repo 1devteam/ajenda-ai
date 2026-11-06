@@ -183,7 +183,7 @@ def test_runtime_authority_returns_deterministic_promotion_denial(monkeypatch: p
     assert activated[0][1] == "tenant"
 
 
-def test_runtime_authority_requires_current_grant_for_approval_required_browser_ability(
+def test_runtime_authority_requires_current_grant_for_custom_approval_required_read_ability(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from backend.services.tools import runtime_authority
@@ -193,6 +193,13 @@ def test_runtime_authority_requires_current_grant_for_approval_required_browser_
     task.metadata_json["capability_reference"] = {"capability_id": str(uuid.uuid4())}
     task.metadata_json["adapter_reference"] = {"adapter_id": str(uuid.uuid4())}
 
+    manifest = ABILITY_MANIFESTS_BY_ACTION["web.browser_session"].model_copy(update={"approval_required": True})
+    monkeypatch.setattr(
+        runtime_authority.ToolRuntimeAuthority,
+        "_validate_ability_manifest",
+        staticmethod(lambda _action: manifest),
+    )
+
     with pytest.raises(ToolRuntimeAuthorityError, match="requires a current task-bound human approval"):
         ToolRuntimeAuthority().authorize(task=task, context=_context())
 
@@ -200,7 +207,6 @@ def test_runtime_authority_requires_current_grant_for_approval_required_browser_
     assert denied_observations[-1]["stage"] == "ability_governance"
     assert denied_observations[-1]["reason_code"] == "human_approval_missing_or_invalid"
 
-    manifest = ABILITY_MANIFESTS_BY_ACTION["web.browser_session"]
     approved_at = datetime.now(UTC)
     task.metadata_json["execution_constraints"] = {
         "ability_authorization": AbilityAuthorizationV1(
@@ -221,7 +227,7 @@ def test_runtime_authority_requires_current_grant_for_approval_required_browser_
     ToolRuntimeAuthority().authorize(task=task, context=_context())
     observations = task.metadata_json["runtime_causal_observations"]
     assert observations[-1]["stage"] == "ability_governance"
-    assert observations[-1]["safe_metadata"]["ability_id"] == "web-browser-session"
+    assert observations[-1]["safe_metadata"]["ability_id"] == manifest.ability_id
     assert observations[-1]["safe_metadata"]["ability_approval_revalidated"] is True
 
 
@@ -247,6 +253,12 @@ def test_runtime_authority_fails_closed_when_ability_denial_audit_is_unavailable
     task.metadata_json["capability_reference"] = {"capability_id": str(uuid.uuid4())}
     task.metadata_json["adapter_reference"] = {"adapter_id": str(uuid.uuid4())}
     context = {**_context(), "session_factory": lambda: session}
+    manifest = ABILITY_MANIFESTS_BY_ACTION["web.browser_session"].model_copy(update={"approval_required": True})
+    monkeypatch.setattr(
+        runtime_authority.ToolRuntimeAuthority,
+        "_validate_ability_manifest",
+        staticmethod(lambda _action: manifest),
+    )
 
     with pytest.raises(ToolRuntimeAuthorityError, match="denial audit is unavailable") as exc_info:
         ToolRuntimeAuthority().authorize(task=task, context=context)

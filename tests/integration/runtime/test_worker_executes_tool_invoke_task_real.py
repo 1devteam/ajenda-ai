@@ -36,10 +36,10 @@ from backend.workers.task_dispatcher import TaskDispatcher
 pytestmark = pytest.mark.integration
 
 
-def test_revoked_browser_approval_is_denied_at_final_runtime_boundary_before_provider(
+def test_revoked_custom_browser_approval_is_denied_at_final_runtime_boundary_before_provider(
     pg_engine, queue_adapter, monkeypatch
 ) -> None:
-    """A reviewed browser task cannot execute after its task-bound grant is revoked."""
+    """A read ability with an explicit approval policy stops after revocation."""
 
     from backend.services import execution_coordinator
     from backend.services.tools import runtime_authority
@@ -70,8 +70,9 @@ def test_revoked_browser_approval_is_denied_at_final_runtime_boundary_before_pro
         )
     )
     registry.freeze()
-    manifest = ABILITY_MANIFESTS_BY_ACTION["web.browser_session"]
+    manifest = ABILITY_MANIFESTS_BY_ACTION["web.browser_session"].model_copy(update={"approval_required": True})
     monkeypatch.setattr(execution_coordinator, "get_default_action_registry", lambda: registry)
+    monkeypatch.setitem(execution_coordinator.ABILITY_MANIFESTS_BY_ACTION, "web.browser_session", manifest)
     monkeypatch.setattr(runtime_authority, "get_default_action_registry", lambda: registry)
     monkeypatch.setattr(
         runtime_authority.ToolRuntimeAuthority,

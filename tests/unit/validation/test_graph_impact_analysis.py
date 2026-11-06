@@ -190,9 +190,7 @@ def test_business_relation_contract_is_reported_as_semantic() -> None:
 
     report = MODULE.analyze_impact(graph, ["backend/c.py"])
 
-    assert "relation:reference_company_business_type" in {
-        item["id"] for item in report["dependency_semantic_nodes"]
-    }
+    assert "relation:reference_company_business_type" in {item["id"] for item in report["dependency_semantic_nodes"]}
 
 
 def test_unmapped_paths_are_preserved_for_review() -> None:
