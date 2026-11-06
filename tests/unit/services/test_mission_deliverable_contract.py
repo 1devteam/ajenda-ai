@@ -72,6 +72,17 @@ def test_descriptive_conjunctions_are_not_misread_as_deliverables() -> None:
     assert request is None
 
 
+def test_relative_service_criteria_do_not_become_unresolved_deliverables() -> None:
+    request = deliverable_contract.extract_deliverable_request(
+        "Research three United States companies comparable to 1DevTeam that provide custom software development "
+        "and applied research services. "
+        "Create an evidence-backed comparison report with a confidence assessment, evidence gaps, and one "
+        "recommended next step per company."
+    )
+
+    assert request is None
+
+
 def test_email_message_artifact_remains_connector_output_not_revops_report() -> None:
     request = deliverable_contract.extract_deliverable_request(
         "Review the 10 most recent messages in my connected Gmail inbox and return the retrieved email-\n"

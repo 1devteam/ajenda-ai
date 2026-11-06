@@ -122,6 +122,15 @@ _DELIVERABLE_SENTENCE = re.compile(
     r"\b(?:provide|return|include)\b)(?P<body>[^.!?]{1,1600})",
     re.IGNORECASE,
 )
+# A relative clause such as "companies ... that provide custom software" is
+# a search/qualification constraint, not an instruction to provide an output
+# named "custom software".  Keep this separate from the general deliverable
+# expression so a later, genuine output sentence remains discoverable.
+_RELATIVE_SERVICE_CRITERION = re.compile(
+    r"\b(?:prospects?|companies|leads?)\b[^.!?]{0,240}?"
+    r"\b(?:that|which|who)\s+(?:provide|return|include)\b[^.!?]*[.!?]",
+    re.IGNORECASE,
+)
 # Connector artifacts are producer-owned output contracts, not a RevOps field
 # list.  Keep a request for the email-message artifact with the read-email
 # outcome instead of projecting it as an unresolved ``revops_report``.  The
@@ -299,7 +308,12 @@ def extract_deliverable_request(text: str) -> DeliverableRequest | None:
     if _EMAIL_MESSAGE_ARTIFACT_ONLY.match(text.strip()):
         return None
 
-    match = _DELIVERABLE_SENTENCE.search(text)
+    # Remove only full relative-criterion sentences before scanning for an
+    # output list. This preserves subsequent explicit deliverable sentences
+    # while preventing a service description from becoming a failing runtime
+    # contract item.
+    deliverable_text = _RELATIVE_SERVICE_CRITERION.sub("", text)
+    match = _DELIVERABLE_SENTENCE.search(deliverable_text)
     if match is None:
         return None
 
