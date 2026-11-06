@@ -102,10 +102,8 @@ _QUALIFY_PATTERNS = (
 _RESEARCH_PATTERNS = (
     r"\bresearch\b",
     r"\bresearch\b[^.!?]{0,120}\b(?:ajenda\s+)?internal\s+crm\s+records?\b",
-    # A direct website visit with a concrete URL is bounded public research.
-    # The typed web_page entity carries the target through the resolver; this
-    # rule does not turn generic "visit a website" prose into a web task.
-    r"\b(?:visit|open|read)\b[^.!?]{0,80}\bhttps?://\S+",
+    # A direct URL visit is a page-observation intent, not prospect discovery.
+    # Explicit research and follow-on company discovery retain their own rules.
     r"\bfind\b",
     r"\bdiscover\b",
     r"\blook\s+up\b",
