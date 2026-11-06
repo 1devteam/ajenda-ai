@@ -100,6 +100,18 @@ def test_website_research_for_linkedin_posts_compiles_to_drafts_not_publish() ->
     assert steps[0].tool_input["fetch_public_page"] is True
 
 
+def test_public_company_profile_is_not_mistaken_for_tenant_profile_context() -> None:
+    intent = interpret_instruction(
+        "Research the public website 1devteam.com and create an evidence-backed business profile for 1DevTeam. "
+        "Then prepare exactly three distinct LinkedIn post drafts based only on verified website information."
+    )
+
+    assert intent.interpretation_ready
+    assert "read_business_profile" not in intent.requested_outcomes
+    assert "business_profile" not in intent.context_requirements
+    assert set(intent.requested_outcomes) == {"research_prospects", "prepare_social_drafts"}
+
+
 def test_composition_records_semantic_and_source_eligibility_at_decision_time(monkeypatch) -> None:
     service = MissionCompositionService(db=None)
     record = service.compose(

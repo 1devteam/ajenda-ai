@@ -345,7 +345,10 @@ _BUSINESS_PROFILE_READ_PATTERNS = (
 # operator's declared company/product authority.
 _BUSINESS_PROFILE_CONTEXT_PATTERNS = (
     r"\buse\s+(?:the\s+)?(?:approved\s+)?(?:business|company)\s+profile\b",
-    r"\b(?:company|business)\s+profile\s+(?:for|of)\s+[A-Za-z0-9][^.;!?]{0,80}",
+    # "Create a business profile for Acme" describes a public-research
+    # deliverable. It is not permission to read the tenant's approved profile;
+    # require an explicit use/based-on relationship for that internal context.
+    r"\b(?:use|based\s+on)\s+(?:the\s+)?(?:approved\s+)?(?:company|business)\s+profile\s+(?:for|of)\s+[A-Za-z0-9][^.;!?]{0,80}",
     # Product knowledge is an approved business-profile fact. Treat requests
     # to use it as context for an existing mission, never as a new authority-
     # bearing outcome or executable capability.

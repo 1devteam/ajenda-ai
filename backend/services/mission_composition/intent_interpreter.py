@@ -722,6 +722,12 @@ def interpret_instruction(
         # explicit vocabulary even when another outcome is already present.
         if fuzzy_hit.outcome == "observe_contacts" and not _contains_any(lower, _OBSERVE_CONTACT_PATTERNS):
             continue
+        # "Create a business profile for Acme" is an externally researched
+        # company brief, not a request to retrieve the tenant's governed
+        # profile. Only explicit read/use vocabulary may add that internal
+        # context or outcome.
+        if fuzzy_hit.outcome == "read_business_profile" and not (wants_business_profile or uses_business_profile):
+            continue
         fuzzy_connector_guards = {
             "read_email": wants_email_read,
             "read_crm": wants_crm_read,
