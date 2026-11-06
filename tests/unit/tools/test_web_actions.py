@@ -197,6 +197,46 @@ def test_public_identity_verification_fails_closed_for_missing_evidence() -> Non
     assert "directory_or_third_party_page" in artifact["identity_gaps"]
 
 
+def test_public_identity_verification_rejects_generic_ranking_on_unknown_host() -> None:
+    snapshot = PageSnapshot(
+        url="https://rankings.example/top-software-development-companies-texas",
+        real=True,
+        status_code=200,
+        title="Top 25 Software Development Companies in Texas",
+        text_preview="Rankings compares the top software development companies in Texas.",
+        access_mode=InternetAccessMode.BROWSER_SESSION,
+        browser_ready=True,
+        extraction={
+            "observation_requirements": [
+                {"kind": "title", "value": "Top 25 Software Development Companies in Texas"},
+                {
+                    "kind": "body",
+                    "value": "Rankings compares the top software development companies in Texas.",
+                },
+            ],
+            "blocked_samples": [],
+        },
+    )
+    with patch("backend.services.tools.web_action_identity.run_browser_session", return_value=snapshot):
+        registry = get_default_action_registry(rebuild=True)
+        result = registry.invoke(
+            ToolInvocation(
+                action="research.verify_public_identity",
+                input={
+                    "url": snapshot.url,
+                    "expected_company": "Top 25 Software Development Companies in Texas",
+                    "industry": "software development",
+                    "location": "Texas",
+                },
+            ),
+            _context(),
+        )
+
+    artifact = result.output["public_identity_observation"]
+    assert artifact["identity_status"] == "unverified"
+    assert "directory_or_third_party_page" in artifact["identity_gaps"]
+
+
 def test_web_page_read_failure_is_not_fake_success() -> None:
     snapshot = PageSnapshot(
         url="https://blocked.invalid/",
@@ -559,6 +599,47 @@ def test_verify_public_candidates_rejects_software_directory_hosts() -> None:
         "reason": "completed public identity verification rejected all candidate sources",
     }
     assert {page["source_reliability"] for page in result.output["pages"]} == {"directory_or_third_party"}
+
+
+def test_verify_public_candidates_rejects_generic_ranking_title_on_unknown_host() -> None:
+    """A page's own host match cannot turn a category ranking into a company."""
+
+    from backend.services.tools.web_actions import research_verify_public_candidates
+
+    ranking = PageSnapshot(
+        url="https://rankings.example/top-software-development-companies-texas",
+        real=True,
+        status_code=200,
+        title="Top 25 Software Development Companies in Texas",
+        text_preview="Rankings compares the top software development companies in Texas.",
+        body_preview="",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.verify_public_candidates",
+        input={
+            "prospects": [
+                {
+                    "company": ranking.title,
+                    "domain": "rankings.example",
+                    "url": ranking.url,
+                    "website": ranking.url,
+                }
+            ],
+            "requested_quantity": 1,
+            "binding_required": True,
+            "collect_contacts": False,
+            "context": {"industry": "software development", "location": "Texas"},
+        },
+    )
+
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=ranking):
+        result = research_verify_public_candidates(invocation, _context())
+
+    assert result.output["verified_prospect_candidates"] == []
+    assert result.output["pages"][0]["identity_status"] == "unverified"
+    assert result.output["pages"][0]["source_reliability"] == "directory_or_third_party"
+    assert result.output["valid_empty_result"]["classification"] == "valid_empty"
 
 
 def test_public_identity_rejection_is_a_valid_empty_verification_outcome() -> None:

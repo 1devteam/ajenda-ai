@@ -52,6 +52,17 @@ _DIRECTORY_PAGE_MARKERS = (
 
 _GENERIC_INDUSTRY_WORDS = {"company", "companies", "contractor", "contractors", "services", "service"}
 
+# Search-result titles often describe a market set rather than a legal or
+# trading name.  Treat those titles as discovery clues only.  This is a
+# structural guard, deliberately independent of a host denylist: an unknown
+# directory can use any hostname while still publishing a "Top N companies"
+# category page.
+_GENERIC_MARKET_LISTING_LABEL = re.compile(
+    r"\b(?:\d+\s+)?(?:top|best|leading)\s+(?:\d+\s+)?(?:[a-z0-9&+/'-]+\s+){0,8}"
+    r"(?:companies|firms|agencies|providers|contractors|developers)\b",
+    flags=re.IGNORECASE,
+)
+
 
 def _industry_evidence_markers(industry: object) -> tuple[str, ...]:
     """Return bounded page markers for the declared mission industry."""
@@ -74,6 +85,18 @@ def _is_directory_or_third_party_host(host: str) -> bool:
 def _is_directory_or_third_party_page(text: str) -> bool:
     normalized = re.sub(r"\s+", " ", text.lower())
     return any(marker in normalized for marker in _DIRECTORY_PAGE_MARKERS)
+
+
+def _is_generic_market_listing_label(value: str) -> bool:
+    """Return whether a title names a ranked market category, not a company.
+
+    This is intentionally a narrow title/label classifier.  It is not applied
+    to an entire company page body, where a legitimate business might mention
+    a ranking it received.
+    """
+
+    normalized = re.sub(r"\s+", " ", value).strip()
+    return bool(_GENERIC_MARKET_LISTING_LABEL.search(normalized))
 
 
 def _identity_tokens(value: str) -> list[str]:

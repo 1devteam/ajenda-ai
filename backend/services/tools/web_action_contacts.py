@@ -31,6 +31,7 @@ from backend.services.tools.web_action_identity_policy import (
     _industry_evidence_markers,
     _is_directory_or_third_party_host,
     _is_directory_or_third_party_page,
+    _is_generic_market_listing_label,
 )
 
 
@@ -410,7 +411,15 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             and (actual_host == expected_host or actual_host.endswith(f".{expected_host}"))
         )
         directory_host = _is_directory_or_third_party_host(actual_host)
-        directory_page = directory_host or _is_directory_or_third_party_page(page_text)
+        # A search result title is untrusted input.  When it is a ranked
+        # market category, matching its URL to the fetched URL only proves we
+        # fetched that category page—not that it is an official company site.
+        directory_page = (
+            directory_host
+            or _is_directory_or_third_party_page(page_text)
+            or _is_generic_market_listing_label(str(prospect.get("company") or ""))
+            or _is_generic_market_listing_label(str(snapshot.title or ""))
+        )
         page_tokens = _identity_tokens(page_text)
         company_matches = bool(company_tokens) and any(token in page_tokens for token in company_tokens)
         host_tokens = _host_identity_tokens(actual_host)
