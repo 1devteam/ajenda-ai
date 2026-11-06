@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getLinkedInOAuthAuthorizeUrl, persistUiRuntimeInteraction } from "./client";
+import {
+  getLinkedInOAuthAuthorizeUrl,
+  getMissionRuntimeTaskMaterialization,
+  persistUiRuntimeInteraction,
+} from "./client";
 import type { CustomerSession } from "../types";
 
 const session: CustomerSession = {
@@ -15,6 +19,34 @@ afterEach(() => {
 });
 
 describe("UI runtime interaction transport", () => {
+  it("reads persisted runtime task materialization without mutating the mission", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          mission_id: "mission-materialized",
+          tenant_id: "tenant-ui-trace",
+          materialization_status: "materialized",
+          materialization_version: 1,
+          created_execution_task_ids: ["task-1"],
+          task_count: 1,
+          blockers: [],
+          warnings: [],
+          updated_at: "2026-11-06T14:23:25Z",
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const materialization = await getMissionRuntimeTaskMaterialization(session, "mission-materialized");
+
+    expect(materialization.materialization_status).toBe("materialized");
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/v1/missions/mission-materialized/runtime-task-materialization");
+    expect(init.method ?? "GET").toBe("GET");
+    expect(new Headers(init.headers).get("X-Tenant-Id")).toBe("tenant-ui-trace");
+  });
+
   it("sends bounded browser evidence and only opaque correlation identifiers to LinkedIn OAuth", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(

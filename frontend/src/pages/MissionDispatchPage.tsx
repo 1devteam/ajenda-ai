@@ -10,6 +10,7 @@ import {
   getMissionLifecycle,
   getMissionRuntimeEvidence,
   getMissionRuntimeReadiness,
+  getMissionRuntimeTaskMaterialization,
   getTaskStatus,
   launchMission,
   materializeMissionRuntimeTasks,
@@ -240,6 +241,12 @@ function stepStatusFor(
   }
 }
 
+function responseStatus(error: unknown): number {
+  return typeof error === "object" && error !== null && "status" in error
+    ? Number((error as { status?: unknown }).status)
+    : 0;
+}
+
 export default function MissionDispatchPage() {
   const { missionId = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -277,12 +284,22 @@ export default function MissionDispatchPage() {
       return;
     }
     try {
-      const [readinessResponse, dispatchResponse] = await Promise.all([
+      const [readinessResponse, dispatchResponse, materializationResponse] = await Promise.all([
         getMissionRuntimeReadiness(session, missionId),
         getMissionDispatchReadiness(session, missionId),
+        getMissionRuntimeTaskMaterialization(session, missionId).catch((err) => {
+          // Before the pipeline creates execution tasks, the authoritative
+          // read endpoint returns 404. That is an expected empty state, not
+          // a readiness failure; any other read failure remains visible.
+          if (responseStatus(err) === 404) {
+            return null;
+          }
+          throw err;
+        }),
       ]);
       setReadiness(readinessResponse);
       setDispatchReadiness(dispatchResponse);
+      setTaskMaterialization(materializationResponse);
     } catch (err) {
       setReadiness(null);
       setDispatchReadiness(null);
