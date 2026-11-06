@@ -72,7 +72,9 @@ def test_website_research_for_linkedin_posts_compiles_to_drafts_not_publish() ->
         "Visit https://www.1devteam.com/ and collect details about the business to use in three LinkedIn posts."
     )
 
-    intent = interpret_instruction(instruction)
+    # CI can run without optional RapidFuzz; this path must remain fully
+    # deterministic rather than depend on fuzzy phrase matching.
+    intent = interpret_instruction(instruction, fuzzy_enabled=False)
 
     assert intent.interpretation_ready
     assert set(intent.requested_outcomes) == {"research_prospects", "prepare_social_drafts"}

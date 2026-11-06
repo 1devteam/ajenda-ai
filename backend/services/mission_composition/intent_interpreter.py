@@ -1060,6 +1060,20 @@ def interpret_instruction(
         ):
             recognized = True
             material = True
+        # A direct URL visit is normally an observation-only request.  When
+        # this instruction also explicitly collects business facts from that
+        # site, it is the bounded source clause for the selected research
+        # outcome and must be covered without relying on optional fuzzy
+        # matching.
+        if (
+            website_fact_collection_requested
+            and "research_prospects" in outcomes
+            and re.search(r"\b(?:visit|open|read)\b[^.!?]{0,80}\bhttps?://\S+", clause_text, flags=re.IGNORECASE)
+        ):
+            recognized = True
+            material = True
+            if "research_prospects" not in mapped:
+                mapped.append("research_prospects")
         if "observe_web_page" in outcomes and re.search(
             r"\b(?:observe|inspect|open|navigate|follow|click|extract|return|browser|link|title|visible|timestamp|blocked|final\s+url)\b",
             clause_text,
