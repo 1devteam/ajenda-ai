@@ -502,6 +502,65 @@ def test_observe_contacts_rejects_marketplace_page_even_when_host_matches() -> N
     )
 
 
+def test_verify_public_candidates_rejects_software_directory_hosts() -> None:
+    from backend.services.tools.web_actions import research_verify_public_candidates
+
+    listings = [
+        PageSnapshot(
+            url="https://www.expertise.com/business/software-development/texas/irving",
+            real=True,
+            status_code=200,
+            title="Best Software Development Companies in Irving, TX",
+            text_preview="Compare the best software development companies in Irving, Texas.",
+            access_mode=InternetAccessMode.PAGE_READ,
+        ),
+        PageSnapshot(
+            url="https://www.goodfirms.co/directory/state/top-software-development-companies/texas",
+            real=True,
+            status_code=200,
+            title="Top Software Companies in Texas",
+            text_preview="Top software development companies in Texas.",
+            access_mode=InternetAccessMode.PAGE_READ,
+        ),
+        PageSnapshot(
+            url="https://www.inven.ai/company-lists/top-25-software-development-companies-in-texas",
+            real=True,
+            status_code=200,
+            title="Top 25 Software Development Companies in Texas",
+            text_preview="A directory of software development companies in Texas.",
+            access_mode=InternetAccessMode.PAGE_READ,
+        ),
+    ]
+    invocation = ToolInvocation(
+        action="research.verify_public_candidates",
+        input={
+            "prospects": [
+                {
+                    "company": listing.title,
+                    "domain": listing.url.split("/")[2].removeprefix("www."),
+                    "url": listing.url,
+                    "website": listing.url,
+                }
+                for listing in listings
+            ],
+            "requested_quantity": 3,
+            "binding_required": True,
+            "collect_contacts": False,
+            "context": {"industry": "software development", "location": "Texas"},
+        },
+    )
+
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", side_effect=listings):
+        result = research_verify_public_candidates(invocation, _context())
+
+    assert result.output["verified_prospect_candidates"] == []
+    assert result.output["valid_empty_result"] == {
+        "classification": "valid_empty",
+        "reason": "completed public identity verification rejected all candidate sources",
+    }
+    assert {page["source_reliability"] for page in result.output["pages"]} == {"directory_or_third_party"}
+
+
 def test_public_identity_rejection_is_a_valid_empty_verification_outcome() -> None:
     from backend.services.tools.web_action_contacts import research_verify_public_candidates
 

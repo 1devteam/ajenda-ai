@@ -12,7 +12,10 @@ _DIRECTORY_HOST_MARKERS = (
     "bestprosintown.com",
     "bestpickreports.com",
     "consumeraffairs.com",
+    "designrush.com",
+    "expertise.com",
     "forbes.com",
+    "goodfirms.co",
     "homeadvisor.com",
     "hvacinformed.com",
     "houzz.com",
@@ -29,8 +32,10 @@ _DIRECTORY_HOST_MARKERS = (
     "ensun.",
     "hvacservice.io",
     "indeed.",
+    "inven.ai",
     "myhomepros.",
     "reddit.",
+    "sortlist.com",
 )
 
 _DIRECTORY_PAGE_MARKERS = (
