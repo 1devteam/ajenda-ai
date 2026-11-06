@@ -111,8 +111,15 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
             "exclude_internal_records": public_web_only or bool(relation_requirements),
             "relation_requirements": relation_requirements,
             # Persisted pre-contract mission graphs used this compatibility
-            # envelope. Keep emitting it until those graphs age out.
-            "context": {"relation_requirements": relation_requirements} if relation_requirements else {},
+            # envelope. Keep emitting it until those graphs age out. The
+            # objective is discovery scope only: the relation handler reduces
+            # it to bounded geography/service constraints after it has
+            # independently established the reference business type.
+            "context": (
+                {"relation_requirements": relation_requirements, "objective": intent.objective}
+                if relation_requirements
+                else {}
+            ),
             "limit": limit,
         }
     if action_name == "web.search":

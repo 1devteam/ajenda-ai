@@ -297,6 +297,28 @@ def _derive_business_type_relation(*, reference_company: str, page: dict[str, An
     return None
 
 
+def _relation_peer_queries(*, business_type: str, objective: object) -> tuple[str, ...]:
+    """Build bounded peer-discovery queries from verified relation evidence.
+
+    The reference page supplies the business type.  Only explicit, narrowly
+    recognized geography and service phrases from the mission objective refine
+    that type, so a report's free-form prose cannot silently become a search
+    target.
+    """
+
+    normalized_objective = re.sub(r"\s+", " ", str(objective or "")).casefold()
+    united_states = bool(re.search(r"\b(?:united states|u\.s\.?|us)\b", normalized_objective))
+    scope_suffix = " United States" if united_states else ""
+    base = f"{business_type} companies{scope_suffix}".strip()
+    queries: list[str] = []
+    if "custom software development" in normalized_objective and (
+        "applied research" in normalized_objective or "applied r&d" in normalized_objective
+    ):
+        queries.append(f"custom software development applied research companies{scope_suffix}".strip())
+    queries.extend((base, f"{base} official website"))
+    return tuple(dict.fromkeys(query[:400] for query in queries if query))
+
+
 def _run_public_search_phase(
     *, queries: tuple[str, ...], limit: int, timeout_seconds: float, phase: str
 ) -> tuple[list[dict[str, Any]], bool, list[str], list[dict[str, Any]], list[str]]:
@@ -308,8 +330,17 @@ def _run_public_search_phase(
     attempts: list[dict[str, Any]] = []
     providers: list[str] = []
     seen_urls: set[str] = set()
-    for query in tuple(dict.fromkeys(item.strip() for item in queries if item.strip())):
-        bundle = _fetch_governed_public_search(query=query, limit=limit, timeout_seconds=timeout_seconds)
+    normalized_queries = tuple(dict.fromkeys(item.strip() for item in queries if item.strip()))
+    # Reserve a bounded slice of the candidate pool for each deterministic
+    # scope variant. Otherwise a directory-heavy first result page can fill
+    # the entire pool and prevent more selective queries from running.
+    per_query_limit = max(1, min(limit, -(-limit // max(len(normalized_queries), 1))))
+    for query in normalized_queries:
+        bundle = _fetch_governed_public_search(
+            query=query,
+            limit=per_query_limit,
+            timeout_seconds=timeout_seconds,
+        )
         provider = str(bundle.get("provider") or "none")
         if provider not in providers:
             providers.append(provider)
@@ -641,8 +672,11 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                 }
             else:
                 business_type = str(business_type_relation["business_type"])
-                public_query = f"{business_type} companies"
-                query_variants = (public_query, f"{public_query} official website")
+                query_variants = _relation_peer_queries(
+                    business_type=business_type,
+                    objective=payload.context.get("objective"),
+                )
+                public_query = query_variants[0]
                 executed_search_queries.extend(query_variants)
                 web_results, peer_search_real, errors, attempts, providers = _run_public_search_phase(
                     queries=query_variants,

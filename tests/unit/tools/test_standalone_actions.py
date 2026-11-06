@@ -195,6 +195,89 @@ def test_relation_research_resolves_reference_page_before_peer_search(monkeypatc
     }
 
 
+def test_relation_research_uses_explicit_service_and_country_scope_across_variants(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    queries: list[tuple[str, int]] = []
+
+    def search(**kwargs):  # type: ignore[no-untyped-def]
+        query = str(kwargs["query"])
+        queries.append((query, int(kwargs["limit"])))
+        if query == "1DevTeam official website":
+            results = [{"title": "1DevTeam", "url": "https://1devteam.com/", "real": True}]
+        else:
+            suffix = len([item for item, _limit in queries if item != "1DevTeam official website"])
+            results = [
+                {
+                    "title": f"Peer {suffix}",
+                    "url": f"https://peer-{suffix}.example/",
+                    "snippet": "Custom software development and applied research in the United States.",
+                    "real": True,
+                }
+            ]
+        return {
+            "provider": "duckduckgo_html",
+            "results": results,
+            "real": True,
+            "error": None,
+            "attempts": [{"provider": "duckduckgo_html", "outcome": "results", "result_count": len(results)}],
+        }
+
+    monkeypatch.setattr(standalone_actions, "_fetch_governed_public_search", search)
+    monkeypatch.setattr(
+        standalone_actions,
+        "_fetch_public_page_snippet",
+        lambda **_kwargs: {
+            "url": "https://1devteam.com/",
+            "status_code": 200,
+            "title": "1DevTeam",
+            "text_preview": "1DevTeam is a software development and applied R&D company.",
+            "body_preview": "",
+            "body_truncated": False,
+            "real": True,
+            "error": None,
+            "access_mode": "page_read",
+            "extraction": {},
+        },
+    )
+
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="web.research",
+            input={
+                "query": "1DevTeam official website",
+                "company": "1DevTeam",
+                "include_public_search": True,
+                "exclude_internal_records": True,
+                "limit": 3,
+                "context": {
+                    "objective": (
+                        "Research three United States companies comparable to 1DevTeam that provide "
+                        "custom software development and applied research services."
+                    ),
+                    "relation_requirements": [
+                        {
+                            "relation": "reference_company_business_type",
+                            "reference_company": "1DevTeam",
+                            "required_for": "prospect_search",
+                        }
+                    ],
+                },
+            },
+        ),
+        _context(),
+    )
+
+    peer_queries = [query for query, _limit in queries if query != "1DevTeam official website"]
+    assert peer_queries == [
+        "custom software development applied research companies United States",
+        "software development and applied R&D companies United States",
+        "software development and applied R&D companies United States official website",
+    ]
+    assert {limit for query, limit in queries if query != "1DevTeam official website"} == {3}
+    assert len(result.output["prospect_candidates"]) == 3
+
+
 def test_relation_research_does_not_promote_lookup_hits_without_category_evidence(monkeypatch) -> None:
     from backend.services.tools import standalone_actions
 

@@ -106,6 +106,7 @@ def test_reference_company_business_category_compiles_as_evidence_requirement() 
             "status": "awaiting_public_evidence",
         }
     ]
+    assert payload["context"]["objective"] == instruction
 
 
 @pytest.mark.parametrize(
