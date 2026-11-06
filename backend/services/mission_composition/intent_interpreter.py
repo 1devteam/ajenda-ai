@@ -327,8 +327,19 @@ def interpret_instruction(
         context_requirements.append("internal_crm_source")
     elif direct_crm_record_read and not explicit_research_verb and "hubspot_source" not in context_requirements:
         context_requirements.append("hubspot_source")
+    # Collecting factual business information from a specified website is
+    # research even when the operator uses "visit" rather than "research".
+    # A page-open/trace request alone remains a separate browser observation.
+    website_fact_collection_requested = bool(
+        re.search(r"https?://[^\s<>()]+", lower)
+        and re.search(
+            r"\b(?:collect|gather|extract)\s+(?:details|information|facts)\s+"
+            r"(?:about|on|from)\s+(?:the\s+)?(?:business|company|website|site)\b",
+            lower,
+        )
+    )
     wants_research = (
-        _contains_any(lower, _RESEARCH_PATTERNS)
+        (_contains_any(lower, _RESEARCH_PATTERNS) or website_fact_collection_requested)
         and (not direct_crm_record_read or explicit_research_verb)
         and (not connector_read or explicit_prospect_research or hubspot_as_research_source)
         and not wants_internal_followup_tasks
