@@ -393,7 +393,7 @@ def test_bind_fails_closed_when_required_and_empty() -> None:
     assert "binding_required" in str(excinfo.value).lower() or "no upstream" in str(excinfo.value).lower()
 
 
-def test_research_report_binding_fails_closed_when_upstream_candidates_are_empty() -> None:
+def test_research_report_binding_accepts_only_proven_valid_empty_upstream() -> None:
     mission_id = uuid.uuid4()
     tenant_id = str(uuid.uuid4())
     research = _task(
@@ -401,8 +401,15 @@ def test_research_report_binding_fails_closed_when_upstream_candidates_are_empty
         status=ExecutionTaskState.COMPLETED.value,
         mission_id=mission_id,
         tenant_id=tenant_id,
-        output={"prospect_candidates": []},
+        output={
+            "prospect_candidates": [],
+            "valid_empty_result": {
+                "classification": "valid_empty",
+                "reason": "public search completed with no result URLs",
+            },
+        },
     )
+    research.metadata_json["tool_invocation"]["action"] = "web.research"
     synthesis = _task(
         node_key="ability-research-synthesize_report",
         status=ExecutionTaskState.RUNNING.value,
@@ -420,12 +427,22 @@ def test_research_report_binding_fails_closed_when_upstream_candidates_are_empty
     )
     synthesis.metadata_json["tool_invocation"]["action"] = "research.synthesize_report"
 
-    with pytest.raises(Exception, match=r"binding_required|no upstream"):
-        apply_input_bindings(
-            tool_input=synthesis.metadata_json["tool_invocation"]["input"],
-            task=synthesis,
-            mission_tasks=[research, synthesis],
-        )
+    bound, audit = apply_input_bindings(
+        tool_input=synthesis.metadata_json["tool_invocation"]["input"],
+        task=synthesis,
+        mission_tasks=[research, synthesis],
+    )
+
+    assert bound["prospects"] == []
+    assert bound["valid_empty_upstream"] == [
+        {
+            "classification": "valid_empty",
+            "reason": "public search completed with no result URLs",
+            "source_task_id": str(research.id),
+            "source_action": "web.research",
+        }
+    ]
+    assert audit["valid_empty_upstream"] == bound["valid_empty_upstream"]
 
 
 def test_enrichment_binding_fails_before_handler_when_qualification_is_empty() -> None:

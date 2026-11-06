@@ -1010,36 +1010,28 @@ def research_synthesize_report(invocation: ToolInvocation, context: ActionRuntim
                 "sources": sources,
             }
         )
-    limitations = [] if rows else ["No upstream research candidates were available for synthesis."]
+    valid_empty_reasons = [
+        str(item.get("reason") or "").strip()
+        for item in payload.valid_empty_upstream
+        if isinstance(item, dict) and str(item.get("reason") or "").strip()
+    ]
+    limitations = (
+        [] if rows else valid_empty_reasons or ["No upstream research candidates were available for synthesis."]
+    )
     if any(row["identity_status"] != "verified" for row in rows):
         limitations.append("One or more result identities remain unverified search candidates.")
-    market_opportunities = [
-        {
-            "title": "Evidence-backed vertical workflow packages",
-            "type": "hypothesis",
-            "rationale": "The observed sources compare broad agent platforms; a focused, governed workflow for a specific industry is an opportunity to differentiate.",
-            "evidence_basis": "Observed comparison sources describe general platforms rather than an Ajenda-specific vertical operating model.",
-        },
-        {
-            "title": "Portable governance and audit controls",
-            "type": "hypothesis",
-            "rationale": "Governance and auditability are repeatedly identified as enterprise requirements, creating room for a portable control layer across providers.",
-            "evidence_basis": "Observed source summaries reference security, governance, auditability, or compliance as evaluation dimensions.",
-        },
-        {
-            "title": "Interoperable multi-system execution",
-            "type": "hypothesis",
-            "rationale": "A runtime that coordinates research, CRM, communications, and vertical abilities under one evidence contract can address fragmented tooling.",
-            "evidence_basis": "Observed sources compare agent frameworks and workflow builders separately; none of the supplied evidence verifies a unified Ajenda-style contract.",
-        },
-    ]
     report = {
         "objective": payload.objective,
         "comparison": rows,
-        "market_opportunities": market_opportunities,
+        # This action has no evidence model for derived market opportunities.
+        # Returning generic hypotheses here would let an empty search look
+        # commercially productive, so the report limits itself to observed
+        # comparison rows and explicitly reports the evidence gap.
+        "market_opportunities": [],
         "source_urls": sorted(set(source_urls)),
         "evidence_gaps": limitations,
         "candidate_count": len(rows),
+        "result_semantics": "valid_empty" if valid_empty_reasons and not rows else "observed_candidates",
     }
     summary = f"Synthesized an evidence-bounded research report from {len(rows)} candidate(s)."
     return ActionResult(

@@ -115,6 +115,10 @@ def test_reference_company_business_category_compiles_as_evidence_requirement() 
         "Find 3 companies similar to 1DevTeam.",
         "Discover 3 businesses like 1DevTeam.",
         "Research 3 providers comparable to 1DevTeam.",
+        (
+            "Research 3 United States companies comparable to 1DevTeam that provide custom software development "
+            "and applied research services."
+        ),
         "Look up 1DevTeam and find 3 prospects.",
         "Identify 3 peers related to 1DevTeam.",
         "Find 3 companies in the same line of business as 1DevTeam.",

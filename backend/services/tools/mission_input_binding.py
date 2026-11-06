@@ -665,9 +665,15 @@ def apply_input_bindings(
     raw_context = bound.get("context")
     context: dict[str, Any] = raw_context if isinstance(raw_context, dict) else {}
     if valid_empty_sources:
-        context = dict(context)
-        context["valid_empty_upstream"] = valid_empty_sources
-        bound["context"] = context
+        if action_name == "research.synthesize_report":
+            # ResearchReportInput is deliberately strict.  Keep the producer
+            # provenance as a first-class report input rather than smuggling
+            # it through an undeclared context envelope.
+            bound["valid_empty_upstream"] = valid_empty_sources
+        else:
+            context = dict(context)
+            context["valid_empty_upstream"] = valid_empty_sources
+            bound["context"] = context
     binding_required = bool(context.get("binding_required")) or bool(bound.get("binding_required"))
 
     audit = {
@@ -691,7 +697,10 @@ def apply_input_bindings(
                 "research.observe_contacts",
                 "research.verify_public_candidates",
                 "sales.qualify",
+                "research.synthesize_report",
             }
+            if action_name == "research.synthesize_report":
+                valid_empty_allowed = bool(bound.get("valid_empty_upstream"))
             if (not isinstance(prospects, list) or not prospects) and not valid_empty_allowed:
                 # A draft is still a product artifact and must identify the
                 # upstream prospect it represents. Industry/location seeds are
