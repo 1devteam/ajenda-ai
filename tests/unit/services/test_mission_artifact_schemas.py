@@ -118,6 +118,7 @@ def test_artifact_schema_catalog_matches_job_outputs() -> None:
         "researched_prospects",
         "enriched_prospects",
         "introduction_drafts",
+        "social_drafts",
         "internal_crm_records",
         "crm_records",
         "pipeline_records",

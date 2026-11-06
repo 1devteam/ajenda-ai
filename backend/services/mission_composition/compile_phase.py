@@ -270,6 +270,7 @@ class MissionCompositionCompilePhase:
                     "introduction_drafts": record.intent.qualification_quantity
                     or record.intent.requested_quantity
                     or 0,
+                    "social_drafts": record.intent.requested_quantity or 0,
                 },
                 shadow_preview=build_shadow_preview(
                     proposal_id=record.proposal_id,
@@ -334,6 +335,9 @@ class MissionCompositionCompilePhase:
                     else 0,
                     "draft_min": record.intent.qualification_quantity or record.intent.requested_quantity
                     if "prepare_outreach" in record.intent.requested_outcomes
+                    else 0,
+                    "social_draft_min": record.intent.requested_quantity
+                    if "prepare_social_drafts" in record.intent.requested_outcomes
                     else 0,
                     "require_bound_drafts": (
                         "prepare_outreach" in record.intent.requested_outcomes

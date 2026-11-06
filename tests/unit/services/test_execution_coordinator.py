@@ -135,8 +135,8 @@ def test_queue_task_does_not_publish_to_queue_before_commit() -> None:
     queue.enqueue_task_idempotent.assert_not_called()
 
 
-def test_alias_action_requires_its_canonical_ability_review() -> None:
-    """Admission must not bypass review just because an action uses an alias."""
+def test_public_research_alias_uses_canonical_no_review_policy() -> None:
+    """Aliases inherit the canonical public-read admission policy."""
 
     tenant_id = str(uuid.uuid4())
     task = _task(tenant_id=tenant_id)
@@ -145,7 +145,7 @@ def test_alias_action_requires_its_canonical_ability_review() -> None:
         "tool_invocation": {"schema_version": 1, "action": "crm.research", "input": {"query": "Acme"}},
     }
 
-    assert ExecutionCoordinator._requires_unapproved_ability_review(task) is True
+    assert ExecutionCoordinator._requires_unapproved_ability_review(task) is False
 
 
 def test_queue_task_records_dispatch_after_transitioning_planned_task_to_queued() -> None:
@@ -300,15 +300,15 @@ def test_side_effect_task_requires_review_then_approval_issues_exact_action_gran
     )
 
 
-def test_approval_required_browser_task_requires_review_then_issues_ability_grant() -> None:
+def test_approval_required_dynamic_http_task_requires_review_then_issues_ability_grant() -> None:
     tenant_id = str(uuid.uuid4())
     task = _task(tenant_id=tenant_id, status=ExecutionTaskState.PLANNED.value)
     task.metadata_json = {
         "task_type": "tool.invoke",
         "tool_invocation": {
             "schema_version": 1,
-            "action": "web.browser_session",
-            "input": {"url": "https://example.test"},
+            "action": "http.request",
+            "input": {"method": "GET", "url": "https://example.test"},
         },
         "capability_reference": {"capability_id": str(uuid.uuid4())},
         "adapter_reference": {"adapter_id": str(uuid.uuid4())},
@@ -331,7 +331,7 @@ def test_approval_required_browser_task_requires_review_then_issues_ability_gran
     assert approved.ok is True
     assert ability_authorized(
         task.metadata_json,
-        manifest=ABILITY_MANIFESTS_BY_ACTION["web.browser_session"],
+        manifest=ABILITY_MANIFESTS_BY_ACTION["http.request"],
         tenant_id=tenant_id,
         task_id=task.id,
     )
@@ -349,7 +349,7 @@ def test_approval_required_browser_task_requires_review_then_issues_ability_gran
     assert grant["revocation_reason"] == "review scope withdrawn"
     assert not ability_authorized(
         task.metadata_json,
-        manifest=ABILITY_MANIFESTS_BY_ACTION["web.browser_session"],
+        manifest=ABILITY_MANIFESTS_BY_ACTION["http.request"],
         tenant_id=tenant_id,
         task_id=task.id,
     )

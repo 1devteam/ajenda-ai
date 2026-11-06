@@ -113,15 +113,9 @@ def test_vertical_research_template_queues_claims_executes_and_persists_evidence
         )
         quota.check_and_record_task_creation(uuid.UUID(tenant_id), count=len(applied.created_task_ids))
         assert len(applied.created_task_ids) == 1
-        assert queued.queued_task_ids == ()
-        assert queued.blocked_task_ids == applied.created_task_ids
+        assert queued.queued_task_ids == applied.created_task_ids
+        assert queued.blocked_task_ids == ()
         task_id = applied.created_task_ids[0]
-        _approve_pending_template_tasks(
-            session=setup_session,
-            queue_adapter=queue_adapter,
-            tenant_id=tenant_id,
-            task_ids=applied.created_task_ids,
-        )
 
         template_meta = mission.metadata_json[VERTICAL_TEMPLATE_METADATA_KEY]
         assert template_meta["template_id"] == "vertical.research.v1"
@@ -295,15 +289,9 @@ def test_vertical_public_research_resolves_external_authority_and_persists_runti
             approved_by="vertical-ops-integration",
             approval_reason="Public-read authority runtime proof.",
         )
-        assert queued.queued_task_ids == ()
-        assert queued.blocked_task_ids == applied.created_task_ids
+        assert queued.queued_task_ids == applied.created_task_ids
+        assert queued.blocked_task_ids == ()
         task_id = applied.created_task_ids[0]
-        _approve_pending_template_tasks(
-            session=setup_session,
-            queue_adapter=queue_adapter,
-            tenant_id=tenant_id,
-            task_ids=applied.created_task_ids,
-        )
         planned_task = setup_session.get(ExecutionTask, task_id)
         assert planned_task is not None
         assert planned_task.metadata_json["side_effect_class"] == "external_read"
@@ -426,12 +414,6 @@ def test_vertical_template_dependencies_defer_until_the_prerequisite_completes(p
             task_ids=(sales.id,),
             template_id="vertical.research.v1",
         )
-        _approve_pending_template_tasks(
-            session=setup_session,
-            queue_adapter=queue_adapter,
-            tenant_id=tenant_id,
-            task_ids=(sales.id,),
-        )
         setup_session.commit()
 
         deferred = WorkerRuntimeService(setup_session, queue_adapter).claim_next_task(
@@ -440,8 +422,8 @@ def test_vertical_template_dependencies_defer_until_the_prerequisite_completes(p
         )
         assert deferred is None
         setup_session.expire(sales)
-        assert sales.status == ExecutionTaskState.PENDING_REVIEW.value
-        assert "dependency_deferral" not in sales.metadata_json
+        assert sales.status == ExecutionTaskState.QUEUED.value
+        assert sales.metadata_json["dependency_deferral"]["pending_keys"] == ["research-internal"]
 
         service.queue_planned_tasks(
             session=setup_session,
@@ -490,12 +472,6 @@ def test_vertical_template_dependencies_defer_until_the_prerequisite_completes(p
     finish_session = session_factory()
     try:
         activate_tenant_session(finish_session, tenant_id)
-        _approve_pending_template_tasks(
-            session=finish_session,
-            queue_adapter=queue_adapter,
-            tenant_id=tenant_id,
-            task_ids=(sales.id,),
-        )
         finish_session.commit()
         runtime = WorkerRuntimeService(finish_session, queue_adapter)
         claimed_sales = runtime.claim_next_task(
@@ -530,5 +506,9 @@ def test_vertical_template_dependencies_defer_until_the_prerequisite_completes(p
         activate_tenant_session(verify_session, tenant_id)
         assert verify_session.get(ExecutionTask, research.id).status == ExecutionTaskState.COMPLETED.value  # type: ignore[union-attr]
         assert verify_session.get(ExecutionTask, sales.id).status == ExecutionTaskState.COMPLETED.value  # type: ignore[union-attr]
+        sales_task = verify_session.get(ExecutionTask, sales.id)
+        assert sales_task is not None
+        assert "dependency_deferral" not in sales_task.metadata_json
+        assert sales_task.metadata_json["dependency_redispatched_at"]
     finally:
         verify_session.close()

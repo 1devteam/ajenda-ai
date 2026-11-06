@@ -32,6 +32,11 @@ def test_default_charter_allows_brain_prepare_actions() -> None:
         charter=charter,
     )
     assert_action_allowed(
+        action_name="gtm.social_draft",
+        side_effect_class=SideEffectClass.NONE,
+        charter=charter,
+    )
+    assert_action_allowed(
         action_name="google_calendar.events_read",
         side_effect_class=SideEffectClass.EXTERNAL_READ,
         charter=charter,
@@ -66,6 +71,22 @@ def test_parse_charter_fact_from_profile_value_wrapper() -> None:
     assert charter.source == "profile"
     assert charter.escalation_email == "ops@example.com"
     assert charter.may_prepare == ("retrieval.hybrid_search",)
+
+
+def test_persisted_charter_accepts_social_draft_without_social_publish_authority() -> None:
+    charter = parse_operating_charter_fact(
+        {
+            "schema_version": 1,
+            "may_prepare": ["gtm.social_draft"],
+            "may_perform": [],
+            "never_do": ["gtm.social_publish"],
+            "approval_mode": "none",
+        }
+    )
+
+    assert charter is not None
+    assert charter.may_prepare == ("gtm.social_draft",)
+    assert charter.never_do == ("gtm.social_publish",)
 
 
 def test_missing_persisted_charter_fails_closed_without_default_permissions() -> None:

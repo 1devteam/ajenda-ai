@@ -31,6 +31,7 @@ DEFAULT_MAY_PREPARE: tuple[str, ...] = (
     "sales.recommend_next_action",
     "gtm.lead_enrich",
     "gtm.email_draft",
+    "gtm.social_draft",
     "sales.draft_followup",
     "document.generate",
     "document.search",

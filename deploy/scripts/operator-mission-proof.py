@@ -57,6 +57,7 @@ PROOF_OPERATING_CHARTER: dict[str, Any] = {
         "sales.recommend_next_action",
         "gtm.lead_enrich",
         "gtm.email_draft",
+        "gtm.social_draft",
         "sales.draft_followup",
         "document.generate",
         "document.search",

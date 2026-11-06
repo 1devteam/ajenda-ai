@@ -445,6 +445,16 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                     "input_path": "$.input.prospects",
                 }
             )
+        elif action_name == "gtm.social_draft" and (
+            "synthesize" in dep or "report" in dep or "research" in dep or "web" in dep
+        ):
+            specs.append(
+                {
+                    "from_step": dep,
+                    "output_path": "$.research_report",
+                    "input_path": "$.input.context.upstream.research_report",
+                }
+            )
         elif action_name == "record.write":
             if "observe" in dep:
                 specs.append(
