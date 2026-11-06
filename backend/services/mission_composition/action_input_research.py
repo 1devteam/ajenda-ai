@@ -76,8 +76,12 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
         if entity and entity.type == "web_page" and domain:
             research_query = f"{domain} official website"
         scrape_intent = bool(_SCRAPE_SITE_RE.search(source))
-        # Site-scoped research when user asked to scrape/visit a website and we have a host.
-        fetch_public_page = bool((scrape_intent and domain) or relation_requirements)
+        # Site-scoped research when user explicitly names a webpage/URL, or
+        # asks to scrape/visit a website with a host. A typed web_page entity
+        # is stronger evidence than verb matching: "Visit https://..." must
+        # fetch that site even though it does not also say the word "website".
+        site_scoped_entity = bool(entity and entity.type == "web_page" and domain)
+        fetch_public_page = bool(site_scoped_entity or (scrape_intent and domain) or relation_requirements)
         # When scrape intent names a company but no host yet, still flag fetch so the
         # handler can use an explicit host from the query if present.
         if scrape_intent and extracted_company and not domain:

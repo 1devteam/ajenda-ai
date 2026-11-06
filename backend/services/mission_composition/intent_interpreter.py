@@ -716,16 +716,11 @@ def interpret_instruction(
             continue
         if fuzzy_hit.outcome == "send_outreach" and (no_send or conditional_send):
             continue
-        # Output-delivery language such as "return the final URL" or "return
-        # the retrieved email-message artifact" can score falsely against the
-        # legacy "return the contact info" alias. Once a bounded read outcome
-        # is already explicit, require actual contact wording before admitting
-        # observe_contacts from fuzzy matching.
-        if (
-            fuzzy_hit.outcome == "observe_contacts"
-            and ("observe_web_page" in outcomes or "evaluate_goal_progress" in outcomes or "read_email" in outcomes)
-            and not _contains_any(lower, _OBSERVE_CONTACT_PATTERNS)
-        ):
+        # Fuzzy overlap such as "collect details" must not turn a website
+        # profile request into contact observation. Contact collection is a
+        # distinct action with a concrete vocabulary and requires that
+        # explicit vocabulary even when another outcome is already present.
+        if fuzzy_hit.outcome == "observe_contacts" and not _contains_any(lower, _OBSERVE_CONTACT_PATTERNS):
             continue
         fuzzy_connector_guards = {
             "read_email": wants_email_read,

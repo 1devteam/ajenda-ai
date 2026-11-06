@@ -72,6 +72,10 @@ _SOCIAL_DRAFT_PATTERNS = (
     r"\b(?:linkedin|social(?:\s+media)?)\b[^.!?]{0,100}\b(?:post|posts|content|copy|updates?)\b[^.!?]{0,48}\b(?:draft|drafts|copy|for\s+review|review)\b",
     r"\b(?:draft|drafts|prepare|write|create|save)\b[^.!?]{0,100}\b(?:linkedin|social(?:\s+media)?)\b[^.!?]{0,48}\b(?:post|posts|content|copy|updates?)\b",
     r"\b(?:post|posts|content|copy|updates?)\b[^.!?]{0,80}\b(?:for\s+linkedin|on\s+linkedin|on\s+social)\b[^.!?]{0,48}\b(?:draft|drafts|review)\b",
+    # A bounded website-research request that says its findings are "to use
+    # in [N] LinkedIn posts" asks Ajenda to prepare content, not to publish.
+    # Publish still requires an explicit publish/post command below.
+    r"\b(?:collect|gather|research|find)\b[^.!?]{0,180}\b(?:to\s+use\s+in|for)\s+(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?(?:linkedin|social(?:\s+media)?)\s+(?:post|posts|content|copy|updates?)\b",
 )
 _QUALIFY_PATTERNS = (
     r"\bqualify\b",
@@ -98,6 +102,10 @@ _QUALIFY_PATTERNS = (
 _RESEARCH_PATTERNS = (
     r"\bresearch\b",
     r"\bresearch\b[^.!?]{0,120}\b(?:ajenda\s+)?internal\s+crm\s+records?\b",
+    # A direct website visit with a concrete URL is bounded public research.
+    # The typed web_page entity carries the target through the resolver; this
+    # rule does not turn generic "visit a website" prose into a web task.
+    r"\b(?:visit|open|read)\b[^.!?]{0,80}\bhttps?://\S+",
     r"\bfind\b",
     r"\bdiscover\b",
     r"\blook\s+up\b",
