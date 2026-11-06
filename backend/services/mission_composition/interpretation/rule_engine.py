@@ -760,6 +760,19 @@ def _extract_related_company(text: str) -> list[TargetEntity]:
             name,
             flags=re.IGNORECASE,
         ).strip(" ,.;:")
+        # A reference company ends before a relative clause that describes
+        # its services.  Without this boundary, ordinary language such as
+        # "companies comparable to 1DevTeam that provide custom software"
+        # turns the clause into part of the company name and corrupts the
+        # subsequent public lookup.
+        name = re.sub(
+            r"\s+\b(?:that|which|who)\s+"
+            r"(?:provide|provides|offer|offers|deliver|delivers|build|builds|"
+            r"speciali[sz]e|speciali[sz]es|serve|serves)\b.*$",
+            "",
+            name,
+            flags=re.IGNORECASE,
+        ).strip(" ,.;:")
         if len(name) < 2 or name.casefold() in {
             "a company",
             "a business",

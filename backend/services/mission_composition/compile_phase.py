@@ -351,7 +351,10 @@ class MissionCompositionCompilePhase:
                         )
                     ),
                     "research_report_required": "synthesize_research_report" in record.intent.requested_outcomes,
-                    "market_opportunities_min": record.intent.recommendation_quantity or 3
+                    # A report itself is a deliverable. Do not silently add a
+                    # three-opportunity commercial claim when the user did
+                    # not explicitly request numbered recommendations.
+                    "market_opportunities_min": record.intent.recommendation_quantity or 0
                     if "synthesize_research_report" in record.intent.requested_outcomes
                     else 0,
                     "business_review_required": "review_business_income" in record.intent.requested_outcomes,

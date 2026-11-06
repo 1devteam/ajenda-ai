@@ -375,7 +375,10 @@ class MissionCompositionConfirmationPhase:
                             )
                         ),
                         "research_report_required": "synthesize_research_report" in record.intent.requested_outcomes,
-                        "market_opportunities_min": record.intent.recommendation_quantity or 3
+                        # Keep confirmation semantically identical to compile:
+                        # no default opportunity quota is inferred from the
+                        # existence of a research report.
+                        "market_opportunities_min": record.intent.recommendation_quantity or 0
                         if "synthesize_research_report" in record.intent.requested_outcomes
                         else 0,
                         "business_review_required": "review_business_income" in record.intent.requested_outcomes,

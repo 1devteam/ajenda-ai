@@ -9,6 +9,7 @@ from backend.services.mission_composition.artifact_schemas import (
     PIPELINE_RECORDS_SCHEMA,
     PROSPECT_CANDIDATES_SCHEMA,
     QUALIFIED_PROSPECTS_SCHEMA,
+    RESEARCH_REPORT_SCHEMA,
     RESEARCHED_PROSPECTS_SCHEMA,
     WEB_PAGE_OBSERVATION_SCHEMA,
     validate_artifact_payload,
@@ -113,6 +114,7 @@ def test_artifact_schema_catalog_matches_job_outputs() -> None:
         "qualified_prospects",
         "revenue_records",
         "business_review_report",
+        "research_report",
         "web_page_observation",
         "goal_progress_evaluation",
         "researched_prospects",
@@ -123,6 +125,73 @@ def test_artifact_schema_catalog_matches_job_outputs() -> None:
         "crm_records",
         "pipeline_records",
         "follow_up_tasks",
+    )
+
+
+def test_research_report_schema_accepts_observed_rows_and_proven_valid_empty() -> None:
+    observed = {
+        "objective": "Compare software research companies",
+        "comparison": [
+            {
+                "company": "Acme Research",
+                "website": "https://acme.example",
+                "summary": "Observed public company profile.",
+                "product_description": "Applied research services",
+                "identity_status": "verified",
+                "sources": ["https://acme.example/about"],
+            }
+        ],
+        "market_opportunities": [],
+        "source_urls": ["https://acme.example/about"],
+        "evidence_gaps": [],
+        "candidate_count": 1,
+        "result_semantics": "observed_candidates",
+    }
+    valid_empty = {
+        "objective": "Compare software research companies",
+        "comparison": [],
+        "market_opportunities": [],
+        "source_urls": [],
+        "evidence_gaps": ["No candidate passed public identity verification."],
+        "candidate_count": 0,
+        "result_semantics": "valid_empty",
+    }
+
+    assert validate_artifact_payload(RESEARCH_REPORT_SCHEMA, observed) == ()
+    assert validate_artifact_payload(RESEARCH_REPORT_SCHEMA, valid_empty) == ()
+
+
+def test_research_report_schema_rejects_unproven_empty_or_unsourced_rows() -> None:
+    base = {
+        "objective": "Compare software research companies",
+        "comparison": [],
+        "market_opportunities": [],
+        "source_urls": [],
+        "evidence_gaps": [],
+        "candidate_count": 0,
+        "result_semantics": "observed_candidates",
+    }
+    assert validate_artifact_payload(RESEARCH_REPORT_SCHEMA, base) == (
+        "research report Value error, observed_candidates research report must contain comparison rows",
+    )
+
+    base.update(
+        {
+            "comparison": [
+                {
+                    "company": "Acme Research",
+                    "website": "https://acme.example",
+                    "summary": "Observed public company profile.",
+                    "product_description": "Applied research services",
+                    "identity_status": "verified",
+                    "sources": [],
+                }
+            ],
+            "candidate_count": 1,
+        }
+    )
+    assert validate_artifact_payload(RESEARCH_REPORT_SCHEMA, base) == (
+        "research report List should have at least 1 item after validation, not 0",
     )
 
 

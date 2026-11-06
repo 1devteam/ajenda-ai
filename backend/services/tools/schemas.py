@@ -256,6 +256,11 @@ class ResearchReportInput(BaseModel):
     objective: str = Field(min_length=1, max_length=1000)
     prospects: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
     binding_required: bool = False
+    # A completed public-research producer may establish that no candidates
+    # were observed.  This is not an authorization bypass: it carries the
+    # durable producer reason into a read-only report so the report can state
+    # an honest valid-empty outcome.
+    valid_empty_upstream: list[dict[str, str]] = Field(default_factory=list, max_length=10)
 
 
 class FollowupDraftInput(BaseModel):
