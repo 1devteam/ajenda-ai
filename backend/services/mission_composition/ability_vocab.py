@@ -55,6 +55,9 @@ ABILITY_OUTCOME_ALIASES: dict[str, CanonicalOutcome] = {
     "prepare outreach drafts": "prepare_outreach",
     "draft outreach": "prepare_outreach",
     "write introductions": "prepare_outreach",
+    "linkedin post drafts": "prepare_social_drafts",
+    "social post drafts": "prepare_social_drafts",
+    "prepare linkedin drafts": "prepare_social_drafts",
     # CRM/GTM/vertical operator language
     "merge records": "update_crm",
     "advance opportunity": "update_crm",
@@ -123,6 +126,10 @@ OUTCOME_PHRASE_PATTERNS: tuple[tuple[str, CanonicalOutcome], ...] = (
     (r"\b(?:query|check|read|search|list|show)\b.{0,48}\bsalesforce\b", "query_salesforce"),
     (r"\bsalesforce\b.{0,48}\b(?:accounts?|contacts?|leads?|opportunities|records?|pipeline)\b", "query_salesforce"),
     (r"\bqualify\b", "qualify_prospects"),
+    (
+        r"\b(?:linkedin|social(?:\s+media)?)\b[^.!?]{0,80}\b(?:post|posts)\b[^.!?]{0,40}\bdrafts?\b",
+        "prepare_social_drafts",
+    ),
     (
         r"\bscore(?:s|d|ing)?\s+(?:them|these|those|it|the\s+(?:prospects?|leads?|competitors?))\b",
         "qualify_prospects",

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 from backend.services.business_profile.context_resolver import default_company_and_domain, resolve_business_context
 from backend.services.internet import fetch_public_page, public_search, search_bundle_as_legacy_dict
@@ -176,6 +178,163 @@ def _guess_domain_from_query(query: str, *, company: str | None = None) -> str |
     return None
 
 
+def _relation_requirement(payload: WebResearchInput) -> dict[str, Any] | None:
+    """Normalize the typed relation contract and its persisted compatibility form."""
+
+    for requirement in payload.relation_requirements:
+        if requirement.relation == "reference_company_business_type":
+            return requirement.model_dump(mode="json")
+    raw = payload.context.get("relation_requirements")
+    if not isinstance(raw, list):
+        return None
+    for item in raw:
+        if not isinstance(item, dict) or item.get("relation") != "reference_company_business_type":
+            continue
+        reference_company = str(item.get("reference_company") or "").strip()
+        if reference_company:
+            return {
+                "relation": "reference_company_business_type",
+                "reference_company": reference_company[:240],
+                "reference_domain": str(item.get("reference_domain") or "").strip()[:255] or None,
+                "required_for": "prospect_search",
+                "status": "awaiting_public_evidence",
+            }
+    return None
+
+
+_THIRD_PARTY_REFERENCE_HOST_MARKERS = (
+    "linkedin.com",
+    "facebook.com",
+    "instagram.com",
+    "youtube.com",
+    "x.com",
+    "twitter.com",
+    "crunchbase.com",
+    "zoominfo.com",
+    "clutch.co",
+    "yelp.com",
+    "github.com",
+)
+
+
+def _normalized_identity(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.casefold())
+
+
+def _select_reference_company_result(results: list[dict[str, Any]], *, company: str) -> str | None:
+    """Select an official-looking company host without trusting title text alone."""
+
+    company_key = _normalized_identity(company)
+    if len(company_key) < 4:
+        return None
+    for item in results:
+        url = str(item.get("url") or item.get("FirstURL") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            continue
+        host = urlparse(url).netloc.casefold().removeprefix("www.").rstrip(".")
+        if not host or any(marker in host for marker in _THIRD_PARTY_REFERENCE_HOST_MARKERS):
+            continue
+        host_key = _normalized_identity(host.split(".", 1)[0])
+        if len(host_key) >= 4 and (company_key in host_key or host_key in company_key):
+            return url
+    return None
+
+
+def _derive_business_type_relation(*, reference_company: str, page: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Extract a bounded company category only from a successful public page read."""
+
+    if not page or page.get("real") is not True or int(page.get("status_code") or 0) not in range(200, 300):
+        return None
+    raw_extraction = page.get("extraction")
+    extraction: dict[str, Any] = raw_extraction if isinstance(raw_extraction, dict) else {}
+    observed = " ".join(
+        value
+        for value in (
+            str(page.get("text_preview") or ""),
+            str(page.get("title") or ""),
+            str(extraction.get("meta_description") or ""),
+        )
+        if value.strip()
+    )
+    aliases = [reference_company]
+    title_alias = re.split(r"\s*(?:[·|]|\s[-\u2013\u2014]\s)\s*", str(page.get("title") or ""), maxsplit=1)[0].strip()
+    if 2 <= len(title_alias) <= 80 and title_alias.casefold() not in {item.casefold() for item in aliases}:
+        aliases.append(title_alias)
+    direct_patterns = tuple(
+        rf"\b{re.escape(alias)}\s+(?:is|are)\s+(?:an?\s+)?(?P<kind>.{{3,160}}?)\s+"
+        rf"(?:company|firm|business|provider|studio|agency)\b"
+        for alias in aliases
+    )
+    patterns = (
+        *direct_patterns,
+        r"\bwe\s+(?:are|build|provide)\s+(?:an?\s+)?(?P<kind>.{3,160}?)\s+(?:company|firm|business|provider|studio|agency)\b",
+        r"(?P<kind>[A-Za-z][A-Za-z0-9&+/' -]{2,120}?)\s+(?:company|firm|business|provider|studio|agency)\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, observed, flags=re.IGNORECASE)
+        if match is None:
+            continue
+        business_type = re.sub(r"\s+", " ", match.group("kind")).strip(" ,.;:-")
+        for alias in aliases:
+            business_type = re.sub(
+                rf"^(?:{re.escape(alias)}\s*(?:(?:is|are)\s+an?\s+|[-|:]\s*))",
+                "",
+                business_type,
+                flags=re.IGNORECASE,
+            ).strip()
+        if not 3 <= len(business_type) <= 120 or len(business_type.split()) > 14:
+            continue
+        if business_type.casefold() in {"a", "an", "the", "service", "services", "technology"}:
+            continue
+        return {
+            "relation": "reference_company_business_type",
+            "reference_company": reference_company,
+            "business_type": business_type,
+            "source_url": str(page.get("url") or "").strip() or None,
+            "evidence_class": "public_page_observation",
+            "confidence": 0.85,
+        }
+    return None
+
+
+def _run_public_search_phase(
+    *, queries: tuple[str, ...], limit: int, timeout_seconds: float, phase: str
+) -> tuple[list[dict[str, Any]], bool, list[str], list[dict[str, Any]], list[str]]:
+    """Run deterministic governed searches while preserving phase provenance."""
+
+    results: list[dict[str, Any]] = []
+    real = False
+    errors: list[str] = []
+    attempts: list[dict[str, Any]] = []
+    providers: list[str] = []
+    seen_urls: set[str] = set()
+    for query in tuple(dict.fromkeys(item.strip() for item in queries if item.strip())):
+        bundle = _fetch_governed_public_search(query=query, limit=limit, timeout_seconds=timeout_seconds)
+        provider = str(bundle.get("provider") or "none")
+        if provider not in providers:
+            providers.append(provider)
+        for attempt in bundle.get("attempts") or []:
+            if isinstance(attempt, dict):
+                attempts.append({"phase": phase, "query": query, **attempt})
+        for item in bundle.get("results") or []:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get("url") or item.get("FirstURL") or "").strip()
+            if url and url in seen_urls:
+                continue
+            if url:
+                seen_urls.add(url)
+            results.append(item)
+            if len(results) >= limit:
+                break
+        real = real or bool(bundle.get("real"))
+        if bundle.get("error"):
+            errors.append(str(bundle["error"]))
+        if len(results) >= limit:
+            break
+    return results, real, errors, attempts, providers
+
+
 def _first_text(*values: Any) -> str:
     """Return the first explicit non-empty text value without inventing content."""
 
@@ -313,10 +472,12 @@ def _public_candidate_is_verified(prospect: dict[str, Any]) -> bool:
 
 def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = WebResearchInput.model_validate(invocation.input)
+    relation_requirement = _relation_requirement(payload)
+    relation_required = relation_requirement is not None
     # Public-only is enforced before any tenant-owned record lookup or CRM
     # adapter invocation. This makes source eligibility a runtime boundary,
     # not a post-processing filter.
-    store = None if payload.exclude_internal_records else resolve_record_store(context)
+    store = None if payload.exclude_internal_records or relation_required else resolve_record_store(context)
     # Research targets are only what the caller supplied. Never fill a missing
     # company/domain half from the tenant profile (e.g. company=Acme must not
     # get domain=ajenda.ai). Profile is lineage-only (profile_company/profile_domain).
@@ -383,7 +544,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         # Best-effort host guess for site-scoped scrape intents (no invented TLD claims
         # beyond common patterns already present in the query).
         page_domain = _guess_domain_from_query(payload.query, company=explicit_company)
-    if payload.fetch_public_page and page_domain:
+    if payload.fetch_public_page and page_domain and not relation_required:
         web_snippet = _fetch_public_page_snippet(
             domain=page_domain,
             action_name="web.research",
@@ -395,7 +556,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     # CRM client contract requires str company; empty string means no company filter.
     crm_search = (
         CrmSearchResult(results=[], count=0, source="not_eligible", real=False)
-        if payload.exclude_internal_records
+        if payload.exclude_internal_records or relation_required
         else default_crm_client().search(
             context=context,
             company=search_company or "",
@@ -409,9 +570,17 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
     web_results: list[dict[str, Any]] = []
     search_error: str | None = None
     public_search_real = False
+    reference_lookup_real = False
+    peer_search_real = False
     side_effect = SideEffectClass.INTERNAL_READ
     public_query = (payload.query or "").strip()
     public_search_limit = payload.limit
+    provider_attempts: list[dict[str, Any]] = []
+    search_providers: list[str] = []
+    query_variants: tuple[str, ...] = ()
+    business_type_relation: dict[str, Any] | None = None
+    relation_resolution: dict[str, Any] | None = None
+    executed_search_queries: list[str] = []
     if payload.include_public_search:
         side_effect = SideEffectClass.EXTERNAL_READ
         # Public directories consume the first search slots. Overfetch a
@@ -420,57 +589,104 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         # deterministic query variants so a directory-heavy first result page
         # does not become the entire candidate universe.
         public_search_limit = min(max(payload.limit * 3, payload.limit), 50)
-        query_variants = tuple(
-            dict.fromkeys(
-                query
-                for query in (
-                    public_query,
-                    f"{public_query} official website",
-                )
-                if query.strip()
-            )
-        )
-        seen_result_urls: set[str] = set()
         search_errors: list[str] = []
-        provider_attempts: list[dict[str, Any]] = []
-        search_providers: list[str] = []
-        for query_variant in query_variants:
-            search_bundle = _fetch_governed_public_search(
-                query=query_variant,
+        if relation_requirement is not None:
+            reference_company = str(relation_requirement["reference_company"])
+            reference_url = str(relation_requirement.get("reference_domain") or payload.domain or "").strip()
+            if reference_url and "://" not in reference_url:
+                reference_url = f"https://{reference_url}"
+            if not reference_url:
+                lookup_query = f"{reference_company} official website"
+                executed_search_queries.append(lookup_query)
+                lookup_results, reference_lookup_real, errors, attempts, providers = _run_public_search_phase(
+                    queries=(lookup_query,),
+                    limit=max(payload.limit, 10),
+                    timeout_seconds=payload.timeout_seconds,
+                    phase="reference_lookup",
+                )
+                search_errors.extend(errors)
+                provider_attempts.extend(attempts)
+                search_providers.extend(provider for provider in providers if provider not in search_providers)
+                reference_url = _select_reference_company_result(lookup_results, company=reference_company) or ""
+            if reference_url:
+                web_snippet = _fetch_public_page_snippet(
+                    domain=reference_url,
+                    action_name="web.research",
+                    timeout_seconds=payload.timeout_seconds,
+                )
+                reference_lookup_real = reference_lookup_real or bool(web_snippet.get("real"))
+                business_type_relation = _derive_business_type_relation(
+                    reference_company=reference_company,
+                    page=web_snippet,
+                )
+            if business_type_relation is None:
+                if not reference_url and not reference_lookup_real:
+                    status = "reference_lookup_provider_failed"
+                    reason = "reference company lookup provider failed before an official page could be resolved"
+                elif not reference_url:
+                    status = "reference_page_unresolved"
+                    reason = "reference company official page could not be resolved"
+                elif not web_snippet or web_snippet.get("real") is not True:
+                    status = "reference_page_read_failed"
+                    reason = "reference company official page could not be read"
+                else:
+                    status = "business_type_unverified"
+                    reason = "reference company business type could not be verified"
+                relation_resolution = {
+                    "status": status,
+                    "reason": reason,
+                    "reference_company": reference_company,
+                    "reference_url": reference_url or None,
+                    "reference_lookup_real": reference_lookup_real,
+                }
+            else:
+                business_type = str(business_type_relation["business_type"])
+                public_query = f"{business_type} companies"
+                query_variants = (public_query, f"{public_query} official website")
+                executed_search_queries.extend(query_variants)
+                web_results, peer_search_real, errors, attempts, providers = _run_public_search_phase(
+                    queries=query_variants,
+                    limit=public_search_limit,
+                    timeout_seconds=payload.timeout_seconds,
+                    phase="peer_discovery",
+                )
+                search_errors.extend(errors)
+                provider_attempts.extend(attempts)
+                search_providers.extend(provider for provider in providers if provider not in search_providers)
+                reference_host = urlparse(str(business_type_relation.get("source_url") or "")).netloc.casefold()
+                reference_host = reference_host.removeprefix("www.")
+                reference_key = _normalized_identity(reference_company)
+                web_results = [
+                    item
+                    for item in web_results
+                    if urlparse(str(item.get("url") or item.get("FirstURL") or ""))
+                    .netloc.casefold()
+                    .removeprefix("www.")
+                    != reference_host
+                    and _normalized_identity(str(item.get("title") or item.get("Text") or "")) != reference_key
+                ]
+                relation_resolution = {
+                    "status": "resolved",
+                    "reason": None,
+                    "reference_company": reference_company,
+                    "reference_url": business_type_relation.get("source_url"),
+                    "reference_lookup_real": reference_lookup_real,
+                    "peer_search_real": peer_search_real,
+                }
+            public_search_real = peer_search_real
+        else:
+            query_variants = tuple(
+                dict.fromkeys(query for query in (public_query, f"{public_query} official website") if query.strip())
+            )
+            executed_search_queries.extend(query_variants)
+            web_results, public_search_real, errors, provider_attempts, search_providers = _run_public_search_phase(
+                queries=query_variants,
                 limit=public_search_limit,
                 timeout_seconds=payload.timeout_seconds,
+                phase="prospect_discovery",
             )
-            provider = str(search_bundle.get("provider") or "none")
-            if provider not in search_providers:
-                search_providers.append(provider)
-            raw_attempts = search_bundle.get("attempts")
-            if isinstance(raw_attempts, list):
-                for attempt in raw_attempts:
-                    if isinstance(attempt, dict):
-                        provider_attempts.append({"query": query_variant, **attempt})
-            raw_results = search_bundle.get("results") or []
-            if isinstance(raw_results, list):
-                for item in raw_results:
-                    if not isinstance(item, dict):
-                        continue
-                    result_url = str(item.get("url") or item.get("FirstURL") or "").strip()
-                    if result_url and result_url in seen_result_urls:
-                        continue
-                    if result_url:
-                        seen_result_urls.add(result_url)
-                    web_results.append(item)
-                    if len(web_results) >= public_search_limit:
-                        break
-            public_search_real = public_search_real or bool(search_bundle.get("real"))
-            err = search_bundle.get("error")
-            if err:
-                search_errors.append(str(err))
-            if len(web_results) >= public_search_limit:
-                break
+            search_errors.extend(errors)
         search_error = "; ".join(dict.fromkeys(search_errors)) or None
-    else:
-        provider_attempts = []
-        search_providers = []
 
     prospect_candidates: list[dict[str, Any]] = []
     internal_prospect_candidates: list[dict[str, Any]] = []
@@ -588,9 +804,12 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "crm_brain_matches": crm_search.results[: payload.limit],
         "web_results": web_results,
         "web_result_count": len(web_results),
-        "search_queries": list(query_variants) if payload.include_public_search else [],
+        "search_queries": list(dict.fromkeys(executed_search_queries)) if payload.include_public_search else [],
         "provider_attempts": provider_attempts,
         "search_providers": search_providers,
+        "relation_requirements": [relation_requirement] if relation_requirement else [],
+        "business_type_relation": business_type_relation,
+        "relation_resolution": relation_resolution,
         "rejected_public_candidates": rejected_public_candidates,
         "verified_public_candidate_count": verified_public_candidate_count,
         "source_partitions": {
@@ -615,7 +834,13 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             },
         },
         "research_gap": (
-            "public search provider failed before producing results"
+            str(relation_resolution["reason"])
+            if relation_resolution is not None and relation_resolution.get("status") != "resolved"
+            else "peer search provider failed before producing results"
+            if relation_required and not peer_search_real
+            else "peer search returned no result URLs"
+            if relation_required and not web_results
+            else "public search provider failed before producing results"
             if payload.include_public_search and not public_search_real
             else "public search returned no result URLs"
             if payload.include_public_search and not web_results
@@ -626,16 +851,25 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "valid_empty_result": (
             {
                 "classification": "valid_empty",
-                "reason": "public search completed with no result URLs",
+                "reason": (
+                    "peer search completed with no result URLs"
+                    if relation_required
+                    else "public search completed with no result URLs"
+                ),
             }
-            if payload.include_public_search and public_search_real and not web_results
+            if payload.include_public_search
+            and public_search_real
+            and not web_results
+            and (not relation_required or business_type_relation is not None)
             else None
         ),
         "web_snippet": web_snippet,
         "include_public_search": payload.include_public_search,
         "local_fixture_only": payload.local_fixture_only,
-        "exclude_internal_records": payload.exclude_internal_records,
+        "exclude_internal_records": payload.exclude_internal_records or relation_required,
         "public_search_real": public_search_real,
+        "reference_lookup_real": reference_lookup_real,
+        "peer_search_real": peer_search_real,
         "search_error": search_error,
         "access_mode": "public_search" if payload.include_public_search else "internal_research",
         "business_context_source": business_context.source,
@@ -776,36 +1010,28 @@ def research_synthesize_report(invocation: ToolInvocation, context: ActionRuntim
                 "sources": sources,
             }
         )
-    limitations = [] if rows else ["No upstream research candidates were available for synthesis."]
+    valid_empty_reasons = [
+        str(item.get("reason") or "").strip()
+        for item in payload.valid_empty_upstream
+        if isinstance(item, dict) and str(item.get("reason") or "").strip()
+    ]
+    limitations = (
+        [] if rows else valid_empty_reasons or ["No upstream research candidates were available for synthesis."]
+    )
     if any(row["identity_status"] != "verified" for row in rows):
         limitations.append("One or more result identities remain unverified search candidates.")
-    market_opportunities = [
-        {
-            "title": "Evidence-backed vertical workflow packages",
-            "type": "hypothesis",
-            "rationale": "The observed sources compare broad agent platforms; a focused, governed workflow for a specific industry is an opportunity to differentiate.",
-            "evidence_basis": "Observed comparison sources describe general platforms rather than an Ajenda-specific vertical operating model.",
-        },
-        {
-            "title": "Portable governance and audit controls",
-            "type": "hypothesis",
-            "rationale": "Governance and auditability are repeatedly identified as enterprise requirements, creating room for a portable control layer across providers.",
-            "evidence_basis": "Observed source summaries reference security, governance, auditability, or compliance as evaluation dimensions.",
-        },
-        {
-            "title": "Interoperable multi-system execution",
-            "type": "hypothesis",
-            "rationale": "A runtime that coordinates research, CRM, communications, and vertical abilities under one evidence contract can address fragmented tooling.",
-            "evidence_basis": "Observed sources compare agent frameworks and workflow builders separately; none of the supplied evidence verifies a unified Ajenda-style contract.",
-        },
-    ]
     report = {
         "objective": payload.objective,
         "comparison": rows,
-        "market_opportunities": market_opportunities,
+        # This action has no evidence model for derived market opportunities.
+        # Returning generic hypotheses here would let an empty search look
+        # commercially productive, so the report limits itself to observed
+        # comparison rows and explicitly reports the evidence gap.
+        "market_opportunities": [],
         "source_urls": sorted(set(source_urls)),
         "evidence_gaps": limitations,
         "candidate_count": len(rows),
+        "result_semantics": "valid_empty" if valid_empty_reasons and not rows else "observed_candidates",
     }
     summary = f"Synthesized an evidence-bounded research report from {len(rows)} candidate(s)."
     return ActionResult(

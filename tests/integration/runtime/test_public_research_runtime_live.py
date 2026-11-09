@@ -505,15 +505,8 @@ def test_disabled_browser_observation_fails_after_canonical_dispatch(pg_engine, 
             launched_response = client.post(f"/v1/missions/{mission_id}/launch")
             assert launched_response.status_code == 200, launched_response.text
             launched = launched_response.json()
-            assert launched["pending_review_task_ids"]
-            task_id = uuid.UUID(launched["pending_review_task_ids"][0])
-            approved = ExecutionCoordinator(setup, queue_adapter).approve_review_and_queue(
-                tenant_id=tenant_text,
-                task_id=task_id,
-                actor="human:browser-proof-reviewer",
-                approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
-            )
-            assert approved.ok is True
+            assert launched["pending_review_task_ids"] == []
+            assert launched["queued_task_ids"]
             setup.commit()
 
         runtime = WorkerRuntimeService(setup, queue_adapter)
@@ -546,10 +539,8 @@ def test_disabled_browser_observation_fails_after_canonical_dispatch(pg_engine, 
         assert task.status == ExecutionTaskState.FAILED.value
         governance = task.metadata_json["ability_governance"]
         assert governance["ability_id"] == "web-browser-session"
-        assert governance["approval_required"] is True
-        grant = task.metadata_json["execution_constraints"]["ability_authorization"]
-        assert grant["allowed_action"] == "web.browser_session"
-        assert grant["approved_by"] == "human:browser-proof-reviewer"
+        assert governance["approval_required"] is False
+        assert "ability_authorization" not in task.metadata_json.get("execution_constraints", {})
         failure = task.metadata_json.get("failure") or {}
         assert "web page observation requirements were not satisfied" in str(failure)
         lease = verify.get(WorkerLease, lease_id)
@@ -816,11 +807,10 @@ def test_provider_failure_remains_distinct_from_valid_empty_research(pg_engine, 
             for attempt in attempts
         )
         assert verifier.status == ExecutionTaskState.FAILED.value
-        assert verifier.metadata_json["failure"] == {
-            "code": "INPUT_BINDING_FAILED",
-            "retryable": False,
-            "stage": "review_approval",
-        }
+        failure = verifier.metadata_json["failure"]
+        assert failure["code"] == "HANDLER_FAILED"
+        assert "input binding failed" in failure["message"]
+        assert "no upstream prospects" in failure["message"]
     finally:
         verify.close()
 

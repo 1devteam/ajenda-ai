@@ -61,6 +61,8 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
         return "$.input.prospects"
     if action_name == "research.synthesize_report":
         return "$.input.prospects"
+    if action_name == "gtm.social_draft":
+        return "$.input.context.upstream.research_report"
     if action_name in {"vertical.finance.prepare_reconciliation", "vertical.finance.prepare_invoice_drafts"}:
         return "$.input.revenue_records"
     if action_name == "decision.recommend_next_action":
@@ -169,6 +171,8 @@ def _dependency_jobs_for_selection(
         # Public reports consume the terminal verified identity artifact, not
         # raw discovery hits. The verifier is absent for CRM-source research.
         dependencies.append("research.verify_public_candidates")
+    if job.job_key == "social.prepare_drafts" and "research.synthesize_report" in selected_keys:
+        dependencies.append("research.synthesize_report")
     if job.job_key == "sales.qualify_prospects":
         public_research = (
             intent is not None

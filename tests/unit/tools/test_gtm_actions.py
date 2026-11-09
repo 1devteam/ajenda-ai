@@ -71,6 +71,44 @@ def test_gtm_social_draft_is_non_side_effecting_and_hashes_content() -> None:
     assert result.evidence
 
 
+def test_gtm_social_draft_builds_distinct_evidence_backed_posts_from_bound_report() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="gtm.social_draft",
+            input={
+                "platform": "linkedin",
+                "content": "Pending evidence-backed LinkedIn draft",
+                "context": {
+                    "draft_count": 3,
+                    "review_only": True,
+                    "upstream": {
+                        "research_report": {
+                            "comparison": [
+                                {
+                                    "company": "1DevTeam",
+                                    "services": ["software development", "applied research"],
+                                    "differentiators": ["evidence-first delivery"],
+                                    "sources": ["https://www.1devteam.com/"],
+                                }
+                            ]
+                        }
+                    },
+                },
+            },
+        ),
+        _context(),
+    )
+
+    posts = result.output["social_drafts"]
+    assert result.side_effect_class == SideEffectClass.NONE
+    assert result.output["draft_count"] == 3
+    assert len({post["content"] for post in posts}) == 3
+    assert all(post["status"] == "draft" for post in posts)
+    assert all(post["source_urls"] == ["https://www.1devteam.com/"] for post in posts)
+    assert all(post["context"]["evidence_backed"] is True for post in posts)
+
+
 def test_gtm_lead_enrich_returns_evidence_without_side_effect() -> None:
     registry = get_default_action_registry(rebuild=True)
     result = registry.invoke(

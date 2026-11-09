@@ -53,6 +53,9 @@ class ShadowPreview(BaseModel):
     coverage_assessment: CoverageAssessment | None = None
     epistemic_context: EpistemicContext | None = None
     expected_goal_semantics: tuple[GoalSemanticSignature, ...] = Field(default=(), max_length=20)
+    # Read-only design suggestions derived from the compiled graph. These may
+    # expose useful next improvements but cannot select work or grant authority.
+    advisory_recommendations: tuple[str, ...] = Field(default=(), max_length=20)
     authority_class: Literal["read_model"] = "read_model"
     grants_execution_authority: Literal[False] = False
 
@@ -145,6 +148,35 @@ def _observed_goal_semantics(
     return tuple(observed)
 
 
+def _relation_advisories(task_graph: dict[str, Any]) -> tuple[str, ...]:
+    """Surface bounded improvements for evidence-dependent peer discovery."""
+
+    raw_nodes = task_graph.get("nodes", []) if isinstance(task_graph, dict) else []
+    if not isinstance(raw_nodes, list):
+        return ()
+    for node in raw_nodes:
+        if not isinstance(node, dict):
+            continue
+        contract = node.get("input_contract")
+        invocation = contract.get("tool_invocation") if isinstance(contract, dict) else None
+        payload = invocation.get("input") if isinstance(invocation, dict) else None
+        if not isinstance(payload, dict):
+            continue
+        requirements = payload.get("relation_requirements")
+        if not isinstance(requirements, list):
+            context = payload.get("context")
+            requirements = context.get("relation_requirements") if isinstance(context, dict) else None
+        if isinstance(requirements, list) and any(
+            isinstance(item, dict) and item.get("relation") == "reference_company_business_type"
+            for item in requirements
+        ):
+            return (
+                "Reference-company relation is compiled as anchor evidence → business type → distinct peer discovery. "
+                "Consider a durable typed relation artifact if later jobs need to reuse or independently reconcile it.",
+            )
+    return ()
+
+
 def build_shadow_preview(
     *,
     proposal_id: str,
@@ -196,6 +228,7 @@ def build_shadow_preview(
         coverage_assessment=coverage_assessment,
         epistemic_context=epistemic_context,
         expected_goal_semantics=_goal_semantics_from_task_graph(task_graph),
+        advisory_recommendations=_relation_advisories(task_graph),
     )
 
 

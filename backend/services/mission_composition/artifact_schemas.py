@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
@@ -37,6 +37,52 @@ class CompositionArtifactSchema(BaseModel):
     producer_job: str = Field(min_length=1, max_length=160)
     fields: tuple[ArtifactFieldProjection, ...] = Field(min_length=1, max_length=30)
     grants_execution_authority: Literal[False] = False
+
+
+class ResearchReportComparisonRow(BaseModel):
+    """One evidence-backed row in a synthesized public-research report."""
+
+    model_config = ConfigDict(extra="allow")
+
+    company: str = Field(min_length=1, max_length=500)
+    website: str | None = Field(default=None, max_length=2_000)
+    summary: str = Field(min_length=1, max_length=10_000)
+    product_description: str = Field(default="", max_length=10_000)
+    identity_status: str = Field(min_length=1, max_length=120)
+    sources: list[str] = Field(min_length=1, max_length=100)
+
+
+class ResearchReportPayload(BaseModel):
+    """Durable semantics for the read-only research-report action output.
+
+    The report may honestly contain no candidates, but only when the upstream
+    public-research lifecycle proved that outcome and carried its reason into
+    the artifact.  A normal observed-candidates report must instead contain
+    evidence-backed comparison rows.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    objective: str = Field(min_length=1, max_length=1_000)
+    comparison: list[ResearchReportComparisonRow] = Field(default_factory=list, max_length=100)
+    market_opportunities: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    source_urls: list[str] = Field(default_factory=list, max_length=500)
+    evidence_gaps: list[str] = Field(default_factory=list, max_length=100)
+    candidate_count: int = Field(ge=0, le=100)
+    result_semantics: Literal["observed_candidates", "valid_empty"]
+
+    @model_validator(mode="after")
+    def validate_result_semantics(self) -> ResearchReportPayload:
+        if self.candidate_count != len(self.comparison):
+            raise ValueError("candidate_count must match comparison row count")
+        if self.result_semantics == "valid_empty":
+            if self.comparison:
+                raise ValueError("valid_empty research report must not contain comparison rows")
+            if not any(gap.strip() for gap in self.evidence_gaps):
+                raise ValueError("valid_empty research report requires an evidence gap reason")
+        elif not self.comparison:
+            raise ValueError("observed_candidates research report must contain comparison rows")
+        return self
 
 
 PROSPECT_CANDIDATES_SCHEMA = CompositionArtifactSchema(
@@ -283,6 +329,18 @@ BUSINESS_REVIEW_REPORT_SCHEMA = CompositionArtifactSchema(
     ),
 )
 
+RESEARCH_REPORT_SCHEMA = CompositionArtifactSchema(
+    artifact_key="research_report",
+    producer_job="research.synthesize_report",
+    fields=(
+        ArtifactFieldProjection(deliverable_field="sources", json_path="$.source_urls", scope="whole_artifact"),
+        ArtifactFieldProjection(deliverable_field="evidence_gaps", json_path="$.evidence_gaps", scope="whole_artifact"),
+        ArtifactFieldProjection(
+            deliverable_field="research_status", json_path="$.result_semantics", scope="whole_artifact"
+        ),
+    ),
+)
+
 WEB_PAGE_OBSERVATION_SCHEMA = CompositionArtifactSchema(
     artifact_key="web_page_observation",
     producer_job="research.observe_web_page",
@@ -403,6 +461,12 @@ INTRODUCTION_DRAFTS_SCHEMA = CompositionArtifactSchema(
     ),
 )
 
+SOCIAL_DRAFTS_SCHEMA = CompositionArtifactSchema(
+    artifact_key="social_drafts",
+    producer_job="social.prepare_drafts",
+    fields=(ArtifactFieldProjection(deliverable_field="social_drafts", json_path="$[].content", scope="per_item"),),
+)
+
 INTERNAL_CRM_RECORDS_SCHEMA = CompositionArtifactSchema(
     artifact_key="internal_crm_records",
     producer_job="crm.internal_persistence",
@@ -455,11 +519,13 @@ ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
     QUALIFIED_PROSPECTS_SCHEMA.artifact_key: QUALIFIED_PROSPECTS_SCHEMA,
     REVENUE_RECORDS_SCHEMA.artifact_key: REVENUE_RECORDS_SCHEMA,
     BUSINESS_REVIEW_REPORT_SCHEMA.artifact_key: BUSINESS_REVIEW_REPORT_SCHEMA,
+    RESEARCH_REPORT_SCHEMA.artifact_key: RESEARCH_REPORT_SCHEMA,
     WEB_PAGE_OBSERVATION_SCHEMA.artifact_key: WEB_PAGE_OBSERVATION_SCHEMA,
     GOAL_PROGRESS_EVALUATION_SCHEMA.artifact_key: GOAL_PROGRESS_EVALUATION_SCHEMA,
     RESEARCHED_PROSPECTS_SCHEMA.artifact_key: RESEARCHED_PROSPECTS_SCHEMA,
     ENRICHED_PROSPECTS_SCHEMA.artifact_key: ENRICHED_PROSPECTS_SCHEMA,
     INTRODUCTION_DRAFTS_SCHEMA.artifact_key: INTRODUCTION_DRAFTS_SCHEMA,
+    SOCIAL_DRAFTS_SCHEMA.artifact_key: SOCIAL_DRAFTS_SCHEMA,
     INTERNAL_CRM_RECORDS_SCHEMA.artifact_key: INTERNAL_CRM_RECORDS_SCHEMA,
     CRM_RECORDS_SCHEMA.artifact_key: CRM_RECORDS_SCHEMA,
     PIPELINE_RECORDS_SCHEMA.artifact_key: PIPELINE_RECORDS_SCHEMA,
@@ -537,6 +603,11 @@ def validate_artifact_payload(schema: CompositionArtifactSchema, payload: Any) -
     if whole_fields:
         if not isinstance(payload, dict):
             return ("typed whole-artifact payload must be an object",)
+        if schema.artifact_key == "research_report":
+            try:
+                ResearchReportPayload.model_validate(payload)
+            except ValidationError as exc:
+                errors.extend(f"research report {error['msg']}" for error in exc.errors())
         if schema.artifact_key == "web_page_observation" and payload.get("observation_satisfied") is not True:
             errors.append("web page observation requirements were not satisfied")
         for field in whole_fields:

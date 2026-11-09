@@ -67,6 +67,53 @@ def test_interpreter_roofing_forbids_send_and_targets_austin() -> None:
     assert "identify" not in intent.target_entities[0].location.lower()
 
 
+def test_website_research_for_linkedin_posts_compiles_to_drafts_not_publish() -> None:
+    instruction = (
+        "Visit https://www.1devteam.com/ and collect details about the business to use in three LinkedIn posts."
+    )
+
+    # CI can run without optional RapidFuzz; this path must remain fully
+    # deterministic rather than depend on fuzzy phrase matching.
+    intent = interpret_instruction(instruction, fuzzy_enabled=False)
+
+    assert intent.interpretation_ready
+    assert set(intent.requested_outcomes) == {"research_prospects", "prepare_social_drafts"}
+    assert "publish_content" not in intent.requested_outcomes
+    assert intent.target_entities[0].type == "web_page"
+    assert intent.target_entities[0].url == "https://www.1devteam.com/"
+
+    jobs = route_jobs_for_intent(intent)
+    assert [job.job_key for job in jobs] == [
+        "research.discover_prospects",
+        "research.verify_public_candidates",
+        "research.synthesize_report",
+        "social.prepare_drafts",
+    ]
+    selections, missing = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    assert missing == []
+    steps = compile_planned_steps(selections, intent=intent)
+    assert [step.action_name for step in steps] == [
+        "web.research",
+        "research.verify_public_candidates",
+        "research.synthesize_report",
+        "gtm.social_draft",
+    ]
+    assert steps[0].tool_input["domain"] == "1devteam.com"
+    assert steps[0].tool_input["fetch_public_page"] is True
+
+
+def test_public_company_profile_is_not_mistaken_for_tenant_profile_context() -> None:
+    intent = interpret_instruction(
+        "Research the public website 1devteam.com and create an evidence-backed business profile for 1DevTeam. "
+        "Then prepare exactly three distinct LinkedIn post drafts based only on verified website information."
+    )
+
+    assert intent.interpretation_ready
+    assert "read_business_profile" not in intent.requested_outcomes
+    assert "business_profile" not in intent.context_requirements
+    assert set(intent.requested_outcomes) == {"research_prospects", "prepare_social_drafts"}
+
+
 def test_composition_records_semantic_and_source_eligibility_at_decision_time(monkeypatch) -> None:
     service = MissionCompositionService(db=None)
     record = service.compose(

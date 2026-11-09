@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.contracts import MissionIntent, TargetEntity
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
@@ -74,6 +76,148 @@ def test_public_web_only_constraint_excludes_internal_records_at_input_boundary(
     assert "public_web_only" in intent.context_requirements
     assert payload["include_public_search"] is True
     assert payload["exclude_internal_records"] is True
+
+
+def test_reference_company_business_category_compiles_as_evidence_requirement() -> None:
+    instruction = (
+        "Research 3 companies in the same business category as 1DevTeam. "
+        "Produce an evidence-backed comparison report. Do not contact anyone or modify external systems."
+    )
+
+    intent = interpret_instruction(instruction)
+    payload = build_action_input(action_name="web.research", intent=intent)
+
+    assert intent.interpretation_ready is True
+    assert intent.target_entities[0].name == "1DevTeam"
+    assert intent.target_entities[0].attributes == {
+        "research_mode": "related_business_type",
+        "relation": "reference_company_business_type",
+        "reference_company": "1DevTeam",
+    }
+    assert payload["company"] == "1DevTeam"
+    assert payload["fetch_public_page"] is True
+    assert payload["exclude_internal_records"] is True
+    assert payload["context"]["relation_requirements"] == [
+        {
+            "relation": "reference_company_business_type",
+            "reference_company": "1DevTeam",
+            "reference_domain": None,
+            "required_for": "prospect_search",
+            "status": "awaiting_public_evidence",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "Research 3 companies in the same business category as 1DevTeam.",
+        "Find 3 companies similar to 1DevTeam.",
+        "Discover 3 businesses like 1DevTeam.",
+        "Research 3 providers comparable to 1DevTeam.",
+        (
+            "Research 3 United States companies comparable to 1DevTeam that provide custom software development "
+            "and applied research services."
+        ),
+        "Look up 1DevTeam and find 3 prospects.",
+        "Identify 3 peers related to 1DevTeam.",
+        "Find 3 companies in the same line of business as 1DevTeam.",
+        "Research 3 alternatives to 1DevTeam.",
+        "Find 3 competitors similar to 1DevTeam.",
+    ],
+)
+def test_reference_company_directives_share_one_relation_contract(instruction: str) -> None:
+    intent = interpret_instruction(instruction)
+    payload = build_action_input(action_name="web.research", intent=intent)
+
+    assert intent.interpretation_ready is True
+    assert intent.target_entities[0].attributes["relation"] == "reference_company_business_type"
+    assert payload["relation_requirements"][0]["reference_company"] == "1DevTeam"
+    assert payload["exclude_internal_records"] is True
+
+
+def test_reference_company_url_becomes_relation_domain_not_generic_page() -> None:
+    intent = interpret_instruction("Look up https://www.1devteam.com/about and find 3 prospects.")
+    payload = build_action_input(action_name="web.research", intent=intent)
+
+    assert intent.interpretation_ready is True
+    assert intent.target_entities[0].type == "company"
+    assert intent.target_entities[0].domain == "1devteam.com"
+    assert payload["domain"] == "1devteam.com"
+    assert payload["relation_requirements"][0]["reference_domain"] == "1devteam.com"
+
+
+def test_full_reference_company_report_mission_does_not_invent_crm_write() -> None:
+    instruction = (
+        "Research 3 companies in the same business category as 1DevTeam. "
+        "Produce a report covering company identity, services, industries, differentiators, locations, "
+        "public contact links, evidence sources, confidence, and any unverifiable claims. "
+        "Create a recommended next step for each company. Do not contact or modify external systems."
+    )
+
+    intent = interpret_instruction(instruction)
+
+    assert intent.interpretation_ready is True
+    assert "research_prospects" in intent.requested_outcomes
+    assert "synthesize_research_report" in intent.requested_outcomes
+    assert "update_crm" not in intent.requested_outcomes
+    assert "persist_internal_crm" not in intent.requested_outcomes
+
+    record = MissionCompositionService(db=None).compose(tenant_id="tenant", instruction=instruction)
+    assert record.ready_to_start is True
+    assert record.clarifications == []
+    research = next(step for step in record.planned_steps if step.action_name == "web.research")
+    assert research.compile_gap is None
+    assert research.tool_input["relation_requirements"][0]["reference_company"] == "1DevTeam"
+    assert [step.action_name for step in record.planned_steps] == [
+        "web.research",
+        "research.verify_public_candidates",
+        "research.synthesize_report",
+    ]
+
+
+def test_website_research_to_linkedin_drafts_compiles_complete_non_publish_graph() -> None:
+    instruction = (
+        "Research the public website 1devteam.com and create exactly three distinct LinkedIn post drafts "
+        "based only on verified website information. Include supporting source links. "
+        "Save the posts as drafts for review; do not publish them."
+    )
+
+    intent = interpret_instruction(instruction)
+    record = MissionCompositionService(db=None).compose(tenant_id="tenant", instruction=instruction)
+
+    assert intent.interpretation_ready is True
+    assert intent.requested_quantity == 3
+    assert "prepare_social_drafts" in intent.requested_outcomes
+    assert "publish_content" not in intent.requested_outcomes
+    assert "gtm.social_publish" in intent.forbidden_actions
+    assert record.ready_to_start is True
+    assert record.clarifications == []
+    assert intent.target_entities[0].type == "web_page"
+    assert intent.target_entities[0].url == "1devteam.com"
+    assert [step.action_name for step in record.planned_steps] == [
+        "web.research",
+        "research.verify_public_candidates",
+        "research.synthesize_report",
+        "gtm.social_draft",
+    ]
+    research_step = record.planned_steps[0]
+    assert research_step.tool_input["company"] == "1devteam.com"
+    assert research_step.tool_input["domain"] == "1devteam.com"
+    assert research_step.tool_input["query"] == "1devteam.com official website"
+    assert research_step.tool_input["fetch_public_page"] is True
+    social_step = record.planned_steps[-1]
+    assert social_step.depends_on == ["ability-research-synthesize_report"]
+    assert social_step.input_bindings == [
+        {
+            "from_step": "ability-research-synthesize_report",
+            "output_path": "$.research_report",
+            "to_step": "ability-gtm-social_draft",
+            "input_path": "$.input.context.upstream.research_report",
+        }
+    ]
+    assert social_step.tool_input["context"]["review_only"] is True
+    assert social_step.tool_input["context"]["draft_count"] == 3
 
 
 def test_unsupported_local_fixture_scope_is_a_compile_gap() -> None:

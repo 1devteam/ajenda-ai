@@ -22,3 +22,11 @@ def test_initial_migration_contains_real_foreign_keys() -> None:
     assert '["mission_id"], ["missions.id"]' in migration
     assert '["task_id"], ["execution_tasks.id"]' in migration
     assert '["worker_lease_id"], ["worker_leases.id"]' in migration
+
+
+def test_audit_event_rls_migration_forces_tenant_isolation() -> None:
+    migration = Path("alembic/versions/0064_force_audit_event_rls.py").read_text(encoding="utf-8")
+    assert "ENABLE ROW LEVEL SECURITY" in migration
+    assert "FORCE ROW LEVEL SECURITY" in migration
+    assert "tenant_audit_event_isolation" in migration
+    assert "current_setting('app.current_tenant_id', true)" in migration

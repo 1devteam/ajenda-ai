@@ -169,6 +169,30 @@ def test_runtime_contract_nodes_are_reported_as_semantic() -> None:
     }
 
 
+def test_business_relation_contract_is_reported_as_semantic() -> None:
+    graph = _graph()
+    graph["nodes"].append(
+        {
+            "id": "relation:reference_company_business_type",
+            "type": "semantic_relation_contract",
+            "source": "backend/relation_schema.py",
+            "label": "reference_company_business_type",
+        }
+    )
+    graph["edges"].append(
+        {
+            "from": "py:c",
+            "to": "relation:reference_company_business_type",
+            "type": "resolves_relation",
+            "evidence": "backend/c.py",
+        }
+    )
+
+    report = MODULE.analyze_impact(graph, ["backend/c.py"])
+
+    assert "relation:reference_company_business_type" in {item["id"] for item in report["dependency_semantic_nodes"]}
+
+
 def test_unmapped_paths_are_preserved_for_review() -> None:
     report = MODULE.analyze_impact(_graph(), ["README.md"])
 

@@ -84,6 +84,19 @@ def build_communications_action_input(*, action_name: str, intent: MissionIntent
         }
     if action_name == "gtm.email_check":
         return {"query": _gmail_query(intent), "limit": max(limit, 10)}
+    if action_name == "gtm.social_draft":
+        return {
+            "platform": "linkedin",
+            "content": "Pending evidence-backed LinkedIn draft",
+            "context": {
+                "objective": intent.objective[:1000],
+                "draft_count": max(1, min(limit, 20)),
+                "binding_required": True,
+                "binding_source": "upstream_research_report",
+                "source_policy": "verified_website_information_only",
+                "review_only": True,
+            },
+        }
     if action_name == "gtm.social_publish":
         # Build a schema-valid publish payload; never leave content empty.
         objective = (intent.objective or "").strip()

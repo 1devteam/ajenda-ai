@@ -48,3 +48,7 @@ def test_platform_master_ready_for_email() -> None:
     )
     assert platform_master_ready_for(provider="external_email", integration="smtp", settings=settings) is True
     assert platform_master_ready_for(provider="external_email", integration="gmail", settings=settings) is False
+
+
+def test_hubspot_platform_master_auto_provision_defaults_to_disabled() -> None:
+    assert Settings.model_fields["hubspot_platform_master_auto_provision"].default is False

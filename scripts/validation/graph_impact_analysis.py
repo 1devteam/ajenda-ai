@@ -30,6 +30,7 @@ SEMANTIC_NODE_TYPES = frozenset(
         "runtime_input",
         "runtime_action",
         "runtime_action_selection",
+        "semantic_relation_contract",
         "security_boundary",
         "external_service",
         "database_table",

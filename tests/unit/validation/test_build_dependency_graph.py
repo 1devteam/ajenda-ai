@@ -33,6 +33,23 @@ def test_graph_contains_static_semantic_and_test_layers() -> None:
     assert "runtime-secret-boundary" in invariant_ids
 
 
+def test_graph_maps_reference_company_relation_across_owners() -> None:
+    graph = MODULE.build_graph()
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    edges = {(edge["from"], edge["to"], edge["type"]) for edge in graph["edges"]}
+    relation = "relation:reference_company_business_type"
+
+    assert nodes[relation]["type"] == "semantic_relation_contract"
+    assert (
+        "py:backend.services.mission_composition.interpretation.rule_engine",
+        relation,
+        "produces_relation",
+    ) in edges
+    assert ("py:backend.services.tools.standalone_actions", relation, "resolves_relation") in edges
+    assert ("action:web.research", relation, "requires_relation_resolution") in edges
+    assert (relation, "artifact:prospect_candidates", "constrains_artifact") in edges
+
+
 def test_graph_maps_frontier_template_as_governance_input() -> None:
     graph = MODULE.build_graph()
     node_ids = {node["id"] for node in graph["nodes"]}

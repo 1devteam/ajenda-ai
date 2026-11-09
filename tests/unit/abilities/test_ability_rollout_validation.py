@@ -83,13 +83,16 @@ def test_approval_required_manifest_cannot_be_enabled_by_default() -> None:
         )
 
 
-def test_external_read_manifest_requires_approval_and_cannot_be_enabled_by_default() -> None:
-    with pytest.raises(ValueError, match="external abilities require approval_required"):
-        _manifest(side_effect_class=SideEffectClass.EXTERNAL_READ)
+def test_external_read_manifest_may_run_without_review_but_cannot_be_enabled_by_default() -> None:
+    manifest = _manifest(side_effect_class=SideEffectClass.EXTERNAL_READ)
+
+    assert manifest.approval_required is False
+
+    with pytest.raises(ValueError, match="read-only abilities must not require"):
+        _manifest(side_effect_class=SideEffectClass.EXTERNAL_READ, approval_required=True)
 
     with pytest.raises(ValueError, match="external abilities cannot be enabled by default"):
         _manifest(
             side_effect_class=SideEffectClass.EXTERNAL_READ,
-            approval_required=True,
             enabled_by_default=True,
         )

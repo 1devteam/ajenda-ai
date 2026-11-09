@@ -395,7 +395,7 @@ Root (unversioned): `/health`, `/readiness`
 
 ## 9. Database migrations (Alembic head)
 
-**Head revision:** `0063_evidence_logical_identity`
+**Head revision:** `0064_force_audit_event_rls`
 
 | Rev | Description |
 |-----|-------------|

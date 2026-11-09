@@ -31,7 +31,7 @@ def test_manifest_governance_snapshot_is_policy_only() -> None:
     snapshot = manifest_governance_snapshot(manifest)
 
     assert snapshot["ability_id"] == "web-browser-session"
-    assert snapshot["approval_required"] is True
+    assert snapshot["approval_required"] is False
     assert snapshot["side_effect_class"] == "external_read"
     assert snapshot["manifest_fingerprint"] == manifest_fingerprint(manifest)
     assert "url" not in snapshot

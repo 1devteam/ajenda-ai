@@ -256,6 +256,11 @@ class ResearchReportInput(BaseModel):
     objective: str = Field(min_length=1, max_length=1000)
     prospects: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
     binding_required: bool = False
+    # A completed public-research producer may establish that no candidates
+    # were observed.  This is not an authorization bypass: it carries the
+    # durable producer reason into a read-only report so the report can state
+    # an honest valid-empty outcome.
+    valid_empty_upstream: list[dict[str, str]] = Field(default_factory=list, max_length=10)
 
 
 class FollowupDraftInput(BaseModel):
@@ -553,6 +558,18 @@ class GtmSocialDraftInput(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
 
 
+class WebResearchRelationRequirement(BaseModel):
+    """Evidence dependency that must be resolved before prospect discovery."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    relation: Literal["reference_company_business_type"]
+    reference_company: str = Field(min_length=2, max_length=240)
+    reference_domain: str | None = Field(default=None, max_length=255)
+    required_for: Literal["prospect_search"] = "prospect_search"
+    status: Literal["awaiting_public_evidence"] = "awaiting_public_evidence"
+
+
 class WebResearchInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -566,6 +583,11 @@ class WebResearchInput(BaseModel):
     # Restrictive source policy. When set, the handler must not query
     # tenant-owned record stores or CRM adapters for candidate material.
     exclude_internal_records: bool = False
+    relation_requirements: list[WebResearchRelationRequirement] = Field(default_factory=list, max_length=5)
+    # Compatibility for mission graphs composed before relation_requirements
+    # became a first-class web.research input. Runtime normalizes this field
+    # but never treats arbitrary context values as execution authority.
+    context: dict[str, Any] = Field(default_factory=dict)
     limit: int = Field(default=5, ge=1, le=20)
     timeout_seconds: float = Field(default=5.0, ge=0.5, le=10.0)
 

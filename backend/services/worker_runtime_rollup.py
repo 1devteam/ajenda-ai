@@ -151,6 +151,50 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
     if recovered_dependents:
         service._session.flush()
 
+    # A claimed task whose prerequisites are unfinished is returned to the
+    # durable queued state without immediate queue re-publication. Otherwise a
+    # dependent at the head of the queue can repeatedly reclaim and defer,
+    # starving the prerequisite it is waiting for. Once this terminal task
+    # completes, re-admit every now-ready deferred dependent through the same
+    # durable dispatch record used for retries.
+    redispatched_dependents: list[ExecutionTask] = []
+    for item in siblings:
+        if item.status != ExecutionTaskState.QUEUED.value:
+            continue
+        metadata = item.metadata_json if isinstance(item.metadata_json, dict) else {}
+        deferral = metadata.get("dependency_deferral")
+        dependencies = metadata.get("dependency_keys")
+        if not isinstance(deferral, dict) or not isinstance(dependencies, list) or not dependencies:
+            continue
+        dependency_tasks = [node_tasks.get(str(key)) for key in dependencies]
+        if not dependency_tasks or any(
+            dependency is None or dependency.status != ExecutionTaskState.COMPLETED.value
+            for dependency in dependency_tasks
+        ):
+            continue
+        restored_metadata = dict(metadata)
+        restored_metadata.pop("dependency_deferral", None)
+        restored_metadata["dependency_redispatched_at"] = datetime.now(UTC).isoformat()
+        item.metadata_json = restored_metadata
+        service._dispatches.retry(task=item)
+        redispatched_dependents.append(item)
+        service._audit.append(
+            AuditEvent(
+                tenant_id=item.tenant_id,
+                mission_id=item.mission_id,
+                category="execution_task",
+                action="dependency_redispatched",
+                actor=worker_id,
+                details=f"Task {item.id} re-dispatched after all dependencies completed.",
+                payload_json={
+                    "task_id": str(item.id),
+                    "dependency_keys": [str(key) for key in dependencies],
+                },
+            )
+        )
+    if redispatched_dependents:
+        service._session.flush()
+
     open_tasks = [item for item in siblings if item.status not in _TERMINAL_TASK_STATES]
     # A failed graph node makes every still-open dependent node impossible.
     # Terminalize those descendants now so missions cannot remain running

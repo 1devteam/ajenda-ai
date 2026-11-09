@@ -169,7 +169,7 @@ def test_resolver_backed_action_requires_max_side_effect_class() -> None:
         action_name="http.request",
         provider="http",
         side_effect_class=SideEffectClass.EXTERNAL_READ,
-        approval_required=True,
+        approval_required=False,
         required_permissions=[],
         required_tools=[],
     )

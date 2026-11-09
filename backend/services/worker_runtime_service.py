@@ -360,11 +360,41 @@ class WorkerRuntimeService:
                     self._session.flush()
                     savepoint.commit()
                     self._session.commit()
-                    self._queue.release_lease(
+                    # A dependency deferral consumes this delivery. Releasing
+                    # the queue lease would immediately re-publish the same
+                    # payload, allowing a dependent at the head of the queue
+                    # to repeatedly reclaim itself and starve its prerequisite.
+                    # The rollup re-arms the durable dispatch only after every
+                    # dependency has reached a completed terminal state.
+                    deferred = self._queue.complete_task(
                         tenant_id=tenant_id,
                         task_id=task.id,
                         worker_id=worker_id,
                     )
+                    if not deferred.ok:
+                        logger.error(
+                            "dependency_deferral_queue_cleanup_failed",
+                            extra={
+                                "task_id": str(task.id),
+                                "worker_id": worker_id,
+                                "reason": deferred.reason,
+                            },
+                        )
+                        self._audit.append(
+                            AuditEvent(
+                                tenant_id=tenant_id,
+                                mission_id=task.mission_id,
+                                category="execution_task",
+                                action="dependency_deferral_queue_cleanup_failed",
+                                actor=worker_id,
+                                details="Deferred task retained its claimed queue payload after cleanup failed.",
+                                payload_json={
+                                    "task_id": str(task.id),
+                                    "reason": deferred.reason,
+                                },
+                            )
+                        )
+                        self._session.commit()
                     return None
 
             savepoint.commit()

@@ -30,6 +30,20 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
                 "web.research requires industry, location, named company, or competitor set; refusing placeholder query"
             )
         entity = intent.target_entities[0] if intent.target_entities else None
+        attrs = entity.attributes if entity and isinstance(entity.attributes, dict) else {}
+        relation_requirements: list[dict[str, Any]] = []
+        if entity is not None and attrs.get("relation") == "reference_company_business_type":
+            reference_company = str(attrs.get("reference_company") or entity.name or "").strip()
+            if reference_company:
+                relation_requirements.append(
+                    {
+                        "relation": "reference_company_business_type",
+                        "reference_company": reference_company,
+                        "reference_domain": entity.domain or None,
+                        "required_for": "prospect_search",
+                        "status": "awaiting_public_evidence",
+                    }
+                )
         source = _instruction_text(intent)
         research_query = _compact_research_query(intent)
         # Prefer structured industry/location phrasing when both present.
@@ -39,10 +53,9 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
             audience = str(entity.attributes.get("target_audience") or "").strip()
             if audience and not entity.name:
                 research_query = f"{entity.industry} companies serving {audience}"
-        extracted_company = (
-            entity.name.strip() if entity and entity.name else None
-        ) or _extract_company_from_instruction(source)
         domain = entity.domain if entity and entity.domain else None
+        if domain is None and entity and entity.url:
+            domain = entity.url
         if domain is None and entity and isinstance(entity.attributes, dict):
             for key in ("domain", "website", "url"):
                 raw = entity.attributes.get(key)
@@ -53,9 +66,22 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
             from urllib.parse import urlparse
 
             domain = urlparse(domain).netloc.removeprefix("www.") or domain
+        if isinstance(domain, str) and domain:
+            domain = domain.split("/", 1)[0].removeprefix("www.")
+        extracted_company = (
+            (entity.name.strip() if entity and entity.name else None)
+            or domain
+            or _extract_company_from_instruction(source)
+        )
+        if entity and entity.type == "web_page" and domain:
+            research_query = f"{domain} official website"
         scrape_intent = bool(_SCRAPE_SITE_RE.search(source))
-        # Site-scoped research when user asked to scrape/visit a website and we have a host.
-        fetch_public_page = bool(scrape_intent and domain)
+        # Site-scoped research when user explicitly names a webpage/URL, or
+        # asks to scrape/visit a website with a host. A typed web_page entity
+        # is stronger evidence than verb matching: "Visit https://..." must
+        # fetch that site even though it does not also say the word "website".
+        site_scoped_entity = bool(entity and entity.type == "web_page" and domain)
+        fetch_public_page = bool(site_scoped_entity or (scrape_intent and domain) or relation_requirements)
         # When scrape intent names a company but no host yet, still flag fetch so the
         # handler can use an explicit host from the query if present.
         if scrape_intent and extracted_company and not domain:
@@ -82,7 +108,11 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
             "local_fixture_only": internal_only,
             # Ordinary hybrid research may consult both partitions. An
             # explicit public-only mission must not read tenant/CRM records.
-            "exclude_internal_records": public_web_only,
+            "exclude_internal_records": public_web_only or bool(relation_requirements),
+            "relation_requirements": relation_requirements,
+            # Persisted pre-contract mission graphs used this compatibility
+            # envelope. Keep emitting it until those graphs age out.
+            "context": {"relation_requirements": relation_requirements} if relation_requirements else {},
             "limit": limit,
         }
     if action_name == "web.search":

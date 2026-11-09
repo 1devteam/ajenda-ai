@@ -76,6 +76,327 @@ def test_public_search_directory_hits_are_forwarded_only_to_observation(monkeypa
     assert result.output["public_prospect_candidates"][0]["evidence_class"] == "public_candidate_unverified"
 
 
+def test_relation_research_resolves_reference_page_before_peer_search(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    queries: list[str] = []
+
+    def search(**kwargs):  # type: ignore[no-untyped-def]
+        query = str(kwargs["query"])
+        queries.append(query)
+        if query == "1DevTeam official website":
+            return {
+                "provider": "duckduckgo_html",
+                "results": [
+                    {
+                        "title": "1DevTeam · Software development and applied R&D",
+                        "url": "https://www.1devteam.com/",
+                        "snippet": "Software development and applied research.",
+                        "real": True,
+                    }
+                ],
+                "real": True,
+                "error": None,
+                "attempts": [{"provider": "duckduckgo_html", "outcome": "results", "result_count": 1}],
+            }
+        assert query.startswith("software development and applied R&D companies")
+        return {
+            "provider": "duckduckgo_html",
+            "results": [
+                {
+                    "title": "1DevTeam",
+                    "url": "https://www.1devteam.com/about",
+                    "snippet": "Reference company",
+                    "real": True,
+                },
+                {
+                    "title": "Peer One",
+                    "url": "https://peer-one.example/",
+                    "snippet": "Software development and applied R&D services.",
+                    "real": True,
+                },
+                {
+                    "title": "Peer Two",
+                    "url": "https://peer-two.example/",
+                    "snippet": "Applied software research company.",
+                    "real": True,
+                },
+                {
+                    "title": "Peer Three",
+                    "url": "https://peer-three.example/",
+                    "snippet": "Software systems and R&D services.",
+                    "real": True,
+                },
+            ],
+            "real": True,
+            "error": None,
+            "attempts": [{"provider": "duckduckgo_html", "outcome": "results", "result_count": 4}],
+        }
+
+    monkeypatch.setattr(standalone_actions, "_fetch_governed_public_search", search)
+    monkeypatch.setattr(
+        standalone_actions,
+        "_fetch_public_page_snippet",
+        lambda **_kwargs: {
+            "url": "https://www.1devteam.com/",
+            "status_code": 200,
+            "title": "1DevTeam · Software development and applied R&D",
+            "text_preview": "1DevTeam is a software development and applied R&D company building dependable systems.",
+            "body_preview": "",
+            "body_truncated": False,
+            "real": True,
+            "error": None,
+            "access_mode": "page_read",
+            "extraction": {"meta_description": "Software development and applied R&D company."},
+        },
+    )
+
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="web.research",
+            input={
+                "query": "1DevTeam",
+                "company": "1DevTeam",
+                "fetch_public_page": True,
+                "include_public_search": True,
+                "exclude_internal_records": True,
+                "limit": 3,
+                "context": {
+                    "relation_requirements": [
+                        {
+                            "relation": "reference_company_business_type",
+                            "reference_company": "1DevTeam",
+                            "reference_domain": None,
+                            "required_for": "prospect_search",
+                        }
+                    ]
+                },
+            },
+        ),
+        _context(),
+    )
+
+    relation = result.output["business_type_relation"]
+    assert relation["reference_company"] == "1DevTeam"
+    assert relation["business_type"] == "software development and applied R&D"
+    assert relation["source_url"] == "https://www.1devteam.com/"
+    assert queries[0] == "1DevTeam official website"
+    assert queries[1].startswith("software development and applied R&D companies")
+    assert len(result.output["prospect_candidates"]) == 3
+    assert all(item["domain"] != "1devteam.com" for item in result.output["prospect_candidates"])
+    assert {item["company"] for item in result.output["prospect_candidates"]} == {
+        "Peer One",
+        "Peer Two",
+        "Peer Three",
+    }
+    assert {item["phase"] for item in result.output["provider_attempts"]} == {
+        "reference_lookup",
+        "peer_discovery",
+    }
+
+
+def test_relation_research_does_not_promote_lookup_hits_without_category_evidence(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    monkeypatch.setattr(
+        standalone_actions,
+        "_fetch_governed_public_search",
+        lambda **_kwargs: {
+            "provider": "duckduckgo_html",
+            "results": [
+                {
+                    "title": "People named 1DevTeam",
+                    "url": "https://linkedin.com/search/results/companies/?keywords=1devteam",
+                    "snippet": "Directory results",
+                    "real": True,
+                }
+            ],
+            "real": True,
+            "error": None,
+            "attempts": [{"provider": "duckduckgo_html", "outcome": "results", "result_count": 1}],
+        },
+    )
+    monkeypatch.setattr(
+        standalone_actions,
+        "_fetch_public_page_snippet",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("directory hit must not be fetched as official")),
+    )
+
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="web.research",
+            input={
+                "query": "1DevTeam",
+                "company": "1DevTeam",
+                "fetch_public_page": True,
+                "include_public_search": True,
+                "exclude_internal_records": True,
+                "context": {
+                    "relation_requirements": [
+                        {
+                            "relation": "reference_company_business_type",
+                            "reference_company": "1DevTeam",
+                            "reference_domain": None,
+                            "required_for": "prospect_search",
+                        }
+                    ]
+                },
+            },
+        ),
+        _context(),
+    )
+
+    assert result.output["business_type_relation"] is None
+    assert result.output["prospect_candidates"] == []
+    assert result.output["research_gap"] == "reference company official page could not be resolved"
+    assert result.output["relation_resolution"] == {
+        "status": "reference_page_unresolved",
+        "reason": "reference company official page could not be resolved",
+        "reference_company": "1DevTeam",
+        "reference_url": None,
+        "reference_lookup_real": True,
+    }
+
+
+def test_relation_research_valid_empty_requires_resolved_category_and_real_peer_search(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    def search(**kwargs):  # type: ignore[no-untyped-def]
+        query = str(kwargs["query"])
+        if query == "1DevTeam official website":
+            results = [{"title": "1DevTeam", "url": "https://1devteam.com/", "real": True}]
+        else:
+            results = []
+        return {
+            "provider": "duckduckgo_html",
+            "results": results,
+            "real": True,
+            "error": None,
+            "attempts": [{"provider": "duckduckgo_html", "outcome": "results", "result_count": len(results)}],
+        }
+
+    monkeypatch.setattr(standalone_actions, "_fetch_governed_public_search", search)
+    monkeypatch.setattr(
+        standalone_actions,
+        "_fetch_public_page_snippet",
+        lambda **_kwargs: {
+            "url": "https://1devteam.com/",
+            "status_code": 200,
+            "title": "1DevTeam",
+            "text_preview": "1DevTeam is a software development and applied R&D company.",
+            "body_preview": "",
+            "body_truncated": False,
+            "real": True,
+            "error": None,
+            "access_mode": "page_read",
+            "extraction": {},
+        },
+    )
+
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="web.research",
+            input={
+                "query": "1DevTeam",
+                "company": "1DevTeam",
+                "include_public_search": True,
+                "relation_requirements": [
+                    {
+                        "relation": "reference_company_business_type",
+                        "reference_company": "1DevTeam",
+                    }
+                ],
+                "limit": 3,
+            },
+        ),
+        _context(),
+    )
+
+    assert result.output["business_type_relation"]["business_type"] == "software development and applied R&D"
+    assert result.output["peer_search_real"] is True
+    assert result.output["prospect_candidates"] == []
+    assert result.output["research_gap"] == "peer search returned no result URLs"
+    assert result.output["valid_empty_result"] == {
+        "classification": "valid_empty",
+        "reason": "peer search completed with no result URLs",
+    }
+
+
+def test_relation_research_reports_failed_explicit_reference_page_without_peer_search(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    monkeypatch.setattr(
+        standalone_actions,
+        "_fetch_governed_public_search",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("peer search must wait for category evidence")),
+    )
+    monkeypatch.setattr(
+        standalone_actions,
+        "_fetch_public_page_snippet",
+        lambda **_kwargs: {
+            "url": "https://1devteam.com/",
+            "status_code": None,
+            "title": "",
+            "text_preview": "",
+            "body_preview": "",
+            "body_truncated": False,
+            "real": False,
+            "error": "timeout",
+            "access_mode": "page_read",
+            "extraction": {},
+        },
+    )
+
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="web.research",
+            input={
+                "query": "1DevTeam",
+                "company": "1DevTeam",
+                "domain": "1devteam.com",
+                "include_public_search": True,
+                "relation_requirements": [
+                    {
+                        "relation": "reference_company_business_type",
+                        "reference_company": "1DevTeam",
+                        "reference_domain": "1devteam.com",
+                    }
+                ],
+            },
+        ),
+        _context(),
+    )
+
+    assert result.output["reference_lookup_real"] is False
+    assert result.output["search_queries"] == []
+    assert result.output["relation_resolution"]["status"] == "reference_page_read_failed"
+    assert result.output["research_gap"] == "reference company official page could not be read"
+    assert result.output["prospect_candidates"] == []
+
+
+def test_relation_category_uses_page_identity_alias_for_domain_anchor() -> None:
+    from backend.services.tools.standalone_actions import _derive_business_type_relation
+
+    relation = _derive_business_type_relation(
+        reference_company="1devteam.com",
+        page={
+            "url": "https://1devteam.com/",
+            "status_code": 200,
+            "real": True,
+            "title": "1DevTeam · Software development and applied R&D",
+            "text_preview": (
+                "1DevTeam is a software development and applied R&D company that works alongside AI "
+                "to solve difficult software and systems problems."
+            ),
+            "extraction": {"meta_description": "1DevTeam is a software development and applied R&D company."},
+        },
+    )
+
+    assert relation is not None
+    assert relation["reference_company"] == "1devteam.com"
+    assert relation["business_type"] == "software development and applied R&D"
+
+
 def test_web_research_matches_market_tokens_on_tenant_accounts(monkeypatch) -> None:
     from backend.services.tools import standalone_actions
 
