@@ -46,6 +46,17 @@ Ajenda AI production deployments must not rely on development defaults.
 | `AJENDA_SIGNUP_REQUIRE_IDEMPOTENCY_KEY` | no | no | Defaults to true in production when unset. |
 | `AJENDA_CORS_ALLOWED_ORIGINS` | yes | no | Comma-separated origins when customer frontend is deployed. |
 
+## Disposable proof-account credentials
+
+`tmp/ajenda-disposable-account.env` is a local-only credential file for a
+disposable proof account. It is explicitly ignored as defense in depth and
+must never be committed, copied into a release image, uploaded with release
+artifacts, or used by a production deployment.
+
+Before a product release, discard the file and retire or rotate the associated
+disposable account credentials. The ignore rule prevents an accidental Git
+addition; it does not revoke credentials or make an existing copy safe.
+
 ## Stripe and onboarding
 
 Production startup (`Settings.validate_runtime_contract`) rejects:

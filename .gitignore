@@ -39,6 +39,8 @@ pytestdebug.log
 *.log
 logs/
 tmp/
+# Disposable operator-proof account credentials are local-only and must never ship.
+/tmp/ajenda-disposable-account.env
 temp/
 *.pid
 *.pid.lock
