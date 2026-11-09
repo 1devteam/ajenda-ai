@@ -3,8 +3,10 @@ import pytest
 from backend.services.ontology.algorithms import (
     ALGORITHM_REGISTRY,
     AlgorithmResult,
+    evaluate_business_identity_verification,
     evaluate_composition_algorithms,
     evaluate_duplicate_identity_resolution,
+    evaluate_lead_fit_score,
     evaluate_runtime_artifact_completeness,
     evaluate_service_area_match,
     validate_composition_algorithm_results,
@@ -39,6 +41,51 @@ def test_duplicate_identity_algorithm_groups_stable_identifiers() -> None:
     )
     assert result.output["duplicate_groups"] == [["a", "b"]]
     assert result.confidence == 1.0
+
+
+def test_business_identity_verification_requires_two_source_backed_observations() -> None:
+    insufficient = evaluate_business_identity_verification(
+        [{"name": "Acme HVAC", "domain": "acme.example", "evidence_ref": "page:one"}]
+    )
+    verified = evaluate_business_identity_verification(
+        [
+            {"name": "Acme HVAC", "domain": "acme.example", "evidence_ref": "page:one"},
+            {"name": "ACME HVAC", "domain": "acme.example", "evidence_ref": "registry:one"},
+        ]
+    )
+
+    assert insufficient.status == "insufficient_evidence"
+    assert insufficient.output["verified"] is False
+    assert verified.status == "evaluated"
+    assert verified.output["verified"] is True
+    assert verified.evidence_refs == ("page:one", "registry:one")
+
+
+def test_business_identity_verification_reports_source_backed_conflicts() -> None:
+    result = evaluate_business_identity_verification(
+        [
+            {"name": "Acme HVAC", "domain": "acme.example", "evidence_ref": "page:one"},
+            {"name": "Other HVAC", "domain": "other.example", "evidence_ref": "registry:one"},
+        ]
+    )
+
+    assert result.status == "conflict"
+    assert result.output["verified"] is False
+    assert set(result.output["conflicting_fields"]) == {"name", "domain"}
+
+
+def test_lead_fit_uses_only_explicit_source_backed_signals() -> None:
+    result = evaluate_lead_fit_score(
+        signals={"industry_match": True, "service_area_match": False, "budget_confirmed": True},
+        evidence_refs_by_signal={"industry_match": "candidate:industry", "service_area_match": "candidate:location"},
+        weights={"industry_match": 2.0, "service_area_match": 1.0, "budget_confirmed": 3.0},
+    )
+
+    assert result.status == "evaluated"
+    assert result.output["lead_fit_score"] == pytest.approx(66.67)
+    assert result.output["evidence_coverage"] == pytest.approx(0.5)
+    assert result.output["unknown_signals"] == ["budget_confirmed"]
+    assert result.evidence_refs == ("candidate:industry", "candidate:location")
 
 
 def test_service_area_algorithm_fails_closed_without_inputs() -> None:

@@ -187,6 +187,13 @@ class Settings(BaseSettings):
     llm_model: str = Field(default="gpt-4o-mini", alias="AJENDA_LLM_MODEL")
     llm_timeout_seconds: float = Field(default=30.0, alias="AJENDA_LLM_TIMEOUT_SECONDS")
 
+    # Semantic retrieval is opt-in.  Without this explicit provider contract,
+    # retrieval remains deterministic lexical hashing and is labelled as such.
+    embedding_api_key: str | None = Field(default=None, alias="AJENDA_EMBEDDING_API_KEY")
+    embedding_base_url: str = Field(default="https://api.openai.com/v1", alias="AJENDA_EMBEDDING_BASE_URL")
+    embedding_model: str = Field(default="text-embedding-3-small", alias="AJENDA_EMBEDDING_MODEL")
+    embedding_timeout_seconds: float = Field(default=30.0, alias="AJENDA_EMBEDDING_TIMEOUT_SECONDS")
+
     # --- Platform email lane (Phase 3 perform) ---
     email_platform_master_key_enabled: bool = Field(
         default=False,
@@ -402,6 +409,10 @@ class Settings(BaseSettings):
     @property
     def llm_ready(self) -> bool:
         return bool(self.llm_api_key and str(self.llm_api_key).strip())
+
+    @property
+    def embedding_ready(self) -> bool:
+        return bool(self.embedding_api_key and str(self.embedding_api_key).strip())
 
     @property
     def email_platform_master_ready(self) -> bool:

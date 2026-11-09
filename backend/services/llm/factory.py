@@ -5,6 +5,10 @@ from backend.services.llm.contracts import LlmGenerateRequest, LlmGenerateResult
 from backend.services.llm.openai_compatible import OpenAiCompatibleLlm
 
 
+class LlmGenerationError(RuntimeError):
+    """A configured text provider failed before producing a usable response."""
+
+
 class TemplateFallbackLlm:
     """Deterministic local draft path when no LLM key is configured."""
 
@@ -30,5 +34,8 @@ def generate_text(*, request: LlmGenerateRequest, settings: Settings | None = No
         return provider.generate(request)
     try:
         return provider.generate(request)
-    except Exception:
-        return TemplateFallbackLlm().generate(request)
+    except Exception as exc:
+        # A configured provider failure is operationally different from an
+        # intentionally unconfigured local-template path.  Do not disguise an
+        # outage as successfully generated customer-facing copy.
+        raise LlmGenerationError("configured LLM generation failed") from exc
