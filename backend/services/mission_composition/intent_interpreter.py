@@ -9,7 +9,7 @@ Each compose submit is a standalone raw instruction — no client fragment merge
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, cast
 
 from backend.services.mission_composition.ability_vocab import match_outcome_phrases
 from backend.services.mission_composition.connector_capabilities import restatement_for_deferred_op
@@ -1110,10 +1110,10 @@ def interpret_instruction(
                 for item in clause_models
             ]
             unmatched = [item for item in clause_models if item.material and item.status == "unmatched"]
-            for mapped in resolved.values():
-                for outcome in mapped:
+            for proposed_outcomes in resolved.values():
+                for outcome in proposed_outcomes:
                     if outcome not in outcomes:
-                        outcomes.append(outcome)  # type: ignore[arg-type]
+                        outcomes.append(cast(CanonicalOutcome, outcome))
                         evidence.append(
                             _evidence(
                                 field_path=f"requested_outcomes.{outcome}",
