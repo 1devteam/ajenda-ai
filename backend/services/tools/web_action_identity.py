@@ -19,6 +19,7 @@ from backend.services.tools.web_action_identity_policy import (
     _industry_evidence_markers,
     _is_directory_or_third_party_host,
     _is_directory_or_third_party_page,
+    _is_generic_market_listing_label,
 )
 
 
@@ -56,7 +57,12 @@ def research_verify_public_identity(invocation: ToolInvocation, context: ActionR
     industry_match = _contains_any_identity_marker(observed, industry_markers)
     location_markers = _identity_tokens(payload.location)
     location_match = _contains_any_identity_marker(observed, location_markers)
-    directory = _is_directory_or_third_party_host(host) or _is_directory_or_third_party_page(observed)
+    directory = (
+        _is_directory_or_third_party_host(host)
+        or _is_directory_or_third_party_page(observed)
+        or _is_generic_market_listing_label(payload.expected_company)
+        or _is_generic_market_listing_label(title)
+    )
     verified = bool(
         snapshot.real and not directory and (company_match or host_match) and industry_match and location_match
     )

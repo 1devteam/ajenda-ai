@@ -28,6 +28,7 @@ from backend.services.mission_composition.deliverable_contract import (
     DeliverableFieldRequirement,
     DeliverableRequest,
 )
+from backend.services.mission_composition.interpretation.outcome_proposer import CanonicalOutcomeProposer
 from backend.services.mission_composition.plan_compiler import compile_planned_steps
 from backend.services.mission_composition.proposal_phase import MissionCompositionProposalPhase
 from backend.services.mission_composition.semantic_vocabulary import TenantSemanticOverride
@@ -317,9 +318,11 @@ class MissionCompositionService(
         db: Session | None = None,
         *,
         planner_provider: StructuredPlannerProvider | None = None,
+        outcome_proposer: CanonicalOutcomeProposer | None = None,
     ) -> None:
         self._db = db
         self._planner_provider = planner_provider
+        self._outcome_proposer = outcome_proposer
 
     # Compatibility-sensitive dynamic bindings. Tests and integrations patch
     # these names through this module; phase implementations resolve them at

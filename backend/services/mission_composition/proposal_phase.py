@@ -102,6 +102,7 @@ class MissionCompositionProposalPhase:
             raw_instruction,
             profile_context=profile_context,
             business_need_assessment_available=business_need_assessment_reference is not None,
+            outcome_proposer=self._outcome_proposer,
         )
         if business_need_assessment_reference is not None and "review_business_need" in intent.requested_outcomes:
             # An explicit, tenant-validated assessment makes the existing

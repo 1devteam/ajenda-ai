@@ -3,9 +3,12 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from backend.services.business_profile.context_resolver import BusinessContext
-from backend.services.draft_generation import generate_and_persist_draft
+from backend.services.draft_generation import DraftClaimValidationError, generate_and_persist_draft
 from backend.services.llm.contracts import LlmGenerateResult
+from backend.services.llm.factory import LlmGenerationError
 from backend.services.tools.schemas import ActionRuntimeContext
 
 
@@ -117,3 +120,62 @@ def test_generate_and_persist_draft_persists_when_session_available(
     assert output["artifact_id"] == "pitch_email-deadbeef"
     assert output["generation_mode"] == "llm"
     session.commit.assert_called_once()
+
+
+@patch("backend.services.draft_generation.resolve_business_context")
+@patch("backend.services.draft_generation.generate_text")
+def test_generate_and_persist_draft_does_not_persist_configured_provider_failure(
+    mock_generate: MagicMock, mock_biz: MagicMock
+) -> None:
+    mock_biz.return_value = BusinessContext(
+        business_name="Ajenda AI",
+        company="Ajenda AI",
+        domain=None,
+        website=None,
+        service_area=None,
+        primary_contact_name=None,
+        contact_email=None,
+        contact_phone=None,
+        target_customers=(),
+        products_services=("Governed runtime",),
+        operator_notes=None,
+        account_record_id=None,
+        contact_record_id=None,
+        source="business_profile",
+    )
+    mock_generate.side_effect = LlmGenerationError("configured LLM generation failed")
+
+    with pytest.raises(LlmGenerationError, match="configured LLM generation failed"):
+        generate_and_persist_draft(_context(), artifact_type="pitch_email", topic="pilot intro", tone="professional")
+
+
+@patch("backend.services.draft_generation.resolve_business_context")
+@patch("backend.services.draft_generation.generate_text")
+def test_generate_and_persist_draft_rejects_unsupported_concrete_llm_claim(
+    mock_generate: MagicMock, mock_biz: MagicMock
+) -> None:
+    mock_biz.return_value = BusinessContext(
+        business_name="Ajenda AI",
+        company="Ajenda AI",
+        domain=None,
+        website=None,
+        service_area=None,
+        primary_contact_name=None,
+        contact_email=None,
+        contact_phone=None,
+        target_customers=(),
+        products_services=("Governed runtime",),
+        operator_notes=None,
+        account_record_id=None,
+        contact_record_id=None,
+        source="business_profile",
+    )
+    mock_generate.return_value = LlmGenerateResult(
+        text='{"subject":"Pilot","body":"We improved results by 37%."}',
+        provider="openai_compatible",
+        model="test",
+        used_llm=True,
+    )
+
+    with pytest.raises(DraftClaimValidationError, match="37%"):
+        generate_and_persist_draft(_context(), artifact_type="pitch_email", topic="pilot intro", tone="professional")

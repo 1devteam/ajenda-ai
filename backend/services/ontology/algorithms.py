@@ -362,6 +362,154 @@ def evaluate_duplicate_identity_resolution(records: list[dict[str, Any]]) -> Alg
     )
 
 
+def _normalized_identity_value(value: Any) -> str:
+    """Normalize an observed identity value without deriving a new one."""
+
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def evaluate_business_identity_verification(
+    observations: list[dict[str, Any]],
+) -> AlgorithmResult:
+    """Compare only source-backed identity observations.
+
+    The evaluator deliberately does not fetch pages, infer ownership from a
+    domain, or turn a single observation into a verified business.  Callers
+    must supply an ``evidence_ref`` for every observation they want evaluated.
+    """
+
+    payload = {"observations": observations}
+    comparable_fields = ("name", "domain", "website", "address", "phone")
+    values_by_field: dict[str, set[str]] = {field: set() for field in comparable_fields}
+    evidence_refs: list[str] = []
+    evaluated_count = 0
+
+    for observation in observations:
+        if not isinstance(observation, dict):
+            continue
+        evidence_ref = observation.get("evidence_ref")
+        if not isinstance(evidence_ref, str) or not evidence_ref.strip():
+            continue
+        evidence_refs.append(evidence_ref.strip())
+        evaluated_count += 1
+        for field in comparable_fields:
+            value = _normalized_identity_value(observation.get(field))
+            if value:
+                values_by_field[field].add(value)
+
+    populated = {field: sorted(values) for field, values in values_by_field.items() if values}
+    conflicts = {field: values for field, values in populated.items() if len(values) > 1}
+    agreements = {field: values[0] for field, values in populated.items() if len(values) == 1}
+    has_cross_source_agreement = evaluated_count >= 2 and bool(agreements)
+    confidence = 0.0
+    if evaluated_count:
+        comparable_count = len(populated)
+        agreement_ratio = (len(agreements) / comparable_count) if comparable_count else 0.0
+        source_coverage = min(1.0, evaluated_count / 2.0)
+        confidence = agreement_ratio * source_coverage
+        if conflicts:
+            confidence *= max(0.0, 1.0 - (len(conflicts) / max(1, comparable_count)))
+
+    if conflicts:
+        status: Literal["evaluated", "insufficient_evidence", "conflict"] = "conflict"
+    elif has_cross_source_agreement:
+        status = "evaluated"
+    else:
+        status = "insufficient_evidence"
+
+    return _result(
+        "identity.business_verification.v1",
+        payload,
+        status=status,
+        output={
+            "verified": status == "evaluated",
+            "evaluated_observation_count": evaluated_count,
+            "agreed_fields": agreements,
+            "conflicting_fields": conflicts,
+            "reason": (
+                "conflicting_source_backed_identity_fields"
+                if conflicts
+                else "two_or_more_source_backed_observations_agree"
+                if has_cross_source_agreement
+                else "two_or_more_source_backed_observations_required"
+            ),
+        },
+        confidence=confidence,
+        evidence_refs=tuple(dict.fromkeys(evidence_refs)),
+    )
+
+
+def evaluate_lead_fit_score(
+    *,
+    signals: dict[str, bool | None],
+    evidence_refs_by_signal: dict[str, str],
+    weights: dict[str, float] | None = None,
+) -> AlgorithmResult:
+    """Score explicit, evidence-backed fit signals without filling unknowns.
+
+    A true or false signal without an evidence reference is excluded rather
+    than treated as a fact.  The returned confidence is coverage of the
+    configured criteria, so a high score based on sparse evidence remains
+    visibly uncertain.
+    """
+
+    payload = {
+        "signals": signals,
+        "evidence_refs_by_signal": evidence_refs_by_signal,
+        "weights": weights,
+    }
+    configured_weights = weights or {key: 1.0 for key in signals}
+    if any(not isinstance(weight, (int, float)) or weight <= 0.0 for weight in configured_weights.values()):
+        raise ValueError("lead-fit weights must be positive numbers")
+
+    total_weight = sum(float(weight) for weight in configured_weights.values())
+    supported_weight = 0.0
+    matched_weight = 0.0
+    matched: list[str] = []
+    contradicted: list[str] = []
+    unknown: list[str] = []
+    evidence_refs: list[str] = []
+
+    for signal, weight in configured_weights.items():
+        value = signals.get(signal)
+        evidence_ref = evidence_refs_by_signal.get(signal)
+        if value is None:
+            unknown.append(signal)
+            continue
+        if not isinstance(value, bool) or not isinstance(evidence_ref, str) or not evidence_ref.strip():
+            unknown.append(signal)
+            continue
+        numeric_weight = float(weight)
+        supported_weight += numeric_weight
+        evidence_refs.append(evidence_ref.strip())
+        if value:
+            matched.append(signal)
+            matched_weight += numeric_weight
+        else:
+            contradicted.append(signal)
+
+    coverage = (supported_weight / total_weight) if total_weight else 0.0
+    score = (matched_weight / supported_weight) if supported_weight else 0.0
+    status: Literal["evaluated", "insufficient_evidence", "conflict"] = (
+        "evaluated" if supported_weight else "insufficient_evidence"
+    )
+    return _result(
+        "gtm.lead_fit_score.v1",
+        payload,
+        status=status,
+        output={
+            "lead_fit_score": round(score * 100.0, 2) if supported_weight else None,
+            "evidence_coverage": round(coverage, 4),
+            "matched_signals": sorted(matched),
+            "contradicted_signals": sorted(contradicted),
+            "unknown_signals": sorted(unknown),
+            "reason": "explicit_source_backed_fit_signals_only",
+        },
+        confidence=coverage,
+        evidence_refs=tuple(dict.fromkeys(evidence_refs)),
+    )
+
+
 def evaluate_service_area_match(*, target_location: str | None, service_areas: list[str]) -> AlgorithmResult:
     """Match explicit location tokens; missing inputs remain unproven."""
 

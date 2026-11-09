@@ -18,6 +18,44 @@ def _context() -> ActionRuntimeContext:
     )
 
 
+def test_public_identity_verification_rejects_generic_ranking_on_unknown_host() -> None:
+    """Host equality must not convert a ranked category page into a company."""
+
+    snapshot = PageSnapshot(
+        url="https://rankings.example/top-software-development-companies-texas",
+        real=True,
+        status_code=200,
+        title="Top 25 Software Development Companies in Texas",
+        text_preview="Rankings compares the top software development companies in Texas.",
+        access_mode=InternetAccessMode.BROWSER_SESSION,
+        browser_ready=True,
+        extraction={
+            "observation_requirements": [
+                {"kind": "title", "value": "Top 25 Software Development Companies in Texas"},
+                {"kind": "body", "value": "Rankings compares the top software development companies in Texas."},
+            ],
+            "blocked_samples": [],
+        },
+    )
+    with patch("backend.services.tools.web_action_identity.run_browser_session", return_value=snapshot):
+        result = get_default_action_registry(rebuild=True).invoke(
+            ToolInvocation(
+                action="research.verify_public_identity",
+                input={
+                    "url": snapshot.url,
+                    "expected_company": snapshot.title,
+                    "industry": "software development",
+                    "location": "Texas",
+                },
+            ),
+            _context(),
+        )
+
+    artifact = result.output["public_identity_observation"]
+    assert artifact["identity_status"] == "unverified"
+    assert "directory_or_third_party_page" in artifact["identity_gaps"]
+
+
 def test_web_page_read_action_returns_external_read_evidence() -> None:
     snapshot = PageSnapshot(
         url="https://example.com/",

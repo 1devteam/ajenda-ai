@@ -8,12 +8,13 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from backend.domain.ephemeral_memory_chunk import EphemeralMemoryChunk
-from backend.services.data_plane.embeddings import cosine_similarity, deterministic_embedding
+from backend.services.data_plane.embeddings import EmbeddingProvider, cosine_similarity, get_embedding_provider
 
 
 class EphemeralMemoryChunkRepository:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, embedding_provider: EmbeddingProvider | None = None) -> None:
         self._session = session
+        self._embedding_provider = embedding_provider or get_embedding_provider()
 
     def upsert_chunk(
         self,
@@ -31,7 +32,9 @@ class EphemeralMemoryChunkRepository:
             raise ValueError("content must be non-empty")
         final_id = chunk_id or f"emc-{uuid.uuid4()}"
         search_text = normalized.lower()
-        embedding = deterministic_embedding(search_text)
+        embedding = self._embedding_provider.embed(search_text)
+        final_metadata = dict(metadata or {})
+        final_metadata["_embedding_provider"] = self._embedding_provider.provider_id
         now = datetime.now(UTC)
 
         stmt = select(EphemeralMemoryChunk).where(
@@ -48,7 +51,7 @@ class EphemeralMemoryChunkRepository:
                 search_text=search_text,
                 embedding_json=embedding,
                 source=source,
-                metadata_json=dict(metadata or {}),
+                metadata_json=final_metadata,
                 expires_at=expires_at,
                 created_at=now,
                 updated_at=now,
@@ -60,7 +63,7 @@ class EphemeralMemoryChunkRepository:
             existing.search_text = search_text
             existing.embedding_json = embedding
             existing.source = source
-            existing.metadata_json = dict(metadata or {})
+            existing.metadata_json = final_metadata
             existing.expires_at = expires_at
             existing.updated_at = now
             row = existing
@@ -100,12 +103,18 @@ class EphemeralMemoryChunkRepository:
     ) -> list[dict[str, Any]]:
         if limit < 1 or limit > 50:
             raise ValueError("limit must be between 1 and 50")
-        query_embedding = deterministic_embedding(query.lower().strip())
+        query_embedding = self._embedding_provider.embed(query.lower().strip())
         stmt = select(EphemeralMemoryChunk).where(EphemeralMemoryChunk.tenant_id == tenant_id)
         stmt = self._apply_active_filters(stmt, mission_id=mission_id)
         rows = list(self._session.scalars(stmt.limit(limit * 10)).all())
         scored: list[tuple[float, EphemeralMemoryChunk]] = []
         for row in rows:
+            row_metadata = row.metadata_json if isinstance(row.metadata_json, dict) else {}
+            if row_metadata.get("_embedding_provider") != self._embedding_provider.provider_id:
+                # Comparing vectors from different models is invalid.  The
+                # caller still has keyword retrieval while an explicit reindex
+                # rewrites legacy chunks under the active provider.
+                continue
             embedding = row.embedding_json if isinstance(row.embedding_json, list) else []
             score = cosine_similarity(query_embedding, [float(item) for item in embedding])
             scored.append((score, row))
