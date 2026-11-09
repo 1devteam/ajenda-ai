@@ -47,6 +47,15 @@ _DIRECTORY_PAGE_MARKERS = (
 
 _GENERIC_INDUSTRY_WORDS = {"company", "companies", "contractor", "contractors", "services", "service"}
 
+# A ranked/category label is a discovery clue, not a company identity.  Keep
+# this structural check independent of the host denylist: unknown directory
+# hosts are common in public search results.
+_GENERIC_MARKET_LISTING_LABEL = re.compile(
+    r"\b(?:\d+\s+)?(?:top|best|leading)\s+(?:\d+\s+)?(?:[a-z0-9&+/'-]+\s+){0,8}"
+    r"(?:companies|firms|agencies|providers|contractors|developers)\b",
+    flags=re.IGNORECASE,
+)
+
 
 def _industry_evidence_markers(industry: object) -> tuple[str, ...]:
     """Return bounded page markers for the declared mission industry."""
@@ -69,6 +78,12 @@ def _is_directory_or_third_party_host(host: str) -> bool:
 def _is_directory_or_third_party_page(text: str) -> bool:
     normalized = re.sub(r"\s+", " ", text.lower())
     return any(marker in normalized for marker in _DIRECTORY_PAGE_MARKERS)
+
+
+def _is_generic_market_listing_label(value: str) -> bool:
+    """Whether a title/label names a ranked market category, not a company."""
+
+    return bool(_GENERIC_MARKET_LISTING_LABEL.search(re.sub(r"\s+", " ", value).strip()))
 
 
 def _identity_tokens(value: str) -> list[str]:
