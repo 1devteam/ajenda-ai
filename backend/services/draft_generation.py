@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from backend.services.business_profile.context_resolver import BusinessContext, resolve_business_context
@@ -7,6 +8,48 @@ from backend.services.document_artifacts import SUPPORTED_ARTIFACT_TYPES, persis
 from backend.services.llm.contracts import LlmGenerateRequest
 from backend.services.llm.factory import generate_text
 from backend.services.tools.schemas import ActionRuntimeContext
+
+_CONCRETE_CLAIM_TOKEN = re.compile(r"https?://[^\s)]+|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\$?\d+(?:[,.]\d+)*(?:%|x)?")
+
+
+class DraftClaimValidationError(ValueError):
+    """Generated copy contains a concrete claim absent from supplied context."""
+
+
+def _claim_context(
+    *, biz: BusinessContext, topic: str, recipient: str | None, extra_context: dict[str, Any]
+) -> set[str]:
+    values = {topic.lower()}
+    if recipient:
+        values.add(recipient.lower())
+    for value in (
+        biz.business_name,
+        biz.company,
+        biz.domain,
+        biz.website,
+        biz.service_area,
+        biz.primary_contact_name,
+        biz.contact_email,
+        biz.contact_phone,
+        *biz.target_customers,
+        *biz.products_services,
+        biz.operator_notes,
+    ):
+        if value:
+            values.add(str(value).lower())
+    for value in extra_context.values():
+        if isinstance(value, (str, int, float)):
+            values.add(str(value).lower())
+    return values
+
+
+def _validate_concrete_claims(*, content: dict[str, Any], allowed_values: set[str]) -> tuple[str, ...]:
+    text = "\n".join(str(value) for value in content.values() if isinstance(value, str))
+    tokens = tuple(dict.fromkeys(token.lower() for token in _CONCRETE_CLAIM_TOKEN.findall(text)))
+    unsupported = tuple(token for token in tokens if not any(token in value for value in allowed_values))
+    if unsupported:
+        raise DraftClaimValidationError("draft contains unsupported concrete claim(s): " + ", ".join(unsupported[:5]))
+    return tokens
 
 
 def _products_line(context: BusinessContext) -> str:
@@ -239,6 +282,11 @@ def generate_and_persist_draft(
             f"artifact_type {artifact_type!r} requires LLM configuration; template fallback is unavailable"
         )
 
+    validated_claims = _validate_concrete_claims(
+        content=content,
+        allowed_values=_claim_context(biz=biz, topic=topic, recipient=recipient, extra_context=context),
+    )
+
     session_factory = ctx.session_factory
     if session_factory is None:
         payload: dict[str, Any] = dict(content)
@@ -261,6 +309,7 @@ def generate_and_persist_draft(
                 "model": llm_result.model,
                 "used_llm": llm_result.used_llm,
                 "business_context_source": biz.source,
+                "concrete_claim_validation": {"status": "passed", "tokens": list(validated_claims)},
             },
             review_status="pending",
             mission_id=str(ctx.mission_id) if ctx.mission_id else None,
