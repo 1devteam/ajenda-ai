@@ -806,6 +806,26 @@ def test_unrepresentable_action_scope_returns_named_work_with_planner_gap(
     assert envelope.named_job_keys or record.ability_selections
 
 
+def test_model_outcome_proposer_can_only_resolve_unmatched_clause_to_canonical_outcome() -> None:
+    from backend.services.mission_composition.interpretation.outcome_proposer import (
+        OutcomeClauseProposal,
+        OutcomeProposal,
+    )
+
+    class Proposer:
+        def propose(self, *, instruction: str, clauses: tuple[dict[str, str], ...]) -> OutcomeProposal:
+            assert instruction
+            return OutcomeProposal(
+                clauses=(OutcomeClauseProposal(clause_id=clauses[0]["clause_id"], outcomes=("read_revenue",)),)
+            )
+
+    intent = interpret_instruction("Please inspect our ledger.", outcome_proposer=Proposer())
+
+    assert "read_revenue" in intent.requested_outcomes
+    assert not intent.unmatched_material_clauses
+    assert any(item.rule_id == "model.canonical_outcome" for item in intent.interpretation_evidence)
+
+
 def test_valid_injected_structured_planner_is_persisted_as_non_authoritative_proposal() -> None:
     class Planner:
         def propose(self, request: object) -> PlannerResult:

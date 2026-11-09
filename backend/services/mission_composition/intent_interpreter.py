@@ -29,6 +29,10 @@ from backend.services.mission_composition.contracts import (
 from backend.services.mission_composition.interpretation.fuzzy import fuzzy_outcome_candidates
 from backend.services.mission_composition.interpretation.lexical import classify_lexical_frame
 from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
+from backend.services.mission_composition.interpretation.outcome_proposer import (
+    CanonicalOutcomeProposer,
+    validate_outcome_proposal,
+)
 from backend.services.mission_composition.interpretation.rule_engine import (
     _BUSINESS_PROFILE_CONTEXT_PATTERNS,
     _BUSINESS_PROFILE_READ_PATTERNS,
@@ -176,6 +180,7 @@ def interpret_instruction(
     business_need_assessment_available: bool = False,
     spelling_enabled: bool | None = None,
     fuzzy_enabled: bool | None = None,
+    outcome_proposer: CanonicalOutcomeProposer | None = None,
 ) -> MissionIntent:
     """Extract a candidate MissionIntent without granting execution authority."""
 
@@ -1075,6 +1080,51 @@ def interpret_instruction(
         clause_models.append(clause)
         if status == "unmatched" and material:
             unmatched.append(clause)
+
+    # An optional model can map previously-unmatched clauses to the existing
+    # canonical vocabulary. Invalid or unavailable model output never repairs
+    # a gap and never becomes authority.
+    if outcome_proposer is not None and unmatched:
+        try:
+            proposal = validate_outcome_proposal(
+                outcome_proposer.propose(
+                    instruction=raw_instruction,
+                    clauses=tuple({"clause_id": item.clause_id, "text": item.text} for item in unmatched),
+                ),
+                allowed_clause_ids={item.clause_id for item in unmatched},
+            )
+        except Exception:
+            components_active.append("model_outcome_proposal_rejected")
+        else:
+            resolved = {item.clause_id: item.outcomes for item in proposal.clauses}
+            clause_models = [
+                item.model_copy(
+                    update={
+                        "status": "recognized",
+                        "mapped_outcomes": list(resolved[item.clause_id]),
+                        "reason": "Validated model canonical-outcome proposal",
+                    }
+                )
+                if item.clause_id in resolved
+                else item
+                for item in clause_models
+            ]
+            unmatched = [item for item in clause_models if item.material and item.status == "unmatched"]
+            for mapped in resolved.values():
+                for outcome in mapped:
+                    if outcome not in outcomes:
+                        outcomes.append(outcome)  # type: ignore[arg-type]
+                        evidence.append(
+                            _evidence(
+                                field_path=f"requested_outcomes.{outcome}",
+                                source="inferred_deterministic",
+                                source_text="validated model proposal",
+                                normalized_value=outcome,
+                                confidence=0.75,
+                                rule_id="model.canonical_outcome",
+                            )
+                        )
+            components_active.append("model_outcome_proposal")
 
     material_total = sum(1 for c in clause_models if c.material)
     material_ok = sum(1 for c in clause_models if c.material and c.status == "recognized")
