@@ -8,7 +8,6 @@ HUBSPOT_API_BASE = "https://api.hubapi.com"
 
 RECORD_TYPE_TO_OBJECT: dict[str, str] = {
     "contact": "contacts",
-    "lead": "contacts",
     "company": "companies",
     "deal": "deals",
 }
@@ -113,12 +112,41 @@ class HubSpotClient:
         if object_type is None:
             raise ValueError(f"unsupported record_type: {record_type}")
 
+        # A lead is an Ajenda qualification signal, not a person.  Never turn
+        # an unresolved lead into a HubSpot contact merely because an external
+        # CRM upsert was requested.
+        if normalized_type == "lead":
+            raise ValueError("HubSpot upsert does not accept lead records; resolve a verified contact first")
+
         allowed = PROVIDER_PROPERTY_ALLOWLIST.get(object_type, frozenset())
-        properties = {str(key): str(value) for key, value in data.items() if value is not None and str(key) in allowed}
+        supplied = {str(key) for key, value in data.items() if value is not None and str(key) != "provider_record_id"}
+        unsupported = sorted(supplied - allowed)
+        if unsupported:
+            raise ValueError("unsupported HubSpot properties: " + ", ".join(unsupported))
+        properties = {
+            str(key): self._normalize_property_value(object_type=object_type, property_name=str(key), value=value)
+            for key, value in data.items()
+            if value is not None and str(key) in allowed
+        }
         if not properties:
             raise ValueError("data must include at least one property")
 
-        existing_id = self._find_existing_id(object_type=object_type, properties=properties)
+        provider_record_id = data.get("provider_record_id")
+        if provider_record_id is not None and (
+            not isinstance(provider_record_id, str) or not provider_record_id.strip()
+        ):
+            raise ValueError("provider_record_id must be a non-empty HubSpot object id when provided")
+        if object_type == "companies" and provider_record_id is None and not properties.get("domain"):
+            raise ValueError(
+                "HubSpot company creation/update requires domain or provider_record_id; name is not an identity"
+            )
+        if object_type == "deals" and provider_record_id is None:
+            raise ValueError("HubSpot deal update requires provider_record_id; deal names are not identities")
+        existing_id = (
+            provider_record_id.strip()
+            if isinstance(provider_record_id, str)
+            else self._find_existing_id(object_type=object_type, properties=properties)
+        )
         if existing_id:
             updated = self._patch_object(object_type=object_type, object_id=existing_id, properties=properties)
             return {
@@ -167,20 +195,32 @@ class HubSpotClient:
         object_type: str,
         filters: list[dict[str, Any]],
     ) -> tuple[str, list[dict[str, Any]]]:
-        payload = {
+        payload: dict[str, Any] = {
             "filterGroups": [{"filters": filters}],
             "limit": 25,
             "properties": self._default_properties(object_type),
         }
-        response = self._request(
-            method="POST",
-            path=f"/crm/v3/objects/{object_type}/search",
-            json_body=payload,
-        )
-        results = response.get("results", [])
-        if not isinstance(results, list):
-            return object_type, []
-        normalized = [item for item in results if isinstance(item, dict)]
+        normalized: list[dict[str, Any]] = []
+        # HubSpot returns paging cursors. Bounded pagination makes an
+        # ambiguity visible instead of silently selecting an arbitrary record.
+        # Search consumers receive at most 100 records, sufficient to detect
+        # conflicts without creating unbounded provider reads.
+        for _ in range(4):
+            response = self._request(
+                method="POST",
+                path=f"/crm/v3/objects/{object_type}/search",
+                json_body=payload,
+            )
+            results = response.get("results", []) if isinstance(response, dict) else []
+            if not isinstance(results, list):
+                break
+            normalized.extend(item for item in results if isinstance(item, dict))
+            paging = response.get("paging") if isinstance(response, dict) else None
+            next_page = paging.get("next") if isinstance(paging, dict) else None
+            after = next_page.get("after") if isinstance(next_page, dict) else None
+            if not isinstance(after, str) or not after.strip():
+                break
+            payload["after"] = after.strip()
         return object_type, normalized
 
     def _find_existing_id(self, *, object_type: str, properties: dict[str, str]) -> str | None:
@@ -190,8 +230,12 @@ class HubSpotClient:
         _, results = self._search_object(object_type=object_type, filters=filters)
         if not results:
             return None
-        first = results[0]
-        object_id = first.get("id")
+        if len(results) != 1:
+            raise HubSpotApiError(
+                status_code=409,
+                detail=f"HubSpot identity lookup is ambiguous for {object_type}; provide provider_record_id",
+            )
+        object_id = results[0].get("id")
         return str(object_id) if object_id is not None else None
 
     def _identity_filters(self, *, object_type: str, properties: dict[str, str]) -> list[dict[str, Any]]:
@@ -204,16 +248,23 @@ class HubSpotClient:
             domain = properties.get("domain")
             if domain:
                 return [{"propertyName": "domain", "operator": "EQ", "value": domain}]
-            name = properties.get("name")
-            if name:
-                return [{"propertyName": "name", "operator": "EQ", "value": name}]
             return []
         if object_type == "deals":
-            dealname = properties.get("dealname")
-            if dealname:
-                return [{"propertyName": "dealname", "operator": "EQ", "value": dealname}]
+            # Deal names are not identities. This adapter changes deals only
+            # through an explicit provider record id.
             return []
         return []
+
+    @staticmethod
+    def _normalize_property_value(*, object_type: str, property_name: str, value: Any) -> str:
+        """Validate HubSpot's string wire format without silently coercing objects."""
+        if isinstance(value, bool):
+            raise ValueError(f"HubSpot property {property_name} must not be boolean")
+        if isinstance(value, (str, int, float)):
+            return str(value)
+        raise ValueError(
+            f"HubSpot property {property_name} for {object_type} must be a string or number, not {type(value).__name__}"
+        )
 
     def _create_object(self, *, object_type: str, properties: dict[str, str]) -> dict[str, Any]:
         response = self._request(

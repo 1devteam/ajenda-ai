@@ -203,11 +203,17 @@ class LightCrmRecordService:
         account_id = str(contact.get("account_id") or "")
         if not contact_id:
             return None
+        # A contact can hold more than one commercial opportunity. The
+        # workflow's primary-outreach key is explicit, while callers creating
+        # a separate opportunity supply their own stable key.
+        opportunity_key = str(contact.get("opportunity_key") or "primary_outreach").strip()
+        if not opportunity_key:
+            raise ValueError("opportunity_key must be non-empty")
         existing = self._repo.search_records(
             tenant_id=tenant_id,
             record_type="opportunity",
             query=contact_id,
-            filters={"contact_id": contact_id},
+            filters={"contact_id": contact_id, "opportunity_key": opportunity_key},
             limit=1,
         )
         if existing:
@@ -219,6 +225,7 @@ class LightCrmRecordService:
                 "name": f"{account_name} opportunity",
                 "account_id": account_id or None,
                 "contact_id": contact_id,
+                "opportunity_key": opportunity_key,
                 "stage": stage,
                 "source": "light_crm_workflow",
             },
@@ -282,11 +289,18 @@ class LightCrmRecordService:
         record = enrich_opportunity_data(data)
         record_id = record.get("id") if isinstance(record.get("id"), str) else None
         if record_id is None and record.get("contact_id"):
+            opportunity_key = str(record.get("opportunity_key") or "").strip()
+            if not opportunity_key:
+                # Identity by contact alone collapses independent sales
+                # opportunities. Existing callers that need an update must
+                # supply the internal id or a stable opportunity key.
+                opportunity_key = "primary_outreach"
+                record["opportunity_key"] = opportunity_key
             matches = self._repo.search_records(
                 tenant_id=tenant_id,
                 record_type="opportunity",
                 query=str(record["contact_id"]),
-                filters={"contact_id": record["contact_id"]},
+                filters={"contact_id": record["contact_id"], "opportunity_key": opportunity_key},
                 limit=1,
             )
             if matches:

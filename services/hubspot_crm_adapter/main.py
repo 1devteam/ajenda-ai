@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import FastAPI, Header, HTTPException, Path, Query, Request
+from fastapi import FastAPI, Header, HTTPException, Path, Query
 
 from services.hubspot_crm_adapter.hubspot import (
     RECORD_TYPE_TO_OBJECT,
@@ -70,7 +70,6 @@ async def search(
 @app.post("/v1/upsert", response_model=UpsertResponse)
 async def upsert(
     body: UpsertRequest,
-    request: Request,
     authorization: str | None = Header(default=None),
 ) -> UpsertResponse:
     try:
@@ -89,9 +88,6 @@ async def upsert(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except HubSpotApiError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-
-    # Ajenda may send Idempotency-Key header; HubSpot has no native equivalent for CRM v3.
-    _ = request.headers.get("Idempotency-Key") or body.idempotency_key
 
     return UpsertResponse(**result)
 

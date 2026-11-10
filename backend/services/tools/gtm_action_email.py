@@ -206,41 +206,99 @@ def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
                         )
                         raise
             else:
-                user = _gmail_user(gmail_cred)
-                trusted_hosts = _trusted_hosts(gmail_cred, default=("gmail.googleapis.com",))
-                send_url = f"https://{trusted_hosts[0]}/gmail/v1/users/{quote(user, safe='')}/messages/send"
-                headers = _provider_headers(
-                    {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
-                    inv,
+                # Gmail's send endpoint also has no durable replay primitive.
+                # Use the owned pre-send fence so a retry after an uncertain
+                # request outcome cannot emit a second email.
+                claim = claim_smtp_send(
+                    session_factory=ctx.session_factory,
+                    tenant_id=ctx.tenant_id,
+                    action=inv.action,
+                    idempotency_key=inv.idempotency_key,
                 )
-                _dest, resp = get_default_network_egress_authority().request(
-                    method="POST",
-                    url=send_url,
-                    headers=headers,
-                    json_body=_gmail_api_send_payload(to=to, subject=subject, body=body_text),
-                    allowed_hosts=list(trusted_hosts),
-                    action_name=inv.action,
-                    timeout_seconds=10.0,
-                )
-                sent["real_response"] = {
-                    "status_code": resp.status_code,
-                    "body_preview": resp.body_text[:300] if resp.body_text else "",
-                }
-                if _http_is_success(resp.status_code):
-                    sent["status"] = "sent"
-                    sent["real"] = True
-                    sent["provider"] = "gmail_api"
-                    try:
-                        response_payload = json.loads(resp.body_text or "{}")
-                    except json.JSONDecodeError:
-                        response_payload = {}
-                    provider_message_id = response_payload.get("id")
-                    if isinstance(provider_message_id, str) and provider_message_id.strip():
-                        sent["provider_message_id"] = provider_message_id.strip()
+                if claim.decision == "replayed":
+                    sent.update(dict(claim.cached_output or {}))
+                    sent["idempotency_key"] = claim.idempotency_key
+                    sent["idempotency_replayed"] = True
+                    sent.setdefault("provider", "gmail_api")
+                    sent.setdefault("status", "sent")
+                    sent.setdefault("real", True)
+                elif claim.decision in {"rejected", "in_flight"}:
+                    sent.update(
+                        {
+                            "provider": "gmail_api",
+                            "status": "error",
+                            "real": False,
+                            "error": claim.error or "Gmail API send blocked by idempotency gate",
+                        }
+                    )
+                    if claim.idempotency_key:
+                        sent["idempotency_key"] = claim.idempotency_key
                 else:
-                    sent["status"] = "error"
-                    sent["real"] = False
-                    sent["error"] = f"Gmail API returned HTTP {resp.status_code}"
+                    assert claim.idempotency_key is not None
+                    claim_key = claim.idempotency_key
+                    try:
+                        user = _gmail_user(gmail_cred)
+                        trusted_hosts = _trusted_hosts(gmail_cred, default=("gmail.googleapis.com",))
+                        send_url = f"https://{trusted_hosts[0]}/gmail/v1/users/{quote(user, safe='')}/messages/send"
+                        headers = _provider_headers(
+                            {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
+                            inv,
+                        )
+                        _dest, resp = get_default_network_egress_authority().request(
+                            method="POST",
+                            url=send_url,
+                            headers=headers,
+                            json_body=_gmail_api_send_payload(to=to, subject=subject, body=body_text),
+                            allowed_hosts=list(trusted_hosts),
+                            action_name=inv.action,
+                            timeout_seconds=10.0,
+                        )
+                        sent["real_response"] = {
+                            "status_code": resp.status_code,
+                            "body_preview": resp.body_text[:300] if resp.body_text else "",
+                        }
+                        if _http_is_success(resp.status_code):
+                            sent.update(
+                                {"status": "sent", "real": True, "provider": "gmail_api", "idempotency_key": claim_key}
+                            )
+                            try:
+                                response_payload = json.loads(resp.body_text or "{}")
+                            except json.JSONDecodeError:
+                                response_payload = {}
+                            provider_message_id = response_payload.get("id")
+                            if isinstance(provider_message_id, str) and provider_message_id.strip():
+                                sent["provider_message_id"] = provider_message_id.strip()
+                            complete_smtp_send(
+                                session_factory=ctx.session_factory,
+                                tenant_id=ctx.tenant_id,
+                                action=inv.action,
+                                idempotency_key=claim_key,
+                                result_payload=dict(sent),
+                            )
+                        else:
+                            sent.update(
+                                {
+                                    "status": "error",
+                                    "real": False,
+                                    "error": f"Gmail API returned HTTP {resp.status_code}",
+                                }
+                            )
+                            release_smtp_send(
+                                session_factory=ctx.session_factory,
+                                tenant_id=ctx.tenant_id,
+                                action=inv.action,
+                                idempotency_key=claim_key,
+                                error_detail=sent["error"],
+                            )
+                    except Exception as send_exc:
+                        release_smtp_send(
+                            session_factory=ctx.session_factory,
+                            tenant_id=ctx.tenant_id,
+                            action=inv.action,
+                            idempotency_key=claim_key,
+                            error_detail=str(send_exc),
+                        )
+                        raise
             if sent.get("real") and inv.idempotency_key:
                 sent["idempotency_key"] = inv.idempotency_key
         except Exception as e:

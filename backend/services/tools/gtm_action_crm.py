@@ -2,7 +2,8 @@
 
 from typing import Any
 
-from backend.services.plugins.crm_client import default_crm_client
+from backend.repositories.email_send_idempotency_repository import EmailSendIdempotencyRepository
+from backend.services.plugins.crm_client import CrmUpsertResult, default_crm_client
 from backend.services.tools.gtm_action_common import _make_evidence
 from backend.services.tools.schemas import (
     ActionResult,
@@ -18,7 +19,10 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
 
     # Composition binds pipeline world-state under context. Prefer qualified
     # prospects when present, enrich them with discovery fields, and preserve
-    # direct/manual ``data`` as an explicit overlay for every CRM record.
+    # direct/manual ``data`` is safe only for one provider record. Applying a
+    # common map to multiple bound prospects can overwrite their distinct
+    # identities, so multi-record invocations must carry all record-specific
+    # data upstream instead.
     prospect_candidates = [
         dict(item) for item in (inp.context.get("prospect_candidates") or []) if isinstance(item, dict)
     ]
@@ -56,7 +60,11 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
         bound_rows = [dict(item) for item in prospect_candidates]
 
     if bound_rows:
-        rows = [{**row, **inp.data} for row in bound_rows]
+        if len(bound_rows) > 1 and inp.data:
+            raise ValueError(
+                "multi-record CRM upsert requires record-specific upstream fields; data overlay is refused"
+            )
+        rows = bound_rows
     else:
         rows = [dict(inp.data)]
 
@@ -86,6 +94,56 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
             row_invocation = inv.model_copy(
                 update={"idempotency_key": f"{inv.idempotency_key.strip()}:row:{index + 1}"}
             )
+        external_write = crm_cred is not None
+        claim_key = row_invocation.idempotency_key.strip() if row_invocation.idempotency_key else ""
+        if external_write:
+            if not claim_key:
+                raise ValueError("external CRM upsert requires idempotency_key for durable replay protection")
+            if ctx.session_factory is None:
+                raise ValueError("external CRM upsert requires session_factory for durable replay protection")
+            session = ctx.session_factory()
+            try:
+                claim_status, cached = EmailSendIdempotencyRepository(session).try_claim(
+                    tenant_id=ctx.tenant_id,
+                    action=inv.action,
+                    idempotency_key=claim_key,
+                )
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
+            if claim_status == "replayed":
+                results.append(
+                    CrmUpsertResult(
+                        record_type=str((cached or {}).get("record_type") or inp.record_type),
+                        record_id=str((cached or {}).get("record_id") or ""),
+                        data=dict((cached or {}).get("data") or {}),
+                        source=str((cached or {}).get("source") or "external_crm"),
+                        real=bool((cached or {}).get("real")),
+                        status=str((cached or {}).get("status") or "upserted_real"),
+                        status_code=(cached or {}).get("status_code"),
+                        effect_verified=bool((cached or {}).get("effect_verified")),
+                        readback=(cached or {}).get("readback"),
+                    )
+                )
+                continue
+            if claim_status != "newly_claimed":
+                results.append(
+                    CrmUpsertResult(
+                        record_type=inp.record_type,
+                        record_id="",
+                        data=row,
+                        source="external_crm",
+                        real=False,
+                        status="effect_unverified",
+                        error="external CRM upsert has an active or uncertain idempotency claim; automatic replay is refused",
+                        effect_verified=False,
+                    )
+                )
+                continue
+
         result = default_crm_client().upsert(
             context=ctx,
             record_type=inp.record_type,
@@ -94,6 +152,39 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
             invocation=row_invocation,
             action_name=inv.action,
         )
+        if external_write and result.real and result.effect_verified:
+            session = ctx.session_factory()
+            try:
+                EmailSendIdempotencyRepository(session).complete(
+                    tenant_id=ctx.tenant_id,
+                    action=inv.action,
+                    idempotency_key=claim_key,
+                    result_payload={
+                        "record_type": result.record_type,
+                        "record_id": result.record_id,
+                        "data": result.data,
+                        "source": result.source,
+                        "real": result.real,
+                        "status": result.status,
+                        "status_code": result.status_code,
+                        "effect_verified": result.effect_verified,
+                        "readback": result.readback,
+                    },
+                )
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
+        elif external_write:
+            # The provider may have applied the write before a timeout or an
+            # unreadable response. Preserve the durable claim and make a human
+            # resolve it rather than risking a duplicate on automatic retry.
+            result.status = "effect_unverified"
+            result.real = False
+            result.effect_verified = False
+            result.error = result.error or "external CRM effect is uncertain; idempotency claim retained"
         results.append(result)
 
     pipeline_records: list[dict[str, Any]] = []

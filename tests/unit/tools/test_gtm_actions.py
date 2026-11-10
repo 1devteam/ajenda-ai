@@ -229,6 +229,27 @@ def test_gtm_email_send_simulated_when_no_credential() -> None:
     assert result.side_effect_class.value == "external_send"
 
 
+def test_gtm_crm_upsert_refuses_global_data_overlay_for_multiple_prospects() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    with pytest.raises(ValueError, match="multi-record CRM upsert requires record-specific upstream fields"):
+        registry.invoke(
+            ToolInvocation(
+                action="gtm.crm_upsert",
+                input={
+                    "record_type": "contact",
+                    "data": {"jobtitle": "buyer"},
+                    "context": {
+                        "qualified_prospects": [
+                            {"email": "one@example.com"},
+                            {"email": "two@example.com"},
+                        ]
+                    },
+                },
+            ),
+            _context(),
+        )
+
+
 def test_gtm_email_send_review_block_emits_canonical_attempt_artifact() -> None:
     from backend.services.tools.action_registry import ActionRegistry
     from backend.services.tools.gtm_actions import register_gtm_actions
@@ -273,6 +294,7 @@ def test_gtm_email_send_review_block_emits_canonical_attempt_artifact() -> None:
 
 def test_gtm_email_send_uses_network_egress_for_real_send() -> None:
     from backend.services.tools.action_registry import ActionRegistry
+    from backend.services.tools.email_send_idempotency import SmtpSendClaim
     from backend.services.tools.gtm_actions import register_gtm_actions
 
     registry = ActionRegistry()
@@ -297,14 +319,22 @@ def test_gtm_email_send_uses_network_egress_for_real_send() -> None:
     authority = MagicMock()
     authority.request.return_value = (destination, response)
 
-    with patch(
-        "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
-        return_value=authority,
+    with (
+        patch(
+            "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
+            return_value=authority,
+        ),
+        patch(
+            "backend.services.tools.gtm_action_email.claim_smtp_send",
+            return_value=SmtpSendClaim(decision="newly_claimed", idempotency_key="gmail-1"),
+        ),
+        patch("backend.services.tools.gtm_action_email.complete_smtp_send"),
     ):
         result = handler(
             ToolInvocation(
                 action="gtm.email_send",
                 input={"to": "user@example.com", "subject": "Hello", "body": "Hi"},
+                idempotency_key="gmail-1",
             ),
             context,
         )
@@ -322,6 +352,7 @@ def test_gtm_email_send_uses_network_egress_for_real_send() -> None:
 
 def test_gtm_email_send_uses_runtime_credential_material() -> None:
     from backend.services.tools.action_registry import ActionRegistry
+    from backend.services.tools.email_send_idempotency import SmtpSendClaim
     from backend.services.tools.gtm_actions import register_gtm_actions
 
     registry = ActionRegistry()
@@ -350,10 +381,48 @@ def test_gtm_email_send_uses_runtime_credential_material() -> None:
     authority = MagicMock()
     authority.request.return_value = (destination, response)
 
-    with patch(
-        "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
-        return_value=authority,
+    with (
+        patch(
+            "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
+            return_value=authority,
+        ),
+        patch(
+            "backend.services.tools.gtm_action_email.claim_smtp_send",
+            return_value=SmtpSendClaim(decision="newly_claimed", idempotency_key="gmail-1"),
+        ),
+        patch("backend.services.tools.gtm_action_email.complete_smtp_send"),
     ):
+        result = handler(
+            ToolInvocation(
+                action="gtm.email_send",
+                input={"to": "user@example.com", "subject": "Hello", "body": "Hi"},
+                idempotency_key="gmail-1",
+            ),
+            context,
+        )
+
+    assert result.output["real"] is True
+    assert authority.request.call_args.kwargs["headers"]["Authorization"] == "Bearer token-123"
+
+
+def test_gtm_gmail_send_requires_durable_idempotency_claim() -> None:
+    from backend.services.tools.action_registry import ActionRegistry
+    from backend.services.tools.gtm_actions import register_gtm_actions
+
+    registry = ActionRegistry()
+    register_gtm_actions(registry)
+    handler = registry.get("gtm.email_send").handler
+    context = _context()
+    context.runtime_credentials = {
+        "gtm.email_send": {
+            "secret_value": "token-123",
+            "user": "me",
+            "trusted_destination_hosts": ["gmail.googleapis.com"],
+        }
+    }
+    authority = MagicMock()
+    result = None
+    with patch("backend.services.tools.gtm_action_email.get_default_network_egress_authority", return_value=authority):
         result = handler(
             ToolInvocation(
                 action="gtm.email_send",
@@ -362,8 +431,11 @@ def test_gtm_email_send_uses_runtime_credential_material() -> None:
             context,
         )
 
-    assert result.output["real"] is True
-    assert authority.request.call_args.kwargs["headers"]["Authorization"] == "Bearer token-123"
+    assert result is not None
+    assert result.output["real"] is False
+    assert result.output["status"] == "error"
+    assert "idempotency_key" in result.output["error"]
+    authority.request.assert_not_called()
 
 
 def test_gtm_email_check_uses_gmail_api_with_runtime_credential_material() -> None:
@@ -476,6 +548,7 @@ def test_gtm_email_check_simulated_without_credential(monkeypatch) -> None:
 
 def test_gtm_email_send_rejects_non_2xx_response() -> None:
     from backend.services.tools.action_registry import ActionRegistry
+    from backend.services.tools.email_send_idempotency import SmtpSendClaim
     from backend.services.tools.gtm_actions import register_gtm_actions
 
     registry = ActionRegistry()
@@ -500,14 +573,22 @@ def test_gtm_email_send_rejects_non_2xx_response() -> None:
     authority = MagicMock()
     authority.request.return_value = (destination, response)
 
-    with patch(
-        "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
-        return_value=authority,
+    with (
+        patch(
+            "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
+            return_value=authority,
+        ),
+        patch(
+            "backend.services.tools.gtm_action_email.claim_smtp_send",
+            return_value=SmtpSendClaim(decision="newly_claimed", idempotency_key="gmail-500"),
+        ),
+        patch("backend.services.tools.gtm_action_email.release_smtp_send"),
     ):
         result = handler(
             ToolInvocation(
                 action="gtm.email_send",
                 input={"to": "user@example.com", "subject": "Hello", "body": "Hi"},
+                idempotency_key="gmail-500",
             ),
             context,
         )
@@ -519,6 +600,7 @@ def test_gtm_email_send_rejects_non_2xx_response() -> None:
 
 def test_gtm_email_send_propagates_idempotency_key_to_provider() -> None:
     from backend.services.tools.action_registry import ActionRegistry
+    from backend.services.tools.email_send_idempotency import SmtpSendClaim
     from backend.services.tools.gtm_actions import register_gtm_actions
 
     registry = ActionRegistry()
@@ -543,9 +625,16 @@ def test_gtm_email_send_propagates_idempotency_key_to_provider() -> None:
     authority = MagicMock()
     authority.request.return_value = (destination, response)
 
-    with patch(
-        "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
-        return_value=authority,
+    with (
+        patch(
+            "backend.services.tools.gtm_action_email.get_default_network_egress_authority",
+            return_value=authority,
+        ),
+        patch(
+            "backend.services.tools.gtm_action_email.claim_smtp_send",
+            return_value=SmtpSendClaim(decision="newly_claimed", idempotency_key="idem-gmail-1"),
+        ),
+        patch("backend.services.tools.gtm_action_email.complete_smtp_send"),
     ):
         result = handler(
             ToolInvocation(

@@ -74,6 +74,18 @@ def on_email_sent(
         ),
     )
 
+    # Simulation is evidence of an attempted send, never evidence of a
+    # commercial interaction. It may be retained in the timeline but cannot
+    # create or advance an opportunity.
+    if not sent_real:
+        return {
+            "logged": True,
+            "contact_id": contact.get("id"),
+            "activity_id": activity.get("id"),
+            "opportunity_id": None,
+            "stage_changed": None,
+        }
+
     opportunity = crm.ensure_opportunity_for_contact(tenant_id=tenant_id, contact=contact)
     stage_changed = None
     if opportunity is not None and str(opportunity.get("stage")) in {"new", "qualified", "discovery"}:
