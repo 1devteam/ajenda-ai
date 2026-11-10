@@ -39,15 +39,15 @@ def test_crm_pipeline_consumes_qualified_and_prospect_artifacts() -> None:
         action="gtm.crm_upsert",
         input={
             "record_type": "lead",
-            "data": {"pipeline_stage": "qualified"},
+            "data": {},
             "context": {
                 "prospect_candidates": [
                     {"prospect_id": "p1", "company": "Alpha HVAC", "domain": "alpha.example"},
                     {"prospect_id": "p2", "company": "Beta HVAC", "domain": "beta.example"},
                 ],
                 "qualified_prospects": [
-                    {"prospect_id": "p1", "score": 91},
-                    {"prospect_id": "p2", "score": 84},
+                    {"prospect_id": "p1", "score": 91, "pipeline_stage": "qualified"},
+                    {"prospect_id": "p2", "score": 84, "pipeline_stage": "qualified"},
                 ],
             },
         },
