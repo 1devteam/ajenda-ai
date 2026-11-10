@@ -96,12 +96,14 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
             )
         external_write = crm_cred is not None
         claim_key = row_invocation.idempotency_key.strip() if row_invocation.idempotency_key else ""
+        session_factory = ctx.session_factory
+        if external_write and session_factory is None:
+            raise ValueError("external CRM upsert requires session_factory for durable replay protection")
         if external_write:
             if not claim_key:
                 raise ValueError("external CRM upsert requires idempotency_key for durable replay protection")
-            if ctx.session_factory is None:
-                raise ValueError("external CRM upsert requires session_factory for durable replay protection")
-            session = ctx.session_factory()
+            assert session_factory is not None
+            session = session_factory()
             try:
                 claim_status, cached = EmailSendIdempotencyRepository(session).try_claim(
                     tenant_id=ctx.tenant_id,
@@ -153,7 +155,8 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
             action_name=inv.action,
         )
         if external_write and result.real and result.effect_verified:
-            session = ctx.session_factory()
+            assert session_factory is not None
+            session = session_factory()
             try:
                 EmailSendIdempotencyRepository(session).complete(
                     tenant_id=ctx.tenant_id,
