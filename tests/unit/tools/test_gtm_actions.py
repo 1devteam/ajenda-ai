@@ -730,3 +730,27 @@ def test_gtm_crm_configured_missing_secret_does_not_fall_back_to_internal_mutati
             context,
         )
     client.assert_not_called()
+
+
+def test_gtm_crm_requested_external_provider_requires_resolved_credential() -> None:
+    from backend.services.tools.gtm_action_crm import crm_upsert_handler
+
+    context = _context()
+    with (
+        patch("backend.services.tools.gtm_action_crm.default_crm_client") as client,
+        pytest.raises(ValueError, match="credential resolution failed"),
+    ):
+        crm_upsert_handler(
+            ToolInvocation(
+                action="gtm.crm_upsert",
+                input={"record_type": "contact", "data": {"email": "buyer@example.com"}},
+                credential_reference=CredentialReference(
+                    credential_id="missing-provider-credential",
+                    provider="external_crm",
+                    credential_type="api_key",
+                ),
+                idempotency_key="expected-external-only",
+            ),
+            context,
+        )
+    client.assert_not_called()
