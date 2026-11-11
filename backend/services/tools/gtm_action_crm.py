@@ -89,8 +89,10 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
             crm_cred = ctx.runtime_credentials[key]
             break
 
-    # An explicitly supplied but unusable provider credential must never
-    # silently redirect an external CRM effect into Ajenda's internal store.
+    # An explicitly requested external provider must not be downgraded to an
+    # internal CRM write if credential resolution failed or produced no secret.
+    if inv.credential_reference is not None and crm_cred is None:
+        raise ValueError("external CRM credential resolution failed; internal fallback refused")
     if crm_cred is not None and not _credential_secret(crm_cred):
         raise ValueError("configured external CRM credential has no secret; internal fallback refused")
 
