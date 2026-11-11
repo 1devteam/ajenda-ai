@@ -683,7 +683,16 @@ def test_gtm_crm_replay_rejects_payload_changed_under_same_idempotency_key() -> 
 
     context = _context()
     context.session_factory = lambda: MagicMock()
-    context.runtime_credentials = {"gtm.crm_upsert": {"secret_value": "fixture-token"}}
+    context.runtime_credentials = {
+        "gtm.crm_upsert": RuntimeCredentialMaterial(
+            reference=CredentialReference(
+                credential_id="external-crm-fixture",
+                provider="external_crm",
+                credential_type="api_key",
+            ),
+            secret_value="fixture-token",
+        )
+    }
     repository = MagicMock()
     repository.try_claim.return_value = (
         "replayed",
@@ -775,6 +784,40 @@ def test_gtm_crm_external_credential_requires_external_effect_classification() -
                 action="gtm.crm_upsert",
                 input={"record_type": "contact", "data": {"email": "buyer@example.com"}},
                 idempotency_key="not-authorized-external",
+            ),
+            context,
+        )
+    provider.assert_not_called()
+
+
+def test_gtm_crm_refuses_mismatched_resolved_runtime_credential() -> None:
+    from backend.services.tools.gtm_action_crm import crm_upsert_handler
+
+    context = _context()
+    context.runtime_credentials = {
+        "gtm.crm_upsert": RuntimeCredentialMaterial(
+            reference=CredentialReference(
+                credential_id="different-credential",
+                provider="external_crm",
+                credential_type="api_key",
+            ),
+            secret_value="fixture-token",
+        )
+    }
+    with (
+        patch("backend.services.tools.gtm_action_crm.default_crm_client") as provider,
+        pytest.raises(ValueError, match="does not match invocation"),
+    ):
+        crm_upsert_handler(
+            ToolInvocation(
+                action="gtm.crm_upsert",
+                input={"record_type": "contact", "data": {"email": "buyer@example.com"}},
+                credential_reference=CredentialReference(
+                    credential_id="expected-credential",
+                    provider="external_crm",
+                    credential_type="api_key",
+                ),
+                idempotency_key="wrong-runtime-credential",
             ),
             context,
         )
