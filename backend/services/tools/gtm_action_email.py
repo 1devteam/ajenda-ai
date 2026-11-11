@@ -161,8 +161,12 @@ def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
                 if claim.decision == "replayed":
                     cached = dict(claim.cached_output or {})
                     if not _replay_matches_send(
-                        cached, to=to, subject=subject, body=body_text,
-                        artifact_id=artifact_id, provider="smtp",
+                        cached,
+                        to=to,
+                        subject=subject,
+                        body=body_text,
+                        artifact_id=artifact_id,
+                        provider="smtp",
                     ):
                         raise ValueError("idempotency_key replay does not match the original SMTP send")
                     sent.update(cached)
@@ -246,8 +250,12 @@ def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
                 if claim.decision == "replayed":
                     cached = dict(claim.cached_output or {})
                     if not _replay_matches_send(
-                        cached, to=to, subject=subject, body=body_text,
-                        artifact_id=artifact_id, provider="gmail_api",
+                        cached,
+                        to=to,
+                        subject=subject,
+                        body=body_text,
+                        artifact_id=artifact_id,
+                        provider="gmail_api",
                     ):
                         raise ValueError("idempotency_key replay does not match the original Gmail API send")
                     sent.update(cached)
@@ -346,8 +354,10 @@ def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
     )
     sent["sent_messages"] = _sent_message_rows(sent)
 
-    if ctx.session_factory is not None and not sent.get("idempotency_replayed") and (
-        (sent.get("real") and artifact_id) or sent.get("status") in {"sent", "simulated"}
+    if (
+        ctx.session_factory is not None
+        and not sent.get("idempotency_replayed")
+        and ((sent.get("real") and artifact_id) or sent.get("status") in {"sent", "simulated"})
     ):
         from backend.services.light_crm.workflow import on_email_sent
 
