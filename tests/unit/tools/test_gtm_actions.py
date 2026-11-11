@@ -705,6 +705,11 @@ def test_gtm_crm_replay_rejects_payload_changed_under_same_idempotency_key() -> 
             ToolInvocation(
                 action="gtm.crm_upsert",
                 input={"record_type": "contact", "data": {"email": "different@example.com"}},
+                credential_reference=CredentialReference(
+                    credential_id="external-crm-fixture",
+                    provider="external_crm",
+                    credential_type="api_key",
+                ),
                 idempotency_key="already-used",
             ),
             context,
@@ -754,3 +759,23 @@ def test_gtm_crm_requested_external_provider_requires_resolved_credential() -> N
             context,
         )
     client.assert_not_called()
+
+
+def test_gtm_crm_external_credential_requires_external_effect_classification() -> None:
+    from backend.services.tools.gtm_action_crm import crm_upsert_handler
+
+    context = _context()
+    context.runtime_credentials = {"gtm.crm_upsert": {"secret_value": "fixture-token"}}
+    with (
+        patch("backend.services.tools.gtm_action_crm.default_crm_client") as provider,
+        pytest.raises(ValueError, match="effect classification"),
+    ):
+        crm_upsert_handler(
+            ToolInvocation(
+                action="gtm.crm_upsert",
+                input={"record_type": "contact", "data": {"email": "buyer@example.com"}},
+                idempotency_key="not-authorized-external",
+            ),
+            context,
+        )
+    provider.assert_not_called()
