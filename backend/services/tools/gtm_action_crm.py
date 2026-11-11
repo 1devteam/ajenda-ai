@@ -97,7 +97,9 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
     if crm_cred is not None and not _credential_secret(crm_cred):
         raise ValueError("configured external CRM credential has no secret; internal fallback refused")
     if crm_cred is not None and inv.credential_reference is None:
-        raise ValueError("external CRM credential requires an invocation credential_reference for effect classification")
+        raise ValueError(
+            "external CRM credential requires an invocation credential_reference for effect classification"
+        )
     if crm_cred is not None:
         raw_reference = crm_cred.get("reference") if isinstance(crm_cred, dict) else crm_cred.reference
         try:
