@@ -5,7 +5,7 @@ import json
 from typing import Any
 
 from backend.repositories.email_send_idempotency_repository import EmailSendIdempotencyRepository
-from backend.services.plugins.crm_client import CrmUpsertResult, default_crm_client
+from backend.services.plugins.crm_client import CrmUpsertResult, _credential_secret, default_crm_client
 from backend.services.tools.gtm_action_common import _make_evidence
 from backend.services.tools.schemas import (
     ActionResult,
@@ -88,6 +88,11 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
         if key in getattr(ctx, "runtime_credentials", {}):
             crm_cred = ctx.runtime_credentials[key]
             break
+
+    # An explicitly supplied but unusable provider credential must never
+    # silently redirect an external CRM effect into Ajenda's internal store.
+    if crm_cred is not None and not _credential_secret(crm_cred):
+        raise ValueError("configured external CRM credential has no secret; internal fallback refused")
 
     results = []
     for index, row in enumerate(rows):
