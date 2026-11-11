@@ -1,5 +1,7 @@
 """GTM CRM upsert handler."""
 
+import hashlib
+import json
 from typing import Any
 
 from backend.repositories.email_send_idempotency_repository import EmailSendIdempotencyRepository
@@ -95,6 +97,16 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
                 update={"idempotency_key": f"{inv.idempotency_key.strip()}:row:{index + 1}"}
             )
         external_write = crm_cred is not None
+        # Bind a replayed receipt to the exact intended provider mutation.
+        # The same key must never be accepted for a different prospect or field set.
+        request_hash = hashlib.sha256(
+            json.dumps(
+                {"record_type": inp.record_type, "data": row},
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest() if external_write else ""
         claim_key = row_invocation.idempotency_key.strip() if row_invocation.idempotency_key else ""
         session_factory = ctx.session_factory
         if external_write and session_factory is None:
@@ -117,6 +129,8 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
             finally:
                 session.close()
             if claim_status == "replayed":
+                if not isinstance(cached, dict) or cached.get("request_hash") != request_hash:
+                    raise ValueError("idempotency_key was reused for a different CRM payload or lacks a verifiable request hash")
                 results.append(
                     CrmUpsertResult(
                         record_type=str((cached or {}).get("record_type") or inp.record_type),
@@ -163,6 +177,7 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
                     action=inv.action,
                     idempotency_key=claim_key,
                     result_payload={
+                        "request_hash": request_hash,
                         "record_type": result.record_type,
                         "record_id": result.record_id,
                         "data": result.data,
