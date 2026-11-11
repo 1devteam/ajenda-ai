@@ -95,6 +95,8 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
         raise ValueError("external CRM credential resolution failed; internal fallback refused")
     if crm_cred is not None and not _credential_secret(crm_cred):
         raise ValueError("configured external CRM credential has no secret; internal fallback refused")
+    if crm_cred is not None and inv.credential_reference is None:
+        raise ValueError("external CRM credential requires an invocation credential_reference for effect classification")
 
     results = []
     for index, row in enumerate(rows):
