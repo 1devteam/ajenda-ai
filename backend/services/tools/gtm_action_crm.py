@@ -10,6 +10,7 @@ from backend.services.tools.gtm_action_common import _make_evidence
 from backend.services.tools.schemas import (
     ActionResult,
     ActionRuntimeContext,
+    CredentialReference,
     GtmCrmUpsertInput,
     SideEffectClass,
     ToolInvocation,
@@ -97,6 +98,14 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
         raise ValueError("configured external CRM credential has no secret; internal fallback refused")
     if crm_cred is not None and inv.credential_reference is None:
         raise ValueError("external CRM credential requires an invocation credential_reference for effect classification")
+    if crm_cred is not None:
+        raw_reference = crm_cred.get("reference") if isinstance(crm_cred, dict) else crm_cred.reference
+        try:
+            resolved_reference = CredentialReference.model_validate(raw_reference)
+        except Exception as exc:
+            raise ValueError("external CRM credential lacks a verifiable runtime reference") from exc
+        if resolved_reference != inv.credential_reference:
+            raise ValueError("external CRM runtime credential does not match invocation credential_reference")
 
     results = []
     for index, row in enumerate(rows):
