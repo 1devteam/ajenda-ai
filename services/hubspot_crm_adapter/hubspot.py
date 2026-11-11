@@ -136,6 +136,8 @@ class HubSpotClient:
             not isinstance(provider_record_id, str) or not provider_record_id.strip()
         ):
             raise ValueError("provider_record_id must be a non-empty HubSpot object id when provided")
+        if object_type == "contacts" and provider_record_id is None and not properties.get("email"):
+            raise ValueError("HubSpot contact creation/update requires email or provider_record_id")
         if object_type == "companies" and provider_record_id is None and not properties.get("domain"):
             raise ValueError(
                 "HubSpot company creation/update requires domain or provider_record_id; name is not an identity"
@@ -205,7 +207,7 @@ class HubSpotClient:
         # ambiguity visible instead of silently selecting an arbitrary record.
         # Search consumers receive at most 100 records, sufficient to detect
         # conflicts without creating unbounded provider reads.
-        for _ in range(4):
+        for page_index in range(4):
             response = self._request(
                 method="POST",
                 path=f"/crm/v3/objects/{object_type}/search",
@@ -220,6 +222,11 @@ class HubSpotClient:
             after = next_page.get("after") if isinstance(next_page, dict) else None
             if not isinstance(after, str) or not after.strip():
                 break
+            if page_index == 3:
+                raise HubSpotApiError(
+                    status_code=409,
+                    detail="HubSpot search exceeded the bounded page limit; identity cannot be verified completely",
+                )
             payload["after"] = after.strip()
         return object_type, normalized
 
