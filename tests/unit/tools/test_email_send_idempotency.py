@@ -322,7 +322,18 @@ def test_gtm_email_send_smtp_claims_before_send_and_replays() -> None:
             ),
             context,
         )
+        mismatched = handler(
+            ToolInvocation(
+                action="gtm.email_send",
+                input={"to": "different@example.com", "subject": "Hi", "body": "Body"},
+                idempotency_key="smtp-idem-1",
+            ),
+            context,
+        )
 
+    assert mismatched.output["status"] == "error"
+    assert mismatched.output["real"] is False
+    assert "does not match" in mismatched.output["error"]
     assert first.output["real"] is True
     assert first.output["status"] == "sent"
     assert first.output["idempotency_key"] == "smtp-idem-1"
