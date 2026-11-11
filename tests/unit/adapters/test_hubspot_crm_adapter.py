@@ -259,3 +259,35 @@ def test_bearer_token_from_header() -> None:
     assert bearer_token_from_header("Bearer abc") == "abc"
     with pytest.raises(ValueError, match="Bearer"):
         bearer_token_from_header("Token abc")
+
+
+def test_upsert_rejects_contact_without_stable_identity(client: TestClient) -> None:
+    with patch("services.hubspot_crm_adapter.hubspot.httpx.Client") as client_cls:
+        response = client.post(
+            "/v1/upsert",
+            json={"record_type": "contact", "data": {"firstname": "Jane"}},
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+    assert response.status_code == 400
+    assert "email or provider_record_id" in response.json()["detail"]
+    client_cls.assert_not_called()
+
+
+def test_upsert_fails_closed_when_identity_search_exceeds_page_cap(client: TestClient) -> None:
+    page = {
+        "results": [{"id": "555", "properties": {"email": "buyer@example.com"}}],
+        "paging": {"next": {"after": "still-more"}},
+    }
+    with patch("services.hubspot_crm_adapter.hubspot.httpx.Client") as client_cls:
+        http_client = MagicMock()
+        client_cls.return_value.__enter__.return_value = http_client
+        http_client.request.return_value = _mock_response(status_code=200, json_body=page)
+        response = client.post(
+            "/v1/upsert",
+            json={"record_type": "contact", "data": {"email": "buyer@example.com"}},
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+    assert response.status_code == 409
+    assert "page limit" in response.json()["detail"]
+    assert http_client.request.call_count == 4
+    assert all(call.args[0] == "POST" and call.args[1].endswith("/search") for call in http_client.request.call_args_list)
