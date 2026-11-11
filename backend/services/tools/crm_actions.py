@@ -186,7 +186,9 @@ def crm_verify_effect(invocation: ToolInvocation, context: ActionRuntimeContext)
     # External provider account IDs are not tenant IDs; without a verified
     # tenant-to-provider binding, refusing external receipts is mandatory.
     if receipt.provider != "ajenda_internal":
-        raise ValueError("crm.verify_effect requires an internal CRM receipt until provider-account binding is verified")
+        raise ValueError(
+            "crm.verify_effect requires an internal CRM receipt until provider-account binding is verified"
+        )
     if receipt.provider_account_id != context.tenant_id:
         raise ValueError("CRM effect receipt provider account does not match runtime tenant")
     if observation is not None and (
