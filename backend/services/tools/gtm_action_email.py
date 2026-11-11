@@ -70,6 +70,29 @@ def _resolve_send_content(
     return to, subject.strip(), body_text.strip(), artifact_id
 
 
+def _replay_matches_send(
+    cached: dict[str, Any] | None,
+    *,
+    to: str,
+    subject: str,
+    body: str,
+    artifact_id: str | None,
+    provider: str,
+) -> bool:
+    """Only reuse an external-send receipt for the exact original effect."""
+    return isinstance(cached, dict) and all(
+        (
+            cached.get("to") == to,
+            cached.get("subject") == subject,
+            cached.get("body") == body,
+            cached.get("artifact_id") == artifact_id,
+            cached.get("provider") == provider,
+            cached.get("real") is True,
+            cached.get("status") == "sent",
+        )
+    )
+
+
 def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> ActionResult:
     inp = GtmEmailSendInput.model_validate(inv.input)
     requested_artifact_id = inp.artifact_id or str(inp.context.get("artifact_id", "") or "").strip() or None
@@ -137,6 +160,11 @@ def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
                 )
                 if claim.decision == "replayed":
                     cached = dict(claim.cached_output or {})
+                    if not _replay_matches_send(
+                        cached, to=to, subject=subject, body=body_text,
+                        artifact_id=artifact_id, provider="smtp",
+                    ):
+                        raise ValueError("idempotency_key replay does not match the original SMTP send")
                     sent.update(cached)
                     sent["idempotency_key"] = claim.idempotency_key
                     sent["idempotency_replayed"] = True
@@ -216,7 +244,13 @@ def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
                     idempotency_key=inv.idempotency_key,
                 )
                 if claim.decision == "replayed":
-                    sent.update(dict(claim.cached_output or {}))
+                    cached = dict(claim.cached_output or {})
+                    if not _replay_matches_send(
+                        cached, to=to, subject=subject, body=body_text,
+                        artifact_id=artifact_id, provider="gmail_api",
+                    ):
+                        raise ValueError("idempotency_key replay does not match the original Gmail API send")
+                    sent.update(cached)
                     sent["idempotency_key"] = claim.idempotency_key
                     sent["idempotency_replayed"] = True
                     sent.setdefault("provider", "gmail_api")
@@ -312,7 +346,7 @@ def email_send_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
     )
     sent["sent_messages"] = _sent_message_rows(sent)
 
-    if ctx.session_factory is not None and (
+    if ctx.session_factory is not None and not sent.get("idempotency_replayed") and (
         (sent.get("real") and artifact_id) or sent.get("status") in {"sent", "simulated"}
     ):
         from backend.services.light_crm.workflow import on_email_sent
