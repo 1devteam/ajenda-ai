@@ -676,3 +676,37 @@ def test_gtm_crm_upsert_simulated_without_credential(mock_complete: MagicMock) -
     assert result.output["source"] == "ajenda_brain"
     assert result.side_effect_class.value == "internal_write"
     mock_complete.assert_called_once()
+
+
+def test_gtm_crm_replay_rejects_payload_changed_under_same_idempotency_key() -> None:
+    from backend.services.tools.gtm_action_crm import crm_upsert_handler
+
+    context = _context()
+    context.session_factory = lambda: MagicMock()
+    context.runtime_credentials = {"gtm.crm_upsert": {"secret_value": "fixture-token"}}
+    repository = MagicMock()
+    repository.try_claim.return_value = (
+        "replayed",
+        {
+            "request_hash": "not-the-hash-of-this-request",
+            "record_type": "contact",
+            "record_id": "provider-123",
+            "status": "upserted_real",
+            "real": True,
+            "effect_verified": True,
+        },
+    )
+    with (
+        patch("backend.services.tools.gtm_action_crm.EmailSendIdempotencyRepository", return_value=repository),
+        patch("backend.services.tools.gtm_action_crm.default_crm_client") as provider,
+        pytest.raises(ValueError, match="different CRM payload"),
+    ):
+        crm_upsert_handler(
+            ToolInvocation(
+                action="gtm.crm_upsert",
+                input={"record_type": "contact", "data": {"email": "different@example.com"}},
+                idempotency_key="already-used",
+            ),
+            context,
+        )
+    provider.assert_not_called()
