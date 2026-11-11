@@ -189,3 +189,26 @@ def test_crm_mutate_rejects_missing_idempotency_key() -> None:
             ToolInvocation(action="crm.mutate", input={"desired_state": {}, "reconciliation_plan": {}}),
             _context(),
         )
+
+
+def test_crm_observation_separates_opportunity_stage_from_relationship_lifecycle() -> None:
+    from backend.services.tools.crm_actions import _observation
+
+    observed_opportunity = _observation(
+        context=_context(),
+        record_type="opportunity",
+        record={"id": "op-1", "stage": "qualified", "name": "Renewal"},
+    )
+    assert observed_opportunity.lifecycle_state is None
+    assert observed_opportunity.fields["stage"] == "qualified"
+    assert observed_opportunity.fields["name"] == "Renewal"
+
+    observed_contact = _observation(
+        context=_context(),
+        record_type="contact",
+        record={"id": "person-1", "lifecycle_stage": "resolved", "stage": "discovery"},
+    )
+    assert observed_contact.lifecycle_state is not None
+    assert observed_contact.lifecycle_state.value == "resolved"
+    assert observed_contact.fields["stage"] == "discovery"
+    assert "lifecycle_stage" not in observed_contact.fields
