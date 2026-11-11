@@ -66,7 +66,7 @@ def crm_upsert_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Action
             raise ValueError(
                 "multi-record CRM upsert requires record-specific upstream fields; data overlay is refused"
             )
-        rows = bound_rows
+        rows = [{**bound_rows[0], **inp.data}] if len(bound_rows) == 1 else bound_rows
     else:
         rows = [dict(inp.data)]
 
