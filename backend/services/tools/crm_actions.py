@@ -62,7 +62,9 @@ def _evidence(
 
 
 def _lifecycle_state(record: dict[str, Any]) -> str | None:
-    value = record.get("lifecycle_state") or record.get("stage")
+    # Relationship lifecycle is distinct from an opportunity's sales stage.
+    # Never promote a coincidentally named pipeline stage into lifecycle state.
+    value = record.get("lifecycle_state") or record.get("lifecycle_stage")
     return str(value) if value is not None else None
 
 
@@ -75,7 +77,7 @@ def _observation(*, context: ActionRuntimeContext, record_type: str, record: dic
     fields: dict[str, str | int | float | bool | None] = {
         str(key): value
         for key, value in record.items()
-        if key not in {"id", "canonical_identity", "stage", "lifecycle_state"}
+        if key not in {"id", "canonical_identity", "lifecycle_state", "lifecycle_stage"}
         and isinstance(value, (str, int, float, bool))
     }
     associations = tuple(str(record[key]) for key in ("account_id", "contact_id") if record.get(key) is not None)
