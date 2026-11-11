@@ -212,3 +212,20 @@ def test_crm_observation_separates_opportunity_stage_from_relationship_lifecycle
     assert observed_contact.lifecycle_state.value == "resolved"
     assert observed_contact.fields["stage"] == "discovery"
     assert "lifecycle_stage" not in observed_contact.fields
+
+
+def test_crm_verify_effect_rejects_external_receipt_without_provider_account_binding() -> None:
+    payload = _verify_input()
+    payload["effect_receipt"]["provider"] = "hubspot"  # type: ignore[index]
+    payload["readback_observation"]["provider"] = "hubspot"  # type: ignore[index]
+    registry = get_default_action_registry(rebuild=True)
+    with pytest.raises(ValueError, match="provider-account binding"):
+        registry.invoke(ToolInvocation(action="crm.verify_effect", input=payload), _context())
+
+
+def test_crm_verify_effect_rejects_mismatched_observation_provider() -> None:
+    payload = _verify_input()
+    payload["readback_observation"]["provider"] = "hubspot"  # type: ignore[index]
+    registry = get_default_action_registry(rebuild=True)
+    with pytest.raises(ValueError, match="not bound"):
+        registry.invoke(ToolInvocation(action="crm.verify_effect", input=payload), _context())
