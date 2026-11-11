@@ -710,3 +710,23 @@ def test_gtm_crm_replay_rejects_payload_changed_under_same_idempotency_key() -> 
             context,
         )
     provider.assert_not_called()
+
+
+def test_gtm_crm_configured_missing_secret_does_not_fall_back_to_internal_mutation() -> None:
+    from backend.services.tools.gtm_action_crm import crm_upsert_handler
+
+    context = _context()
+    context.runtime_credentials = {"gtm.crm_upsert": {"secret_value": ""}}
+    with (
+        patch("backend.services.tools.gtm_action_crm.default_crm_client") as client,
+        pytest.raises(ValueError, match="internal fallback refused"),
+    ):
+        crm_upsert_handler(
+            ToolInvocation(
+                action="gtm.crm_upsert",
+                input={"record_type": "contact", "data": {"email": "buyer@example.com"}},
+                idempotency_key="configured-cred-no-secret",
+            ),
+            context,
+        )
+    client.assert_not_called()
