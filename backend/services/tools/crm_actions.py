@@ -62,7 +62,9 @@ def _evidence(
 
 
 def _lifecycle_state(record: dict[str, Any]) -> str | None:
-    value = record.get("lifecycle_state") or record.get("stage")
+    # Relationship lifecycle is distinct from an opportunity's sales stage.
+    # Never promote a coincidentally named pipeline stage into lifecycle state.
+    value = record.get("lifecycle_state") or record.get("lifecycle_stage")
     return str(value) if value is not None else None
 
 
@@ -75,7 +77,7 @@ def _observation(*, context: ActionRuntimeContext, record_type: str, record: dic
     fields: dict[str, str | int | float | bool | None] = {
         str(key): value
         for key, value in record.items()
-        if key not in {"id", "canonical_identity", "stage", "lifecycle_state"}
+        if key not in {"id", "canonical_identity", "lifecycle_state", "lifecycle_stage"}
         and isinstance(value, (str, int, float, bool))
     }
     associations = tuple(str(record[key]) for key in ("account_id", "contact_id") if record.get(key) is not None)
@@ -180,8 +182,19 @@ def crm_verify_effect(invocation: ToolInvocation, context: ActionRuntimeContext)
 
     reasons: list[str] = []
     equivalent = False
+    # This verification path currently emits internal CRM evidence only.
+    # External provider account IDs are not tenant IDs; without a verified
+    # tenant-to-provider binding, refusing external receipts is mandatory.
+    if receipt.provider != "ajenda_internal":
+        raise ValueError(
+            "crm.verify_effect requires an internal CRM receipt until provider-account binding is verified"
+        )
     if receipt.provider_account_id != context.tenant_id:
         raise ValueError("CRM effect receipt provider account does not match runtime tenant")
+    if observation is not None and (
+        observation.provider != "ajenda_internal" or observation.provider_account_id != context.tenant_id
+    ):
+        raise ValueError("CRM read-back observation is not bound to the internal tenant provider")
     if receipt.certainty == EffectCertainty.VERIFIED:
         if observation is None:
             reasons.append("verified receipt is missing read-back observation")

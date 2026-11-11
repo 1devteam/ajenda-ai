@@ -1,8 +1,8 @@
-"""Durable receipts for SMTP (and other non-provider-idempotent) email sends.
+"""Durable receipts for non-provider-idempotent external effects.
 
-Gmail API path relies on the outbound Idempotency-Key header. SMTP has no
-provider-side dedupe, so Ajenda claims the key in this table *before* calling
-sendmail. Worker retries under the same key must not deliver a second message.
+SMTP, Gmail API sends, and provider CRM writes can all have ambiguous outcomes
+after request dispatch. Ajenda claims the key in this table before external
+I/O. Worker retries under the same key must not repeat an uncertain effect.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ EMAIL_SEND_CLAIM_STATUS_COMPLETED = "completed"
 
 
 class EmailSendIdempotencyReceipt(Base):
-    """Tenant-scoped claim for one (action, idempotency_key) email send."""
+    """Tenant-scoped claim for one non-replayable (action, idempotency_key) effect."""
 
     __tablename__ = "email_send_idempotency_receipts"
     __table_args__ = (

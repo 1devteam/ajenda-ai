@@ -3,8 +3,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from backend.services.light_crm.records import LightCrmRecordService
-from backend.services.light_crm.schemas import enrich_contact_data, normalize_email
-from backend.services.light_crm.workflow import on_crm_upsert_completed, on_draft_approved
+from backend.services.light_crm.schemas import (
+    enrich_contact_data,
+    enrich_opportunity_data,
+    normalize_email,
+    normalize_stage,
+)
+from backend.services.light_crm.workflow import on_crm_upsert_completed, on_draft_approved, on_email_sent
 
 
 def test_normalize_email_lowercases() -> None:
@@ -34,6 +39,39 @@ def test_enrich_contact_rejects_malformed_extension_fields() -> None:
         assert str(exc) == "custom_fields must be an object"
     else:
         raise AssertionError("malformed custom_fields must fail closed")
+
+
+def test_unknown_opportunity_stage_is_refused() -> None:
+    assert normalize_stage("portal-specific-stage") is None
+    try:
+        enrich_opportunity_data({"stage": "portal-specific-stage"})
+    except ValueError as exc:
+        assert "supported Ajenda opportunity stage" in str(exc)
+    else:
+        raise AssertionError("unknown stage must fail closed")
+
+
+@patch("backend.services.light_crm.workflow.LightCrmRecordService")
+def test_simulated_email_never_creates_or_advances_opportunity(mock_crm_cls: MagicMock) -> None:
+    crm = MagicMock()
+    mock_crm_cls.return_value = crm
+    crm.find_record_id_by_field.return_value = "contact-1"
+    crm.read_record.return_value = {"id": "contact-1", "email": "ops@example.com"}
+    crm.log_activity.return_value = {"id": "activity-1"}
+
+    result = on_email_sent(
+        session=MagicMock(),
+        tenant_id="tenant-1",
+        to="ops@example.com",
+        subject="test",
+        artifact_id=None,
+        sent_real=False,
+    )
+
+    assert result["stage_changed"] is None
+    assert result["opportunity_id"] is None
+    crm.ensure_opportunity_for_contact.assert_not_called()
+    crm.identity_upsert.assert_not_called()
 
 
 @patch("backend.services.light_crm.records.TenantInternalRecordRepository")
@@ -192,6 +230,26 @@ def test_identity_upsert_contact_preserves_explicit_id_without_email(mock_repo_c
 
     assert saved["id"] == "contact-stable"
     assert repo.write_record.call_args.kwargs["record_id"] == "contact-stable"
+
+
+@patch("backend.services.light_crm.records.TenantInternalRecordRepository")
+def test_opportunity_identity_includes_stable_key_not_only_contact(mock_repo_cls: MagicMock) -> None:
+    repo = MagicMock()
+    mock_repo_cls.return_value = repo
+    repo.search_records.return_value = []
+    repo.write_record.return_value = {"id": "opportunity-new", "stage": "discovery"}
+    crm = LightCrmRecordService(session=MagicMock())
+
+    crm.identity_upsert(
+        tenant_id="tenant-1",
+        record_type="opportunity",
+        data={"contact_id": "contact-1", "opportunity_key": "renewal-2027"},
+    )
+
+    assert repo.search_records.call_args.kwargs["filters"] == {
+        "contact_id": "contact-1",
+        "opportunity_key": "renewal-2027",
+    }
 
 
 @patch("backend.services.light_crm.workflow.LightCrmRecordService")

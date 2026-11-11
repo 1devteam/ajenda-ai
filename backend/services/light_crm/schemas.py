@@ -65,7 +65,7 @@ def normalize_stage(value: Any) -> str | None:
     cleaned = value.strip().lower().replace(" ", "_")
     if cleaned in PIPELINE_STAGES:
         return cleaned
-    return cleaned or None
+    return None
 
 
 def _normalize_common_fields(record: dict[str, Any]) -> dict[str, Any]:
@@ -131,7 +131,11 @@ def enrich_opportunity_data(data: dict[str, Any]) -> dict[str, Any]:
     record.setdefault("custom_fields", {})
     record.setdefault("tags", [])
     record.setdefault("source", "ajenda")
-    stage = normalize_stage(record.get("stage")) or DEFAULT_OPPORTUNITY_STAGE
+    supplied_stage = record.get("stage")
+    stage = normalize_stage(supplied_stage)
+    if supplied_stage is not None and stage is None:
+        raise ValueError("stage is not a supported Ajenda opportunity stage")
+    stage = stage or DEFAULT_OPPORTUNITY_STAGE
     record["stage"] = stage
     if not record.get("name"):
         account = str(record.get("account_name") or record.get("company") or "Opportunity").strip()

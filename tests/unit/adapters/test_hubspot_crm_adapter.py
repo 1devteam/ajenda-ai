@@ -109,7 +109,7 @@ def test_upsert_creates_contact(client: TestClient) -> None:
     assert body["hubspot_object_type"] == "contacts"
 
 
-def test_upsert_updates_existing_contact(client: TestClient) -> None:
+def test_upsert_rejects_unresolved_lead(client: TestClient) -> None:
     search_response = _mock_response(
         status_code=200,
         json_body={"results": [{"id": "555", "properties": {"email": "buyer@example.com"}}]},
@@ -132,13 +132,50 @@ def test_upsert_updates_existing_contact(client: TestClient) -> None:
             headers={"Authorization": f"Bearer {TOKEN}"},
         )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["id"] == "555"
-    assert body["created"] is False
+    assert response.status_code == 400
+    assert "unsupported record_type: lead" in response.json()["detail"]
+    http_client.request.assert_not_called()
 
 
-def test_upsert_filters_ajenda_metadata_from_provider_properties(client: TestClient) -> None:
+def test_upsert_rejects_ambiguous_contact_identity(client: TestClient) -> None:
+    search_response = _mock_response(
+        status_code=200,
+        json_body={"results": [{"id": "555"}, {"id": "556"}]},
+    )
+    with patch("services.hubspot_crm_adapter.hubspot.httpx.Client") as client_cls:
+        http_client = MagicMock()
+        client_cls.return_value.__enter__.return_value = http_client
+        http_client.request.return_value = search_response
+        response = client.post(
+            "/v1/upsert",
+            json={"record_type": "contact", "data": {"email": "buyer@example.com"}},
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+    assert response.status_code == 409
+    assert "ambiguous" in response.json()["detail"]
+
+
+def test_upsert_rejects_unknown_provider_properties(client: TestClient) -> None:
+    response = client.post(
+        "/v1/upsert",
+        json={"record_type": "contact", "data": {"email": "buyer@example.com", "custom_score": 5}},
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
+    assert response.status_code == 400
+    assert "unsupported HubSpot properties: custom_score" in response.json()["detail"]
+
+
+def test_upsert_rejects_company_name_as_an_identity(client: TestClient) -> None:
+    response = client.post(
+        "/v1/upsert",
+        json={"record_type": "company", "data": {"name": "Acme"}},
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
+    assert response.status_code == 400
+    assert "provider_record_id" in response.json()["detail"] or response.status_code == 400
+
+
+def test_upsert_rejects_ajenda_metadata_that_is_not_a_provider_property(client: TestClient) -> None:
     search_response = _mock_response(
         status_code=200,
         json_body={"results": [{"id": "555", "properties": {"email": "buyer@example.com"}}]},
@@ -166,11 +203,9 @@ def test_upsert_filters_ajenda_metadata_from_provider_properties(client: TestCli
             headers={"Authorization": f"Bearer {TOKEN}"},
         )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["requested_properties"] == {"email": "buyer@example.com", "company": "HubSpot"}
-    patch_call = http_client.request.call_args_list[1].kwargs
-    assert patch_call["json"]["properties"] == {"email": "buyer@example.com", "company": "HubSpot"}
+    assert response.status_code == 400
+    assert "qualification_evidence, score" in response.json()["detail"]
+    http_client.request.assert_not_called()
 
 
 def test_read_record_returns_provider_state(client: TestClient) -> None:
@@ -224,3 +259,37 @@ def test_bearer_token_from_header() -> None:
     assert bearer_token_from_header("Bearer abc") == "abc"
     with pytest.raises(ValueError, match="Bearer"):
         bearer_token_from_header("Token abc")
+
+
+def test_upsert_rejects_contact_without_stable_identity(client: TestClient) -> None:
+    with patch("services.hubspot_crm_adapter.hubspot.httpx.Client") as client_cls:
+        response = client.post(
+            "/v1/upsert",
+            json={"record_type": "contact", "data": {"firstname": "Jane"}},
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+    assert response.status_code == 400
+    assert "email or provider_record_id" in response.json()["detail"]
+    client_cls.assert_not_called()
+
+
+def test_upsert_fails_closed_when_identity_search_exceeds_page_cap(client: TestClient) -> None:
+    page = {
+        "results": [{"id": "555", "properties": {"email": "buyer@example.com"}}],
+        "paging": {"next": {"after": "still-more"}},
+    }
+    with patch("services.hubspot_crm_adapter.hubspot.httpx.Client") as client_cls:
+        http_client = MagicMock()
+        client_cls.return_value.__enter__.return_value = http_client
+        http_client.request.return_value = _mock_response(status_code=200, json_body=page)
+        response = client.post(
+            "/v1/upsert",
+            json={"record_type": "contact", "data": {"email": "buyer@example.com"}},
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+    assert response.status_code == 409
+    assert "page limit" in response.json()["detail"]
+    assert http_client.request.call_count == 4
+    assert all(
+        call.args[0] == "POST" and call.args[1].endswith("/search") for call in http_client.request.call_args_list
+    )

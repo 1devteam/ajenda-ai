@@ -80,9 +80,9 @@ class EmailSendIdempotencyRepository:
         action: str,
         idempotency_key: str,
     ) -> tuple[ClaimStatus, dict[str, Any] | None]:
-        """Legacy generic claim used by non-SMTP durable callers.
+        """Generic durable claim for fail-closed non-replayable callers.
 
-        SMTP uses :meth:`try_claim_smtp`, which adds durable ownership and a
+        SMTP/Gmail use :meth:`try_claim_smtp`, which adds durable ownership and a
         recoverable pre-send lease without changing the generic open-write
         semantics that also share this receipt table.
         """
