@@ -118,3 +118,35 @@ def test_crm_pipeline_preserves_direct_manual_upsert() -> None:
     assert client.upsert.call_args.kwargs["data"] == {"email": "lead@example.com"}
     assert result.output["source_artifact"] == "direct_data"
     assert result.output["record_count"] == 1
+
+
+def test_crm_pipeline_applies_manual_overlay_only_to_single_bound_prospect() -> None:
+    client = MagicMock()
+    client.upsert.side_effect = lambda **kwargs: _result(kwargs["data"], 1)
+    registry = get_default_action_registry(rebuild=True)
+    handler = registry.get("gtm.crm_upsert").handler
+
+    with patch("backend.services.tools.gtm_action_crm.default_crm_client", return_value=client):
+        result = handler(
+            ToolInvocation(
+                action="gtm.crm_upsert",
+                input={
+                    "record_type": "contact",
+                    "data": {"jobtitle": "decision maker"},
+                    "context": {
+                        "qualified_prospects": [
+                            {"prospect_id": "p1", "email": "person@example.com", "score": 87},
+                        ],
+                    },
+                },
+            ),
+            _context(),
+        )
+
+    assert client.upsert.call_args.kwargs["data"] == {
+        "prospect_id": "p1",
+        "email": "person@example.com",
+        "score": 87,
+        "jobtitle": "decision maker",
+    }
+    assert result.output["record_count"] == 1
