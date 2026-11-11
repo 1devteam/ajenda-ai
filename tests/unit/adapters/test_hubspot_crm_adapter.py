@@ -290,4 +290,6 @@ def test_upsert_fails_closed_when_identity_search_exceeds_page_cap(client: TestC
     assert response.status_code == 409
     assert "page limit" in response.json()["detail"]
     assert http_client.request.call_count == 4
-    assert all(call.args[0] == "POST" and call.args[1].endswith("/search") for call in http_client.request.call_args_list)
+    assert all(
+        call.args[0] == "POST" and call.args[1].endswith("/search") for call in http_client.request.call_args_list
+    )
