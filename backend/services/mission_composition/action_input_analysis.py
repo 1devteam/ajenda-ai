@@ -240,6 +240,11 @@ def assessment_context_supports_qualified_knowledge(assessment_context: dict[str
     if not isinstance(assessment_context, dict):
         return False
     try:
+        # The composed knowledge-review path has one canonical current-source
+        # observation prerequisite.  Keep eligibility aligned with that
+        # cardinality rather than selecting a job that will later fail during
+        # input compilation for a multi-subject assessment.
+        _assessment_source_observation_input(assessment_context=assessment_context)
         # The instruction is only carried into the embedded Decision context;
         # an empty intent cannot change the typed Knowledge semantics.
         _assessment_knowledge_decision_input(
