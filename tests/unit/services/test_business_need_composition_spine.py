@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.api.routes.mission_composition import ComposeMissionRequest
+from backend.services.mission_composition.action_input_analysis import assessment_context_supports_qualified_knowledge
 from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
@@ -209,6 +210,34 @@ def test_semantically_complete_assessment_routes_existing_qualified_knowledge_de
             "to_step": "ability-knowledge-inform_decision",
             "input_path": "$.input.applicability_context.condition_assertions",
         }
+    ]
+
+
+def test_multi_subject_assessment_does_not_select_the_single_source_knowledge_review_path() -> None:
+    context = _assessment_context()
+    context["subject_references"] = [
+        {"schema_version": 1, "object_type": "organization", "object_id": "first"},
+        {"schema_version": 1, "object_type": "organization", "object_id": "second"},
+    ]
+    assert assessment_context_supports_qualified_knowledge(context) is False
+
+    intent = interpret_instruction("Use the reviewed need and recommend the next action.").model_copy(
+        update={"context_requirements": ["business_need_assessment_context"]}
+    )
+    jobs = route_jobs_for_intent(intent)
+    assert {job.job_key for job in jobs} >= {"business.review_need"}
+    assert "business.review_need_with_knowledge" not in {job.job_key for job in jobs}
+    assert "business.observe_need_context" not in {job.job_key for job in jobs}
+
+    selections, missing = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    assert missing == []
+    steps = compile_planned_steps(
+        selections,
+        intent=intent,
+        business_need_assessment_context=context,
+    )
+    assert [(step.job_key, step.action_name) for step in steps] == [
+        ("business.review_need", "decision.recommend_next_action")
     ]
 
 

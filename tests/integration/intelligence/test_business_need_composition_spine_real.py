@@ -95,11 +95,12 @@ def _persist_assessed_need(
     candidate_response_key: str = "inspect_funnel",
     candidate_summary: str = "Inspect funnel conversion before changing spend.",
     candidate_evidence_status: str = "supported",
+    subject_references: list[dict[str, object]] | None = None,
 ) -> tuple[str, BusinessNeedAssessment, BusinessMeasurement]:
     """Persist a bounded tenant need using the same source contracts as the service."""
 
     need_id = "need-conversion-gap"
-    subject = {"schema_version": 1, "object_type": "opportunity", "object_id": "opp-42"}
+    subjects = subject_references or [{"schema_version": 1, "object_type": "opportunity", "object_id": "opp-42"}]
     evaluated_at = datetime(2026, 10, 25, 4, 0, tzinfo=UTC)
     revision = BusinessNeedRevision(
         tenant_id=tenant_id,
@@ -107,7 +108,7 @@ def _persist_assessed_need(
         revision=1,
         origin="observed",
         status="recognized",
-        subject_references=[subject],
+        subject_references=subjects,
         objective_reference={"objective_key": "increase_conversion"},
         condition_summary="Conversion is below the approved target.",
         uncertainty=[{"kind": "causal", "summary": "The cause remains unresolved."}],
@@ -156,7 +157,7 @@ def _persist_assessed_need(
     session.flush()
     baseline = BusinessMeasurement(
         tenant_id=tenant_id,
-        subject_references=[subject],
+        subject_references=subjects,
         objective_key="increase_conversion",
         metric="conversion",
         values=[
@@ -469,6 +470,43 @@ def test_tenant_assessment_composes_to_existing_knowledge_decision_with_immutabl
     assert [node["metadata"]["action"] for node in confirmation["task_graph"]["nodes"]] == [
         "record.read",
         "knowledge.inform_decision",
+    ]
+
+
+def test_multi_subject_assessment_composes_to_the_assessment_only_decision_owner(pg_engine) -> None:
+    """Unsupported source cardinality falls back before graph compilation."""
+
+    tenant_uuid = uuid.uuid4()
+    tenant_id = str(tenant_uuid)
+    factory = sessionmaker(bind=pg_engine, expire_on_commit=False)
+    subjects = [
+        {"schema_version": 1, "object_type": "opportunity", "object_id": "opp-42-a"},
+        {"schema_version": 1, "object_type": "opportunity", "object_id": "opp-42-b"},
+    ]
+    with factory() as session:
+        session.add(Tenant(id=tenant_uuid, name="Multi-subject assessment", slug=f"multi-{tenant_id[:8]}", plan="free"))
+        session.flush()
+        activate_tenant_session(session, tenant_id)
+        persist_test_operating_charter(session, tenant_id=tenant_id)
+        need_id, assessment, _ = _persist_assessed_need(
+            session=session,
+            tenant_id=tenant_id,
+            subject_references=subjects,
+        )
+        session.commit()
+
+        record = MissionCompositionService(db=session).compose(
+            tenant_id=tenant_id,
+            instruction="Review the referenced business need assessment and recommend the next action.",
+            business_need_reference={"need_id": need_id, "revision": 1},
+            business_need_assessment_reference={"assessment_id": str(assessment.id)},
+        )
+
+    assert record.ready_to_start is True
+    assert record.reviewed_composition_snapshot is not None
+    assert record.reviewed_composition_snapshot.selected_job_keys == ("business.review_need",)
+    assert [(step.job_key, step.action_name) for step in record.planned_steps] == [
+        ("business.review_need", "decision.recommend_next_action")
     ]
 
 
