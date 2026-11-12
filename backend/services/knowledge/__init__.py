@@ -1,4 +1,6 @@
 from backend.services.knowledge.knowledge_applicability import (
+    ConditionFreshnessKind,
+    ConditionFreshnessPolicy,
     ContextConditionAssertion,
     ContextConditionState,
     KnowledgeApplicabilityContext,
@@ -42,6 +44,8 @@ from backend.services.knowledge.knowledge_retrieval import (
 )
 
 __all__ = [
+    "ConditionFreshnessKind",
+    "ConditionFreshnessPolicy",
     "ContextConditionAssertion",
     "ContextConditionState",
     "CurrentKnowledgeState",

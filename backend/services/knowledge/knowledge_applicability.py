@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Literal
 
@@ -41,6 +41,42 @@ class ContextConditionState(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ConditionFreshnessKind(StrEnum):
+    """Whether the source owner considers a condition durable or time-sensitive."""
+
+    DURABLE = "durable"
+    TIME_BOUNDED = "time_bounded"
+
+
+class ConditionFreshnessPolicy(BaseModel):
+    """Source-owned validity contract for one observed condition.
+
+    No global expiry exists: durable conditions remain usable until explicitly
+    superseded, while time-sensitive conditions name their own maximum age.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: Literal[1] = 1
+    kind: ConditionFreshnessKind = ConditionFreshnessKind.DURABLE
+    max_age_seconds: int | None = None
+
+    @model_validator(mode="after")
+    def validate_policy(self) -> ConditionFreshnessPolicy:
+        if self.kind == ConditionFreshnessKind.DURABLE and self.max_age_seconds is not None:
+            raise ValueError("durable condition freshness cannot declare max_age_seconds")
+        if self.kind == ConditionFreshnessKind.TIME_BOUNDED and (
+            self.max_age_seconds is None or self.max_age_seconds <= 0
+        ):
+            raise ValueError("time-bounded condition freshness requires positive max_age_seconds")
+        return self
+
+    def is_current_at(self, *, observed_at: datetime, evaluated_at: datetime) -> bool:
+        if self.kind == ConditionFreshnessKind.DURABLE:
+            return True
+        assert self.max_age_seconds is not None
+        return evaluated_at <= observed_at + timedelta(seconds=self.max_age_seconds)
+
+
 class SourceConditionObservation(BaseModel):
     """Condition semantics emitted by the owner of a source observation."""
 
@@ -51,6 +87,8 @@ class SourceConditionObservation(BaseModel):
     subject_refs: tuple[BusinessObjectRef, ...]
     observed_at: datetime
     verification_basis: ObservationVerificationBasis
+    freshness_policy: ConditionFreshnessPolicy = ConditionFreshnessPolicy()
+    superseded_at: datetime | None = None
 
     @field_validator("condition_key")
     @classmethod
@@ -74,10 +112,19 @@ class SourceConditionObservation(BaseModel):
             raise ValueError("observed_at must be timezone-aware")
         return value
 
+    @field_validator("superseded_at")
+    @classmethod
+    def require_aware_superseded_at(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("superseded_at must be timezone-aware")
+        return value
+
     @model_validator(mode="after")
     def require_source_supplied_basis(self) -> SourceConditionObservation:
         if self.verification_basis != ObservationVerificationBasis.SOURCE_SUPPLIED_UNDER_CONTRACT:
             raise ValueError("source condition observation must use source-supplied verification")
+        if self.superseded_at is not None and self.superseded_at < self.observed_at:
+            raise ValueError("superseded_at cannot precede observed_at")
         return self
 
 
@@ -100,6 +147,8 @@ class ContextConditionAssertion(BaseModel):
     evidence_ids: tuple[str, ...] = ()
     observed_at: datetime
     verification_basis: ObservationVerificationBasis
+    freshness_policy: ConditionFreshnessPolicy = ConditionFreshnessPolicy()
+    superseded_at: datetime | None = None
 
     @field_validator("condition_key")
     @classmethod
@@ -127,6 +176,31 @@ class ContextConditionAssertion(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("observed_at must be timezone-aware")
         return value
+
+    @field_validator("superseded_at")
+    @classmethod
+    def require_aware_superseded_at(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("superseded_at must be timezone-aware")
+        return value
+
+    @model_validator(mode="after")
+    def validate_supersession_ordering(self) -> ContextConditionAssertion:
+        if self.superseded_at is not None and self.superseded_at < self.observed_at:
+            raise ValueError("superseded_at cannot precede observed_at")
+        return self
+
+    def is_current_at(self, evaluated_at: datetime) -> bool:
+        if self.superseded_at is not None and self.superseded_at <= evaluated_at:
+            return False
+        return self.freshness_policy.is_current_at(observed_at=self.observed_at, evaluated_at=evaluated_at)
+
+    def currentness_limit(self, evaluated_at: datetime) -> str | None:
+        if self.superseded_at is not None and self.superseded_at <= evaluated_at:
+            return "condition_assertion_superseded"
+        if not self.freshness_policy.is_current_at(observed_at=self.observed_at, evaluated_at=evaluated_at):
+            return "condition_assertion_stale"
+        return None
 
 
 class KnowledgeApplicabilityContext(BaseModel):
@@ -266,25 +340,36 @@ def evaluate_knowledge_applicability(
     assertions = {item.condition_key: item for item in context.condition_assertions}
     scope = tuple(sorted(set(match.proposition.scope_conditions)))
     invalidations = tuple(sorted(set(match.proposition.invalidation_conditions)))
+    current_assertions = {key: item for key, item in assertions.items() if item.is_current_at(context.evaluated_at)}
     satisfied = tuple(
-        key for key in scope if assertions.get(key) and assertions[key].state == ContextConditionState.ACTIVE
+        key
+        for key in scope
+        if current_assertions.get(key) and current_assertions[key].state == ContextConditionState.ACTIVE
     )
     unsatisfied = tuple(
-        key for key in scope if assertions.get(key) and assertions[key].state == ContextConditionState.INACTIVE
+        key
+        for key in scope
+        if current_assertions.get(key) and current_assertions[key].state == ContextConditionState.INACTIVE
     )
     unknown_scope = tuple(
-        key for key in scope if assertions.get(key) is None or assertions[key].state == ContextConditionState.UNKNOWN
+        key
+        for key in scope
+        if current_assertions.get(key) is None or current_assertions[key].state == ContextConditionState.UNKNOWN
     )
     active_invalidations = tuple(
-        key for key in invalidations if assertions.get(key) and assertions[key].state == ContextConditionState.ACTIVE
+        key
+        for key in invalidations
+        if current_assertions.get(key) and current_assertions[key].state == ContextConditionState.ACTIVE
     )
     cleared_invalidations = tuple(
-        key for key in invalidations if assertions.get(key) and assertions[key].state == ContextConditionState.INACTIVE
+        key
+        for key in invalidations
+        if current_assertions.get(key) and current_assertions[key].state == ContextConditionState.INACTIVE
     )
     unknown_invalidations = tuple(
         key
         for key in invalidations
-        if assertions.get(key) is None or assertions[key].state == ContextConditionState.UNKNOWN
+        if current_assertions.get(key) is None or current_assertions[key].state == ContextConditionState.UNKNOWN
     )
 
     if active_invalidations:
@@ -315,6 +400,10 @@ def evaluate_knowledge_applicability(
         limits.add("scope_condition_truth_unknown")
     if unknown_invalidations:
         limits.add("invalidation_condition_truth_unknown")
+    for key in set(scope) | set(invalidations):
+        assertion = assertions.get(key)
+        if assertion is not None and (limit := assertion.currentness_limit(context.evaluated_at)) is not None:
+            limits.add(limit)
     if match.goal_comparison.status == GoalSemanticComparisonStatus.PARTIALLY_EQUIVALENT:
         limits.add("partial_goal_equivalence")
     if any(

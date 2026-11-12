@@ -6,6 +6,8 @@ import pytest
 from pydantic import ValidationError
 
 from backend.services.knowledge import (
+    ConditionFreshnessKind,
+    ConditionFreshnessPolicy,
     ContextConditionAssertion,
     ContextConditionState,
     CurrentKnowledgeState,
@@ -77,6 +79,8 @@ def _assertion(
     basis=ObservationVerificationBasis.INDEPENDENTLY_VERIFIED,
     evidence=(),
     observed_at=NOW,
+    freshness_policy=ConditionFreshnessPolicy(),
+    superseded_at=None,
 ):
     return ContextConditionAssertion(
         condition_key=key,
@@ -85,6 +89,8 @@ def _assertion(
         evidence_ids=evidence,
         observed_at=observed_at,
         verification_basis=basis,
+        freshness_policy=freshness_policy,
+        superseded_at=superseded_at,
     )
 
 
@@ -118,6 +124,15 @@ def test_source_condition_observation_requires_explicit_source_basis_and_subject
                 "verification_basis": "source_supplied_under_contract",
             }
         )
+
+
+def test_condition_freshness_policy_rejects_ambiguous_or_invalid_windows() -> None:
+    with pytest.raises(ValidationError, match="durable condition freshness"):
+        ConditionFreshnessPolicy(max_age_seconds=1)
+    with pytest.raises(ValidationError, match="positive max_age_seconds"):
+        ConditionFreshnessPolicy(kind=ConditionFreshnessKind.TIME_BOUNDED)
+    with pytest.raises(ValidationError, match="positive max_age_seconds"):
+        ConditionFreshnessPolicy(kind=ConditionFreshnessKind.TIME_BOUNDED, max_age_seconds=0)
 
 
 @pytest.mark.parametrize(
@@ -288,6 +303,70 @@ def test_context_accepts_assertions_observed_before_evaluation() -> None:
         _assertion("segment:smb", ContextConditionState.ACTIVE, observed_at=NOW - timedelta(seconds=1)),
     )
     result = evaluate_knowledge_applicability(retrieval_id="retrieval:test", match=match, context=context)
+    assert result.status == KnowledgeApplicabilityStatus.APPLICABLE
+
+
+def test_durable_assertions_remain_current_without_an_arbitrary_global_ttl() -> None:
+    query, match = _match(invalidation=())
+    context = _context(
+        query,
+        _assertion("segment:smb", ContextConditionState.ACTIVE, observed_at=NOW - timedelta(days=365)),
+    )
+    result = evaluate_knowledge_applicability(retrieval_id="retrieval:durable", match=match, context=context)
+    assert result.status == KnowledgeApplicabilityStatus.APPLICABLE
+    assert "condition_assertion_stale" not in result.epistemic_limits
+
+
+def test_time_bounded_assertion_becomes_insufficient_context_after_its_source_owned_maximum_age() -> None:
+    query, match = _match(invalidation=())
+    context = _context(
+        query,
+        _assertion(
+            "segment:smb",
+            ContextConditionState.ACTIVE,
+            observed_at=NOW - timedelta(hours=2),
+            freshness_policy=ConditionFreshnessPolicy(
+                kind=ConditionFreshnessKind.TIME_BOUNDED,
+                max_age_seconds=60 * 60,
+            ),
+        ),
+    )
+    result = evaluate_knowledge_applicability(retrieval_id="retrieval:stale", match=match, context=context)
+    assert result.status == KnowledgeApplicabilityStatus.INSUFFICIENT_CONTEXT
+    assert result.unknown_scope_conditions == ("segment:smb",)
+    assert "condition_assertion_stale" in result.epistemic_limits
+
+
+def test_explicitly_superseded_assertion_becomes_insufficient_context() -> None:
+    query, match = _match(invalidation=())
+    context = _context(
+        query,
+        _assertion(
+            "segment:smb",
+            ContextConditionState.ACTIVE,
+            observed_at=NOW - timedelta(days=1),
+            superseded_at=NOW - timedelta(hours=1),
+        ),
+    )
+    result = evaluate_knowledge_applicability(retrieval_id="retrieval:superseded", match=match, context=context)
+    assert result.status == KnowledgeApplicabilityStatus.INSUFFICIENT_CONTEXT
+    assert result.unknown_scope_conditions == ("segment:smb",)
+    assert "condition_assertion_superseded" in result.epistemic_limits
+
+
+def test_future_supersession_does_not_rewrite_an_earlier_applicability_evaluation() -> None:
+    query, match = _match(invalidation=())
+    context = _context(
+        query,
+        _assertion(
+            "segment:smb",
+            ContextConditionState.ACTIVE,
+            superseded_at=NOW + timedelta(hours=1),
+        ),
+    )
+    result = evaluate_knowledge_applicability(
+        retrieval_id="retrieval:future-supersession", match=match, context=context
+    )
     assert result.status == KnowledgeApplicabilityStatus.APPLICABLE
 
 
