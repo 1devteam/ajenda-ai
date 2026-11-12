@@ -46,11 +46,20 @@ from backend.services.mission_composition.deliverable_runtime_artifacts import c
 from backend.services.mission_composition.proposal_store import get_proposal
 from backend.services.mission_composition.service import MissionCompositionService
 from backend.services.ontology.commercial_state import Goal, Kpi
+from backend.services.ontology.experience_intelligence import ExperienceEpisodeInput, evaluate_experience_set
+from backend.services.ontology.knowledge_qualification import qualify_pattern_knowledge
+from backend.services.ontology.observation_attribution import ObservationTimeProvenance
 from backend.services.ontology.types import BusinessObjectRef, BusinessObjectType
 from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
+from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.schemas import ToolInvocation
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
-from tests.integration.intelligence.canonical_decision_runtime import execute_canonical_action
+from tests.integration.intelligence.canonical_decision_runtime import (
+    execute_canonical_action,
+    materialize_canonical_decision_episode,
+)
+from tests.integration.intelligence.test_knowledge_retrieval_real import _context, _replace_proposition
 from tests.integration.operating_charter_support import persist_test_operating_charter
 
 pytestmark = pytest.mark.integration
@@ -85,6 +94,7 @@ def _persist_assessed_need(
     tenant_id: str,
     candidate_response_key: str = "inspect_funnel",
     candidate_summary: str = "Inspect funnel conversion before changing spend.",
+    candidate_evidence_status: str = "supported",
 ) -> tuple[str, BusinessNeedAssessment, BusinessMeasurement]:
     """Persist a bounded tenant need using the same source contracts as the service."""
 
@@ -127,7 +137,7 @@ def _persist_assessed_need(
                 {
                     "response_key": candidate_response_key,
                     "summary": candidate_summary,
-                    "evidence_status": "supported",
+                    "evidence_status": candidate_evidence_status,
                     "knowledge_support_status": "not_provided",
                     "dependencies": [],
                     "assumptions": [],
@@ -443,17 +453,251 @@ def test_tenant_assessment_composes_to_existing_knowledge_decision_with_immutabl
     assert record.semantic_snapshot.business_need_assessment_reference is not None
     assert record.semantic_snapshot.business_need_assessment_reference["assessment_id"] == str(assessment.id)
     assert record.semantic_snapshot.business_need_assessment_reference["grants_execution_authority"] is False
-    assert record.reviewed_composition_snapshot.selected_job_keys == ("business.review_need_with_knowledge",)
-    assert [step.action_name for step in record.planned_steps] == ["knowledge.inform_decision"]
+    assert record.reviewed_composition_snapshot.selected_job_keys == (
+        "business.observe_need_context",
+        "business.review_need_with_knowledge",
+    )
+    assert [step.action_name for step in record.planned_steps] == ["record.read", "knowledge.inform_decision"]
     assert record.ready_to_start
     assert persisted is not None
     assert persisted.semantic_snapshot.model_dump(mode="json") == record.semantic_snapshot.model_dump(mode="json")
     assert persisted.reviewed_composition_snapshot.model_dump(
         mode="json"
     ) == record.reviewed_composition_snapshot.model_dump(mode="json")
-    assert confirmation["allowed_actions"] == ["knowledge.inform_decision"]
+    assert confirmation["allowed_actions"] == ["knowledge.inform_decision", "record.read"]
     assert confirmation["runtime_queued"] is False
-    assert [node["metadata"]["action"] for node in confirmation["task_graph"]["nodes"]] == ["knowledge.inform_decision"]
+    assert [node["metadata"]["action"] for node in confirmation["task_graph"]["nodes"]] == [
+        "record.read",
+        "knowledge.inform_decision",
+    ]
+
+
+def _launch_and_drain_knowledge_review(
+    *,
+    factory,
+    queue_adapter,
+    tenant_uuid: uuid.UUID,
+    assessment: BusinessNeedAssessment,
+    baseline: BusinessMeasurement,
+    need_id: str,
+    idempotency_key: str,
+) -> tuple[uuid.UUID, dict[str, object], uuid.UUID]:
+    """Run the composed review through the normal API, queue, lease, and worker path."""
+
+    tenant_id = str(tenant_uuid)
+    setup = factory()
+    try:
+        activate_tenant_session(setup, tenant_id)
+        TenantInternalRecordRepository(setup).write_record(
+            tenant_id=tenant_id,
+            record_type="opportunity",
+            record_id="opp-42",
+            data={
+                "name": "Conversion opportunity",
+                "condition_observations": [
+                    {
+                        "condition_key": "segment:smb",
+                        "state": "active",
+                        "subject_refs": [{"schema_version": 1, "object_type": "opportunity", "object_id": "opp-42"}],
+                        "observed_at": "2026-10-24T04:00:00+00:00",
+                        "verification_basis": "source_supplied_under_contract",
+                    }
+                ],
+            },
+        )
+        setup.commit()
+        app = _build_app(tenant_id=tenant_uuid, session=setup, queue_adapter=queue_adapter)
+        with (
+            patch.object(composition_module, "require_route_permission", return_value=None),
+            patch.object(mission_module, "require_route_permission", return_value=None),
+        ):
+            client = TestClient(app, raise_server_exceptions=False)
+            composed = client.post(
+                "/v1/missions/compose",
+                json={
+                    "instruction": "Review the referenced business need assessment and recommend the next action.",
+                    "business_need_id": need_id,
+                    "business_need_revision": 1,
+                    "business_need_assessment_id": str(assessment.id),
+                    "business_need_response_key": "record.write",
+                    "business_need_baseline_measurement_id": str(baseline.id),
+                },
+            )
+            assert composed.status_code == 200, composed.text
+            composition = composed.json()
+            assert composition["allowed_actions"] == ["knowledge.inform_decision", "record.read"]
+            confirmed = client.post(
+                f"/v1/missions/proposals/{composition['proposal_id']}/confirm",
+                json={"composition": composition["composition"], "idempotency_key": idempotency_key},
+            )
+            assert confirmed.status_code == 200, confirmed.text
+            mission_id = uuid.UUID(confirmed.json()["mission_id"])
+            launched = client.post(f"/v1/missions/{mission_id}/launch")
+            assert launched.status_code == 200, launched.text
+            assert len(launched.json()["queued_task_ids"]) == 2
+        setup.commit()
+    finally:
+        setup.close()
+
+    for sequence in range(4):
+        runtime_session = factory()
+        try:
+            activate_tenant_session(runtime_session, tenant_id)
+            runtime = WorkerRuntimeService(runtime_session, queue_adapter)
+            claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=f"knowledge-control-{sequence}")
+            if claimed is None:
+                runtime_session.commit()
+                continue
+            task_id = claimed.id
+            lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+            runtime.heartbeat(tenant_id=tenant_id, lease_id=lease_id, worker_id=f"knowledge-control-{sequence}")
+            runtime.start_execution(tenant_id=tenant_id, lease_id=lease_id, worker_id=f"knowledge-control-{sequence}")
+            runtime_session.commit()
+        finally:
+            runtime_session.close()
+        TaskDispatcher(
+            session_factory=factory,
+            vector_session_factory=factory,
+            queue=queue_adapter,
+            worker_id=f"knowledge-control-{sequence}",
+            tenant_id=tenant_id,
+        ).execute(task_id=task_id, lease_id=lease_id)
+
+    with factory() as verify:
+        activate_tenant_session(verify, tenant_id)
+        tasks = list(
+            verify.scalars(
+                select(ExecutionTask).where(
+                    ExecutionTask.tenant_id == tenant_id,
+                    ExecutionTask.mission_id == mission_id,
+                )
+            )
+        )
+        assert len(tasks) == 2
+        assert all(task.status == ExecutionTaskState.COMPLETED.value for task in tasks), [
+            {"node": task.metadata_json.get("graph_node_key"), "failure": task.metadata_json.get("failure")}
+            for task in tasks
+        ]
+        source_task = next(task for task in tasks if task.metadata_json["tool_invocation"]["action"] == "record.read")
+        decision_task = next(
+            task for task in tasks if task.metadata_json["tool_invocation"]["action"] == "knowledge.inform_decision"
+        )
+        source_evidence = verify.scalar(
+            select(EvidenceRecord).where(
+                EvidenceRecord.tenant_id == tenant_id,
+                EvidenceRecord.execution_task_id == source_task.id,
+            )
+        )
+        assert source_evidence is not None
+        return mission_id, dict(decision_task.metadata_json["handler_result"]["output"]), source_evidence.id
+
+
+def test_qualified_history_changes_only_the_matching_composed_review_with_current_source_evidence(
+    pg_engine,
+    queue_adapter,
+) -> None:
+    """Qualified history influences a matching mission, never the control tenant.
+
+    This is an end-to-end use-context proof: identical assessments and current
+    source observations are compiled and run normally.  Only the informed
+    tenant has three canonical historical episodes, consolidated and recorded
+    as qualified knowledge scoped to the observed SMB condition.
+    """
+
+    informed_uuid = uuid.uuid4()
+    control_uuid = uuid.uuid4()
+    informed_tenant = str(informed_uuid)
+    control_tenant = str(control_uuid)
+    factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    registry = get_default_action_registry(rebuild=True)
+
+    with factory() as setup:
+        setup.add_all(
+            [
+                Tenant(
+                    id=informed_uuid, name="Knowledge informed", slug=f"informed-{informed_tenant[:8]}", plan="free"
+                ),
+                Tenant(id=control_uuid, name="Knowledge control", slug=f"control-{control_tenant[:8]}", plan="free"),
+            ]
+        )
+        setup.flush()
+        for tenant_id in (informed_tenant, control_tenant):
+            activate_tenant_session(setup, tenant_id)
+            persist_test_operating_charter(setup, tenant_id=tenant_id)
+        setup.commit()
+
+    historical_signals = [
+        materialize_canonical_decision_episode(
+            factory=factory,
+            queue_adapter=queue_adapter,
+            tenant_id=informed_tenant,
+            index=index,
+        ).learning_signal
+        for index in (731, 732, 733)
+    ]
+    episodes = [
+        ExperienceEpisodeInput(
+            episode_id=signal.episode_reference.episode_id,
+            signal=signal,
+            observation_time_provenance=ObservationTimeProvenance.SOURCE_VERIFIED,
+        )
+        for signal in historical_signals
+        if signal.episode_reference is not None
+    ]
+    qualification = _replace_proposition(
+        qualify_pattern_knowledge(evaluate_experience_set(episodes).pattern_candidates[0]),
+        scope_conditions=("segment:smb",),
+        invalidation_conditions=(),
+    )
+    registry.invoke(
+        ToolInvocation(
+            action="knowledge.record_qualification", input={"result": qualification.model_dump(mode="json")}
+        ),
+        _context(informed_tenant, factory),
+    )
+
+    assessments: dict[str, tuple[str, BusinessNeedAssessment, BusinessMeasurement]] = {}
+    for tenant_id in (informed_tenant, control_tenant):
+        with factory() as setup:
+            activate_tenant_session(setup, tenant_id)
+            assessments[tenant_id] = _persist_assessed_need(
+                session=setup,
+                tenant_id=tenant_id,
+                candidate_response_key="record.write",
+                candidate_summary="Record the next approved sales action after review.",
+                candidate_evidence_status="unresolved",
+            )
+            setup.commit()
+
+    informed_mission, informed_output, informed_source_id = _launch_and_drain_knowledge_review(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_uuid=informed_uuid,
+        assessment=assessments[informed_tenant][1],
+        baseline=assessments[informed_tenant][2],
+        need_id=assessments[informed_tenant][0],
+        idempotency_key="knowledge-informed-control-v1",
+    )
+    control_mission, control_output, control_source_id = _launch_and_drain_knowledge_review(
+        factory=factory,
+        queue_adapter=queue_adapter,
+        tenant_uuid=control_uuid,
+        assessment=assessments[control_tenant][1],
+        baseline=assessments[control_tenant][2],
+        need_id=assessments[control_tenant][0],
+        idempotency_key="knowledge-control-v1",
+    )
+
+    assert informed_mission != control_mission
+    assert informed_output["decision_result"]["recommendation"] == "record.write"
+    assert control_output["decision_result"]["recommendation"] == "gather_more_evidence"
+    assert [
+        item["option_id"] for item in informed_output["support"]["influences"] if item["direction"] == "supports"
+    ] == ["record.write"]
+    assert control_output["support"]["influences"] == []
+    assert len(informed_output["decision_result"]["supporting_evidence_ids"]) == 3
+    assert str(informed_source_id) not in informed_output["decision_result"]["supporting_evidence_ids"]
+    assert str(control_source_id) not in control_output["decision_result"]["supporting_evidence_ids"]
 
 
 def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
@@ -481,6 +725,23 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
         activate_tenant_session(setup, tenant_id)
         persist_test_operating_charter(setup, tenant_id=tenant_id)
         need_id, assessment, baseline = _persist_assessed_need(session=setup, tenant_id=tenant_id)
+        TenantInternalRecordRepository(setup).write_record(
+            tenant_id=tenant_id,
+            record_type="opportunity",
+            record_id="opp-42",
+            data={
+                "name": "Conversion opportunity",
+                "condition_observations": [
+                    {
+                        "condition_key": "segment:smb",
+                        "state": "active",
+                        "subject_refs": [{"schema_version": 1, "object_type": "opportunity", "object_id": "opp-42"}],
+                        "observed_at": "2026-10-24T04:00:00+00:00",
+                        "verification_basis": "source_supplied_under_contract",
+                    }
+                ],
+            },
+        )
         setup.commit()
 
         app = _build_app(tenant_id=tenant_uuid, session=setup, queue_adapter=queue_adapter)
@@ -506,7 +767,7 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
             )
             assert composed.status_code == 200, composed.text
             composition = composed.json()
-            assert composition["allowed_actions"] == ["knowledge.inform_decision"]
+            assert composition["allowed_actions"] == ["knowledge.inform_decision", "record.read"]
             selected = composition["composition"]["semantic_snapshot"]["business_need_assessment_reference"]
             assert selected["selected_candidate_response_key"] == "inspect_funnel"
             assert selected["response_advancement"]["baseline_measurement"]["measurement_id"] == str(baseline.id)
@@ -525,39 +786,65 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
             assert launch["compile_status"] == "ready"
             assert launch["graph_materialized"] is True
             assert launch["runtime_admitted"] is True
-            assert len(launch["queued_task_ids"]) == 1
+            assert len(launch["queued_task_ids"]) == 2
             assert launch["blockers"] == []
         setup.commit()
 
-        task_id = uuid.UUID(launch["queued_task_ids"][0])
-        runtime = WorkerRuntimeService(setup, queue_adapter)
-        claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
-        assert claimed is not None
-        assert claimed.id == task_id
-        lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
-        runtime.heartbeat(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
-        runtime.start_execution(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
-        setup.commit()
     finally:
         setup.close()
 
-    TaskDispatcher(
-        session_factory=factory,
-        vector_session_factory=factory,
-        queue=queue_adapter,
-        worker_id=worker_id,
-        tenant_id=tenant_id,
-    ).execute(task_id=task_id, lease_id=lease_id)
+    # The current-context observation must complete and persist before the
+    # dependent Knowledge task can be leased. Exercise the queue/lease spine
+    # rather than constructing either input directly in this test.
+    for sequence in range(4):
+        runtime_session = factory()
+        try:
+            activate_tenant_session(runtime_session, tenant_id)
+            runtime = WorkerRuntimeService(runtime_session, queue_adapter)
+            claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=f"{worker_id}-{sequence}")
+            if claimed is None:
+                runtime_session.commit()
+                continue
+            task_id = claimed.id
+            lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+            runtime.heartbeat(tenant_id=tenant_id, lease_id=lease_id, worker_id=f"{worker_id}-{sequence}")
+            runtime.start_execution(tenant_id=tenant_id, lease_id=lease_id, worker_id=f"{worker_id}-{sequence}")
+            runtime_session.commit()
+        finally:
+            runtime_session.close()
+        TaskDispatcher(
+            session_factory=factory,
+            vector_session_factory=factory,
+            queue=queue_adapter,
+            worker_id=f"{worker_id}-{sequence}",
+            tenant_id=tenant_id,
+        ).execute(task_id=task_id, lease_id=lease_id)
 
     verify = factory()
     try:
         activate_tenant_session(verify, tenant_id)
-        task = verify.get(ExecutionTask, task_id)
+        tasks = list(
+            verify.scalars(
+                select(ExecutionTask).where(
+                    ExecutionTask.tenant_id == tenant_id,
+                    ExecutionTask.mission_id == mission_id,
+                )
+            )
+        )
+        task = next(
+            item
+            for item in tasks
+            if item.metadata_json.get("tool_invocation", {}).get("action") == "knowledge.inform_decision"
+        )
+        source_task = next(
+            item for item in tasks if item.metadata_json.get("tool_invocation", {}).get("action") == "record.read"
+        )
+        lease_id = uuid.UUID(str(task.metadata_json["worker_lease_id"]))
         lease = verify.get(WorkerLease, lease_id)
         evidence = verify.scalars(
             select(EvidenceRecord).where(
                 EvidenceRecord.tenant_id == tenant_id,
-                EvidenceRecord.execution_task_id == task_id,
+                EvidenceRecord.execution_task_id == task.id,
             )
         ).all()
         audit_events = verify.scalars(
@@ -567,13 +854,36 @@ def test_assessed_need_reaches_existing_runtime_and_persists_decision_evidence(
             )
         ).all()
         assert task is not None
-        assert task.status == ExecutionTaskState.COMPLETED.value
+        assert task.status == ExecutionTaskState.COMPLETED.value, task.metadata_json.get("failure")
+        assert all(item.status == ExecutionTaskState.COMPLETED.value for item in tasks)
         assert task.metadata_json["handler_result"]["action"] == "knowledge.inform_decision"
         assert task.metadata_json["handler_result"]["side_effect_class"] == "internal_read"
         assert lease is not None
         assert lease.status == WorkerLeaseState.RELEASED.value
         assert evidence
         assert any(item.evidence_source == "knowledge_decision_support" for item in evidence)
+        source_evidence = verify.scalar(
+            select(EvidenceRecord).where(
+                EvidenceRecord.tenant_id == tenant_id,
+                EvidenceRecord.execution_task_id == source_task.id,
+            )
+        )
+        assert source_evidence is not None
+        bound_sources = [
+            item
+            for item in task.metadata_json["input_binding_audit"]["bindings_applied"]
+            if item["output_path"] == "$.__canonical_source_observation_evidence__"
+        ]
+        assert bound_sources == [
+            {
+                "from_step": "ability-record-read",
+                "output_path": "$.__canonical_source_observation_evidence__",
+                "input_path": "$.input.applicability_context.condition_assertions",
+                "value_kind": "canonical_source_observation_evidence",
+                "count": 1,
+                "evidence_id": str(source_evidence.id),
+            }
+        ]
         queue_fact = next(
             RuntimeEvidenceLedger.read_envelope(item)
             for item in audit_events

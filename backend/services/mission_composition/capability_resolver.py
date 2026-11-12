@@ -46,6 +46,7 @@ _ACTION_PREFERENCE: dict[str, tuple[str, ...]] = {
     "intelligence.retrieve_business_profile": ("retrieval.hybrid_search",),
     "business.review_income": ("decision.recommend_next_action",),
     "business.review_need": ("decision.recommend_next_action",),
+    "business.observe_need_context": ("record.read",),
     "business.review_need_with_knowledge": (
         "knowledge.inform_decision",
         "decision.recommend_next_action",
@@ -298,6 +299,11 @@ def route_jobs_for_intent(
         review_job_key = (
             "business.review_need_with_knowledge" if knowledge_assessment_context else "business.review_need"
         )
+        if knowledge_assessment_context:
+            observation_job = BUSINESS_JOBS_BY_KEY.get("business.observe_need_context")
+            if observation_job is not None and observation_job.job_key not in selected_keys:
+                selected.append(observation_job)
+                selected_keys.add(observation_job.job_key)
         review_job = BUSINESS_JOBS_BY_KEY.get(review_job_key)
         if review_job is not None and review_job.job_key not in selected_keys:
             selected.append(review_job)

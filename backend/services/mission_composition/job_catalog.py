@@ -237,6 +237,22 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         evidence_requirements=("action_result_evidence",),
     ),
     BusinessJob(
+        job_key="business.observe_need_context",
+        display_name="Observe current business-need context",
+        vertical_role="vertical.research",
+        # This is a tenant-local, read-only observation.  Its durable
+        # EvidenceRecord—not the assessment projection—is the only thing
+        # that may establish current applicability for qualified knowledge.
+        supported_outcomes=(),
+        required_inputs=("business_need_subject_reference",),
+        produced_outputs=("current_source_observation",),
+        candidate_actions=("record.read",),
+        risk_level="low",
+        maturity="runtime_bound",
+        credential_policy="none",
+        evidence_requirements=("source_observation_evidence",),
+    ),
+    BusinessJob(
         job_key="business.review_need_with_knowledge",
         display_name="Review a recognized business need with qualified experience",
         vertical_role="vertical.research",
@@ -256,6 +272,8 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
         maturity="runtime_bound",
         credential_policy="none",
         evidence_requirements=("action_result_evidence",),
+        dependencies=(JobDependency(job_key="business.observe_need_context", kind="hard"),),
+        depends_on_jobs=("business.observe_need_context",),
     ),
     BusinessJob(
         job_key="intelligence.advise_next",
