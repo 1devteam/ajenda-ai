@@ -752,6 +752,8 @@ def _validate_applicability_evidence(
                 and observation.subject_refs == assertion.subject_refs
                 and observation.observed_at == assertion.observed_at
                 and observation.verification_basis == assertion.verification_basis
+                and observation.freshness_policy == assertion.freshness_policy
+                and observation.superseded_at == assertion.superseded_at
                 for observation in observations
             ):
                 raise ValueError("Knowledge applicability source does not establish the asserted condition semantics")

@@ -1153,6 +1153,8 @@ def _bind_canonical_source_observation_evidence(
                     "evidence_ids": [str(record.id)],
                     "observed_at": observation.observed_at.isoformat(),
                     "verification_basis": observation.verification_basis.value,
+                    "freshness_policy": observation.freshness_policy.model_dump(mode="json"),
+                    "superseded_at": observation.superseded_at.isoformat() if observation.superseded_at else None,
                 }
             )
         applied.append(
