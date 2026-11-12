@@ -13,9 +13,16 @@ from copy import deepcopy
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
+
 from backend.domain.enums import ExecutionTaskState
+from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
+from backend.services.knowledge.knowledge_applicability import SourceConditionObservation
+from backend.services.tools.evidence_bridge import require_canonical_source_observation_evidence
+
+_CANONICAL_SOURCE_OBSERVATION_OUTPUT_PATH = "$.__canonical_source_observation_evidence__"
 
 
 class DependencyNotReadyError(Exception):
@@ -1037,14 +1044,129 @@ def bind_tool_invocation_for_task(
             mission_id=UUID(str(task.mission_id)),
             tenant_id=task.tenant_id,
         )
+        bound_input, audit = apply_input_bindings(
+            tool_input=tool_input,
+            task=task,
+            mission_tasks=mission_tasks,
+        )
+        _bind_canonical_source_observation_evidence(
+            session=session,
+            bound_input=bound_input,
+            task=task,
+            mission_tasks=mission_tasks,
+            audit=audit,
+        )
     finally:
         session.close()
-
-    bound_input, audit = apply_input_bindings(
-        tool_input=tool_input,
-        task=task,
-        mission_tasks=mission_tasks,
-    )
     rebound = dict(raw_invocation)
     rebound["input"] = bound_input
     return rebound, audit
+
+
+def _bind_canonical_source_observation_evidence(
+    *,
+    session: Any,
+    bound_input: dict[str, Any],
+    task: ExecutionTask,
+    mission_tasks: list[ExecutionTask],
+    audit: dict[str, Any],
+) -> None:
+    """Bind only canonical, same-mission source evidence into Knowledge input.
+
+    The graph marker is intentionally not a normal payload binding: the
+    EvidenceRecord UUID is allocated only after the prerequisite task has
+    completed under a lease.  This bridge proves its source lineage before
+    materializing condition assertions, so callers cannot supply or replay a
+    stale assertion as current applicability evidence.
+    """
+
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    invocation = metadata.get("tool_invocation")
+    if not isinstance(invocation, dict) or invocation.get("action") != "knowledge.inform_decision":
+        return
+    source_specs = [
+        spec
+        for spec in _binding_specs_from_metadata(metadata)
+        if spec.get("output_path") == _CANONICAL_SOURCE_OBSERVATION_OUTPUT_PATH
+    ]
+    if not source_specs:
+        return
+    if task.mission_id is None:
+        raise InputBindingError("knowledge source-observation binding requires mission provenance")
+    applicability = bound_input.get("applicability_context")
+    if not isinstance(applicability, dict):
+        raise InputBindingError("knowledge source-observation binding requires applicability context")
+
+    by_key = index_mission_tasks_by_node_key(mission_tasks)
+    assertions: list[dict[str, Any]] = []
+    applied = audit.setdefault("bindings_applied", [])
+    if not isinstance(applied, list):
+        raise InputBindingError("knowledge source-observation binding audit is malformed")
+    for spec in source_specs:
+        source_key = str(spec.get("from_step") or "").strip()
+        upstream = by_key.get(source_key)
+        if upstream is None or upstream.status != ExecutionTaskState.COMPLETED.value:
+            raise DependencyNotReadyError(
+                f"binding source step not complete: {source_key}", pending_keys=[source_key] if source_key else []
+            )
+        records = list(
+            session.scalars(
+                select(EvidenceRecord).where(
+                    EvidenceRecord.execution_task_id == upstream.id,
+                    EvidenceRecord.tenant_id == task.tenant_id,
+                    EvidenceRecord.mission_id == task.mission_id,
+                )
+            )
+        )
+        # Execution tasks can have additional durable observations (for
+        # example runtime-ledger projections). Only the EvidenceBridge's
+        # task-output projection is eligible to establish source semantics.
+        records = [
+            record
+            for record in records
+            if isinstance(record.materialization_reference, dict)
+            and record.materialization_reference.get("source") == "tool.invoke.task_output"
+        ]
+        source_records: list[tuple[EvidenceRecord, tuple[SourceConditionObservation, ...]]] = []
+        for record in records:
+            evidence_item = require_canonical_source_observation_evidence(session=session, record=record)
+            raw_observations = evidence_item.structured_payload.get("condition_observations")
+            if not isinstance(raw_observations, list):
+                raise InputBindingError("source observation evidence condition semantics are malformed")
+            try:
+                observations = tuple(SourceConditionObservation.model_validate(item) for item in raw_observations)
+            except Exception as exc:
+                raise InputBindingError("source observation evidence condition semantics are malformed") from exc
+            source_records.append((record, observations))
+        if len(source_records) != 1:
+            raise InputBindingError(
+                "knowledge source-observation binding requires exactly one canonical source evidence record"
+            )
+        record, observations = source_records[0]
+        for observation in observations:
+            assertions.append(
+                {
+                    "schema_version": 1,
+                    "condition_key": observation.condition_key,
+                    "state": observation.state.value,
+                    "subject_refs": [item.model_dump(mode="json") for item in observation.subject_refs],
+                    "evidence_ids": [str(record.id)],
+                    "observed_at": observation.observed_at.isoformat(),
+                    "verification_basis": observation.verification_basis.value,
+                }
+            )
+        applied.append(
+            {
+                "from_step": source_key,
+                "output_path": _CANONICAL_SOURCE_OBSERVATION_OUTPUT_PATH,
+                "input_path": "$.input.applicability_context.condition_assertions",
+                "value_kind": "canonical_source_observation_evidence",
+                "count": len(observations),
+                "evidence_id": str(record.id),
+            }
+        )
+
+    existing = applicability.get("condition_assertions")
+    if existing not in (None, []):
+        raise InputBindingError("knowledge applicability assertions must originate from the bound source observation")
+    applicability["condition_assertions"] = assertions

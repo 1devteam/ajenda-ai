@@ -111,6 +111,10 @@ def record_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> Ac
         "record": record,
         "found": record is not None,
         "condition_observations": [item.model_dump(mode="json") for item in condition_observations],
+        # Mission composition uses this typed artifact name for the governed
+        # current-context prerequisite. The downstream Knowledge action still
+        # binds the durable EvidenceRecord UUID, never this payload directly.
+        "current_source_observation": [item.model_dump(mode="json") for item in condition_observations],
     }
     summary = f"Read {payload.record_type} record {payload.record_id}: {'found' if record else 'not found'}."
     inspected = [payload.record_id] if record else []

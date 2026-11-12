@@ -178,7 +178,9 @@ def test_semantically_complete_assessment_routes_existing_qualified_knowledge_de
     )
 
     jobs = route_jobs_for_intent(intent)
-    assert "business.review_need_with_knowledge" in {job.job_key for job in jobs}
+    assert {"business.observe_need_context", "business.review_need_with_knowledge"}.issubset(
+        {job.job_key for job in jobs}
+    )
     assert "business.review_need" not in {job.job_key for job in jobs}
     selections, missing = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
     assert missing == []
@@ -188,6 +190,9 @@ def test_semantically_complete_assessment_routes_existing_qualified_knowledge_de
         intent=intent,
         business_need_assessment_context=context,
     )
+    observation_step = next(item for item in steps if item.job_key == "business.observe_need_context")
+    assert observation_step.action_name == "record.read"
+    assert observation_step.tool_input == {"record_type": "organization", "record_id": "1devteam"}
     step = next(item for item in steps if item.job_key == "business.review_need_with_knowledge")
     assert step.action_name == "knowledge.inform_decision"
     assert step.output_contract == "recommendation"
@@ -196,6 +201,15 @@ def test_semantically_complete_assessment_routes_existing_qualified_knowledge_de
     assert payload.applicability_context.subject_refs[0].object_id == "1devteam"
     assert payload.applicability_context.evaluated_at == datetime(2026, 10, 25, 4, 0, tzinfo=UTC)
     assert payload.decision.evidence[0].evidence_id.startswith("assessment:")
+    assert step.depends_on == [observation_step.step_key]
+    assert step.input_bindings == [
+        {
+            "from_step": observation_step.step_key,
+            "output_path": "$.__canonical_source_observation_evidence__",
+            "to_step": "ability-knowledge-inform_decision",
+            "input_path": "$.input.applicability_context.condition_assertions",
+        }
+    ]
 
 
 def test_semantically_complete_assessment_falls_back_to_existing_decision_when_knowledge_is_not_charter_allowed() -> (

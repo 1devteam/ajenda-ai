@@ -158,7 +158,13 @@ def require_canonical_tool_action_evidence(
         evidence_item=evidence_item,
         evidence_record_id=record.id,
     )
-    _require_exact_bridge_projection(record=record, expected=expected)
+    raw_materialized_artifacts = task.metadata_json.get("materialized_artifacts")
+    materialized_artifacts = raw_materialized_artifacts if isinstance(raw_materialized_artifacts, list) else []
+    _require_exact_bridge_projection(
+        record=record,
+        expected=expected,
+        materialized_artifacts=materialized_artifacts,
+    )
 
     task_records = session.scalars(select(EvidenceRecord).where(EvidenceRecord.execution_task_id == task.id)).all()
     same_projection = [
@@ -265,7 +271,27 @@ def _build_tool_action_evidence_record(
     )
 
 
-def _require_exact_bridge_projection(*, record: EvidenceRecord, expected: EvidenceRecord) -> None:
+def _require_exact_bridge_projection(
+    *,
+    record: EvidenceRecord,
+    expected: EvidenceRecord,
+    materialized_artifacts: list[object],
+) -> None:
+    # Completion may append a graph-declared materialized-artifact reference
+    # after this bridge constructs the canonical task-output projection. That
+    # reference is runtime-owned, scoped to this EvidenceRecord, and does not
+    # alter the source action's payload or lineage. Reconstruct it before the
+    # exact comparison so composed artifacts remain usable as source evidence.
+    declared = [
+        dict(item)
+        for item in materialized_artifacts
+        if isinstance(item, Mapping) and item.get("evidence_id") == str(record.id)
+    ]
+    if declared:
+        expected.artifact_references = [
+            *expected.artifact_references,
+            *[item for item in declared if item not in expected.artifact_references],
+        ]
     fields = (
         "tenant_id",
         "mission_id",

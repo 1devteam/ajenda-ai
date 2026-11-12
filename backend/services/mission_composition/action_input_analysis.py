@@ -212,6 +212,24 @@ def _assessment_knowledge_decision_input(
     return result.model_dump(mode="json")
 
 
+def _assessment_source_observation_input(*, assessment_context: dict[str, Any]) -> dict[str, Any]:
+    """Build the read-only current-context observation from an owned subject.
+
+    The assessment is only a routing context.  This input identifies the
+    tenant-local record to observe; it does not carry condition assertions or
+    an EvidenceRecord identity across the composition boundary.
+    """
+
+    raw_subjects = assessment_context.get("subject_references")
+    if not isinstance(raw_subjects, list) or len(raw_subjects) != 1:
+        raise ValueError("knowledge review requires exactly one business-need subject for current observation")
+    subject = BusinessObjectRef.model_validate(raw_subjects[0])
+    return {
+        "record_type": subject.object_type.value,
+        "record_id": subject.object_id,
+    }
+
+
 def assessment_context_supports_qualified_knowledge(assessment_context: dict[str, Any] | None) -> bool:
     """Whether the reviewed context can satisfy the established Knowledge input.
 
@@ -335,6 +353,8 @@ def build_analysis_action_input(
             intent=intent,
             assessment_context=business_need_assessment_context,
         )
+    if action_name == "record.read" and business_need_assessment_context is not None:
+        return _assessment_source_observation_input(assessment_context=business_need_assessment_context)
     if action_name == "retrieval.hybrid_search" and (
         "read_business_profile" in intent.requested_outcomes or "review_business_income" in intent.requested_outcomes
     ):

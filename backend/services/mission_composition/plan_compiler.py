@@ -75,6 +75,11 @@ def _binding_input_path(*, action_name: str, output_name: str) -> str | None:
         return "$.input.context.upstream"
     if action_name == "knowledge.retrieve_current":
         return None
+    if action_name == "knowledge.inform_decision" and output_name == "current_source_observation":
+        # This sentinel is resolved only by the runtime evidence binder after
+        # the prerequisite task has produced a durable EvidenceRecord.  A
+        # source payload alone cannot establish applicability.
+        return "$.input.applicability_context.condition_assertions"
     if action_name == "sales.create_followup_task" and output_name == "crm_records":
         return "$.input.context.crm_records"
     if action_name == "record.write" and output_name in {"qualified_prospects", "observed_contacts"}:
@@ -296,10 +301,13 @@ def compile_planned_steps(
                 input_path = _binding_input_path(action_name=selection.action_name, output_name=output_name)
                 if input_path is None:
                     continue
+                output_path = f"$.{output_name}"
+                if selection.action_name == "knowledge.inform_decision" and output_name == "current_source_observation":
+                    output_path = "$.__canonical_source_observation_evidence__"
                 input_bindings.append(
                     {
                         "from_step": dep_step.step_key,
-                        "output_path": f"$.{output_name}",
+                        "output_path": output_path,
                         "to_step": f"ability-{_slug(selection.action_name)}",
                         "input_path": input_path,
                     }
