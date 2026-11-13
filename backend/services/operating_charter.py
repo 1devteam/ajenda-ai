@@ -57,6 +57,7 @@ DEFAULT_MAY_PREPARE: tuple[str, ...] = (
 )
 
 DEFAULT_MAY_PERFORM: tuple[str, ...] = (
+    "knowledge.consolidate_learning_history",
     "gtm.crm_upsert",
     "record.write",
     "sales.log_activity",

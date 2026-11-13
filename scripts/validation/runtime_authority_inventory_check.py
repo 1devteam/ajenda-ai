@@ -116,6 +116,14 @@ REVIEWED_CALL_SITES: dict[CallSiteKey, ReviewedCallSite] = {
         "admission",
     ): ReviewedCallSite("canonical_boundary", "retain through shared admission convergence"),
     CallSiteKey(
+        "backend/services/worker_runtime_learning_activation.py",
+        "maybe_activate_learning_consolidation",
+        "admission",
+    ): ReviewedCallSite(
+        "canonical_boundary",
+        "recognition-only completion hook creates a tenant-scoped review-held task through shared admission; never approves or executes consolidation",
+    ),
+    CallSiteKey(
         "backend/services/worker_runtime_service.py", "WorkerRuntimeService.claim_next_task", "queue_claim"
     ): ReviewedCallSite("canonical_daemon_spine", "retain as converged queue claim authority"),
     CallSiteKey(
