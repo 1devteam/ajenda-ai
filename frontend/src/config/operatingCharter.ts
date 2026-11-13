@@ -62,6 +62,7 @@ export const DEFAULT_OPERATING_CHARTER: OperatingCharter = {
     "analysis.evaluate_goal_progress",
   ],
   may_perform: [
+    "knowledge.consolidate_learning_history",
     "gtm.crm_upsert",
     "record.write",
     "sales.log_activity",
@@ -122,6 +123,7 @@ export const PREPARE_ACTION_OPTIONS = [
 ] as const;
 
 export const PERFORM_ACTION_OPTIONS = [
+  { action: "knowledge.consolidate_learning_history", label: "Consolidate approved learning history" },
   { action: "gtm.email_send", label: "Send external email (opt-in)" },
   { action: "gtm.crm_upsert", label: "Internal / CRM upsert" },
   { action: "crm.mutate", label: "Mutate internal CRM" },
