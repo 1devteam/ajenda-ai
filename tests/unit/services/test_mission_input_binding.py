@@ -354,6 +354,26 @@ def test_followup_task_fallback_binds_tenant_crm_records_from_record_search() ->
     ]
 
 
+def test_decision_binding_fallback_preserves_only_the_profile_retrieval_contract() -> None:
+    assert default_bindings_for_action(
+        action_name="decision.recommend_next_action",
+        dependency_keys=["ability-retrieval-hybrid_search"],
+    ) == [
+        {
+            "from_step": "ability-retrieval-hybrid_search",
+            "output_path": "$.business_profile_facts",
+            "input_path": "$.input.context.business_profile_facts",
+        }
+    ]
+    assert (
+        default_bindings_for_action(
+            action_name="decision.recommend_next_action",
+            dependency_keys=["ability-knowledge-retrieve_current"],
+        )
+        == []
+    )
+
+
 def test_bind_fails_closed_when_required_and_empty() -> None:
     mission_id = uuid.uuid4()
     tenant_id = str(uuid.uuid4())

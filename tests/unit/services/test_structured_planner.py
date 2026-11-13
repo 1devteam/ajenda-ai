@@ -87,7 +87,7 @@ def test_optional_decision_support_can_be_added_without_being_deterministically_
             ),
             PlannerJobProposal(
                 job_key="intelligence.advise_next",
-                depends_on=("research.observe_sources", "intelligence.retrieve_knowledge"),
+                depends_on=("research.observe_sources",),
                 reason="Optional recommendation support.",
             ),
         ),

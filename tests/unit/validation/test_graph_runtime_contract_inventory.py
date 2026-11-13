@@ -38,11 +38,6 @@ def test_inventory_preserves_dependency_kinds_and_conditions() -> None:
         for edge in edges
         if edge["from"] == "job:intelligence.retrieve_knowledge" and edge["to"] == "job:research.observe_sources"
     )
-    optional = next(
-        edge
-        for edge in edges
-        if edge["from"] == "job:intelligence.advise_next" and edge["to"] == "job:intelligence.retrieve_knowledge"
-    )
     conditional = next(
         edge
         for edge in edges
@@ -50,7 +45,10 @@ def test_inventory_preserves_dependency_kinds_and_conditions() -> None:
     )
 
     assert hard["type"] == "depends_on_hard"
-    assert optional["type"] == "depends_on_optional"
+    assert not any(
+        edge["from"] == "job:intelligence.advise_next" and edge["to"] == "job:intelligence.retrieve_knowledge"
+        for edge in edges
+    )
     assert conditional["type"] == "depends_on_conditional"
     assert conditional["required_when_missing"] == ["prospect_candidates"]
     assert conditional["satisfied_by"] == ["explicit_company", "crm_record", "prior_artifact"]

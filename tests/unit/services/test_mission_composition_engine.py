@@ -484,7 +484,7 @@ def test_non_vertical_catalog_plan_is_validated_through_catalog_contract() -> No
     assert [job["job_key"] for job in record.planner_proposal["jobs"]] == ["operations.verify_runtime_controls"]
 
 
-def test_existing_learning_jobs_require_an_explicit_next_action_request() -> None:
+def test_general_next_action_advice_does_not_select_unapplied_knowledge_retrieval() -> None:
     base = interpret_instruction("Research three SaaS companies in Austin using public web research only.")
     assert "decision_support_requested" not in base.context_requirements
     assert "intelligence.retrieve_knowledge" not in {job.job_key for job in route_jobs_for_intent(base)}
@@ -494,7 +494,15 @@ def test_existing_learning_jobs_require_an_explicit_next_action_request() -> Non
     )
     assert "decision_support_requested" in requested.context_requirements
     jobs = route_jobs_for_intent(requested)
-    assert {"intelligence.retrieve_knowledge", "intelligence.advise_next"}.issubset({job.job_key for job in jobs})
+    assert "intelligence.advise_next" in {job.job_key for job in jobs}
+    assert "intelligence.retrieve_knowledge" not in {job.job_key for job in jobs}
+
+    selections, missing = resolve_jobs(jobs, intent=requested, charter=default_operating_charter())
+    assert missing == []
+    planned = compile_planned_steps(selections, intent=requested)
+    advice = next(step for step in planned if step.job_key == "intelligence.advise_next")
+    assert advice.action_name == "decision.recommend_next_action"
+    assert all(binding["output_path"] != "$.retrieved_knowledge" for binding in advice.input_bindings)
 
 
 def test_revalidation_lineage_keeps_the_reviewed_composition_payload_intact() -> None:
