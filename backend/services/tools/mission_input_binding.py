@@ -398,7 +398,10 @@ def default_bindings_for_action(*, action_name: str, dependency_keys: list[str])
                     "input_path": "$.input.prospects",
                 }
             )
-        elif action_name == "decision.recommend_next_action" and "retrieve" in dep:
+        # Only the approved-profile reader produces business_profile_facts.
+        # A knowledge retrieval result is not decision justification unless
+        # the separate applicability-owned decision route consumed it.
+        elif action_name == "decision.recommend_next_action" and dep == "ability-retrieval-hybrid_search":
             specs.append(
                 {
                     "from_step": dep,

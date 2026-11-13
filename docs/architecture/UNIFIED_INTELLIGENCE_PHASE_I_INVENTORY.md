@@ -160,8 +160,12 @@ ordinarily routable when the interpreter recognizes that outcome. Jobs without
 supported outcomes are intentionally dependency- or context-gated:
 
 - `research.verify_public_candidates` is injected for public prospect discovery.
-- `intelligence.retrieve_knowledge` and `intelligence.advise_next` are added only
-  when the interpreter emits `decision_support_requested`.
+- `intelligence.advise_next` is added when the interpreter emits
+  `decision_support_requested`; it uses the mission's observed evidence.
+- `intelligence.retrieve_knowledge` remains a separately governed retrieval
+  action. It is not composed as justification for general advice; within
+  ordinary composition, the business-need route alone may use qualified
+  knowledge after applicability review.
 - `sales.research_context` is dependency-driven.
 
 The action registry exposes additional governed analytical and learning actions,

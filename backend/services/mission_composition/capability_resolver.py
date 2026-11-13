@@ -292,9 +292,10 @@ def route_jobs_for_intent(
                     selected.append(semantic_job)
                     selected_keys.add(semantic_job.job_key)
 
-    # Existing learning capabilities become reachable only after the user
-    # explicitly asks for decision support. They remain read-only composition
-    # work; this branch neither resolves a provider nor grants runtime power.
+    # The semantically complete business-need route owns qualified-knowledge
+    # applicability. General advice remains bound to its observed evidence;
+    # it must not imply that a separately retrieved result justified the
+    # recommendation.
     if assessment_context:
         review_job_key = (
             "business.review_need_with_knowledge" if knowledge_assessment_context else "business.review_need"
@@ -309,11 +310,10 @@ def route_jobs_for_intent(
             selected.append(review_job)
             selected_keys.add(review_job.job_key)
     if "decision_support_requested" in set(intent.context_requirements) and not assessment_context:
-        for job_key in ("intelligence.retrieve_knowledge", "intelligence.advise_next"):
-            learning_job = BUSINESS_JOBS_BY_KEY.get(job_key)
-            if learning_job is not None and learning_job.job_key not in selected_keys:
-                selected.append(learning_job)
-                selected_keys.add(learning_job.job_key)
+        advice_job = BUSINESS_JOBS_BY_KEY.get("intelligence.advise_next")
+        if advice_job is not None and advice_job.job_key not in selected_keys:
+            selected.append(advice_job)
+            selected_keys.add(advice_job.job_key)
 
     # Public discovery is only a source stage.  It must be followed by company
     # identity verification, but that verification must not silently become

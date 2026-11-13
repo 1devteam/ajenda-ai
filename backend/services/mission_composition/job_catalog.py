@@ -293,10 +293,6 @@ SALES_GTM_JOBS: tuple[BusinessJob, ...] = (
                 job_key="research.observe_sources",
                 kind="hard",
             ),
-            JobDependency(
-                job_key="intelligence.retrieve_knowledge",
-                kind="optional",
-            ),
         ),
         depends_on_jobs=(),
     ),
