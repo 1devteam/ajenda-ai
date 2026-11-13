@@ -361,8 +361,8 @@ def test_successive_learning_cycles_require_distinct_approval_and_preserve_histo
             activate_tenant_session(verify, tenant)
             completed = verify.get(ExecutionTask, task_id)
             assert completed is not None
-            assert completed.status == ExecutionTaskState.COMPLETED.value, (
-                (completed.metadata_json or {}).get("failure")
+            assert completed.status == ExecutionTaskState.COMPLETED.value, (completed.metadata_json or {}).get(
+                "failure"
             )
             return dict(completed.metadata_json["handler_result"]["output"])
 
@@ -409,10 +409,7 @@ def test_successive_learning_cycles_require_distinct_approval_and_preserve_histo
     second_output = approve_and_execute(second_task_id, worker_id="knowledge-cycle-2")
     assert set(second_output["records_inspected"]) == first_ids | {late_id}
     assert second_output["qualifications"]
-    assert all(
-        item["qualification"]["status"] == "qualified"
-        for item in second_output["qualifications"]
-    )
+    assert all(item["qualification"]["status"] == "qualified" for item in second_output["qualifications"])
     with factory() as session:
         activate_tenant_session(session, tenant)
         final_reviews = reviews(session)
