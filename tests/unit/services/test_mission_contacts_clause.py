@@ -39,12 +39,26 @@ def test_market_scope_allows_comparison_qualifier_and_deal_records() -> None:
     )
     assert "research_prospects" in intent.requested_outcomes
     assert "qualify_prospects" in intent.requested_outcomes
+    assert "observe_contacts" in intent.requested_outcomes
     assert "persist_internal_crm" in intent.requested_outcomes
+    contact_evidence = next(
+        item for item in intent.interpretation_evidence if item.field_path == "requested_outcomes.observe_contacts"
+    )
+    assert contact_evidence.source == "inferred_deterministic"
+    assert contact_evidence.rule_id == "internal_crm_persistence.requires_observed_contact"
     assert intent.target_entities
     assert intent.target_entities[0].industry == "software development"
     assert intent.target_entities[0].location == "Austin"
     assert intent.unmatched_material_clauses == []
     assert not any(item.field == "target_scope" for item in intent.ambiguity)
+
+    jobs = route_jobs_for_intent(intent)
+    selections, missing = resolve_jobs(jobs, intent=intent, charter=default_operating_charter())
+    assert missing == []
+    steps = compile_planned_steps(selections, intent=intent)
+    persistence = next(step for step in steps if step.job_key == "crm.internal_persistence")
+    assert persistence.action_name == "record.write"
+    assert any(binding["output_path"] == "$.observed_contacts" for binding in persistence.input_bindings)
 
 
 def test_explicit_user_supplied_crm_record_batch_selects_internal_persistence() -> None:
@@ -57,6 +71,7 @@ def test_explicit_user_supplied_crm_record_batch_selects_internal_persistence() 
 
     assert "persist_internal_crm" in intent.requested_outcomes
     assert "update_crm" not in intent.requested_outcomes
+    assert "observe_contacts" not in intent.requested_outcomes
     assert intent.unmatched_material_clauses == []
     assert intent.send_policy.mode == "forbid"
 

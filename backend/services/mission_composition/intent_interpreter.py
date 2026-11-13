@@ -101,6 +101,10 @@ _RECOMMENDATION_COUNT = re.compile(
     r"(?:\s+(?:strategic|prioritized|actionable|evidence[-\s]backed)){0,3}\s+recommendations?\b",
     re.IGNORECASE,
 )
+_INTERNAL_CRM_CONTACT_PERSISTENCE = re.compile(
+    r"\b(?:save|add|create|update)\b[^.!?]{0,96}\bcontacts?\b",
+    re.IGNORECASE,
+)
 
 _REPORT_COUNT_WORDS = {
     "one": 1,
@@ -373,6 +377,27 @@ def interpret_instruction(
     wants_enrich = _contains_any(lower, _ENRICH_PATTERNS)
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
     no_crm = _contains_any(lower, _CRM_NEGATION_PATTERNS)
+    internal_crm_contact_source = internal_crm_as_source or bool(
+        re.search(r"\b(?:using|from)\b[^.!?]{0,48}\b(?:ajenda\s+)?internal\s+crm\b", lower)
+    )
+    explicit_contact_source = bool(
+        re.search(r"\b(?:user[-\s]*supplied|provided|existing|saved)\s+contact\s+(?:source|records?)\b", lower)
+    )
+    inferred_contact_observation_for_internal_persistence = bool(
+        internal_crm_requested
+        and crm_write_requested
+        and wants_research
+        and not no_crm
+        and not internal_crm_contact_source
+        and not explicit_contact_source
+        and _INTERNAL_CRM_CONTACT_PERSISTENCE.search(lower)
+    )
+    if inferred_contact_observation_for_internal_persistence:
+        # A research-backed request to persist contacts to Ajenda's internal
+        # CRM needs a factual contact-observation producer. This selects that
+        # producer; it does not manufacture a contact or relax its evidence
+        # requirements. Internal-CRM-only batch updates remain unchanged.
+        wants_observe = True
     # A source restriction is a material decision, not merely prose for a
     # downstream tool. Preserve it in the structured intent so the action
     # input owner can prevent tenant/CRM reads rather than trying to filter
@@ -513,10 +538,16 @@ def interpret_instruction(
         evidence.append(
             _evidence(
                 field_path="requested_outcomes.observe_contacts",
-                source="explicit",
+                source=(
+                    "inferred_deterministic" if inferred_contact_observation_for_internal_persistence else "explicit"
+                ),
                 normalized_value="observe_contacts",
                 confidence=0.95,
-                rule_id="alias.observe_contacts",
+                rule_id=(
+                    "internal_crm_persistence.requires_observed_contact"
+                    if inferred_contact_observation_for_internal_persistence
+                    else "alias.observe_contacts"
+                ),
             )
         )
     if wants_enrich:
