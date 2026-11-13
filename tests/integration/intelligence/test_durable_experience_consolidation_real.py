@@ -303,3 +303,118 @@ def test_late_learning_creates_successor_review_instead_of_rewriting_in_flight_s
             str(another.learning_signal_evidence_id),
         }
         assert _ledger_counts(factory, tenant) == (0, 0)
+
+
+def test_successive_learning_cycles_require_distinct_approval_and_preserve_history(
+    pg_engine, queue_adapter, redis_client
+) -> None:
+    """A completed approved review must not consume or authorize later learning."""
+    tenant = str(uuid.uuid4())
+    factory = sessionmaker(bind=pg_engine, expire_on_commit=False)
+    with factory() as setup:
+        setup.add(Tenant(id=uuid.UUID(tenant), name="Successive learning", slug=f"cycles-{tenant[:8]}", plan="free"))
+        setup.flush()
+        activate_tenant_session(setup, tenant)
+        persist_test_operating_charter(
+            setup,
+            tenant_id=tenant,
+            allow_perform=("knowledge.consolidate_learning_history",),
+        )
+        setup.commit()
+
+    def reviews(session) -> list[ExecutionTask]:
+        return [
+            task
+            for task in session.scalars(select(ExecutionTask).where(ExecutionTask.tenant_id == tenant)).all()
+            if (task.metadata_json or {}).get("tool_invocation", {}).get("action")
+            == "knowledge.consolidate_learning_history"
+        ]
+
+    def approve_and_execute(task_id: uuid.UUID, *, worker_id: str) -> dict:
+        with factory() as session:
+            activate_tenant_session(session, tenant)
+            task = session.get(ExecutionTask, task_id)
+            assert task is not None and task.status == ExecutionTaskState.PENDING_REVIEW.value
+            admission = ExecutionCoordinator(session, queue_adapter).approve_review_and_queue(
+                tenant_id=tenant,
+                task_id=task_id,
+                actor="human:knowledge-reviewer",
+                approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
+            )
+            assert admission.ok is True
+            session.commit()
+            RuntimeQueueDispatchService(session, queue_adapter).publish_due()
+            runtime = WorkerRuntimeService(session, queue_adapter)
+            claimed = runtime.claim_next_task(tenant_id=tenant, worker_id=worker_id)
+            assert claimed is not None and claimed.id == task_id
+            lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+            runtime.heartbeat(tenant_id=tenant, lease_id=lease_id, worker_id=worker_id)
+            runtime.start_execution(tenant_id=tenant, lease_id=lease_id, worker_id=worker_id)
+            session.commit()
+        TaskDispatcher(
+            session_factory=factory,
+            queue=queue_adapter,
+            worker_id=worker_id,
+            tenant_id=tenant,
+        ).execute(task_id=task_id, lease_id=lease_id)
+        with factory() as verify:
+            activate_tenant_session(verify, tenant)
+            completed = verify.get(ExecutionTask, task_id)
+            assert completed is not None
+            assert completed.status == ExecutionTaskState.COMPLETED.value, (completed.metadata_json or {}).get(
+                "failure"
+            )
+            return dict(completed.metadata_json["handler_result"]["output"])
+
+    first_episodes = [
+        materialize_canonical_decision_episode(
+            factory=factory, queue_adapter=queue_adapter, tenant_id=tenant, index=index
+        )
+        for index in (401, 402, 403)
+    ]
+    first_ids = {str(item.learning_signal_evidence_id) for item in first_episodes}
+    with factory() as session:
+        activate_tenant_session(session, tenant)
+        first_reviews = reviews(session)
+        assert len(first_reviews) == 1
+        first = first_reviews[0]
+        assert first.status == ExecutionTaskState.PENDING_REVIEW.value
+        assert set(first.metadata_json["learning_consolidation_activation"]["source_evidence_ids"]) == first_ids
+        first_task_id = first.id
+    assert _ledger_counts(factory, tenant) == (0, 0)
+    first_output = approve_and_execute(first_task_id, worker_id="knowledge-cycle-1")
+    assert set(first_output["records_inspected"]) == first_ids
+    assert first_output["qualifications"][0]["qualification"]["status"] == "qualified"
+    assert _ledger_counts(factory, tenant) == (1, 1)
+
+    new_episode = materialize_canonical_decision_episode(
+        factory=factory, queue_adapter=queue_adapter, tenant_id=tenant, index=404
+    )
+    late_id = str(new_episode.learning_signal_evidence_id)
+    with factory() as session:
+        activate_tenant_session(session, tenant)
+        all_reviews = reviews(session)
+        assert len(all_reviews) == 2
+        previous = next(task for task in all_reviews if task.id == first_task_id)
+        successor = next(task for task in all_reviews if task.id != first_task_id)
+        assert previous.status == ExecutionTaskState.COMPLETED.value
+        assert set(previous.metadata_json["learning_consolidation_activation"]["source_evidence_ids"]) == first_ids
+        assert successor.status == ExecutionTaskState.PENDING_REVIEW.value
+        assert successor.requires_human_review is True
+        assert successor.metadata_json["learning_consolidation_activation"]["source_evidence_ids"] == [late_id]
+        assert "ability_authorization" not in successor.metadata_json.get("execution_constraints", {})
+        second_task_id = successor.id
+    assert _ledger_counts(factory, tenant) == (1, 1)
+
+    second_output = approve_and_execute(second_task_id, worker_id="knowledge-cycle-2")
+    assert set(second_output["records_inspected"]) == first_ids | {late_id}
+    assert second_output["qualifications"]
+    assert all(item["qualification"]["status"] == "qualified" for item in second_output["qualifications"])
+    with factory() as session:
+        activate_tenant_session(session, tenant)
+        final_reviews = reviews(session)
+        assert len(final_reviews) == 2
+        assert all(task.status == ExecutionTaskState.COMPLETED.value for task in final_reviews)
+    qualifications, artifacts = _ledger_counts(factory, tenant)
+    assert qualifications >= 1
+    assert artifacts >= 1
