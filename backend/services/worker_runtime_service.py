@@ -33,6 +33,7 @@ from backend.services.worker_runtime_contracts import (
     _mirror_task_output_to_metadata,
     _validate_declared_output_contract,
 )
+from backend.services.worker_runtime_learning_activation import maybe_activate_learning_consolidation
 from backend.services.worker_runtime_outcome_review import (
     create_draft_outcome_review as _create_draft_outcome_review_impl,
 )
@@ -588,6 +589,7 @@ class WorkerRuntimeService:
                 )
             )
             evidence_repo = EvidenceRepository(self._session)
+            persisted_evidence_records = []
             for evidence_record in build_tool_action_evidence_records(
                 task=task,
                 lease=lease,
@@ -596,6 +598,34 @@ class WorkerRuntimeService:
             ):
                 added = evidence_repo.add(evidence_record)
                 evidence_ids_for_review.append(str(added.id))
+                persisted_evidence_records.append(added)
+            activation = maybe_activate_learning_consolidation(
+                session=self._session,
+                queue=self._queue,
+                completed_task=task,
+                evidence_records=persisted_evidence_records,
+            )
+            if activation is not None:
+                self._evidence_ledger.append_fact(
+                    tenant_id=tenant_id,
+                    mission_id=task.mission_id,
+                    category="runtime_evidence",
+                    action="learning_consolidation_recognized",
+                    producer="worker_runtime",
+                    actor=worker_id,
+                    details="Recognized eligible durable learning history for governed consolidation.",
+                    facts={
+                        "source_evidence_ids": list(activation.source_evidence_ids),
+                        "consolidation_task_id": str(activation.task_id) if activation.task_id else None,
+                        "created": activation.created,
+                        "reason": activation.reason,
+                        "grants_execution_authority": False,
+                    },
+                    authority_context={"execution_authorized": False, "recognition_only": True},
+                    causation_id=str(lease.id),
+                    correlation_id=str(task.mission_id),
+                    evidence_references=list(activation.source_evidence_ids),
+                )
             materialized_artifacts = _materialized_artifact_reference(task, evidence_ids_for_review)
             if materialized_artifacts:
                 task.metadata_json = {

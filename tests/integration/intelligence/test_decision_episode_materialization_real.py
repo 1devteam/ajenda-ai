@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
 from backend.db.tenant_session import activate_tenant_session
+from backend.domain.enums import ExecutionTaskState
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
@@ -62,6 +63,21 @@ def test_materialization_uses_real_runtime_artifacts_and_rejects_declarative_for
         tenant_id=tenant_a,
         index=101,
     )
+    with factory() as verify:
+        activation_tasks = [
+            task
+            for task in verify.scalars(select(ExecutionTask).where(ExecutionTask.tenant_id == tenant_a)).all()
+            if (task.metadata_json or {}).get("tool_invocation", {}).get("action")
+            == "knowledge.consolidate_learning_history"
+        ]
+        assert len(activation_tasks) == 1
+        activation = activation_tasks[0]
+        assert activation.status == ExecutionTaskState.PENDING_REVIEW.value
+        assert activation.requires_human_review is True
+        assert activation.metadata_json["learning_consolidation_activation"]["source_evidence_ids"] == [
+            str(episode.learning_signal_evidence_id)
+        ]
+        assert "ability_authorization" not in activation.metadata_json.get("execution_constraints", {})
     request = {
         "recommendation_evidence_id": str(episode.recommendation_evidence_id),
         "outcome_evaluation_evidence_id": str(episode.outcome_evidence_id),
@@ -89,7 +105,7 @@ def test_materialization_uses_real_runtime_artifacts_and_rejects_declarative_for
     assert first.evidence[0].side_effect_class == SideEffectClass.INTERNAL_READ
     assert f"evidence:{episode.supporting_evidence_id}" in first.records_inspected
     assert f"execution_task:{episode.recommendation_task_id}" in first.records_inspected
-    assert _row_counts(factory, tenant_a) == before == (1, 5, 5)
+    assert _row_counts(factory, tenant_a) == before == (1, 6, 5)
 
     with pytest.raises(ValueError, match="recommendation artifact is inaccessible"):
         registry.invoke(

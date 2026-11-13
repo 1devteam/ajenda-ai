@@ -261,6 +261,30 @@ def _ensure_bridge_authority(
     return capability, adapter
 
 
+def ensure_bridge_runtime_authority(
+    *,
+    db: Session,
+    tenant_id: str,
+    action_name: str,
+    admitted_by: str,
+    tool_input: dict[str, Any] | None = None,
+) -> tuple[Capability, CapabilityAdapter]:
+    """Provision only declarative authority for a runtime-created task.
+
+    This creates or reuses the tenant-scoped capability/adapter declaration. It
+    never grants execution authority: actions whose manifests require approval
+    still need a task-bound human grant at queue admission and worker execution.
+    """
+
+    return _ensure_bridge_authority(
+        db=db,
+        tenant_id=tenant_id,
+        action_name=action_name,
+        approved_by=admitted_by,
+        tool_input=tool_input,
+    )
+
+
 def provision_bridge_runtime_authority(
     *,
     db: Session,
