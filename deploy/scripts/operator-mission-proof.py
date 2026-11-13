@@ -82,6 +82,7 @@ PROOF_OPERATING_CHARTER: dict[str, Any] = {
         "analysis.evaluate_goal_progress",
     ],
     "may_perform": [
+        "knowledge.consolidate_learning_history",
         "gtm.crm_upsert",
         "record.write",
         "sales.log_activity",
