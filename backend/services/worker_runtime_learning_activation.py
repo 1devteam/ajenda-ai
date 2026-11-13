@@ -27,12 +27,12 @@ CONSOLIDATION_ACTION = "knowledge.consolidate_learning_history"
 CONSOLIDATION_SCOPE = "tenant_eligible_learning_history_v1"
 _LEARNING_SIGNAL_ACTION = "analysis.materialize_decision_learning_signal"
 _LEARNING_SIGNAL_ROLE = "decision_learning_signal"
-_OPEN_STATES = {
+# Only unapproved reviews can absorb new evidence. Admission/approval freezes
+# the review scope; a signal arriving after that point needs a successor review
+# even while the prior consolidation is queued, claimed, or running.
+_COALESCIBLE_REVIEW_STATES = {
     ExecutionTaskState.PLANNED.value,
     ExecutionTaskState.PENDING_REVIEW.value,
-    ExecutionTaskState.QUEUED.value,
-    ExecutionTaskState.CLAIMED.value,
-    ExecutionTaskState.RUNNING.value,
 }
 
 
@@ -78,7 +78,7 @@ def maybe_activate_learning_consolidation(
     for candidate in open_tasks:
         activation = _activation_metadata(candidate)
         if (
-            candidate.status in _OPEN_STATES
+            candidate.status in _COALESCIBLE_REVIEW_STATES
             and activation is not None
             and activation.get("consolidation_scope") == CONSOLIDATION_SCOPE
             and (candidate.metadata_json or {}).get("tool_invocation", {}).get("action") == CONSOLIDATION_ACTION
