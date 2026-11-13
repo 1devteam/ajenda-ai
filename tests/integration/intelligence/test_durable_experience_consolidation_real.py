@@ -210,3 +210,96 @@ def test_recognition_requires_human_approval_before_runtime_consolidation(
         assert set(completed.metadata_json["handler_result"]["output"]["records_inspected"]) == {
             str(item.learning_signal_evidence_id) for item in episodes
         }
+
+
+@pytest.mark.parametrize(
+    "in_flight_state",
+    (
+        ExecutionTaskState.QUEUED,
+        ExecutionTaskState.CLAIMED,
+        ExecutionTaskState.RUNNING,
+    ),
+)
+def test_late_learning_creates_successor_review_instead_of_rewriting_in_flight_scope(
+    pg_engine, queue_adapter, redis_client, in_flight_state: ExecutionTaskState
+) -> None:
+    """Real persisted signals must not be attached to an already-approved review.
+
+    Model each reachable in-flight state on the persisted task rather than
+    launching a second concurrent worker: the invariant under test belongs to
+    completion-time admission, not lease scheduling or consolidation scoring.
+    """
+    tenant = str(uuid.uuid4())
+    factory = sessionmaker(bind=pg_engine, expire_on_commit=False)
+    with factory() as setup:
+        setup.add(Tenant(id=uuid.UUID(tenant), name="Late learning", slug=f"late-{tenant[:8]}", plan="free"))
+        setup.commit()
+
+    original = [
+        materialize_canonical_decision_episode(
+            factory=factory, queue_adapter=queue_adapter, tenant_id=tenant, index=index
+        )
+        for index in (341, 342, 343)
+    ]
+    original_ids = {str(episode.learning_signal_evidence_id) for episode in original}
+    with factory() as setup:
+        activate_tenant_session(setup, tenant)
+        reviews = [
+            task
+            for task in setup.scalars(select(ExecutionTask).where(ExecutionTask.tenant_id == tenant))
+            if (task.metadata_json or {}).get("tool_invocation", {}).get("action")
+            == "knowledge.consolidate_learning_history"
+        ]
+        assert len(reviews) == 1
+        first = reviews[0]
+        assert first.status == ExecutionTaskState.PENDING_REVIEW.value
+        assert set(first.metadata_json["learning_consolidation_activation"]["source_evidence_ids"]) == original_ids
+        original_task_id = first.id
+        # The state mutation isolates the post-approval coalescing boundary:
+        # queue/claim/lease behavior is covered by the existing runtime test.
+        first.status = in_flight_state.value
+        setup.commit()
+
+    late = materialize_canonical_decision_episode(
+        factory=factory, queue_adapter=queue_adapter, tenant_id=tenant, index=344
+    )
+    late_id = str(late.learning_signal_evidence_id)
+    with factory() as verify:
+        activate_tenant_session(verify, tenant)
+        reviews = [
+            task
+            for task in verify.scalars(select(ExecutionTask).where(ExecutionTask.tenant_id == tenant))
+            if (task.metadata_json or {}).get("tool_invocation", {}).get("action")
+            == "knowledge.consolidate_learning_history"
+        ]
+        assert len(reviews) == 2
+        first = next(task for task in reviews if task.id == original_task_id)
+        successor = next(task for task in reviews if task.id != original_task_id)
+        assert first.status == in_flight_state.value
+        assert set(first.metadata_json["learning_consolidation_activation"]["source_evidence_ids"]) == original_ids
+        assert successor.status == ExecutionTaskState.PENDING_REVIEW.value
+        assert successor.requires_human_review is True
+        assert successor.metadata_json["learning_consolidation_activation"]["source_evidence_ids"] == [late_id]
+        assert "ability_authorization" not in successor.metadata_json.get("execution_constraints", {})
+        successor_id = successor.id
+
+    # Later signals may still coalesce into the *new* unapproved review.
+    another = materialize_canonical_decision_episode(
+        factory=factory, queue_adapter=queue_adapter, tenant_id=tenant, index=345
+    )
+    with factory() as verify:
+        activate_tenant_session(verify, tenant)
+        reviews = [
+            task
+            for task in verify.scalars(select(ExecutionTask).where(ExecutionTask.tenant_id == tenant))
+            if (task.metadata_json or {}).get("tool_invocation", {}).get("action")
+            == "knowledge.consolidate_learning_history"
+        ]
+        assert len(reviews) == 2
+        successor = next(task for task in reviews if task.id == successor_id)
+        assert successor.status == ExecutionTaskState.PENDING_REVIEW.value
+        assert set(successor.metadata_json["learning_consolidation_activation"]["source_evidence_ids"]) == {
+            late_id,
+            str(another.learning_signal_evidence_id),
+        }
+        assert _ledger_counts(factory, tenant) == (0, 0)
