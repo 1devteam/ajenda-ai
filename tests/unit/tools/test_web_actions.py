@@ -428,6 +428,51 @@ def test_observe_contacts_uses_linked_title_when_directory_label_is_generic() ->
     assert result.output["verified_prospect_candidates"][0]["company"] == "Cool Air Heating"
 
 
+def test_verify_public_candidates_rejects_source_publisher_family_link_from_market_article() -> None:
+    """An editorial listing cannot turn its own publisher into a prospect."""
+
+    from backend.services.tools.web_actions import research_verify_public_candidates
+
+    article = PageSnapshot(
+        url="https://builtinaustin.example/articles/software-companies-in-austin",
+        real=True,
+        status_code=200,
+        title="96 Software Companies in Austin You Should Know",
+        text_preview="A guide to software development companies in Austin.",
+        body_preview="Browse the companies covered in this Austin market article.",
+        extraction={"links": [{"url": "https://builtin.example/", "text": "Built In"}]},
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    publisher_home = PageSnapshot(
+        url="https://builtin.example/",
+        real=True,
+        status_code=200,
+        title="Built In",
+        text_preview="Built In offers software development and technology content in Austin.",
+        body_preview="A platform for technology professionals in Austin.",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.verify_public_candidates",
+        input={
+            "prospects": [{"company": article.title, "domain": "builtinaustin.example", "url": article.url}],
+            "requested_quantity": 1,
+            "binding_required": True,
+            "collect_contacts": False,
+            "context": {"industry": "software development", "location": "Austin"},
+        },
+    )
+    with patch(
+        "backend.services.tools.web_action_contacts.fetch_public_page",
+        side_effect=[article, publisher_home],
+    ):
+        result = research_verify_public_candidates(invocation, _context())
+
+    assert result.output["verified_prospect_candidates"] == []
+    assert result.output["accept_met"] is False
+    assert result.output["valid_empty_result"]["classification"] == "valid_empty"
+
+
 def test_observe_contacts_keeps_verified_company_without_contact_details() -> None:
     from backend.services.tools.web_actions import research_observe_contacts
 
