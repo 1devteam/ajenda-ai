@@ -540,6 +540,54 @@ def test_observe_contacts_rejects_marketplace_page_even_when_host_matches() -> N
     )
 
 
+def test_verify_public_candidates_rejects_unknown_directory_and_article_category_pages() -> None:
+    """A fetched listing/article is discovery evidence, never the listed company itself."""
+
+    from backend.services.tools.web_actions import research_verify_public_candidates
+
+    article = PageSnapshot(
+        url="https://www.builtinaustin.example/articles/software-companies-in-austin-to-know",
+        real=True,
+        status_code=200,
+        title="96 Software Companies in Austin You Should Know",
+        text_preview="These Austin software companies are making strides in artificial intelligence.",
+        body_preview="A guide to software companies in Austin.",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    directory = PageSnapshot(
+        url="https://itcompanies.example/software-development/austin",
+        real=True,
+        status_code=200,
+        title="Software Development Companies in Austin (2026)",
+        text_preview="25 verified software development companies in Austin.",
+        body_preview="Compare software development companies in Austin.",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.verify_public_candidates",
+        input={
+            "prospects": [
+                {"company": article.title, "domain": "builtinaustin.example", "url": article.url},
+                {"company": directory.title, "domain": "itcompanies.example", "url": directory.url},
+            ],
+            "requested_quantity": 2,
+            "binding_required": True,
+            "collect_contacts": False,
+            "context": {"industry": "software development", "location": "Austin"},
+        },
+    )
+    with patch(
+        "backend.services.tools.web_action_contacts.fetch_public_page",
+        side_effect=[article, directory],
+    ):
+        result = research_verify_public_candidates(invocation, _context())
+
+    assert result.output["verified_prospect_candidates"] == []
+    assert result.output["accept_met"] is False
+    assert [page["identity_status"] for page in result.output["pages"]] == ["unverified", "unverified"]
+    assert all(page["source_reliability"] == "directory_or_third_party" for page in result.output["pages"])
+
+
 def test_public_identity_rejection_is_a_valid_empty_verification_outcome() -> None:
     from backend.services.tools.web_action_contacts import research_verify_public_candidates
 

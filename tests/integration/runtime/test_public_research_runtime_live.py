@@ -88,9 +88,12 @@ _CONTROLLED_DIRECTORY_SEARCH = {
     "real": True,
     "results": [
         {
-            "title": "15 Best Commercial HVAC Contractors Dallas, TX",
-            "snippet": "Find and invite the best commercial HVAC contractors in Dallas.",
-            "url": "https://downtobid.com/contractors/hvac/dallas",
+            # No directory-host marker or ranking phrase: the structural
+            # category-with-location policy must still prevent this unknown
+            # listing page becoming a company identity.
+            "title": "Commercial HVAC Contractors in Dallas (2026)",
+            "snippet": "Browse commercial HVAC contractors serving Dallas, Texas.",
+            "url": "https://example-listing.test/commercial-hvac/dallas",
             "source": "controlled_public_result",
         }
     ],
@@ -106,12 +109,12 @@ _CONTROLLED_DIRECTORY_SEARCH = {
     ],
 }
 _CONTROLLED_DIRECTORY_PAGE = PageSnapshot(
-    url="https://downtobid.com/contractors/hvac/dallas",
+    url="https://example-listing.test/commercial-hvac/dallas",
     real=True,
     status_code=200,
-    title="15 Best Commercial HVAC Contractors Dallas, TX",
-    text_preview="Find and invite the best commercial HVAC contractors in Dallas. Access our contractor database.",
-    body_preview="Browse contractors and submit bid requests.",
+    title="Commercial HVAC Contractors in Dallas (2026)",
+    text_preview="Browse commercial HVAC contractors serving Dallas, Texas.",
+    body_preview="Compare contractor profiles for commercial HVAC work in Dallas.",
     extraction={"links": []},
 )
 

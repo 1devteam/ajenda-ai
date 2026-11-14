@@ -593,6 +593,12 @@ def _public_prospect_errors(item: dict[str, Any], index: int) -> list[str]:
         errors.append(f"item {index} public prospect identity is not verified")
     if item.get("identity_status") != "verified":
         errors.append(f"item {index} public prospect identity_status must be verified")
+    if item.get("real") is True and item.get("identity_status") == "verified":
+        evidence_urls = item.get("identity_evidence_urls")
+        if not isinstance(evidence_urls, list) or not any(
+            isinstance(url, str) and url.strip() for url in evidence_urls
+        ):
+            errors.append(f"item {index} verified public prospect requires identity_evidence_urls")
     return errors
 
 
