@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import {
   composeMission,
@@ -14,6 +14,12 @@ import type {
   MissionListItem,
 } from "../types";
 import { newIdempotencyKey } from "../utils/errors";
+import {
+  clearMissionHistoryCutoff,
+  filterMissionHistoryForView,
+  readMissionHistoryCutoff,
+  setMissionHistoryCutoff,
+} from "../utils/missionHistoryView";
 
 const PLACEHOLDER =
   "Search Ajenda's approved business profile and governed internal memory, then prepare an evidence-backed company brief and a draft introduction explaining who Ajenda is, what it provides, who it serves, and why it is different. Do not browse the web, contact anyone, send email, modify CRM records, or perform any external action.";
@@ -31,6 +37,7 @@ export default function MissionsPage() {
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [listLoading, setListLoading] = useState(false);
+  const [historyCutoff, setHistoryCutoff] = useState<string | null>(null);
   // Stable per-proposal key so confirm retries do not create duplicate missions.
   const [confirmIdempotencyKey, setConfirmIdempotencyKey] = useState<string | null>(null);
 
@@ -54,6 +61,34 @@ export default function MissionsPage() {
   useEffect(() => {
     void refreshMissions();
   }, [refreshMissions]);
+
+  useEffect(() => {
+    setHistoryCutoff(session ? readMissionHistoryCutoff(session.tenantId) : null);
+  }, [session?.tenantId]);
+
+  const visibleMissions = useMemo(
+    () => filterMissionHistoryForView(missions, historyCutoff),
+    [historyCutoff, missions],
+  );
+
+  function startFreshMissionHistoryView() {
+    if (!session) {
+      return;
+    }
+    const cutoff = new Date().toISOString();
+    if (setMissionHistoryCutoff(session.tenantId, cutoff)) {
+      setHistoryCutoff(cutoff);
+    }
+  }
+
+  function showFullMissionHistory() {
+    if (!session) {
+      return;
+    }
+    if (clearMissionHistoryCutoff(session.tenantId)) {
+      setHistoryCutoff(null);
+    }
+  }
 
   async function handleCompose(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -297,12 +332,40 @@ export default function MissionsPage() {
           >
             {listLoading ? "Refreshing…" : "Refresh"}
           </button>
+          {historyCutoff ? (
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={!session}
+              onClick={showFullMissionHistory}
+            >
+              Show full history
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={!session}
+              onClick={startFreshMissionHistoryView}
+            >
+              Start fresh view
+            </button>
+          )}
         </div>
-        {missions.length === 0 ? (
-          <p className="muted">No missions yet. Use a template or write a request above.</p>
+        {historyCutoff ? (
+          <p className="muted">
+            Previous terminal missions are hidden in this browser only. Active and review-held work remains visible.
+          </p>
+        ) : null}
+        {visibleMissions.length === 0 ? (
+          <p className="muted">
+            {missions.length > 0
+              ? "No missions are visible in this fresh view."
+              : "No missions yet. Use a template or write a request above."}
+          </p>
         ) : (
           <ul className="mission-list">
-            {missions.map((mission) => (
+            {visibleMissions.map((mission) => (
               <li className="mission-card" key={mission.mission_id}>
                 <div className="mission-card-header">
                   <span id={mission.status === "planned" ? "staged" : mission.status === "completed" ? "history" : undefined} className={`status-pill status-${mission.status}`}>{mission.status === "planned" ? "staged" : mission.status}</span>
