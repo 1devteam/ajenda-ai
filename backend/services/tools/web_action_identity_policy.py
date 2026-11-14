@@ -56,6 +56,19 @@ _GENERIC_MARKET_LISTING_LABEL = re.compile(
     flags=re.IGNORECASE,
 )
 
+# A category title may omit ranking language altogether (for example,
+# ``Software Development Companies in Austin (2026)``).  It is still a market
+# listing, rather than a business identity.  This stays structural rather than
+# host-specific: newly encountered directories and editorial roundups must not
+# become verified companies merely because they are not on a denylist.
+_GENERIC_MARKET_CATEGORY_WITH_LOCATION = re.compile(
+    r"^\s*(?:\d+\s+)?(?:[a-z0-9&+/'-]+\s+){0,8}"
+    r"(?:company|companies|firm|firms|agency|agencies|provider|providers|"
+    r"contractor|contractors|developer|developers)\s+"
+    r"(?:in|near|around|of|for)\s+[a-z0-9][a-z0-9 .,'&+/'-]{1,80}",
+    flags=re.IGNORECASE,
+)
+
 
 def _industry_evidence_markers(industry: object) -> tuple[str, ...]:
     """Return bounded page markers for the declared mission industry."""
@@ -83,7 +96,10 @@ def _is_directory_or_third_party_page(text: str) -> bool:
 def _is_generic_market_listing_label(value: str) -> bool:
     """Whether a title/label names a ranked market category, not a company."""
 
-    return bool(_GENERIC_MARKET_LISTING_LABEL.search(re.sub(r"\s+", " ", value).strip()))
+    normalized = re.sub(r"\s+", " ", value).strip()
+    return bool(
+        _GENERIC_MARKET_LISTING_LABEL.search(normalized) or _GENERIC_MARKET_CATEGORY_WITH_LOCATION.search(normalized)
+    )
 
 
 def _identity_tokens(value: str) -> list[str]:

@@ -67,6 +67,28 @@ def test_interpreter_roofing_forbids_send_and_targets_austin() -> None:
     assert "identify" not in intent.target_entities[0].location.lower()
 
 
+def test_interpreter_extracts_operating_in_market_scope() -> None:
+    intent = interpret_instruction("Research three software-development companies operating in Austin, Texas.")
+    assert intent.target_entities
+    assert intent.target_entities[0].industry == "software-development"
+    assert intent.target_entities[0].location == "Austin"
+
+
+def test_prepare_comparison_report_is_a_recognized_material_clause() -> None:
+    intent = interpret_instruction("Research roofing companies in Austin. Prepare a comparison report.")
+    assert "synthesize_research_report" in intent.requested_outcomes
+    assert not intent.unmatched_material_clauses
+
+
+def test_missing_send_authorization_forbids_send() -> None:
+    intent = interpret_instruction(
+        "Research companies and contact the best prospects immediately. "
+        "I have not specified authorization to send messages."
+    )
+    assert intent.send_policy.mode == "forbid"
+    assert "send_outreach" not in intent.requested_outcomes
+
+
 def test_website_research_for_linkedin_posts_compiles_to_drafts_not_publish() -> None:
     instruction = (
         "Visit https://www.1devteam.com/ and collect details about the business to use in three LinkedIn posts."

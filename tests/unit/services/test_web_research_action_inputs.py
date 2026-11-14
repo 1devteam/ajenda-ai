@@ -56,6 +56,19 @@ def test_market_research_query_prefers_industry_location() -> None:
     assert not query.startswith("find five")
 
 
+def test_market_research_does_not_extract_deliverable_words_as_company_identity() -> None:
+    intent = interpret_instruction(
+        "Research three software-development companies in Austin, Texas. "
+        "Verify public identity and website. Do not contact anyone."
+    )
+
+    payload = build_action_input(action_name="web.research", intent=intent)
+
+    assert payload["query"] == "software-development companies in Austin"
+    assert payload["company"] is None
+    assert payload["domain"] is None
+
+
 def test_local_fixture_constraint_disables_public_search() -> None:
     intent = interpret_instruction(
         "Find five software companies in Austin and collect contacts using local fixture data only."

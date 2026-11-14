@@ -339,6 +339,29 @@ def test_artifact_payload_rejects_unverified_public_prospect() -> None:
     )
 
 
+def test_verified_public_prospect_requires_source_bound_identity_evidence() -> None:
+    """A producer cannot satisfy public identity acceptance with an unsupported flag."""
+
+    errors = validate_artifact_payload(
+        ARTIFACT_SCHEMAS_BY_KEY["verified_prospect_candidates"],
+        [
+            {
+                "company": "Acme Research",
+                "website": "https://acme.example/",
+                "product_description": "Applied research services.",
+                "research_summary": "Acme Research describes its services on its official site.",
+                "sources": ["https://acme.example/"],
+                "source": "public_search",
+                "real": True,
+                "identity_status": "verified",
+                "identity_evidence_urls": [],
+            }
+        ],
+    )
+
+    assert errors == ("item 0 verified public prospect requires identity_evidence_urls",)
+
+
 def test_artifact_payload_validation_reports_all_structural_errors() -> None:
     assert validate_artifact_payload(PROSPECT_CANDIDATES_SCHEMA, {"website": "https://acme.example"}) == (
         "typed per-item artifact payload must be a list",

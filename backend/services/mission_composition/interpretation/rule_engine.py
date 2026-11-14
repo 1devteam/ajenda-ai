@@ -41,6 +41,10 @@ _NO_SEND_PATTERNS = (
     r"prepare drafts",
     r"no send",
     r"nothing should be sent",
+    # An explicit absence of authorization is never permission to send. Keep
+    # this semantic form broad enough to cover authorization, approval,
+    # permission, and consent without making a bare use of those words a ban.
+    r"\b(?:no|not|without)\b[^.!?]{0,80}\b(?:authorization|approval|permission|consent)\b[^.!?]{0,80}\b(?:send|contact|outreach)\b",
     r"\b(?:forbid|forbids|forbidden|prohibit|prohibits|prohibited)\b[^.!?]{0,80}\bsend(?:ing)?\b",
     # Covers coordinated prohibitions such as “Do not browse, contact anyone,
     # send email, or perform any external action.” Clause splitting must not
@@ -411,7 +415,7 @@ _DATE_SPAN = re.compile(
 )
 _INDUSTRY_LOCATION = re.compile(
     r"(?:^|[\s,;:])(?P<industry>[A-Za-z][A-Za-z\-/]{1,40}(?:\s+[A-Za-z][A-Za-z\-/]{1,40}){0,3})"
-    r"\s+companies\s+in\s+(?P<location>[A-Za-z][A-Za-z.\-]{1,40}(?:\s+[A-Za-z][A-Za-z.\-]{1,40}){0,3})"
+    r"\s+companies\s+(?:operating\s+)?in\s+(?P<location>[A-Za-z][A-Za-z.\-]{1,40}(?:\s+[A-Za-z][A-Za-z.\-]{1,40}){0,3})"
     r"(?=$|[\s,;.:]|\band\b|\bcomparable\s+to\b)",
     re.IGNORECASE,
 )
@@ -576,7 +580,7 @@ _DETAILED_RETURN_DELIVERABLE = re.compile(
     re.IGNORECASE,
 )
 _REPORT_SYNTHESIS_CLAUSE = re.compile(
-    r"^(?:(?:return|produce|provide|create)\b.*(?:sourced\s+comparison|comparison\s+table|report\b)|"
+    r"^(?:(?:return|produce|provide|create|prepare)\b.*(?:sourced\s+comparison|comparison\s+table|comparison\s+report|report\b)|"
     r"highlight\b.*opportunit|identify\b.*evidence\s+gaps?)",
     re.IGNORECASE,
 )

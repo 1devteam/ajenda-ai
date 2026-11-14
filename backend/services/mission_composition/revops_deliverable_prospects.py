@@ -177,6 +177,7 @@ def _assemble_prospects(
     *,
     mission: Mission,
     artifacts: Mapping[str, MaterializedArtifact],
+    verified_artifact_present: bool,
     document_artifacts: Mapping[str, Mapping[str, Any]],
     assembly_errors: list[str],
 ) -> tuple[RevOpsProspectRead, ...]:
@@ -184,9 +185,12 @@ def _assemble_prospects(
     companies: dict[str, set[str]] = defaultdict(set)
 
     verified_rows = _artifact_rows(artifacts, "verified_prospect_candidates")
+    # Once verification has produced a materialized artifact, never fall back
+    # to unverified discovery rows, even if the verification artifact fails
+    # schema validation or contains a proven valid-empty result.
     candidate_sources = (
         (("verified_prospect_candidates", verified_rows),)
-        if verified_rows
+        if verified_artifact_present
         else (("prospect_candidates", _artifact_rows(artifacts, "prospect_candidates")),)
     )
     for artifact_key, rows in candidate_sources:
