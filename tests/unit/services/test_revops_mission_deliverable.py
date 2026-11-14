@@ -330,9 +330,7 @@ def test_verified_candidates_replace_raw_discovery_rows_in_deliverable() -> None
 
     # Invalid verification evidence must not promote raw discovery rows into
     # the verified deliverable or silently bypass the public identity contract.
-    verified.metadata_json["handler_result"]["output"]["verified_prospect_candidates"][0][
-        "identity_evidence_urls"
-    ] = []
+    verified.metadata_json["handler_result"]["output"]["verified_prospect_candidates"][0]["identity_evidence_urls"] = []
     invalid_report = assemble_revops_mission_deliverable(mission=mission, tasks=[raw, verified])
     assert invalid_report.prospects == ()
     assert any("identity_evidence_urls" in error for error in invalid_report.completion.assembly_errors)
