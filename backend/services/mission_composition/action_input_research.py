@@ -20,6 +20,54 @@ from backend.services.mission_composition.action_input_common import (
 from backend.services.mission_composition.contracts import MissionIntent
 
 
+def explicit_public_identity_input(intent: MissionIntent) -> dict[str, Any] | None:
+    """Return a strict singleton identity target, or ``None`` when absent.
+
+    ``research.verify_public_identity`` is deliberately a one-company action:
+    its evidence contract names a URL and the company, industry, and location
+    expected at that URL.  Market/prospect research can request identity
+    verification for discovered candidates, but it must use the separate
+    candidate-verification action rather than inventing one of these inputs.
+    Keeping the extraction here lets routing, deliverable selection, and tool
+    input binding share exactly the same direct-target rule.
+    """
+
+    primary = intent.target_entities[0] if intent.target_entities else None
+    attrs = primary.attributes if primary and isinstance(primary.attributes, dict) else {}
+    source = _instruction_text(intent)
+
+    def _labeled_value(label: str) -> str:
+        match = re.search(rf"\b{label}\s*:\s*([^.;,\n]+)", source, flags=re.IGNORECASE)
+        return match.group(1).strip() if match else ""
+
+    candidate_url = str(attrs.get("url") or attrs.get("website") or attrs.get("domain") or "").strip()
+    if not candidate_url:
+        match = re.search(r"https?://[^\s<>()]+", source, flags=re.IGNORECASE)
+        candidate_url = match.group(0).rstrip(".,;:") if match else ""
+    if candidate_url and "://" not in candidate_url:
+        candidate_url = f"https://{candidate_url.lstrip('.')}"
+    expected_company = str(
+        attrs.get("expected_company") or attrs.get("company") or attrs.get("name") or ""
+    ).strip() or _labeled_value("expected company")
+    industry = str(attrs.get("industry") or "").strip() or _labeled_value("industry")
+    location = str(attrs.get("location") or "").strip() or _labeled_value("location")
+    if not candidate_url or not expected_company or not industry or not location:
+        return None
+    return {
+        "url": candidate_url,
+        "expected_company": expected_company,
+        "industry": industry,
+        "location": location,
+        "timeout_seconds": 15.0,
+    }
+
+
+def has_explicit_public_identity_target(intent: MissionIntent) -> bool:
+    """Whether the instruction supplies the complete direct identity contract."""
+
+    return explicit_public_identity_input(intent) is not None
+
+
 def build_research_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, Any] | None:
     industry, location, _ = _target_bits(intent)
     limit = _prospect_count(intent)
@@ -168,36 +216,12 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
             },
         }
     if action_name == "research.verify_public_identity":
-        primary = intent.target_entities[0] if intent.target_entities else None
-        attrs = primary.attributes if primary and isinstance(primary.attributes, dict) else {}
-        source = _instruction_text(intent)
-
-        def _labeled_value(label: str) -> str:
-            match = re.search(rf"\b{label}\s*:\s*([^.;,\n]+)", source, flags=re.IGNORECASE)
-            return match.group(1).strip() if match else ""
-
-        candidate_url = str(attrs.get("url") or attrs.get("website") or attrs.get("domain") or "").strip()
-        if not candidate_url:
-            match = re.search(r"https?://[^\s<>()]+", source, flags=re.IGNORECASE)
-            candidate_url = match.group(0).rstrip(".,;:") if match else ""
-        if candidate_url and "://" not in candidate_url:
-            candidate_url = f"https://{candidate_url.lstrip('.')}"
-        expected_company = str(
-            attrs.get("expected_company") or attrs.get("company") or attrs.get("name") or ""
-        ).strip() or _labeled_value("expected company")
-        industry = str(attrs.get("industry") or "").strip() or _labeled_value("industry")
-        location = str(attrs.get("location") or "").strip() or _labeled_value("location")
-        if not candidate_url or not expected_company or not industry or not location:
+        direct_target = explicit_public_identity_input(intent)
+        if direct_target is None:
             raise ValueError(
                 "research.verify_public_identity requires target URL, expected company, industry, and location"
             )
-        return {
-            "url": candidate_url,
-            "expected_company": expected_company,
-            "industry": industry,
-            "location": location,
-            "timeout_seconds": 15.0,
-        }
+        return direct_target
     if action_name in {"web.page_read", "web.browser_session"}:
         # Prefer domain-like attributes on target entities when present.
         # Never invent example.com — missing URL fails closed at composition.

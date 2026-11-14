@@ -423,7 +423,7 @@ def compile_task_graph_preview(
         # deliverable. The final typed artifact remains fail-closed.
         intermediate_public_discovery = (
             step.action_name == "web.research"
-            and bool(step.tool_input.get("include_public_search"))
+            and bool(step.tool_input.get("include_public_search") or step.tool_input.get("local_fixture_only"))
             and any(
                 item.action_name in {"research.observe_contacts", "research.verify_public_candidates"}
                 and any(binding.get("from_step") == step.step_key for binding in item.input_bindings)

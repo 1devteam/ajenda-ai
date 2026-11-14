@@ -861,6 +861,11 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             and public_search_real
             and not web_results
             and (not relation_required or business_type_relation is not None)
+            else {
+                "classification": "valid_empty",
+                "reason": "local fixture research completed with no eligible prospect candidates",
+            }
+            if payload.local_fixture_only and not prospect_candidates
             else None
         ),
         "web_snippet": web_snippet,

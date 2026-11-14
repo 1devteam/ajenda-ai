@@ -374,6 +374,46 @@ def test_complete_allows_proven_valid_empty_identity_observation() -> None:
     queue.complete_task.assert_called_once()
 
 
+def test_complete_allows_proven_valid_empty_discovery_artifact() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=True)
+    task.metadata_json["expected_output_contract"] = {"artifact": "prospect_candidates"}
+
+    service.complete(
+        tenant_id=tenant_id,
+        lease_id=lease.id,
+        worker_id=worker_id,
+        task_output={
+            "handler": "tool.invoke",
+            "status": "completed",
+            "evidence": [
+                {
+                    "evidence_type": "action_result",
+                    "evidence_source": "test.valid_empty",
+                    "action_name": "web.research",
+                    "tool_provider": "test",
+                    "tenant_id": tenant_id,
+                    "task_id": str(task.id),
+                    "mission_id": str(task.mission_id),
+                    "summary": "Completed valid-empty governed discovery.",
+                }
+            ],
+            "output": {
+                "prospect_candidates": [],
+                "valid_empty_result": {
+                    "classification": "valid_empty",
+                    "reason": "local fixture research completed with no eligible prospect candidates",
+                },
+            },
+        },
+    )
+
+    assert task.status == ExecutionTaskState.COMPLETED.value
+    queue.complete_task.assert_called_once()
+
+
 def test_complete_allows_explicit_intermediate_public_discovery_payload() -> None:
     service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
         status=ExecutionTaskState.RUNNING.value

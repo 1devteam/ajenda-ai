@@ -152,9 +152,9 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
             raw_contract.get("allow_empty") is not True
             or action != "web.research"
             or not isinstance(invocation_input, dict)
-            or invocation_input.get("include_public_search") is not True
+            or not bool(invocation_input.get("include_public_search") or invocation_input.get("local_fixture_only"))
         ):
-            raise ValueError("intermediate output contract is only permitted for public web discovery")
+            raise ValueError("intermediate output contract is only permitted for governed research discovery")
         return
     if is_proven_valid_empty_artifact(
         artifact_key=artifact_key,

@@ -15,6 +15,7 @@ from backend.services.mission_composition.contracts import (
     COMPOSITION_SCHEMA_VERSION,
     AllowedActionsProvenance,
     CompositionProvenance,
+    LayerGap,
     MissionCompositionRecord,
     ReviewedCompositionSnapshot,
     SemanticSnapshot,
@@ -49,6 +50,11 @@ from backend.services.mission_composition.structured_planner import (
 from backend.services.mission_composition.vertical_know_how import (
     select_vertical_know_how,
     validate_know_how_runtime_references,
+)
+from backend.services.mission_intake_quality import (
+    MissionIntakeQualityDeniedError,
+    build_composed_mission_intake_quality_input,
+    validate_composed_mission_intake,
 )
 from backend.services.runtime_evidence_ledger import RuntimeCausalObservation, RuntimeEvidenceLedger
 
@@ -313,6 +319,45 @@ class MissionCompositionProposalPhase:
             planned_steps,
             selections=selections,
         )
+        allowed_actions = [
+            item.action_name for item in selections if item.selection_status == "selected" and item.readiness == "ready"
+        ]
+        forbidden = list(intent.effective_forbidden_actions())
+        source_bound_scope = bool(
+            isinstance(business_need_reference, dict)
+            and isinstance(business_need_reference.get("need_id"), str)
+            and business_need_reference.get("need_id")
+            and isinstance(business_need_reference.get("revision"), int)
+            and isinstance(business_need_reference.get("subject_references"), list)
+            and business_need_reference.get("subject_references")
+        )
+        intake_quality_input = build_composed_mission_intake_quality_input(
+            intent=intent,
+            allowed_actions=allowed_actions,
+            source_bound_scope=source_bound_scope,
+        )
+        intake_quality_gaps = []
+        try:
+            validate_composed_mission_intake(
+                objective=intake_quality_input["objective"],
+                success_criterion_descriptions=intake_quality_input["success_criterion_descriptions"],
+                constraint_descriptions=intake_quality_input["constraint_descriptions"],
+                scope_limits=intake_quality_input["scope_limits"],
+                allowed_actions=intake_quality_input["allowed_actions"],
+                source_bound_scope=intake_quality_input["source_bound_scope"],
+                operator_notes=intake_quality_input["operator_notes"],
+            )
+        except MissionIntakeQualityDeniedError as exc:
+            first = exc.violations[0]
+            intake_quality_gaps.append(
+                LayerGap(
+                    layer="planner",
+                    code="intake_quality_denied",
+                    field=first.field[:120],
+                    message=f"Mission intake quality requires revision: {first.reason}",
+                    blocking=True,
+                )
+            )
         intelligence_envelope = build_intelligence_envelope(
             tenant_id=tenant_id,
             instruction=raw_instruction,
@@ -324,11 +369,8 @@ class MissionCompositionProposalPhase:
             planner_provenance=planner_provenance,
             planner_proposal=planner_proposal,
             planner_compile_error=planner_compile_error,
+            additional_gaps=tuple(intake_quality_gaps),
         )
-        allowed_actions = [
-            item.action_name for item in selections if item.selection_status == "selected" and item.readiness == "ready"
-        ]
-        forbidden = list(intent.effective_forbidden_actions())
         approval_gates: list[str] = []
         if any(
             item.side_effect_class in {"external_send", "external_write", "external_publish"} for item in selections

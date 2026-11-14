@@ -34,7 +34,8 @@ from backend.services.mission_composition.shadow_preview import build_shadow_pre
 from backend.services.mission_composition.vertical_know_how import REVOPS_V1_KNOW_HOW, select_vertical_know_how
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
-    validate_mission_intake_prompt,
+    build_composed_mission_intake_quality_input,
+    validate_composed_mission_intake,
 )
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaExceededError
 from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger, semantic_lineage_from_mission_metadata
@@ -189,51 +190,6 @@ class MissionCompositionConfirmationPhase:
                 ),
             )
 
-        success_criteria = [
-            {
-                "description": item.description,
-                "evidence": ["composition evidence package", "action_result_evidence"],
-            }
-            for item in record.intent.success_criteria
-        ]
-        if not success_criteria:
-            success_criteria = [
-                {
-                    "description": "At least 1 composition deliverable with governed evidence",
-                    "evidence": ["action_result_evidence"],
-                }
-            ]
-        constraints: list[dict[str, Any]] = [
-            {
-                "name": item[:120],
-                "description": item,
-                "hard": True,
-            }
-            for item in record.intent.constraints
-        ]
-        if "gtm.email_send" in record.forbidden_actions or record.intent.send_policy.mode in {
-            "forbid",
-            "conditional",
-        }:
-            if not any("do not send" in c["description"].lower() for c in constraints):
-                mode = record.intent.send_policy.mode
-                constraints.append(
-                    {
-                        "name": "Send policy",
-                        "description": (
-                            "Do not send messages; drafts require human review before any future send."
-                            if mode == "forbid"
-                            else f"Send is conditional ({record.intent.send_policy.condition}); "
-                            "not authorized for immediate delivery."
-                        ),
-                        "hard": True,
-                    }
-                )
-
-        scope_limits = [
-            f"{entity.location or 'region'} {entity.industry or entity.type} prospects only".strip()
-            for entity in record.intent.target_entities
-        ] or ["composition-selected outcomes for this mission only"]
         need_reference = (
             record.semantic_snapshot.business_need_reference if record.semantic_snapshot is not None else None
         )
@@ -245,19 +201,24 @@ class MissionCompositionConfirmationPhase:
             and isinstance(need_reference.get("subject_references"), list)
             and need_reference.get("subject_references")
         )
+        intake_quality_input = build_composed_mission_intake_quality_input(
+            intent=record.intent,
+            allowed_actions=record.allowed_actions,
+            source_bound_scope=source_bound_scope,
+        )
+        success_criteria = intake_quality_input["success_criteria"]
+        constraints = intake_quality_input["constraints"]
+        scope_limits = intake_quality_input["scope_limits"]
 
         try:
-            validate_mission_intake_prompt(
-                objective=record.intent.objective,
-                success_criteria=success_criteria,
-                constraints=constraints,
+            validate_composed_mission_intake(
+                objective=intake_quality_input["objective"],
+                success_criterion_descriptions=intake_quality_input["success_criterion_descriptions"],
+                constraint_descriptions=intake_quality_input["constraint_descriptions"],
                 scope_limits=scope_limits,
-                allowed_actions=record.allowed_actions,
-                source_bound_scope=source_bound_scope,
-                operator_notes=(
-                    f"Composed from proposal {record.proposal_id}; abilities selected by mission_composition_engine."
-                ),
-                allow_legacy_v1=False,
+                allowed_actions=intake_quality_input["allowed_actions"],
+                source_bound_scope=intake_quality_input["source_bound_scope"],
+                operator_notes=intake_quality_input["operator_notes"],
             )
         except MissionIntakeQualityDeniedError as exc:
             raise MissionCompositionError(

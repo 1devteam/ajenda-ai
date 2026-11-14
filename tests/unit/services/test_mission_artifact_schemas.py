@@ -12,6 +12,7 @@ from backend.services.mission_composition.artifact_schemas import (
     RESEARCH_REPORT_SCHEMA,
     RESEARCHED_PROSPECTS_SCHEMA,
     WEB_PAGE_OBSERVATION_SCHEMA,
+    is_proven_valid_empty_artifact,
     validate_artifact_payload,
     validate_artifact_schema_catalog,
 )
@@ -192,6 +193,24 @@ def test_research_report_schema_rejects_unproven_empty_or_unsourced_rows() -> No
     )
     assert validate_artifact_payload(RESEARCH_REPORT_SCHEMA, base) == (
         "research report List should have at least 1 item after validation, not 0",
+    )
+
+
+def test_prospect_discovery_empty_requires_a_valid_empty_evidence_marker() -> None:
+    marker = {
+        "classification": "valid_empty",
+        "reason": "local fixture research completed with no eligible prospect candidates",
+    }
+
+    assert is_proven_valid_empty_artifact(
+        artifact_key="prospect_candidates",
+        payload=[],
+        output={"prospect_candidates": [], "valid_empty_result": marker},
+    )
+    assert not is_proven_valid_empty_artifact(
+        artifact_key="prospect_candidates",
+        payload=[],
+        output={"prospect_candidates": []},
     )
 
 

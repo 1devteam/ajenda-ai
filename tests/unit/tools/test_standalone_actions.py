@@ -34,6 +34,27 @@ def test_web_research_runs_without_external_plugins() -> None:
     assert result.output["source_partitions"]["public_search"]["candidate_count"] == 0
 
 
+def test_local_fixture_research_without_eligible_candidates_is_an_evidenced_empty_result() -> None:
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="web.research",
+            input={
+                "query": "manufacturing companies in Chicago",
+                "include_public_search": False,
+                "local_fixture_only": True,
+            },
+        ),
+        _context(),
+    )
+
+    assert result.output["prospect_candidates"] == []
+    assert result.output["valid_empty_result"] == {
+        "classification": "valid_empty",
+        "reason": "local fixture research completed with no eligible prospect candidates",
+    }
+    assert result.output["public_search_real"] is False
+
+
 def test_public_search_directory_hits_are_forwarded_only_to_observation(monkeypatch) -> None:
     from backend.services.tools import standalone_actions
 
