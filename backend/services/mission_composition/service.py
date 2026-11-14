@@ -21,6 +21,7 @@ from backend.repositories.mission_plan_repository import MissionPlanRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.provider_runtime_credential_repository import ProviderRuntimeCredentialRepository
 from backend.services.business_profile.record_sync import build_profile_brief
+from backend.services.mission_composition.action_inputs import has_explicit_public_identity_target
 from backend.services.mission_composition.compile_phase import MissionCompositionCompilePhase
 from backend.services.mission_composition.confirmation_phase import MissionCompositionConfirmationPhase
 from backend.services.mission_composition.contracts import MissionIntent, is_ranking_only_instruction
@@ -108,7 +109,7 @@ def _runtime_deliverable_request(intent: MissionIntent) -> DeliverableRequest | 
                 DeliverableFieldRequirement(field_key="observation_satisfied", source_text="observation completion"),
             )
         )
-    if "verify_public_identity" in outcomes:
+    if "verify_public_identity" in outcomes and has_explicit_public_identity_target(intent):
         fields.extend(
             (
                 DeliverableFieldRequirement(field_key="source_url", source_text="source URL"),
@@ -122,8 +123,16 @@ def _runtime_deliverable_request(intent: MissionIntent) -> DeliverableRequest | 
             )
         )
 
+    if not fields:
+        return None
+
     return DeliverableRequest(
-        scope="mission" if {"observe_web_page", "verify_public_identity"}.intersection(outcomes) else "per_prospect",
+        scope=(
+            "mission"
+            if "observe_web_page" in outcomes
+            or ("verify_public_identity" in outcomes and has_explicit_public_identity_target(intent))
+            else "per_prospect"
+        ),
         fields=tuple(dict((field.field_key, field) for field in fields).values()),
     )
 

@@ -534,6 +534,7 @@ ARTIFACT_SCHEMAS_BY_KEY: dict[str, CompositionArtifactSchema] = {
 
 _VALID_EMPTY_PER_ITEM_ARTIFACT_KEYS = frozenset(
     {
+        "prospect_candidates",
         "verified_prospect_candidates",
         "qualified_prospects",
     }

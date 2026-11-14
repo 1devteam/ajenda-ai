@@ -376,6 +376,106 @@ class MissionIntakeQualityDeniedError(ValueError):
         }
 
 
+def build_composed_mission_intake_quality_input(
+    *,
+    intent: Any,
+    allowed_actions: list[str],
+    source_bound_scope: bool,
+) -> dict[str, Any]:
+    """Build the shared composition-to-intake-quality projection.
+
+    Callers retain ownership of intent and approval state. This helper only
+    keeps proposal and confirmation aligned on the exact quality inputs.
+    """
+
+    success_criteria = [
+        {
+            "description": item.description,
+            "evidence": ["composition evidence package", "action_result_evidence"],
+        }
+        for item in intent.success_criteria
+    ] or [
+        {
+            "description": "At least 1 composition deliverable with governed evidence",
+            "evidence": ["action_result_evidence"],
+        }
+    ]
+    constraint_descriptions = list(intent.constraints)
+    if "gtm.email_send" in intent.effective_forbidden_actions() or intent.send_policy.mode in {
+        "forbid",
+        "conditional",
+    }:
+        if not any("do not send" in item.lower() for item in constraint_descriptions):
+            constraint_descriptions.append(
+                "Do not send messages; drafts require human review before any future send."
+                if intent.send_policy.mode == "forbid"
+                else f"Send is conditional ({intent.send_policy.condition}); not authorized for immediate delivery."
+            )
+    return {
+        "objective": intent.objective,
+        "success_criterion_descriptions": [item["description"] for item in success_criteria],
+        "constraint_descriptions": constraint_descriptions,
+        "scope_limits": [
+            f"{entity.location or 'region'} {entity.industry or entity.type} prospects only".strip()
+            for entity in intent.target_entities
+        ]
+        or ["composition-selected outcomes for this mission only"],
+        "allowed_actions": allowed_actions,
+        "source_bound_scope": source_bound_scope,
+        "operator_notes": "Abilities selected by mission_composition_engine.",
+        "success_criteria": success_criteria,
+        "constraints": [{"name": item[:120], "description": item, "hard": True} for item in constraint_descriptions],
+    }
+
+
+def validate_composed_mission_intake(
+    *,
+    objective: str,
+    success_criterion_descriptions: list[str],
+    constraint_descriptions: list[str],
+    scope_limits: list[str],
+    allowed_actions: list[str],
+    source_bound_scope: bool,
+    operator_notes: str,
+) -> None:
+    """Apply the one intake-quality contract used by proposal and confirmation.
+
+    Composition owns the structured values; this helper only normalizes them
+    into the existing public validator shape.  It grants no authority and
+    avoids proposal/confirmation applying subtly different quality rules.
+    """
+
+    validate_mission_intake_prompt(
+        objective=objective,
+        success_criteria=[
+            {
+                "description": description,
+                "evidence": ["composition evidence package", "action_result_evidence"],
+            }
+            for description in success_criterion_descriptions
+        ]
+        or [
+            {
+                "description": "At least 1 composition deliverable with governed evidence",
+                "evidence": ["action_result_evidence"],
+            }
+        ],
+        constraints=[
+            {
+                "name": description[:120],
+                "description": description,
+                "hard": True,
+            }
+            for description in constraint_descriptions
+        ],
+        scope_limits=scope_limits or ["composition-selected outcomes for this mission only"],
+        allowed_actions=allowed_actions,
+        source_bound_scope=source_bound_scope,
+        operator_notes=operator_notes,
+        allow_legacy_v1=False,
+    )
+
+
 def _normalize_text(value: str) -> str:
     return " ".join(value.strip().split())
 

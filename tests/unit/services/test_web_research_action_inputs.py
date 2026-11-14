@@ -424,3 +424,21 @@ def test_public_identity_compiles_explicit_labeled_expectations() -> None:
         "location": "Dallas",
         "timeout_seconds": 15.0,
     }
+
+
+def test_plural_research_identity_requirement_uses_candidate_verification_not_singleton_identity() -> None:
+    instruction = (
+        "Research three United States companies comparable to 1DevTeam that provide custom software development "
+        "and applied research services. Verify public identity, services, industries served, location, website, "
+        "and public source links. Do not contact companies or modify external systems."
+    )
+
+    record = MissionCompositionService(db=None).compose(tenant_id="tenant", instruction=instruction)
+
+    assert record.ready_to_start is True
+    assert record.proposal_status == "proposal_ready"
+    assert [step.action_name for step in record.planned_steps] == [
+        "web.research",
+        "research.verify_public_candidates",
+    ]
+    assert all(step.compile_gap is None for step in record.planned_steps)

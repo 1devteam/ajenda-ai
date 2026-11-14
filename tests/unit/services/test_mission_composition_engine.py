@@ -228,6 +228,18 @@ def test_business_income_review_accepts_explicit_evidence_clauses() -> None:
     assert intent.unmatched_material_clauses == []
 
 
+def test_compose_marks_intake_quality_denial_before_confirmation() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction="Review my business and recommend ways to increase income.",
+    )
+
+    assert record.ready_to_start is False
+    assert record.proposal_status == "gaps_open"
+    assert any(gap.code == "intake_quality_denied" for gap in record.intelligence_envelope.layer_gaps)
+    assert any(clarification.reason == "intake_quality_denied" for clarification in record.clarifications)
+
+
 def test_business_income_review_routes_approved_profile_opportunity_request() -> None:
     instruction = (
         "Review the approved business profile and internal records. "
@@ -472,7 +484,7 @@ def test_normal_catalog_plan_is_validated_through_structured_contract() -> None:
 def test_non_vertical_catalog_plan_is_validated_through_catalog_contract() -> None:
     record = MissionCompositionService(db=None).compose(
         tenant_id="tenant-v2",
-        instruction="Verify runtime controls.",
+        instruction="Verify runtime controls for the current tenant and return governed evidence.",
     )
 
     assert record.ready_to_start

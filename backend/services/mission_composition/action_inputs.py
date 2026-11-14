@@ -18,7 +18,12 @@ from backend.services.mission_composition.action_input_common import (
 )
 from backend.services.mission_composition.action_input_communications import build_communications_action_input
 from backend.services.mission_composition.action_input_provider_reads import build_provider_read_action_input
-from backend.services.mission_composition.action_input_research import build_research_action_input
+from backend.services.mission_composition.action_input_research import (
+    build_research_action_input,
+)
+from backend.services.mission_composition.action_input_research import (
+    has_explicit_public_identity_target as _has_explicit_public_identity_target,
+)
 from backend.services.mission_composition.action_input_sales import build_sales_action_input
 from backend.services.mission_composition.contracts import MissionIntent
 
@@ -33,6 +38,12 @@ def extract_github_owner_repo(intent: MissionIntent) -> tuple[str, str] | None:
     """Preserve the canonical explicit GitHub target compatibility boundary."""
 
     return _extract_github_owner_repo(intent)
+
+
+def has_explicit_public_identity_target(intent: MissionIntent) -> bool:
+    """Preserve the canonical singleton public-identity target boundary."""
+
+    return _has_explicit_public_identity_target(intent)
 
 
 def build_action_input(

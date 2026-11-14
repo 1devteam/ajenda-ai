@@ -5,6 +5,7 @@ import pytest
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
     contains_composition_clarification,
+    validate_composed_mission_intake,
     validate_mission_intake_prompt,
 )
 
@@ -33,6 +34,20 @@ def test_validate_accepts_concrete_mission_prompt() -> None:
     validate_mission_intake_prompt(
         objective="Recover qualified inbound opportunities that have not received follow-up within 14 days.",
         success_criteria=[_valid_criterion()],
+    )
+
+
+def test_composed_intake_uses_the_existing_quality_contract() -> None:
+    validate_composed_mission_intake(
+        objective="Discover three e-commerce companies in Austin using local fixture data only.",
+        success_criterion_descriptions=[
+            "3 prospects contain company and qualification evidence for e-commerce in Austin"
+        ],
+        constraint_descriptions=["Do not send messages"],
+        scope_limits=["Austin e-commerce prospects only"],
+        allowed_actions=["research.verify_public_candidates", "web.research"],
+        source_bound_scope=False,
+        operator_notes="Abilities selected by mission_composition_engine.",
     )
 
 

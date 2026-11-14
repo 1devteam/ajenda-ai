@@ -10,6 +10,7 @@ from typing import Any
 from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
 from backend.services.mission_composition.action_inputs import (
     extract_github_owner_repo,
+    has_explicit_public_identity_target,
     has_usable_research_scope,
 )
 from backend.services.mission_composition.contracts import (
@@ -275,6 +276,13 @@ def route_jobs_for_intent(
         if job.job_key == "business.review_need" and knowledge_assessment_context:
             continue
         supported = set(job.supported_outcomes)
+        # A plural prospect-research request can legitimately ask that each
+        # discovered candidate be identity verified. That work is owned by
+        # research.verify_public_candidates. Do not also select the strict
+        # singleton action unless the instruction supplies its complete
+        # URL/company/industry/location contract.
+        if job.job_key == "research.verify_public_identity" and not has_explicit_public_identity_target(intent):
+            continue
         if outcomes.intersection(supported):
             if job.job_key not in selected_keys:
                 selected.append(job)

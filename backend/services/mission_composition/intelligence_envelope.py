@@ -46,10 +46,11 @@ def collect_layer_gaps(
     missing_connections: list[dict[str, Any]] | None = None,
     planner_provenance: dict[str, Any] | None = None,
     planner_compile_error: str | None = None,
+    additional_gaps: tuple[LayerGap, ...] = (),
 ) -> tuple[LayerGap, ...]:
     """Collect interpreter, algorithm, and planner gaps together. Never invent work."""
 
-    gaps: list[LayerGap] = []
+    gaps: list[LayerGap] = list(additional_gaps)
     job_keys = {job.job_key for job in jobs}
     produced = {output for job in jobs for output in job.produced_outputs}
     sources = intent_input_sources(intent) | produced
@@ -388,6 +389,7 @@ def build_intelligence_envelope(
     planner_provenance: dict[str, Any] | None = None,
     planner_proposal: dict[str, Any] | None = None,
     planner_compile_error: str | None = None,
+    additional_gaps: tuple[LayerGap, ...] = (),
 ) -> IntelligenceEnvelope:
     """Project one composition into a replayable, non-authoritative handoff."""
 
@@ -404,6 +406,7 @@ def build_intelligence_envelope(
         missing_connections=missing_connections,
         planner_provenance=planner_provenance,
         planner_compile_error=planner_compile_error,
+        additional_gaps=additional_gaps,
     )
     algorithm_results = evaluate_composition_algorithms(
         requested_outcomes=list(intent.requested_outcomes),
