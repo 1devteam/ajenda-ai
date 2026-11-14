@@ -88,6 +88,9 @@ def assemble_revops_mission_deliverable(
     prospects = _assemble_prospects(
         mission=mission,
         artifacts=artifacts,
+        verified_artifact_present=any(
+            artifact.artifact_key == "verified_prospect_candidates" for artifact in collected
+        ),
         document_artifacts=document_artifacts or {},
         assembly_errors=assembly_errors,
     )

@@ -316,6 +316,7 @@ def test_verified_candidates_replace_raw_discovery_rows_in_deliverable() -> None
                 "source": "public_search",
                 "identity_status": "verified",
                 "real": True,
+                "identity_evidence_urls": ["https://verified.example/about"],
                 "sources": ["https://verified.example"],
                 "research_summary": "Verified HVAC serves Dallas.",
                 "product_description": "HVAC service.",
@@ -326,6 +327,16 @@ def test_verified_candidates_replace_raw_discovery_rows_in_deliverable() -> None
     report = assemble_revops_mission_deliverable(mission=mission, tasks=[raw, verified])
 
     assert [item.prospect_id for item in report.prospects] == ["verified-1"]
+
+    # Invalid verification evidence must not promote raw discovery rows into
+    # the verified deliverable or silently bypass the public identity contract.
+    verified.metadata_json["handler_result"]["output"]["verified_prospect_candidates"][0][
+        "identity_evidence_urls"
+    ] = []
+    invalid_report = assemble_revops_mission_deliverable(mission=mission, tasks=[raw, verified])
+    assert invalid_report.prospects == ()
+    assert any("identity_evidence_urls" in error for error in invalid_report.completion.assembly_errors)
+    assert invalid_report.completion.complete is False
 
 
 def test_task_success_does_not_make_partial_or_unproven_deliverable_complete() -> None:
