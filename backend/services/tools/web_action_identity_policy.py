@@ -102,6 +102,31 @@ def _is_generic_market_listing_label(value: str) -> bool:
     )
 
 
+def _is_source_publisher_family_link(source_host: str, linked_host: str) -> bool:
+    """Whether a purported external company link returns to the source publisher.
+
+    Market articles commonly link their own masthead, platform, or parent
+    domain alongside companies they mention.  A source such as
+    ``builtinaustin.example`` linking to ``builtin.example`` is not independent
+    company evidence.  Use a host-label relationship instead of a publisher
+    denylist so the boundary applies to previously unseen editorial sites too.
+    """
+
+    def _root(host: str) -> str:
+        label = host.lower().removeprefix("www.").split(".", 1)[0]
+        return re.sub(r"[^a-z0-9]", "", label)
+
+    source_root = _root(source_host)
+    linked_root = _root(linked_host)
+    if not source_root or not linked_root:
+        return False
+    shorter, longer = sorted((source_root, linked_root), key=len)
+    # Three-letter labels are too collision-prone to establish publisher
+    # affinity; four characters retains ordinary brand labels without treating
+    # incidental short strings as the same organization.
+    return len(shorter) >= 4 and shorter in longer
+
+
 def _identity_tokens(value: str) -> list[str]:
     return [
         token
