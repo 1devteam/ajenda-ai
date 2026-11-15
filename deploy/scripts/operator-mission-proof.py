@@ -387,6 +387,66 @@ SOFTWARE_FIXTURE_COMPANIES = (
 )
 
 
+def _fixture_record_slug(value: str) -> str:
+    """Return a stable, safe record-id component for proof-owned fixtures."""
+
+    slug = "".join(character if character.isalnum() else "-" for character in value.casefold()).strip("-")
+    return slug or "unknown"
+
+
+def seed_scoped_proof_fixtures(
+    *,
+    api_base: str,
+    headers: dict[str, str],
+    industry: str,
+    location: str,
+    count: int,
+) -> None:
+    """Create and read back proof-owned fixtures for one declared mission scope.
+
+    The API proof suite supplies the scope separately from the natural-language
+    instruction.  This prevents fixture provisioning from guessing at language
+    and makes a count assertion meaningful for every lane.
+    """
+
+    if not industry.strip() or not location.strip() or count < 1:
+        raise ProofFailure("scoped fixture provisioning requires industry, location, and positive count")
+    industry_slug = _fixture_record_slug(industry)
+    location_slug = _fixture_record_slug(location)
+    for index in range(1, count + 1):
+        record_id = f"operator-proof-{industry_slug}-{location_slug}-{index}"
+        domain = f"operator-proof-{industry_slug}-{location_slug}-{index}.example.com"
+        data = {
+            "name": f"Operator Proof {industry} {location} {index}",
+            "industry": industry,
+            "location": location,
+            "domain": domain,
+            "website": f"https://{domain}",
+            "product_description": "Synthetic company for an isolated runtime proof.",
+            "research_summary": "Proof-owned local fixture, not a real public-web observation.",
+            "source": "local_fixture",
+        }
+        saved = request(
+            "PUT",
+            api_base,
+            f"/v1/crm/records/account/{record_id}",
+            body={"data": data},
+            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        )
+        returned = request(
+            "GET",
+            api_base,
+            f"/v1/crm/records/account/{record_id}",
+            headers=headers,
+        )
+        for label, item in (("write", saved), ("read-back", returned)):
+            if item.get("id") != record_id or item.get("record_type") != "account":
+                raise ProofFailure(f"scoped fixture {index} {label} returned mismatched record identity")
+            observed = item.get("data")
+            if not isinstance(observed, dict) or any(observed.get(key) != value for key, value in data.items()):
+                raise ProofFailure(f"scoped fixture {index} {label} lost required fixture fields")
+
+
 def seed_software_proof_fixtures(*, api_base: str, headers: dict[str, str]) -> None:
     """Provision and verify five tenant-owned source-tagged fixtures via public CRM."""
 
@@ -447,7 +507,20 @@ def main() -> int:
         expected_status="insufficient_capacity",
     )
 
-    if "internal crm" in INSTRUCTION.lower():
+    fixture_industry = os.environ.get("AJENDA_OPERATOR_PROOF_FIXTURE_INDUSTRY", "").strip()
+    fixture_location = os.environ.get("AJENDA_OPERATOR_PROOF_FIXTURE_LOCATION", "").strip()
+    if bool(fixture_industry) != bool(fixture_location):
+        raise ProofFailure("fixture industry and location must be supplied together")
+    if fixture_industry and fixture_location:
+        log_phase("scoped_fixture_provisioning")
+        seed_scoped_proof_fixtures(
+            api_base=API_BASE,
+            headers=headers,
+            industry=fixture_industry,
+            location=fixture_location,
+            count=EXPECTED_PROSPECT_COUNT,
+        )
+    elif "internal crm" in INSTRUCTION.lower():
         seed_internal_crm_fixture(api_base=API_BASE, headers=headers)
     elif "local fixture" in INSTRUCTION.lower() and "software" in INSTRUCTION.lower():
         log_phase("software_fixture_provisioning")
