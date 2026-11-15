@@ -16,10 +16,7 @@ import urllib.error
 import urllib.request
 import uuid
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
-
-import yaml
 
 BASE = os.environ.get("AJENDA_PASS4_PROOF_API_BASE_URL", "http://localhost:8000").rstrip("/")
 TIMEOUT = float(os.environ.get("AJENDA_PASS4_PROOF_TIMEOUT_SECONDS", "300"))
@@ -28,31 +25,11 @@ ADAPTER_HOST = os.environ.get("AJENDA_E2E_ADAPTER_HOST", "127.0.0.1:8443")
 
 def resolve_token() -> str:
     explicit = (
-        os.environ.get("AJENDA_E2E_HUBSPOT_PAK", "").strip()
+        os.environ.get("AJENDA_E2E_HUBSPOT_CRM_TOKEN", "").strip()
+        or os.environ.get("HUBSPOT_SERVICE_KEY", "").strip()
         or os.environ.get("HUBSPOT_PRIVATE_APP_TOKEN", "").strip()
-        or os.environ.get("HUBSPOT_TOKEN", "").strip()
     )
-    if explicit:
-        return explicit
-    config_path = Path.home() / ".hscli" / "config.yml"
-    if not config_path.is_file():
-        return ""
-    try:
-        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
-        return ""
-    for account in config.get("accounts", []) if isinstance(config, dict) else []:
-        if not isinstance(account, dict):
-            continue
-        auth = account.get("auth")
-        token_info = auth.get("tokenInfo") if isinstance(auth, dict) else None
-        token = token_info.get("accessToken") if isinstance(token_info, dict) else None
-        if isinstance(token, str) and token.strip():
-            return token.strip()
-        key = account.get("personalAccessKey")
-        if isinstance(key, str) and key.strip():
-            return key.strip()
-    return ""
+    return explicit
 
 
 TOKEN = resolve_token()

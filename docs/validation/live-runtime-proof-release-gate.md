@@ -95,7 +95,7 @@ Configurable inputs:
 | `AJENDA_PROOF_GRAFT_RUNTIME_IMPACT` | `/tmp/ajenda-graph-runtime-impact.json` | Joined static/runtime GRAFT artifact produced by the proof |
 | `AJENDA_PROOF_PLUGIN_LANE_ENABLED` | unset (`0`) | When `1`, run optional plugin proof after the operator mission proof |
 | `AJENDA_PROOF_AUTONOMY_LANE` | unset (`0`) | When `1`, plugin script also runs informed-autonomy tier-3 queue proof |
-| `AJENDA_E2E_HUBSPOT_PAK` | unset | HubSpot bearer/PAK for live CRM plugin lane |
+| `AJENDA_E2E_HUBSPOT_CRM_TOKEN` | unset | HubSpot Service Key or private-app/static app token for the live CRM plugin lane |
 | `AJENDA_E2E_GMAIL_TOKEN` | unset | Gmail bearer for live email plugin lane |
 | `AJENDA_E2E_LINKEDIN_TOKEN` | unset | LinkedIn bearer or OAuth JSON for live read lane |
 | `AJENDA_E2E_SALESFORCE_SECRET` | unset | Salesforce OAuth JSON for live SOQL lane |

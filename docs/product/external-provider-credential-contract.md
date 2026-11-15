@@ -40,7 +40,7 @@ This contract defines tenant-scoped provider runtime credentials used by governe
 
 | `credential_type` | Meaning |
 |-------------------|---------|
-| `api_key` | Tenant-supplied bearer token (e.g. HubSpot personal access key) |
+| `api_key` | Tenant-supplied bearer credential (for HubSpot CRM: a Service Key or private-app/static app token) |
 | `platform_master` | Uses `AJENDA_HUBSPOT_PLATFORM_MASTER_KEY` at runtime (shared blast radius) |
 
 ## HubSpot integration defaults
@@ -50,6 +50,9 @@ When `integration=hubspot` and `provider=external_crm`:
 - `allowed_actions`: `sales.research`, `crm.research`, `crm.read`, `gtm.crm_upsert`
 - `allowed_side_effect_classes`: `external_read`, `external_write`
 - `trusted_destination_hosts`: `AJENDA_HUBSPOT_CRM_ADAPTER_PUBLIC_HOST` (TLS ingress hostname)
+- Credential material: use a HubSpot Service Key or private-app/static app token as a Bearer credential. HubSpot
+  CLI Personal Access Keys are not CRM integration credentials and must not be supplied here. This integration does
+  not currently accept an OAuth access/refresh bundle or refresh HubSpot OAuth tokens.
 
 ## Email providers (`external_email`)
 

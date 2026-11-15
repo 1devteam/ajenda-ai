@@ -9,7 +9,6 @@ import subprocess
 import sys
 import time
 import uuid
-from pathlib import Path
 from typing import Any
 
 API_BASE = os.environ.get("AJENDA_PROOF_API_BASE_URL", "http://localhost:8000").rstrip("/")
@@ -61,22 +60,12 @@ def auth_headers(tenant_id: str, api_key: str) -> dict[str, str]:
 
 
 def resolve_hubspot_token() -> str:
-    env = os.environ.get("AJENDA_E2E_HUBSPOT_PAK", "").strip()
+    env = os.environ.get("AJENDA_E2E_HUBSPOT_CRM_TOKEN", "").strip()
     if env:
         return env
-    import yaml
-
-    cfg = yaml.safe_load((Path.home() / ".hscli" / "config.yml").read_text(encoding="utf-8"))
-    for account in cfg.get("accounts", []):
-        auth = account.get("auth") or {}
-        token_info = auth.get("tokenInfo") or {}
-        token = token_info.get("accessToken")
-        if isinstance(token, str) and token.strip():
-            return token.strip()
-        pak = account.get("personalAccessKey")
-        if isinstance(pak, str) and pak.strip():
-            return pak.strip()
-    raise RuntimeError("missing HubSpot token")
+    raise RuntimeError(
+        "missing HubSpot CRM credential; set AJENDA_E2E_HUBSPOT_CRM_TOKEN to a Service Key or private-app/static app token"
+    )
 
 
 def provision_tenant() -> tuple[str, str]:

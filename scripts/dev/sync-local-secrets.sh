@@ -233,9 +233,9 @@ def collect_bootstrap_values() -> dict[str, str]:
     if not is_real(merged.get("AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY")):
         merged["AJENDA_RUNTIME_SECRET_ENCRYPTION_KEY"] = generate_fernet()
 
-    hubspot_pak = merged.get("AJENDA_E2E_HUBSPOT_PAK") or merged.get("AJENDA_HUBSPOT_PLATFORM_MASTER_KEY")
-    if is_real(hubspot_pak):
-        merged["AJENDA_HUBSPOT_PLATFORM_MASTER_KEY"] = hubspot_pak
+    hubspot_crm_token = merged.get("AJENDA_E2E_HUBSPOT_CRM_TOKEN") or merged.get("AJENDA_HUBSPOT_PLATFORM_MASTER_KEY")
+    if is_real(hubspot_crm_token):
+        merged["AJENDA_HUBSPOT_PLATFORM_MASTER_KEY"] = hubspot_crm_token
         merged.setdefault("AJENDA_HUBSPOT_PLATFORM_MASTER_KEY_ENABLED", "true")
         merged.setdefault("AJENDA_HUBSPOT_PLATFORM_MASTER_AUTO_PROVISION", "true")
 
