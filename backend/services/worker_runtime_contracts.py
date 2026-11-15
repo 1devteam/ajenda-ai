@@ -1,3 +1,4 @@
+import uuid
 from typing import Any, Protocol
 
 from backend.domain.enums import ExecutionTaskState
@@ -63,6 +64,22 @@ def _task_action_name(task: ExecutionTask) -> str | None:
     return None
 
 
+def _metadata_reference_uuid(task: ExecutionTask, reference_key: str, identifier_key: str) -> uuid.UUID | None:
+    """Read an already-admitted authority reference without trusting malformed metadata."""
+
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    reference = metadata.get(reference_key)
+    if not isinstance(reference, dict):
+        return None
+    raw_identifier = reference.get(identifier_key)
+    if not isinstance(raw_identifier, str) or not raw_identifier.strip():
+        return None
+    try:
+        return uuid.UUID(raw_identifier)
+    except ValueError:
+        return None
+
+
 def _failure_evidence_record(*, task: ExecutionTask, lease: WorkerLease, worker_id: str, reason: str) -> EvidenceRecord:
     """Build durable evidence for a terminal handler failure.
 
@@ -83,6 +100,11 @@ def _failure_evidence_record(*, task: ExecutionTask, lease: WorkerLease, worker_
         task_graph_node_key=node_key if isinstance(node_key, str) else None,
         materialization_reference=graph_reference or None,
         execution_task_id=task.id,
+        # Failed work still belongs to the capability/adapter that admitted
+        # it.  Preserve these validated task references so failure evidence is
+        # attributable without being mistaken for successful provider output.
+        capability_id=_metadata_reference_uuid(task, "capability_reference", "capability_id"),
+        capability_adapter_id=_metadata_reference_uuid(task, "adapter_reference", "adapter_id"),
         # ``validation`` is the schema-approved evidence type for a rejected
         # runtime result; the structured payload carries the failure subtype.
         evidence_type="validation",

@@ -19,6 +19,7 @@ from backend.api.routes.ability_runtime import (
     _requires_runtime_authority,
     launch_task,
 )
+from backend.api.routes.ability_runtime_policy import EXPOSED_ACTIONS
 from backend.domain.enums import MissionState
 from backend.domain.mission import MISSION_INTAKE_METADATA_KEY
 from backend.services.execution_coordinator import CoordinationResult
@@ -118,6 +119,8 @@ def test_ability_runtime_enforcement_imports_and_sets():
     assert "sales.research" in READ_SAFE_ACTIONS
     assert "crm.research" in READ_SAFE_ACTIONS
     assert "crm.read" in READ_SAFE_ACTIONS
+    assert "document.search" in EXPOSED_ACTIONS
+    assert "document.read" not in EXPOSED_ACTIONS
     assert len(EXTERNAL_ACTIONS) >= 8
 
 
@@ -205,6 +208,58 @@ def test_launch_task_records_mission_quota_and_delegates_task_admission_quota() 
     quota_svc.check_and_record_mission_creation.assert_called_once_with(tenant_id)
     quota_svc.check_and_record_task_creation.assert_not_called()
     coordinator.queue_task.assert_called_once()
+
+
+def test_credentialed_sales_research_uses_resolved_external_authority_contract() -> None:
+    """The launch and worker must agree that a credentialed CRM search is external."""
+    from backend.domain.execution_task import ExecutionTask
+    from backend.domain.mission import Mission
+
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    capability_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    db = MagicMock()
+    queue = MagicMock()
+    request = _authorized_request(roles=("guardian",))
+    body = AbilityTaskCreate(
+        action="sales.research",
+        input={"lead": {"company": "Acme"}},
+        credential_reference=CredentialReference(
+            credential_id="cred-crm",
+            provider="external_crm",
+            credential_type="api_key",
+        ),
+        capability_id=capability_id,
+        adapter_id=adapter_id,
+    )
+
+    def _assign_ids(obj: object) -> None:
+        if isinstance(obj, Mission):
+            obj.id = mission_id
+        elif isinstance(obj, ExecutionTask):
+            obj.id = task_id
+
+    db.add.side_effect = _assign_ids
+    quota_svc = MagicMock()
+    coordinator = MagicMock()
+    coordinator.queue_task.return_value = CoordinationResult(ok=True, task_id=task_id, state="queued")
+    capability = SimpleNamespace(id=capability_id)
+    adapter = SimpleNamespace(id=adapter_id)
+
+    with (
+        patch("backend.api.routes.ability_runtime.QuotaEnforcementService", return_value=quota_svc),
+        patch("backend.api.routes.ability_runtime.ExecutionCoordinator", return_value=coordinator),
+        patch(
+            "backend.api.routes.ability_runtime._resolve_runtime_authority",
+            return_value=(capability, adapter),
+        ) as resolve_authority,
+    ):
+        launch_task(body=body, request=request, tenant_id=tenant_id, db=db, queue=queue)
+
+    assert resolve_authority.call_args.kwargs["side_effect_class"] is SideEffectClass.EXTERNAL_READ
+    quota_svc.require_feature.assert_called_once_with(tenant_id, "ability_runtime")
 
 
 def test_launch_task_high_risk_gtm_requires_idempotency_key() -> None:

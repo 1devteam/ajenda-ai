@@ -330,13 +330,20 @@ def sales_recommend_next_action(invocation: ToolInvocation, context: ActionRunti
     payload = SalesLeadInput.model_validate(invocation.input)
     qualify_result = sales_qualify(invocation, context)
     score = int(qualify_result.output["score"])
-    recommendation = "draft_followup" if score >= 60 else "research_more"
+    qualified = bool(qualify_result.output["qualified"])
+    recommendation = "draft_followup" if qualified and score >= 60 else "research_more"
     rationale = (
         "Qualification score is high enough for follow-up."
-        if score >= 60
+        if qualified and score >= 60
         else "More account/contact context is needed."
     )
-    output = {"recommendation": recommendation, "rationale": rationale, "lead": payload.lead, "score": score}
+    output = {
+        "recommendation": recommendation,
+        "rationale": rationale,
+        "lead": payload.lead,
+        "score": score,
+        "qualified": qualified,
+    }
     summary = f"Recommended next action: {recommendation}."
     return ActionResult(
         action="sales.recommend_next_action",

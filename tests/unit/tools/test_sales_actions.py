@@ -375,6 +375,26 @@ def test_sales_qualify_score_and_recommendation_are_deterministic() -> None:
     assert recommendation.output["recommendation"] == "draft_followup"
 
 
+def test_sales_recommendation_does_not_advance_unqualified_high_score_lead() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    lead = {
+        "company": "Directory HVAC Listing",
+        "role": "Owner",
+        "intent": "Needs automation",
+        "domain": "directory.example",
+        "identity_status": "unverified",
+    }
+
+    result = registry.invoke(
+        ToolInvocation(action="sales.recommend_next_action", input={"lead": lead}),
+        _context(),
+    )
+
+    assert result.output["score"] >= 60
+    assert result.output["qualified"] is False
+    assert result.output["recommendation"] == "research_more"
+
+
 def test_aliases_map_to_sales_actions() -> None:
     registry = get_default_action_registry(rebuild=True)
 

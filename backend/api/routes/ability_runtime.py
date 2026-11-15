@@ -78,6 +78,7 @@ from backend.services.quota_enforcement import (
     QuotaExceededError,
 )
 from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.schemas import ToolInvocation
 
 __all__ = (
     "CREDENTIALED_EXTERNAL_READ_ACTIONS",
@@ -210,7 +211,18 @@ def launch_task(
     action_name = body.action
     _validate_exposed_action(action_name)
     action = _action_definition(action_name)
-    side_effect_class = action.side_effect_class
+    # An action may choose its runtime effect class from the invocation (for
+    # example, sales.research is an internal read without a credential and an
+    # external read with one).  Every launch-time gate must use that resolved
+    # class so the task receives the same authority contract the worker will
+    # enforce later.
+    launch_invocation = ToolInvocation(
+        action=action.name,
+        input=body.input,
+        idempotency_key=body.idempotency_key,
+        credential_reference=body.credential_reference,
+    )
+    side_effect_class = action.side_effect_for(launch_invocation)
 
     profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=str(tenant_id))
     approved_facts = profile.approved_facts if profile is not None and isinstance(profile.approved_facts, dict) else {}

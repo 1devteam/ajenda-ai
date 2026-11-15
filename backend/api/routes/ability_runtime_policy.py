@@ -17,6 +17,7 @@ READ_SAFE_ACTIONS: set[str] = {
     "sales.draft_followup",
     "record.search",
     "record.read",
+    "document.search",
     # PR9: expose GTM low-risk (no side effect) for pilot under ability-runtime
     "gtm.lead_enrich",
     "gtm.email_draft",

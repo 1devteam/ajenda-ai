@@ -612,6 +612,28 @@ def test_fail_persists_rejected_failure_evidence_without_artifact() -> None:
     assert evidence[0].structured_payload["artifact_produced"] is False
 
 
+def test_fail_preserves_admitted_capability_and_adapter_references_in_evidence() -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    capability_id = uuid.uuid4()
+    adapter_id = uuid.uuid4()
+    task.metadata_json.update(
+        {
+            "capability_reference": {"capability_id": str(capability_id)},
+            "adapter_reference": {"adapter_id": str(adapter_id)},
+        }
+    )
+    queue.fail_task.return_value = QueueOperationResult(ok=True)
+
+    service.fail(tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id, reason="provider rejected read")
+
+    evidence = [call.args[0] for call in session.add.call_args_list if hasattr(call.args[0], "evidence_type")]
+    assert len(evidence) == 1
+    assert evidence[0].capability_id == capability_id
+    assert evidence[0].capability_adapter_id == adapter_id
+
+
 def test_complete_queue_ack_failure_does_not_rerun_or_fail_completed_work() -> None:
     service, _session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
         status=ExecutionTaskState.RUNNING.value
