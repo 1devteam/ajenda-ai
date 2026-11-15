@@ -437,6 +437,7 @@ def evaluate_action_candidate(
     preferred_credential_by_integration: dict[str, tuple[str, str]] | None = None,
     credential_type_by_id: dict[str, str] | None = None,
     require_connection: bool = False,
+    forbid_hubspot: bool = False,
 ) -> AbilitySelection:
     registry = get_default_action_registry()
     manifest = ABILITY_MANIFESTS_BY_ACTION.get(action_name)
@@ -521,6 +522,19 @@ def evaluate_action_candidate(
     # Any action with a connection hint is fail-closed without that connection.
     # Optional job policy must not make external-hinted actions "ready" then simulate.
     force_hint_connection = hint is not None
+    if forbid_hubspot and hint and hint["integration"] == "hubspot":
+        return AbilitySelection(
+            job_key=job.job_key,
+            ability_id=manifest.ability_id,
+            action_name=action_name,
+            selection_status="rejected",
+            selection_reason="Blocked by the instruction's explicit HubSpot prohibition.",
+            readiness="charter_blocked",
+            vertical_role=job.vertical_role,
+            side_effect_class=side_effect.value,
+            requires_connection=True,
+            connection_provider="hubspot",
+        )
     connection_required = (
         job.credential_policy == "required"
         or force_hint_connection
@@ -592,6 +606,7 @@ def resolve_jobs(
     missing: list[dict[str, Any]] = []
 
     hubspot_source = intent_requires_hubspot_research_source(intent)
+    hubspot_forbidden = "hubspot_forbidden" in {str(item) for item in intent.context_requirements}
 
     for job in jobs:
         preference = list(_ACTION_PREFERENCE.get(job.job_key, job.candidate_actions))
@@ -601,8 +616,14 @@ def resolve_jobs(
             # route this request through the connector-bound sales.research
             # adapter, which can only express HubSpot company lookup.
             preference = ["record.search"]
-        # Explicit CRM source: only connector-bound research actions (never public web first).
-        if hubspot_source and job.job_key == "research.discover_prospects":
+        # An internal source is exclusive: do not retain connector candidates
+        # as fallbacks if the local action is unavailable.
+        if internal_crm_source and job.job_key == "crm.read_records":
+            ordered = preference
+            require_connection = False
+        # Explicit HubSpot source: only connector-bound research actions
+        # (never public web first).
+        elif hubspot_source and job.job_key == "research.discover_prospects":
             preference = ["sales.research", "crm.research"]
             ordered = preference
             require_connection = True
@@ -620,6 +641,7 @@ def resolve_jobs(
                 preferred_credential_by_integration=preferred_credential_by_integration,
                 credential_type_by_id=credential_type_by_id,
                 require_connection=require_connection,
+                forbid_hubspot=hubspot_forbidden,
             )
             for action_name in ordered
         ]

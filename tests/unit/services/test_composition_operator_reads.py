@@ -219,9 +219,9 @@ def test_google_contacts_read_ready_when_connected() -> None:
     assert not missing
 
 
-def test_add_to_contacts_still_update_crm_not_contacts_read() -> None:
+def test_add_to_contacts_uses_internal_crm_not_contacts_read() -> None:
     intent = interpret_instruction("Find three roofing companies in Austin and add them to contacts")
-    assert "update_crm" in intent.requested_outcomes
+    assert "persist_internal_crm" in intent.requested_outcomes
     assert "read_contacts" not in intent.requested_outcomes
 
 

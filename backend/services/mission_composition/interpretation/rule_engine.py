@@ -330,6 +330,13 @@ _CRM_NEGATION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\b[^.;]{0,96}\b(?:update|write|sync|push|log|upsert|create)\b[^.;]{0,32}\b(?:crm|hubspot|pipeline|contacts?)\b",
     r"\b(?:do not|don't|dont|never)\b[^.!?]{0,180}\b(?:modify|change|edit)\b[^.!?]{0,32}\b(?:crm|hubspot|pipeline|records?)\b",
 )
+# A provider prohibition is narrower than a CRM-write prohibition. It blocks
+# HubSpot-bound candidates while preserving Ajenda's tenant-owned CRM as a
+# safe destination for an otherwise valid generic CRM request.
+_HUBSPOT_PROHIBITION_PATTERNS = (
+    r"\b(?:do not|don't|dont|never|without)\s+(?:use|access|query|read|write|update|sync|push|contact)\b[^.!?]{0,96}\bhubspot\b",
+    r"\b(?:do not|don't|dont|never)\s+hubspot\b",
+)
 _NO_EXTERNAL_ACTION_PATTERNS = (
     r"\b(?:do not|don't|dont|never)\b[^.!?]{0,180}\b(?:contact|send|modify|perform)\b",
     r"\bwithout\b[^.!?]{0,180}\b(?:contact|send|modify|perform)\b",
@@ -1299,6 +1306,7 @@ def _classify_clause(
         outcomes.append("read_business_profile")
     email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
     internal_crm_requested = _contains_any(lower, _INTERNAL_CRM_PATTERNS)
+    hubspot_prohibited = _contains_any(lower, _HUBSPOT_PROHIBITION_PATTERNS)
     internal_followup_tasks = internal_crm_requested and _contains_any(lower, _INTERNAL_FOLLOWUP_TASK_PATTERNS)
     crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
         lower, _CRM_NEGATION_PATTERNS
@@ -1324,7 +1332,7 @@ def _classify_clause(
     ):
         return [], False, True
     # "from HubSpot CRM records" is a source qualifier for prospect research, not only CRM read.
-    hubspot_as_source = bool(
+    hubspot_as_source = not hubspot_prohibited and bool(
         re.search(r"\bfrom\s+(?:the\s+)?hubspot\b", lower) or re.search(r"\bcompanies\b.*\bhubspot\b", lower)
     )
     explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?|companies\s+in)\b", lower))
@@ -1372,7 +1380,15 @@ def _classify_clause(
     if internal_followup_tasks:
         outcomes.append("create_internal_followup_tasks")
     elif _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(lower, _CRM_NEGATION_PATTERNS):
-        outcomes.append("persist_internal_crm" if internal_crm_requested else "update_crm")
+        hubspot_write_targeted = bool(
+            re.search(
+                r"\b(?:add|save|sync|push|write|update|log|upsert|create|modify|change|edit)\b"
+                r"[^.!?]{0,96}\bhubspot\b",
+                lower,
+            )
+        )
+        if not (hubspot_write_targeted and hubspot_prohibited):
+            outcomes.append("update_crm" if hubspot_write_targeted else "persist_internal_crm")
     if _contains_any(lower, _PUBLISH_PATTERNS) and not _contains_any(lower, _PUBLISH_NEGATION_PATTERNS):
         outcomes.append("publish_content")
     # Ability vocabulary: map short clauses like "score them" before marking unmatched.
@@ -1387,6 +1403,7 @@ def _classify_clause(
         + _CRM_UPDATE_PATTERNS
         + _INTERNAL_FOLLOWUP_TASK_PATTERNS
         + _CRM_NEGATION_PATTERNS
+        + _HUBSPOT_PROHIBITION_PATTERNS
         + _PUBLISH_PATTERNS
         + _PUBLISH_NEGATION_PATTERNS
         + _NO_EXTERNAL_ACTION_PATTERNS
@@ -1421,6 +1438,7 @@ def _classify_clause(
             _NO_SEND_PATTERNS
             + _CONDITIONAL_SEND_PATTERNS
             + _CRM_NEGATION_PATTERNS
+            + _HUBSPOT_PROHIBITION_PATTERNS
             + _PUBLISH_NEGATION_PATTERNS
             + _NO_EXTERNAL_ACTION_PATTERNS,
         )
