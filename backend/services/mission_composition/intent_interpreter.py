@@ -52,6 +52,7 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _EMAIL_READ_PATTERNS,
     _ENRICH_PATTERNS,
     _GITHUB_READ_PATTERNS,
+    _HUBSPOT_PROHIBITION_PATTERNS,
     _INTERNAL_CRM_PATTERNS,
     _INTERNAL_CRM_READ_NEGATION_PATTERNS,
     _INTERNAL_CRM_READ_PATTERNS,
@@ -271,6 +272,8 @@ def interpret_instruction(
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
     wants_email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
     internal_crm_requested = _contains_any(lower, _INTERNAL_CRM_PATTERNS)
+    hubspot_prohibited = _contains_any(lower, _HUBSPOT_PROHIBITION_PATTERNS)
+    explicit_hubspot_requested = "hubspot" in lower and not hubspot_prohibited
     wants_internal_followup_tasks = internal_crm_requested and _contains_any(lower, _INTERNAL_FOLLOWUP_TASK_PATTERNS)
     crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
         lower, _CRM_NEGATION_PATTERNS
@@ -301,7 +304,10 @@ def interpret_instruction(
         # internal-write lane. This is a dependency read, not a second
         # user-requested generic CRM mission or public prospect discovery.
         internal_crm_read = True
-    explicit_hubspot_record_read = bool(re.search(r"\buse\s+(?:the\s+)?(?:hubspot|crm)\s+records?\b", lower))
+    explicit_hubspot_record_read = explicit_hubspot_requested and bool(
+        re.search(r"\b(?:use|check|read|query|inspect|summarize)\b[^.!?]{0,96}\bhubspot\b", lower)
+        or re.search(r"\bhubspot\s+(?:crm\s+)?records?\b", lower)
+    )
     wants_crm_read = (
         (
             internal_crm_read
@@ -318,7 +324,7 @@ def interpret_instruction(
     connector_read = wants_email_read or wants_crm_read or wants_salesforce_query
     explicit_prospect_research = bool(re.search(r"\b(?:prospects?|competitors?|companies\s+in)\b", lower))
     explicit_research_verb = bool(re.search(r"\b(?:research|discover|find)\b", lower))
-    hubspot_as_research_source = bool(
+    hubspot_as_research_source = not hubspot_prohibited and bool(
         re.search(r"\bfrom\s+hubspot\b", lower) or re.search(r"\bcompanies\b.{0,80}\bhubspot\s+records?\b", lower)
     )
     direct_crm_record_read = _DIRECT_CRM_RECORD_READ.search(lower) is not None
@@ -331,11 +337,16 @@ def interpret_instruction(
     # adapter cannot represent an unsupported CRM scope (for example a market
     # wide location filter).
     if (
-        internal_crm_read or internal_crm_as_source or wants_internal_followup_tasks
+        internal_crm_read
+        or internal_crm_as_source
+        or wants_internal_followup_tasks
+        or (wants_crm_read and not explicit_hubspot_record_read)
     ) and "internal_crm_source" not in context_requirements:
         context_requirements.append("internal_crm_source")
-    elif direct_crm_record_read and not explicit_research_verb and "hubspot_source" not in context_requirements:
+    elif explicit_hubspot_record_read and "hubspot_source" not in context_requirements:
         context_requirements.append("hubspot_source")
+    if hubspot_prohibited and "hubspot_forbidden" not in context_requirements:
+        context_requirements.append("hubspot_forbidden")
     # Collecting factual business information from a specified website is
     # research even when the operator uses "visit" rather than "research".
     # A page-open/trace request alone remains a separate browser observation.
@@ -444,7 +455,18 @@ def interpret_instruction(
             )
         )
     wants_crm = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not no_crm and not wants_internal_followup_tasks
-    wants_internal_crm = wants_crm and internal_crm_requested
+    # Ajenda's CRM is canonical. HubSpot is selected only where the provider
+    # is named affirmatively and not prohibited; generic CRM mutation language
+    # therefore stays in the tenant-owned record store.
+    hubspot_write_targeted = wants_crm and bool(
+        re.search(
+            r"\b(?:add|save|sync|push|write|update|log|upsert|create|modify|change|edit)\b"
+            r"[^.!?]{0,96}\bhubspot\b",
+            lower,
+        )
+    )
+    wants_hubspot_crm = hubspot_write_targeted and not hubspot_prohibited
+    wants_internal_crm = wants_crm and not wants_hubspot_crm
     no_publish = _contains_any(lower, _PUBLISH_NEGATION_PATTERNS)
     wants_publish = _contains_any(lower, _PUBLISH_PATTERNS) and not no_publish
     publish_result_based = _PUBLISH_RESULT_BASED.search(lower) is not None
@@ -706,10 +728,10 @@ def interpret_instruction(
             )
         )
 
-    if wants_crm:
+    if wants_crm and not (hubspot_write_targeted and hubspot_prohibited):
         if wants_internal_crm:
             outcomes = [item for item in outcomes if item != "update_crm"]
-        outcomes.append("persist_internal_crm" if wants_internal_crm else "update_crm")
+        outcomes.append("update_crm" if wants_hubspot_crm else "persist_internal_crm")
     if wants_publish:
         outcomes.append("publish_content")
 
@@ -754,6 +776,15 @@ def interpret_instruction(
             fuzzy_hit.outcome in {"update_crm", "persist_internal_crm"}
             and internal_crm_read
             and not crm_write_requested
+        ):
+            continue
+        # Generic CRM mutation language is canonically internal. Do not let
+        # broad legacy vocabulary reintroduce the external update_crm outcome
+        # after the deterministic routing decision selected record.write.
+        if fuzzy_hit.outcome == "update_crm" and wants_internal_crm:
+            continue
+        if fuzzy_hit.outcome in {"update_crm", "persist_internal_crm"} and (
+            hubspot_write_targeted and hubspot_prohibited
         ):
             continue
         if wants_internal_followup_tasks and fuzzy_hit.outcome in {
@@ -851,6 +882,19 @@ def interpret_instruction(
             outcomes = [o for o in outcomes if o != "update_crm"]
         if "persist_internal_crm" in outcomes:
             outcomes = [o for o in outcomes if o != "persist_internal_crm"]
+    elif hubspot_prohibited:
+        forbidden.append("gtm.crm_upsert")
+        constraints.append("Do not use HubSpot")
+        if hubspot_write_targeted:
+            clarifications.append(
+                _restatement(
+                    field="hubspot_permission",
+                    understood=None,
+                    missing="the instruction both prohibits HubSpot and requests a HubSpot CRM write",
+                    include_instruction="whether to use Ajenda internal CRM instead or permit the HubSpot write",
+                    reason="Ajenda will not redirect an explicitly requested provider write to another CRM.",
+                )
+            )
     if no_publish:
         forbidden.append("gtm.social_publish")
         constraints.append("Do not publish or post to social channels")

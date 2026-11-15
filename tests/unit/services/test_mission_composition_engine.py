@@ -356,11 +356,12 @@ def test_interpreter_preserves_software_rnd_target_and_profile_context() -> None
     assert not intent.unmatched_material_clauses
 
 
-def test_interpreter_maps_approved_prospect_save_to_crm_write() -> None:
+def test_interpreter_maps_generic_crm_save_to_internal_persistence() -> None:
     intent = interpret_instruction(
         "Research software companies in Austin, qualify prospects, and save only approved prospects to the CRM."
     )
-    assert "update_crm" in intent.requested_outcomes
+    assert "persist_internal_crm" in intent.requested_outcomes
+    assert "update_crm" not in intent.requested_outcomes
 
 
 def test_interpreter_maps_product_knowledge_language_to_existing_profile_context() -> None:
@@ -1563,8 +1564,63 @@ def test_direct_crm_record_read_does_not_route_web_discovery() -> None:
     )
     assert "read_crm" in intent.requested_outcomes
     assert "research_prospects" not in intent.requested_outcomes
-    assert "hubspot_source" in intent.context_requirements
+    assert "internal_crm_source" in intent.context_requirements
     assert intent.target_entities[0].name == "roofing prospects in Austin"
+
+
+def test_generic_crm_read_is_internal_and_has_no_hubspot_fallback() -> None:
+    intent = interpret_instruction("Read approved CRM records for Acme.")
+
+    selections, missing = resolve_jobs(route_jobs_for_intent(intent), intent=intent)
+
+    assert missing == []
+    assert [item.action_name for item in selections] == ["record.search"]
+    assert selections[0].connection_provider is None
+    assert {item.action for item in selections[0].alternatives} == set()
+
+
+def test_explicit_hubspot_read_remains_connector_bound() -> None:
+    intent = interpret_instruction("Check HubSpot for Acme Roofing and summarize the CRM record.")
+
+    selections, missing = resolve_jobs(route_jobs_for_intent(intent), intent=intent, connected_integrations={"hubspot"})
+
+    assert missing == []
+    assert [item.action_name for item in selections] == ["sales.research"]
+    assert selections[0].connection_provider == "hubspot"
+
+
+def test_generic_crm_write_uses_internal_persistence_without_hubspot() -> None:
+    intent = interpret_instruction("Find three roofing companies in Austin and add them to contacts.")
+
+    selections, missing = resolve_jobs(route_jobs_for_intent(intent), intent=intent)
+
+    assert "persist_internal_crm" in intent.requested_outcomes
+    assert "update_crm" not in intent.requested_outcomes
+    assert missing == []
+    assert "record.write" in {item.action_name for item in selections}
+    assert "gtm.crm_upsert" not in {item.action_name for item in selections}
+
+
+def test_hubspot_prohibition_preserves_generic_internal_crm_write() -> None:
+    intent = interpret_instruction("Do not use HubSpot. Update the CRM for Acme.")
+
+    selections, missing = resolve_jobs(route_jobs_for_intent(intent), intent=intent, connected_integrations={"hubspot"})
+
+    assert "persist_internal_crm" in intent.requested_outcomes
+    assert "gtm.crm_upsert" in intent.forbidden_actions
+    assert "hubspot_forbidden" in intent.context_requirements
+    assert missing == []
+    assert "record.write" in {item.action_name for item in selections}
+    assert "gtm.crm_upsert" not in {item.action_name for item in selections}
+
+
+def test_hubspot_write_prohibition_fails_closed_without_internal_redirect() -> None:
+    intent = interpret_instruction("Do not use HubSpot. Update HubSpot for Acme.")
+
+    assert "update_crm" not in intent.requested_outcomes
+    assert "persist_internal_crm" not in intent.requested_outcomes
+    assert "gtm.crm_upsert" in intent.forbidden_actions
+    assert any(item.field == "hubspot_permission" for item in intent.ambiguity)
 
 
 def test_crm_deliverable_score_expands_to_governed_qualification_job() -> None:

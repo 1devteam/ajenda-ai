@@ -14,7 +14,7 @@ def test_add_to_contacts_and_collect_info_are_recognized() -> None:
     assert "research_prospects" in intent.requested_outcomes
     assert "observe_contacts" in intent.requested_outcomes
     assert "enrich_contacts" not in intent.requested_outcomes
-    assert "update_crm" in intent.requested_outcomes
+    assert "persist_internal_crm" in intent.requested_outcomes
     assert intent.requested_quantity == 3
     assert intent.unmatched_material_clauses == []
     assert intent.coverage_score >= 0.99
@@ -28,7 +28,7 @@ def test_save_to_crm_contacts_phrase() -> None:
         "Find three roofing companies in Fayetteville Arkansas, "
         "collect contact details for each, and save them to CRM contacts. Do not send emails."
     )
-    assert "update_crm" in intent.requested_outcomes
+    assert "persist_internal_crm" in intent.requested_outcomes
     assert intent.send_policy.mode == "forbid"
 
 
@@ -100,7 +100,7 @@ def test_add_to_contacts_depends_on_discovery_and_binds() -> None:
     jobs = route_jobs_for_intent(intent)
     assert "research.discover_prospects" in {j.job_key for j in jobs}
     assert "research.observe_sources" in {j.job_key for j in jobs}
-    assert "crm.pipeline_maintenance" in {j.job_key for j in jobs}
+    assert "crm.internal_persistence" in {j.job_key for j in jobs}
     selections, _ = resolve_jobs(
         jobs,
         intent=intent,
@@ -108,10 +108,10 @@ def test_add_to_contacts_depends_on_discovery_and_binds() -> None:
         connected_integrations={"hubspot"},
     )
     steps = compile_planned_steps(selections, intent=intent)
-    crm = [s for s in steps if s.job_key == "crm.pipeline_maintenance"]
+    crm = [s for s in steps if s.job_key == "crm.internal_persistence"]
     assert crm and crm[0].depends_on
-    payload = build_action_input(action_name="gtm.crm_upsert", intent=intent)
-    assert payload["data"]["company"] == "pending.binding.company"
+    payload = build_action_input(action_name="record.write", intent=intent)
+    assert payload["record_type"] == "contact"
     assert payload["context"]["binding_required"] is True
 
 

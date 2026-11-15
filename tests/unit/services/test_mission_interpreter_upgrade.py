@@ -110,16 +110,16 @@ def test_crm_negation_suppresses_update_crm() -> None:
     assert "gtm.crm_upsert" in intent.forbidden_outcomes
 
 
-def test_add_to_contacts_expands_research_dependency() -> None:
+def test_add_to_contacts_expands_internal_crm_persistence_dependencies() -> None:
     from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
     from backend.services.mission_composition.plan_compiler import compile_planned_steps
     from backend.services.operating_charter import default_operating_charter
 
     intent = interpret_instruction("Find three roofing companies in Austin and add them to contacts")
-    assert "update_crm" in intent.requested_outcomes
+    assert "persist_internal_crm" in intent.requested_outcomes
     jobs = route_jobs_for_intent(intent)
     assert "research.discover_prospects" in {j.job_key for j in jobs}
-    assert "crm.pipeline_maintenance" in {j.job_key for j in jobs}
+    assert "crm.internal_persistence" in {j.job_key for j in jobs}
     selections, _ = resolve_jobs(
         jobs,
         intent=intent,
@@ -127,6 +127,6 @@ def test_add_to_contacts_expands_research_dependency() -> None:
         connected_integrations={"hubspot"},
     )
     steps = compile_planned_steps(selections, intent=intent)
-    crm_steps = [s for s in steps if s.job_key == "crm.pipeline_maintenance"]
+    crm_steps = [s for s in steps if s.job_key == "crm.internal_persistence"]
     assert crm_steps
     assert crm_steps[0].depends_on
