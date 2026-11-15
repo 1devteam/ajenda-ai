@@ -726,20 +726,25 @@ export default function CredentialsPage() {
           {integration === "hubspot" && platformHubspot ? (
             <p className="notice warning">
               An operator-managed HubSpot connection ({platformHubspot.credential_id}) is present. It is not a
-              tenant-owned credential; connect your own PAK for customer-controlled HubSpot access.
+              tenant-owned credential; connect your own CRM access token for customer-controlled HubSpot access.
             </p>
           ) : null}
 
           {integration === "hubspot" ? (
             <>
               <label>
-                HubSpot personal access key
+                HubSpot CRM access token
                 <input
                   type="password"
                   value={form.secret_value ?? ""}
                   onChange={(event) => setForm({ ...form, secret_value: event.target.value })}
-                  placeholder="Paste HubSpot PAK (Bearer token)"
+                  placeholder="Paste a HubSpot Service Key or private-app/static app token"
                 />
+                <span className="field-hint">
+                  Use a HubSpot Service Key or private-app/static app token with scopes appropriate to the CRM
+                  actions you authorize. Do not paste a HubSpot CLI Personal Access Key. OAuth bearer tokens expire
+                  and are not refreshed by this connection.
+                </span>
               </label>
             </>
           ) : (integration === "gmail" || integration === "smtp") && platformAjendaEmail ? (

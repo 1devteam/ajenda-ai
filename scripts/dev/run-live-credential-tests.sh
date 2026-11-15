@@ -32,8 +32,8 @@ Options:
 Prerequisites:
   ~/.ajenda/google-cli.env     AJENDA_GOOGLE_CLI_CLIENT_ID/SECRET (OAuth refresh)
   ~/.ajenda/e2e.env            refreshed by: python scripts/generate_e2e_tokens.py
-  ~/.hscli/config.yml or       HubSpot token via: hs account auth
-    AJENDA_E2E_HUBSPOT_PAK
+  ~/.ajenda/e2e.env            HubSpot CRM token:
+    AJENDA_E2E_HUBSPOT_CRM_TOKEN (Service Key or private-app/static app token)
   HubSpot ingress healthy at   POSTGRES_PASSWORD=dev docker compose -f docker-compose.yml \\
     https://\$AJENDA_E2E_ADAPTER_HOST/health   up -d hubspot-crm-adapter hubspot-crm-ingress
 

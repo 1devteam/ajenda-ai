@@ -73,11 +73,12 @@ credential_sources:
       - AJENDA_HUBSPOT_PLATFORM_MASTER_AUTO_PROVISION
     e2e_env_file: ~/.ajenda/e2e.env
     e2e_env_vars:
-      - AJENDA_E2E_HUBSPOT_PAK
+      - AJENDA_E2E_HUBSPOT_CRM_TOKEN
     notes: >
-      Operator sets one PAK in runtime secrets; all tenants get hubspot-crm auto-provisioned
-      (no per-user HubSpot login). Per-tenant PAK remains optional via Credentials UI.
-      Bootstrap copies AJENDA_E2E_HUBSPOT_PAK into AJENDA_HUBSPOT_PLATFORM_MASTER_KEY.
+      Operator sets one HubSpot Service Key or private-app/static app token in runtime secrets; all tenants get
+      hubspot-crm auto-provisioned (no per-user HubSpot login). Per-tenant CRM tokens remain optional via
+      Credentials UI. Bootstrap copies AJENDA_E2E_HUBSPOT_CRM_TOKEN into
+      AJENDA_HUBSPOT_PLATFORM_MASTER_KEY. HubSpot CLI Personal Access Keys are not supported for this lane.
   stripe:
     label: Stripe (billing checkout)
     required_for_local: false

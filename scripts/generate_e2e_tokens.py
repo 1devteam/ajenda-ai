@@ -103,17 +103,19 @@ def main() -> int:
         missing.append(f"Google Calendar — {exc}")
         _status("Google Calendar", False, str(exc))
 
-    # HubSpot (HubSpot CLI config)
+    # HubSpot CRM (explicit durable bearer credential only)
     try:
         from tests.integration.standalone.hubspot_e2e_support import resolve_hubspot_access_token
 
         hubspot = resolve_hubspot_access_token()
         if hubspot:
-            exports["AJENDA_E2E_HUBSPOT_PAK"] = hubspot
-            _status("HubSpot", True, "token from ~/.hscli/config.yml")
+            exports["AJENDA_E2E_HUBSPOT_CRM_TOKEN"] = hubspot
+            _status("HubSpot", True, "explicit CRM access token configured")
         else:
-            missing.append("HubSpot — run: hs account auth")
-            _status("HubSpot", False, "no HubSpot CLI token")
+            missing.append(
+                "HubSpot — set AJENDA_E2E_HUBSPOT_CRM_TOKEN to a Service Key or private-app/static app token"
+            )
+            _status("HubSpot", False, "no explicit HubSpot CRM access token")
     except Exception as exc:
         missing.append(f"HubSpot — {exc}")
         _status("HubSpot", False, str(exc))

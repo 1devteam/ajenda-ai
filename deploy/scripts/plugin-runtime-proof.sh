@@ -33,39 +33,11 @@ compose() {
 }
 
 resolve_hubspot_token() {
-  if [[ -n "${AJENDA_E2E_HUBSPOT_PAK:-}" ]]; then
-    printf '%s' "$AJENDA_E2E_HUBSPOT_PAK"
+  if [[ -n "${AJENDA_E2E_HUBSPOT_CRM_TOKEN:-}" ]]; then
+    printf '%s' "$AJENDA_E2E_HUBSPOT_CRM_TOKEN"
     return 0
   fi
-  python3 - <<'PY'
-from pathlib import Path
-
-import yaml
-
-config_path = Path.home() / ".hscli" / "config.yml"
-if not config_path.is_file():
-    raise SystemExit(1)
-config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-accounts = config.get("accounts") if isinstance(config, dict) else None
-if not isinstance(accounts, list):
-    raise SystemExit(1)
-for account in accounts:
-    if not isinstance(account, dict):
-        continue
-    auth = account.get("auth")
-    if isinstance(auth, dict):
-        token_info = auth.get("tokenInfo")
-        if isinstance(token_info, dict):
-            token = token_info.get("accessToken")
-            if isinstance(token, str) and token.strip():
-                print(token.strip())
-                raise SystemExit(0)
-    pak = account.get("personalAccessKey")
-    if isinstance(pak, str) and pak.strip():
-        print(pak.strip())
-        raise SystemExit(0)
-raise SystemExit(1)
-PY
+  return 1
 }
 
 resolve_gmail_token() {
@@ -977,7 +949,7 @@ main() {
     log "hubspot proof: $hubspot_json"
     ran=1
   else
-    skip "HubSpot lane (set AJENDA_E2E_HUBSPOT_PAK or hs CLI auth)"
+    skip "HubSpot lane (set AJENDA_E2E_HUBSPOT_CRM_TOKEN to a Service Key or private-app/static app token)"
   fi
 
   if gmail_token="$(resolve_gmail_token 2>/dev/null || true)" && [[ -n "$gmail_token" ]]; then

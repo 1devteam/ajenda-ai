@@ -123,7 +123,9 @@ def credential_live_onboarding(monkeypatch: pytest.MonkeyPatch) -> None:
 def hubspot_live_adapter_settings(monkeypatch: pytest.MonkeyPatch) -> str:
     token = resolve_hubspot_access_token()
     if not token:
-        pytest.skip("No HubSpot token: set AJENDA_E2E_HUBSPOT_PAK or authenticate `hs account auth`")
+        pytest.skip(
+            "No HubSpot CRM credential: set AJENDA_E2E_HUBSPOT_CRM_TOKEN to a Service Key or private-app/static app token"
+        )
 
     adapter_host = os.environ.get("AJENDA_E2E_ADAPTER_HOST", "127.0.0.1:8443")
     try:
