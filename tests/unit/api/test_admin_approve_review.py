@@ -123,6 +123,49 @@ class TestGetTenant:
         assert resp.json()["stripe_customer_id"] is None
 
 
+class TestReconcilePlatformHubSpot:
+    def test_requires_admin_role(self) -> None:
+        app, _, _ = _build_admin_app(is_admin=False)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.post(
+            f"/v1/admin/tenants/{uuid.uuid4()}/reconcile-platform-hubspot",
+            json={"replace_existing": True},
+        )
+
+        assert response.status_code == 403
+
+    def test_reconciles_named_tenant_with_explicit_replacement(self) -> None:
+        app, db, _ = _build_admin_app()
+        client = TestClient(app, raise_server_exceptions=False)
+        tenant_id = uuid.uuid4()
+        result = SimpleNamespace(
+            tenant_id=tenant_id,
+            credential_id="hubspot-crm",
+            changed=True,
+            replaced_credential_type="api_key",
+        )
+        with patch.object(
+            admin_module.TenantLifecycleService,
+            "reconcile_platform_hubspot_credential",
+            return_value=result,
+        ) as reconcile:
+            response = client.post(
+                f"/v1/admin/tenants/{tenant_id}/reconcile-platform-hubspot",
+                json={"replace_existing": True},
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "tenant_id": str(tenant_id),
+            "credential_id": "hubspot-crm",
+            "changed": True,
+            "replaced_credential_type": "api_key",
+        }
+        reconcile.assert_called_once_with(tenant_id, actor="admin-test", replace_existing=True)
+        db.commit.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # POST /v1/admin/tenants/{tenant_id}/tasks/{task_id}/approve-review
 # ---------------------------------------------------------------------------

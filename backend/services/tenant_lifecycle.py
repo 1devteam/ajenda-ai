@@ -29,6 +29,7 @@ from backend.app.config import Settings, get_settings
 from backend.db.tenant_session import activate_tenant_session
 from backend.domain.governance_event import GovernanceEvent
 from backend.domain.provision_source import ProvisionSource
+from backend.repositories.provider_runtime_credential_repository import ProviderRuntimeCredentialRepository
 from backend.repositories.tenant_repository import (
     TenantNotFoundError,
     TenantRepository,
@@ -45,6 +46,16 @@ class TenantProvisionResult:
     plan: str
     status: str
     source: ProvisionSource
+
+
+@dataclass(frozen=True)
+class PlatformHubSpotReconciliationResult:
+    """Result of one explicitly operator-authorized HubSpot credential reconciliation."""
+
+    tenant_id: uuid.UUID
+    credential_id: str
+    changed: bool
+    replaced_credential_type: str | None
 
 
 class TenantLifecycleService:
@@ -214,6 +225,70 @@ class TenantLifecycleService:
             actor=actor,
             decision=f"Plan changed from {old_plan!r} to {new_plan!r}",
             payload={"old_plan": old_plan, "new_plan": new_plan},
+        )
+
+    def reconcile_platform_hubspot_credential(
+        self,
+        tenant_id: uuid.UUID,
+        *,
+        actor: str,
+        replace_existing: bool = False,
+    ) -> PlatformHubSpotReconciliationResult:
+        """Explicitly migrate one active tenant onto the configured HubSpot platform key.
+
+        This is deliberately not startup behavior: an operator must name the tenant
+        and explicitly permit replacement of a non-platform credential.  The master
+        secret remains deployment configuration; only the encrypted sentinel is
+        persisted for the tenant.
+        """
+        tenant = self._tenants.get_active(tenant_id)
+        if not self._settings.hubspot_platform_master_auto_provision:
+            raise ValueError("HubSpot platform-master auto-provisioning is disabled")
+        if not self._settings.hubspot_platform_master_ready:
+            raise ValueError("HubSpot platform-master credentials are not configured")
+
+        activate_tenant_session(self._session, str(tenant.id))
+        credentials = ProviderRuntimeCredentialRepository(self._session)
+        existing = credentials.get_for_tenant(tenant_id=str(tenant.id), credential_id="hubspot-crm")
+        previous_type = existing.credential_type if existing is not None else None
+        if existing is not None and existing.credential_type == "platform_master":
+            return PlatformHubSpotReconciliationResult(
+                tenant_id=tenant.id,
+                credential_id="hubspot-crm",
+                changed=False,
+                replaced_credential_type=None,
+            )
+        if existing is not None and not replace_existing:
+            raise ValueError(
+                "hubspot-crm already exists; replace_existing=true is required to replace a tenant credential"
+            )
+
+        ProviderCredentialManagementService(self._session, settings=self._settings).register(
+            tenant_id=str(tenant.id),
+            credential_id="hubspot-crm",
+            provider="external_crm",
+            integration="hubspot",
+            use_platform_master_key=True,
+            platform_master_provisioned_by_operator=True,
+            actor_id=f"system:{actor}",
+        )
+        self._emit_event(
+            tenant_id=tenant.id,
+            event_type="tenant_platform_hubspot_reconciled",
+            actor=actor,
+            decision="Tenant HubSpot credential reconciled to the configured platform master",
+            payload={
+                "credential_id": "hubspot-crm",
+                "replaced_existing": existing is not None,
+                "replaced_credential_type": previous_type,
+                "uses_platform_master_key": True,
+            },
+        )
+        return PlatformHubSpotReconciliationResult(
+            tenant_id=tenant.id,
+            credential_id="hubspot-crm",
+            changed=True,
+            replaced_credential_type=previous_type,
         )
 
     # ------------------------------------------------------------------

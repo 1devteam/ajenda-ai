@@ -14,6 +14,7 @@ Endpoints:
   POST   /v1/admin/tenants/{tenant_id}/reactivate                 — Reactivate a tenant
   DELETE /v1/admin/tenants/{tenant_id}                            — Soft-delete a tenant
   POST   /v1/admin/tenants/{tenant_id}/plan                       — Change subscription plan
+  POST   /v1/admin/tenants/{tenant_id}/reconcile-platform-hubspot — Explicitly migrate one tenant credential
   GET    /v1/admin/tenants/{tenant_id}/quota                      — Get quota status
   GET    /v1/admin/tenants/{tenant_id}/billing                    — Get billing status (PR3)
   POST   /v1/admin/tenants/{tenant_id}/tasks/{task_id}/approve-review
@@ -81,6 +82,17 @@ class SuspendTenantRequest(BaseModel):
 
 class ChangePlanRequest(BaseModel):
     new_plan: str = Field(pattern=r"^(free|starter|pro|enterprise)$")
+
+
+class ReconcilePlatformHubSpotRequest(BaseModel):
+    replace_existing: bool = False
+
+
+class ReconcilePlatformHubSpotResponse(BaseModel):
+    tenant_id: str
+    credential_id: str
+    changed: bool
+    replaced_credential_type: str | None
 
 
 class ApproveReviewResponse(BaseModel):
@@ -250,6 +262,41 @@ def change_plan(
         db.rollback()
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"tenant_id": str(tenant_id), "plan": body.new_plan}
+
+
+@router.post(
+    "/tenants/{tenant_id}/reconcile-platform-hubspot",
+    response_model=ReconcilePlatformHubSpotResponse,
+    status_code=200,
+)
+def reconcile_platform_hubspot(
+    tenant_id: uuid.UUID,
+    body: ReconcilePlatformHubSpotRequest,
+    request: Request,
+    db: Session = Depends(get_db_session),
+) -> ReconcilePlatformHubSpotResponse:
+    """Operator-only, auditable migration of one tenant to the HubSpot platform key."""
+    _require_admin(request)
+    actor = _get_actor(request)
+    try:
+        result = TenantLifecycleService(db).reconcile_platform_hubspot_credential(
+            tenant_id,
+            actor=actor,
+            replace_existing=body.replace_existing,
+        )
+        db.commit()
+    except TenantNotFoundError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (TenantSuspendedError, TenantDeletedError, ValueError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ReconcilePlatformHubSpotResponse(
+        tenant_id=str(result.tenant_id),
+        credential_id=result.credential_id,
+        changed=result.changed,
+        replaced_credential_type=result.replaced_credential_type,
+    )
 
 
 @router.get("/tenants/{tenant_id}/quota", status_code=200)
