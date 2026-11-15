@@ -17,6 +17,7 @@ import os
 import subprocess
 import sys
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -30,18 +31,33 @@ from api_mission_proof_artifact import write_manifest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OPERATOR_PROOF = REPO_ROOT / "deploy" / "scripts" / "operator-mission-proof.py"
 
-FIXTURE_INSTRUCTIONS = (
-    "Find three software companies in Austin using local fixture data only.",
-    "Find three HVAC companies in Dallas using local fixture data only.",
-    "Find three roofing companies in Austin using local fixture data only.",
-    "Find three plumbing companies in Austin using local fixture data only.",
-    "Find three advertising companies in Austin using local fixture data only.",
-    "Find three electrical companies in Austin using local fixture data only.",
-    "Find three landscaping companies in Austin using local fixture data only.",
-    "Find three dental companies in Austin using local fixture data only.",
-    "Find three recruiting companies in Austin using local fixture data only.",
-    "Find three SaaS companies in Austin using local fixture data only.",
+
+@dataclass(frozen=True)
+class FixtureLane:
+    """One public-API proof lane and the fixtures it is entitled to create."""
+
+    instruction: str
+    industry: str
+    location: str
+
+
+FIXTURE_LANES = (
+    FixtureLane(
+        "Find three software companies in Austin using local fixture data only.", "software development", "Austin"
+    ),
+    FixtureLane("Find three HVAC companies in Dallas using local fixture data only.", "HVAC", "Dallas"),
+    FixtureLane("Find three roofing companies in Austin using local fixture data only.", "roofing", "Austin"),
+    FixtureLane("Find three plumbing companies in Austin using local fixture data only.", "plumbing", "Austin"),
+    FixtureLane("Find three advertising companies in Austin using local fixture data only.", "advertising", "Austin"),
+    FixtureLane("Find three electrical companies in Austin using local fixture data only.", "electrical", "Austin"),
+    FixtureLane("Find three landscaping companies in Austin using local fixture data only.", "landscaping", "Austin"),
+    FixtureLane("Find three dental companies in Austin using local fixture data only.", "dental", "Austin"),
+    FixtureLane("Find three recruiting companies in Austin using local fixture data only.", "recruiting", "Austin"),
+    FixtureLane("Find three SaaS companies in Austin using local fixture data only.", "SaaS", "Austin"),
 )
+
+# Kept as a simple public contract for existing validators and documentation.
+FIXTURE_INSTRUCTIONS = tuple(lane.instruction for lane in FIXTURE_LANES)
 
 
 def _utc_now() -> str:
@@ -82,6 +98,8 @@ def _run_lane(
     lane: int,
     instruction: str,
     mode: str,
+    fixture_industry: str | None = None,
+    fixture_location: str | None = None,
 ) -> dict[str, Any]:
     evidence_path = run_dir / f"lane-{lane:02d}-runtime-evidence.json"
     reconciliation_path = run_dir / f"lane-{lane:02d}-runtime-reconciliation.json"
@@ -98,6 +116,11 @@ def _run_lane(
             "AJENDA_OPERATOR_PROOF_CLIENT_IP": _proof_client_ip(run_id=run_id, lane=lane),
         }
     )
+    if mode == "fixture":
+        if not fixture_industry or not fixture_location:
+            raise ValueError("fixture proof lane requires explicit industry and location")
+        environment["AJENDA_OPERATOR_PROOF_FIXTURE_INDUSTRY"] = fixture_industry
+        environment["AJENDA_OPERATOR_PROOF_FIXTURE_LOCATION"] = fixture_location
     completed = subprocess.run(
         [sys.executable, str(OPERATOR_PROOF)],
         cwd=REPO_ROOT,
@@ -167,17 +190,25 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.count is not None and args.count < 1:
         parser.error("--count must be at least one")
-    instructions = (
-        FIXTURE_INSTRUCTIONS[: args.count or len(FIXTURE_INSTRUCTIONS)]
+    lanes: tuple[FixtureLane, ...] = (
+        FIXTURE_LANES[: args.count or len(FIXTURE_LANES)]
         if args.mode == "fixture"
-        else (_live_instruction(),)
+        else (FixtureLane(_live_instruction(), "", ""),)
     )
     run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:12]}"
     run_dir = args.output_dir / run_id
     started_at = _utc_now()
     results = [
-        _run_lane(run_dir=run_dir, run_id=run_id, lane=index, instruction=instruction, mode=args.mode)
-        for index, instruction in enumerate(instructions, start=1)
+        _run_lane(
+            run_dir=run_dir,
+            run_id=run_id,
+            lane=index,
+            instruction=lane_spec.instruction,
+            mode=args.mode,
+            fixture_industry=lane_spec.industry or None,
+            fixture_location=lane_spec.location or None,
+        )
+        for index, lane_spec in enumerate(lanes, start=1)
     ]
     payload = {
         "schema_version": 1,

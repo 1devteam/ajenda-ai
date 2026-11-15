@@ -264,3 +264,37 @@ def test_operator_proof_rejects_fixture_readback_mismatch(monkeypatch) -> None:
 
     with pytest.raises(module.ProofFailure, match="lost required fixture fields"):
         module.seed_software_proof_fixtures(api_base="http://test", headers={})
+
+
+def test_operator_proof_provisions_scope_declared_fixtures(monkeypatch) -> None:
+    module = _load_operator_proof()
+    records: dict[str, dict[str, Any]] = {}
+
+    def fake_request(
+        method: str,
+        _base: str,
+        path: str,
+        *,
+        body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        expected: int | tuple[int, ...] = 200,
+    ) -> dict[str, Any]:
+        record_id = path.rsplit("/", 1)[-1]
+        if method == "PUT":
+            assert body is not None
+            assert headers is not None and "Idempotency-Key" in headers
+            records[record_id] = dict(body["data"])
+        return {"id": record_id, "record_type": "account", "data": dict(records[record_id])}
+
+    monkeypatch.setattr(module, "request", fake_request)
+    module.seed_scoped_proof_fixtures(
+        api_base="http://test",
+        headers={"X-Tenant-Id": "proof"},
+        industry="HVAC",
+        location="Dallas",
+        count=3,
+    )
+
+    assert len(records) == 3
+    assert all(row["industry"] == "HVAC" and row["location"] == "Dallas" for row in records.values())
+    assert all(row["source"] == "local_fixture" for row in records.values())
