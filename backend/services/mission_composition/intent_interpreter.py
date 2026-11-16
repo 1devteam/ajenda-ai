@@ -77,6 +77,7 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _extract_count,
     _extract_qualification_count,
     _extract_target_entities,
+    _is_comparative_purchase_request,
     _looks_like_fragment,
     _restatement,
     _success_for_outcomes,
@@ -358,11 +359,13 @@ def interpret_instruction(
             lower,
         )
     )
+    comparative_purchase_requested = _is_comparative_purchase_request(text)
     wants_research = (
         (_contains_any(lower, _RESEARCH_PATTERNS) or website_fact_collection_requested)
         and (not direct_crm_record_read or explicit_research_verb)
         and (not connector_read or explicit_prospect_research or hubspot_as_research_source)
         and not wants_internal_followup_tasks
+        and not comparative_purchase_requested
     )
     if internal_crm_as_source:
         # "From internal CRM" names the authoritative dataset. The verb
@@ -1117,6 +1120,22 @@ def interpret_instruction(
         label = entities[0].name
     else:
         label = "the requested market"
+
+    if comparative_purchase_requested:
+        clarifications.append(
+            _restatement(
+                field="comparison_scope",
+                understood="the instruction requests a comparative purchase recommendation",
+                missing="a supported business-research or procurement decision scope",
+                include_instruction=(
+                    "whether this is a business market/prospect research request, or a supported procurement "
+                    "decision with its evaluation criteria"
+                ),
+                reason=(
+                    "Ajenda does not treat a descriptive comparison phrase as a named company or as B2B prospect research."
+                ),
+            )
+        )
 
     # Clause coverage
     clause_models: list[InterpretedClause] = []

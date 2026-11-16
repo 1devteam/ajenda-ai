@@ -80,6 +80,29 @@ def test_prepare_comparison_report_is_a_recognized_material_clause() -> None:
     assert not intent.unmatched_material_clauses
 
 
+def test_named_company_action_subject_is_not_a_descriptive_comparison_phrase() -> None:
+    intent = interpret_instruction(
+        "Reach out to Best Buy and find me the best buy in new computers.", fuzzy_enabled=False
+    )
+
+    assert [(entity.type, entity.name) for entity in intent.target_entities] == [("company", "Best Buy")]
+    assert intent.target_entities[0].attributes["identity_role"] == "named_company_subject"
+    assert "research_prospects" not in intent.requested_outcomes
+    assert "send_outreach" not in intent.requested_outcomes
+    assert intent.send_policy.mode == "unknown"
+    assert any(item.field == "comparison_scope" for item in intent.ambiguity)
+    assert any("best buy in new computers" in item.text.lower() for item in intent.unmatched_material_clauses)
+
+
+def test_descriptive_purchase_comparison_never_becomes_a_company_or_prospect_research() -> None:
+    intent = interpret_instruction("Find me the best buy in new computers.", fuzzy_enabled=False)
+
+    assert intent.target_entities == []
+    assert "research_prospects" not in intent.requested_outcomes
+    assert any(item.field == "comparison_scope" for item in intent.ambiguity)
+    assert any("best buy in new computers" in item.text.lower() for item in intent.unmatched_material_clauses)
+
+
 def test_missing_send_authorization_forbids_send() -> None:
     intent = interpret_instruction(
         "Research companies and contact the best prospects immediately. "
