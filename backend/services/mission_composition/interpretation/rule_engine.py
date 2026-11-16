@@ -518,23 +518,27 @@ _RELATED_COMPANY_PATTERNS = (
         re.IGNORECASE,
     ),
 )
-# An organization is an identity only when the surrounding grammar makes it
-# the object of a business action. In particular, this deliberately does not
-# treat a capitalized token, or the words "best buy", as a company by itself.
-# That keeps descriptive/comparative language separate from named subjects.
-_NAMED_COMPANY_ACTION_SUBJECT = re.compile(
+# An interaction verb identifies a recipient reference, not an organization.
+# A recipient can be a person, company, group, or unresolved pronoun.  The
+# interpreter must preserve that ambiguity instead of turning a title-like
+# span into a CRM company identity.
+_NAMED_INTERACTION_SUBJECT = re.compile(
     r"\b(?:(?:reach\s+out\s+to|call|email|meet\s+with)\s+|"
     r"contact\s+(?!information\b|info\b|details?\b|to\b))"
-    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5})"
-    r"(?=$|[,;.!?]|\s+\b(?:and|then|about|regarding)\b)",
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5}?)"
+    r"(?=$|[,;.!?]|\s+\b(?:then|about|regarding|tomorrow|today|next|on|at|with)\b|\s+and\s+(?:find|research|identify|discover|show|compare)\b)",
     re.IGNORECASE,
 )
 _COMPARATIVE_PURCHASE_REQUEST = re.compile(
-    r"\b(?:find|show|recommend|choose|compare|what(?:'s|\s+is)|which)\b"
-    r"[^.!?]{0,80}\b(?:the\s+)?(?:best|cheapest|lowest[-\s]priced|highest[-\s]rated)\s+"
-    r"(?:buy|deal|value|option)\b",
+    # "Find Best Buy in HubSpot" is a named-record lookup.  A comparison uses
+    # the grammatical request "find me the best buy ..." or "find the best
+    # buy ...".  The determiner/pronoun is intentional: capitalization is not
+    # a safe identity signal.
+    r"\b(?:find|show|recommend|choose|compare)\s+"
+    r"(?:(?:me\s+)?the\s+best\s+buy|(?:me\s+)?(?:the\s+)?(?:cheapest|lowest[-\s]priced|highest[-\s]rated))\b",
     re.IGNORECASE,
 )
+_UNRESOLVED_INTERACTION_SUBJECT = re.compile(r"^(?:them|him|her|it|this|that|these|those)(?:\s|$)", re.IGNORECASE)
 _LEADING_VERB_WORDS = frozenset(
     {
         "research",
@@ -931,22 +935,24 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
     entities.extend(_extract_industry_location_entities(text))
     if not entities:
         entities.extend(_extract_industry_audience_entities(text))
-    # A named company can be the target of an interaction even when it is not
-    # a market-research scope. Keep that identity distinct from a descriptive
-    # phrase such as "the best buy"; the latter is never captured here because
-    # it lacks an identity-bearing action position.
+    # An interaction recipient is intentionally not promoted to a company.
+    # Its name may be a person or organization, but composition cannot infer
+    # which CRM identity field is appropriate from the verb alone.
     if not entities:
-        action_subject = _NAMED_COMPANY_ACTION_SUBJECT.search(text)
+        action_subject = _NAMED_INTERACTION_SUBJECT.search(text)
         if action_subject is not None:
-            name = action_subject.group("name").strip(" ,.;:")
-            if name:
+            raw_subject = action_subject.group("name").strip(" ,.;:")
+            for name in re.split(r"\s+and\s+", raw_subject, flags=re.IGNORECASE):
+                name = name.strip(" ,.;:")
+                if not name or _UNRESOLVED_INTERACTION_SUBJECT.match(name):
+                    continue
                 entities.append(
                     TargetEntity(
-                        type="company",
+                        type="interaction_subject",
                         name=name,
-                        attributes={"identity_role": "named_company_subject"},
+                        attributes={"identity_role": "unresolved_interaction_subject"},
                         provenance="explicit",
-                        confidence=0.95,
+                        confidence=0.8,
                     )
                 )
     # Connector company targets (HubSpot for Acme) — only when no market target already.

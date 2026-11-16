@@ -360,12 +360,18 @@ def interpret_instruction(
         )
     )
     comparative_purchase_requested = _is_comparative_purchase_request(text)
+    # Clause-local semantics matter here.  A request may legitimately contain
+    # both supported prospect research and an unsupported shopping comparison;
+    # the latter must remain visible without deleting the former outcome.
+    supported_research_clause_requested = any(
+        _contains_any(clause.lower(), _RESEARCH_PATTERNS) and not _is_comparative_purchase_request(clause)
+        for clause in _segment_clauses(text)
+    )
     wants_research = (
-        (_contains_any(lower, _RESEARCH_PATTERNS) or website_fact_collection_requested)
+        (supported_research_clause_requested or website_fact_collection_requested)
         and (not direct_crm_record_read or explicit_research_verb)
         and (not connector_read or explicit_prospect_research or hubspot_as_research_source)
         and not wants_internal_followup_tasks
-        and not comparative_purchase_requested
     )
     if internal_crm_as_source:
         # "From internal CRM" names the authoritative dataset. The verb
@@ -1227,14 +1233,20 @@ def interpret_instruction(
     # An optional model can map previously-unmatched clauses to the existing
     # canonical vocabulary. Invalid or unavailable model output never repairs
     # a gap and never becomes authority.
-    if outcome_proposer is not None and unmatched:
+    # A deterministic unsupported comparison is an explicit authority
+    # boundary, not an invitation for the optional model to reinterpret it as
+    # a canonical research, send, or write outcome.
+    model_eligible_unmatched = [item for item in unmatched if not _is_comparative_purchase_request(item.text)]
+    if outcome_proposer is not None and model_eligible_unmatched:
         try:
             proposal = validate_outcome_proposal(
                 outcome_proposer.propose(
                     instruction=raw_instruction,
-                    clauses=tuple({"clause_id": item.clause_id, "text": item.text} for item in unmatched),
+                    clauses=tuple(
+                        {"clause_id": item.clause_id, "text": item.text} for item in model_eligible_unmatched
+                    ),
                 ),
-                allowed_clause_ids={item.clause_id for item in unmatched},
+                allowed_clause_ids={item.clause_id for item in model_eligible_unmatched},
             )
         except Exception:
             components_active.append("model_outcome_proposal_rejected")

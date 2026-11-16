@@ -34,6 +34,7 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
     inspected: list[str] = []
     sources: list[str] = []
     status_codes: list[int] = []
+    external_query_receipts: list[dict[str, Any]] = []
     any_external = False
     any_external_attempt_failed = False
 
@@ -127,6 +128,17 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         if search.status_code is not None:
             researched["research_status_code"] = search.status_code
             status_codes.append(search.status_code)
+        if use_external:
+            external_query_receipts.append(
+                {
+                    "source": search.source,
+                    "object_type": search.object_type,
+                    "filters": dict(search.query_filters),
+                    "status_code": search.status_code,
+                    "response_complete": search.response_complete,
+                    "result_count": search.count,
+                }
+            )
         researched_prospects.append(researched)
 
         related_records.extend(related)
@@ -144,45 +156,49 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
     # synthesized when HubSpot did not return it.
     prospect_candidates: list[dict[str, Any]] = []
     for researched in researched_prospects:
-        candidate = dict(researched)
         matches = [item for item in (researched.get("crm_matches") or []) if isinstance(item, dict)]
-        match = matches[0] if matches else {}
-        raw_properties = match.get("properties")
-        properties = raw_properties if isinstance(raw_properties, dict) else {}
-        provider_id = str(match.get("id") or "").strip()
-        company = str(properties.get("name") or candidate.get("company") or "").strip()
-        domain = str(properties.get("domain") or candidate.get("domain") or "").strip() or None
-        website = str(properties.get("website") or "").strip() or (f"https://{domain}" if domain else None)
-        product_description = str(properties.get("description") or "").strip()
-        if not product_description:
-            product_description = "No product description was provided by HubSpot CRM."
-        research_summary = (
-            f"Observed HubSpot CRM company record {provider_id or company}. "
-            f"Provider properties were read through the governed CRM adapter."
-        )
-        source_reference = f"hubspot://companies/{provider_id}" if provider_id else "hubspot://companies/search"
-        candidate.update(
-            {
-                "id": provider_id or candidate.get("id"),
-                "prospect_id": provider_id or candidate.get("prospect_id") or company,
-                "company": company,
-                "domain": domain,
-                "website": website,
-                "product_description": product_description,
-                "research_summary": research_summary,
-                "sources": [source_reference],
-                "source": "external_crm",
-                "research_source": "external_crm",
-                "research_real": True,
-                "real": True,
-                "identity_status": "verified",
-                "provider_record_id": provider_id or None,
-                "provider_properties": properties,
-            }
-        )
-        if isinstance(match.get("contacts"), list):
-            candidate["contacts"] = [item for item in match["contacts"] if isinstance(item, dict)]
-        prospect_candidates.append(candidate)
+        for match in matches:
+            raw_properties = match.get("properties")
+            properties = raw_properties if isinstance(raw_properties, dict) else {}
+            provider_id = str(match.get("id") or "").strip()
+            company = str(properties.get("name") or match.get("company") or "").strip()
+            # A provider row without its durable identity cannot become a
+            # verified prospect, even if the request target had a company name.
+            if not provider_id or not company:
+                continue
+            domain = str(properties.get("domain") or match.get("domain") or "").strip() or None
+            website = str(properties.get("website") or "").strip() or (f"https://{domain}" if domain else None)
+            product_description = str(properties.get("description") or "").strip()
+            if not product_description:
+                product_description = "No product description was provided by HubSpot CRM."
+            candidate = dict(researched)
+            candidate.update(
+                {
+                    "id": provider_id,
+                    "prospect_id": provider_id,
+                    "company": company,
+                    "domain": domain,
+                    "website": website,
+                    "product_description": product_description,
+                    "research_summary": (
+                        f"Observed HubSpot CRM company record {provider_id}. "
+                        "Provider properties were read through the governed CRM adapter."
+                    ),
+                    "sources": [f"hubspot://companies/{provider_id}"],
+                    "source": "external_crm",
+                    "research_source": "external_crm",
+                    "research_real": True,
+                    "real": True,
+                    "identity_status": "verified",
+                    "provider_record_id": provider_id,
+                    "provider_properties": properties,
+                }
+            )
+            if isinstance(match.get("contacts"), list):
+                candidate["contacts"] = [item for item in match["contacts"] if isinstance(item, dict)]
+            if isinstance(match.get("contacts_status"), str):
+                candidate["contacts_status"] = match["contacts_status"]
+            prospect_candidates.append(candidate)
 
     # ``crm.read_records`` declares ``crm_records`` as its durable output
     # artifact.  The generic research response above deliberately retains a
@@ -231,15 +247,24 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         "source": unique_sources[0] if len(unique_sources) == 1 else "mixed",
         "hybrid_mode": any_external_attempt_failed,
     }
+    if external_query_receipts:
+        output["external_query_receipts"] = external_query_receipts
     if any_external_attempt_failed:
         output["external_attempt_failed"] = True
-    if require_external_crm and any_external and not crm_records:
+    if (
+        require_external_crm
+        and any_external
+        and external_query_receipts
+        and all(receipt["response_complete"] and receipt["filters"] for receipt in external_query_receipts)
+        and not crm_records
+    ):
         # A successful external CRM query can truthfully have no matching
         # records. Preserve that outcome distinctly from a provider failure;
         # the runtime artifact contract recognizes this bounded marker.
         output["valid_empty_result"] = {
             "classification": "valid_empty",
             "reason": "The external CRM returned no records matching the explicitly requested target.",
+            "provider_queries": external_query_receipts,
         }
     if any_external and cred is not None:
         output["credential_reference"] = {

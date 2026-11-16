@@ -564,11 +564,34 @@ def is_proven_valid_empty_artifact(
     if not isinstance(output, dict):
         return False
     marker = output.get("valid_empty_result")
-    return (
-        isinstance(marker, dict)
-        and marker.get("classification") == "valid_empty"
+    if not isinstance(marker, dict):
+        return False
+    marker_is_valid = (
+        marker.get("classification") == "valid_empty"
         and isinstance(marker.get("reason"), str)
         and bool(marker["reason"].strip())
+    )
+    if not marker_is_valid:
+        return False
+    if artifact_key != "crm_records":
+        return True
+    queries = marker.get("provider_queries")
+    return bool(
+        isinstance(queries, list)
+        and queries
+        and all(
+            isinstance(query, dict)
+            and isinstance(query.get("source"), str)
+            and bool(query["source"].strip())
+            and isinstance(query.get("object_type"), str)
+            and bool(query["object_type"].strip())
+            and isinstance(query.get("filters"), dict)
+            and bool(query["filters"])
+            and query.get("response_complete") is True
+            and isinstance(query.get("result_count"), int)
+            and query["result_count"] == 0
+            for query in queries
+        )
     )
 
 

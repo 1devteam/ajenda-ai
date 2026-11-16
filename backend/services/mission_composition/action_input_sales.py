@@ -24,7 +24,17 @@ def build_sales_action_input(
     industry, location, _ = _target_bits(intent)
     limit = _prospect_count(intent)
     primary_entity = intent.target_entities[0] if intent.target_entities else None
-    explicit_company = primary_entity.name.strip() if primary_entity and primary_entity.name else None
+    # A recipient named in an interaction is not proof of a company identity.
+    # Only a typed company target can populate a provider company filter or a
+    # CRM company field.
+    explicit_company = (
+        primary_entity.name.strip()
+        if primary_entity
+        and primary_entity.type == "company"
+        and primary_entity.name
+        and primary_entity.attributes.get("identity_role") != "unresolved_interaction_subject"
+        else None
+    )
     company_label = explicit_company or industry or "prospect company"
     if location:
         company_label = f"{company_label} ({location})"
@@ -47,21 +57,27 @@ def build_sales_action_input(
             # company-industry filters. It does not support location, quantity,
             # deal/pipeline, or arbitrary contact-list filters.
             unsupported_scope = False
-            if re.search(r"\bdeals?\b|\bpipeline\b", crm_source) and not explicit_company:
+            if re.search(r"\bdeals?\b|\bpipeline\b", crm_source):
                 unsupported_scope = True
             if re.search(
                 r"\b(?:modified|updated|changed)\b.{0,32}\b(?:last|past)\s+\d+\s+days?\b",
                 crm_source,
             ):
                 unsupported_scope = True
-            if re.search(r"\blist\b.{0,24}\bcontacts?\b", crm_source) and not explicit_company:
+            if re.search(r"\b(?:list|read|find|show)\b.{0,24}\bcontacts?\b", crm_source):
                 unsupported_scope = True
             # The current HubSpot adapter accepts company/domain lookup only.
             # Market, location, quantity, and competitor discovery cannot be
             # represented faithfully without inventing a company search term.
             if any(entity.type == "competitor_set" for entity in intent.target_entities):
                 unsupported_scope = True
-            if not explicit_company and (location or intent.requested_quantity is not None):
+            # A single named company makes an explicit "one company" count
+            # redundant. Larger quantities remain material list constraints;
+            # location is always material because name search cannot enforce it.
+            if location or (
+                intent.requested_quantity is not None
+                and (not explicit_company or intent.requested_quantity != 1)
+            ):
                 unsupported_scope = True
             if unsupported_scope:
                 raise ValueError(
@@ -70,10 +86,14 @@ def build_sales_action_input(
                 )
         external_lead = dict(lead)
         if require_external and industry and not explicit_company:
-            # Do not turn an industry/category into a fictitious company. The
-            # runtime action passes this explicit field to the adapter's
-            # company-industry filter.
-            external_lead.pop("company", None)
+            # HubSpot's industry property is portal-defined enumeration data.
+            # Ajenda has no verified mapping from an ordinary-language category
+            # (for example, "technology") to the portal's allowed values, so a
+            # raw equality filter would misrepresent the operator's request.
+            raise ValueError(
+                "HubSpot industry category requires a provider-verified enumeration value or a named company/domain; "
+                "refusing an unverified raw category filter"
+            )
         return {
             "lead": external_lead,
             "context": {
@@ -137,7 +157,11 @@ def build_sales_action_input(
 
         named = None
         for entity in intent.target_entities:
-            if entity.name and entity.type in {"company", "person", "contact"}:
+            if (
+                entity.name
+                and entity.type == "company"
+                and entity.attributes.get("identity_role") != "unresolved_interaction_subject"
+            ):
                 named = entity.name
                 break
         return {

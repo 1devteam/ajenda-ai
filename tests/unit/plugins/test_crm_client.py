@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 from backend.services.plugins.crm_client import StandardCrmClient, is_live_external_crm_result
 from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
@@ -71,7 +73,7 @@ def test_crm_search_calls_external_adapter_with_credential() -> None:
     response = NetworkEgressResponse(
         status_code=200,
         headers={},
-        body_text='{"results":[{"id":"1"}],"count":1,"source":"hubspot"}',
+        body_text='{"results":[{"id":"1"}],"count":1,"source":"hubspot","object_type":"companies"}',
         body_truncated=False,
     )
     authority = MagicMock()
@@ -100,6 +102,41 @@ def test_crm_search_calls_external_adapter_with_credential() -> None:
     assert " " not in authority.request.call_args.kwargs["url"].split("?", 1)[-1]
 
 
+@pytest.mark.parametrize(
+    ("body_text", "body_truncated", "expected_error"),
+    [
+        ("{}", False, "results list"),
+        ('{"results":null,"count":0,"source":"hubspot","object_type":"companies"}', False, "results list"),
+        ('{"results":[],"count":1,"source":"hubspot","object_type":"companies"}', False, "count did not match"),
+        ('{"results":[],"count":0,"source":"hubspot","object_type":"companies"}', True, "truncated"),
+    ],
+)
+def test_crm_search_malformed_external_response_falls_back_with_visible_error(
+    body_text: str, body_truncated: bool, expected_error: str
+) -> None:
+    destination = VettedNetworkDestination(
+        original_url="https://crm.example.com/v1/search",
+        connect_url="https://10.0.0.1/v1/search",
+        pinned_ip=__import__("ipaddress").ip_address("10.0.0.1"),
+        sni_hostname="crm.example.com",
+        host_header="crm.example.com",
+    )
+    authority = MagicMock()
+    authority.request.return_value = (
+        destination,
+        NetworkEgressResponse(status_code=200, headers={}, body_text=body_text, body_truncated=body_truncated),
+    )
+    with patch("backend.services.plugins.crm_client.get_default_network_egress_authority", return_value=authority):
+        result = StandardCrmClient().search(
+            context=_context(), company="Acme", credential={"secret_value": "pak-token"}
+        )
+
+    assert result.source == "ajenda_brain"
+    assert result.error is not None
+    assert expected_error in result.error
+    assert result.response_complete is False
+
+
 def test_crm_search_url_encodes_company_names_with_spaces() -> None:
     destination = VettedNetworkDestination(
         original_url="https://crm.example.com/v1/search",
@@ -111,7 +148,7 @@ def test_crm_search_url_encodes_company_names_with_spaces() -> None:
     response = NetworkEgressResponse(
         status_code=200,
         headers={},
-        body_text='{"results":[],"count":0,"source":"hubspot"}',
+        body_text='{"results":[],"count":0,"source":"hubspot","object_type":"companies"}',
         body_truncated=False,
     )
     authority = MagicMock()
@@ -149,7 +186,7 @@ def test_crm_search_forwards_industry_without_mislabeling_it_as_company() -> Non
         NetworkEgressResponse(
             status_code=200,
             headers={},
-            body_text='{"results":[],"count":0,"source":"hubspot"}',
+            body_text='{"results":[],"count":0,"source":"hubspot","object_type":"companies"}',
             body_truncated=False,
         ),
     )

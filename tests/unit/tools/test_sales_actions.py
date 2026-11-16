@@ -658,7 +658,12 @@ def test_sales_research_credentialed_uses_external_read_path() -> None:
         sni_hostname="api.crm.example.com",
         host_header="api.crm.example.com",
     )
-    response = NetworkEgressResponse(status_code=200, headers={}, body_text='{"results":[]}', body_truncated=False)
+    response = NetworkEgressResponse(
+        status_code=200,
+        headers={},
+        body_text='{"results":[],"count":0,"source":"hubspot","object_type":"companies"}',
+        body_truncated=False,
+    )
     authority = MagicMock()
     authority.request.return_value = (destination, response)
 
@@ -709,7 +714,7 @@ def test_sales_research_explicit_external_crm_does_not_substitute_tenant_domain_
     response = NetworkEgressResponse(
         status_code=200,
         headers={},
-        body_text='{"results":[],"count":0,"source":"hubspot"}',
+        body_text='{"results":[],"count":0,"source":"hubspot","object_type":"companies"}',
         body_truncated=False,
     )
     authority = MagicMock()
@@ -741,6 +746,59 @@ def test_sales_research_explicit_external_crm_does_not_substitute_tenant_domain_
     )
 
 
+def test_sales_research_projects_only_provider_rows_and_preserves_zero_and_many_matches() -> None:
+    from backend.services.plugins.crm_client import CrmSearchResult
+
+    registry = ActionRegistry()
+    register_sales_actions(registry)
+    handler = registry.get("sales.research").handler
+    context = _context()
+    context.runtime_credentials = {"sales.research": {"secret_value": "crm-token"}}
+
+    empty = CrmSearchResult(
+        results=[],
+        count=0,
+        source="hubspot",
+        real=True,
+        status_code=200,
+        query_filters={"company": "Acme"},
+        object_type="companies",
+        response_complete=True,
+    )
+    many = CrmSearchResult(
+        results=[
+            {"id": "company-1", "properties": {"name": "Acme One"}},
+            {"id": "company-2", "properties": {"name": "Acme Two"}},
+        ],
+        count=2,
+        source="hubspot",
+        real=True,
+        status_code=200,
+        query_filters={"company": "Acme"},
+        object_type="companies",
+        response_complete=True,
+    )
+    client = MagicMock()
+    client.search.side_effect = [empty, many]
+
+    invocation = ToolInvocation(
+        action="sales.research",
+        input={"lead": {"company": "Acme"}, "context": {"require_external_crm": True}},
+        credential_reference={"credential_id": "hubspot", "provider": "hubspot", "credential_type": "api_key"},
+    )
+    with patch("backend.services.tools.sales_action_research.default_crm_client", return_value=client):
+        zero_result = handler(invocation, context)
+        many_result = handler(invocation, context)
+
+    assert zero_result.output["prospect_candidates"] == []
+    assert is_proven_valid_empty_artifact(artifact_key="crm_records", payload=[], output=zero_result.output)
+    assert [candidate["provider_record_id"] for candidate in many_result.output["prospect_candidates"]] == [
+        "company-1",
+        "company-2",
+    ]
+    assert "valid_empty_result" not in many_result.output
+
+
 def test_sales_research_hubspot_adapter_source_counts_as_external_plugin() -> None:
     registry = get_default_action_registry(rebuild=True)
     handler = registry.get("sales.research").handler
@@ -761,7 +819,7 @@ def test_sales_research_hubspot_adapter_source_counts_as_external_plugin() -> No
     response = NetworkEgressResponse(
         status_code=200,
         headers={},
-        body_text='{"results":[{"id":"330345792208"}],"count":1,"source":"hubspot"}',
+        body_text='{"results":[{"id":"330345792208"}],"count":1,"source":"hubspot","object_type":"companies"}',
         body_truncated=False,
     )
     authority = MagicMock()

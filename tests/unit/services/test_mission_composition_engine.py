@@ -15,6 +15,7 @@ from backend.services.mission_composition.contracts import (
 from backend.services.mission_composition.deliverable_runtime_state import build_deliverable_runtime_state
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
+from backend.services.mission_composition.interpretation.outcome_proposer import OutcomeProposal
 from backend.services.mission_composition.job_catalog import get_business_job, list_business_jobs
 from backend.services.mission_composition.plan_compiler import (
     compile_planned_steps,
@@ -85,8 +86,8 @@ def test_named_company_action_subject_is_not_a_descriptive_comparison_phrase() -
         "Reach out to Best Buy and find me the best buy in new computers.", fuzzy_enabled=False
     )
 
-    assert [(entity.type, entity.name) for entity in intent.target_entities] == [("company", "Best Buy")]
-    assert intent.target_entities[0].attributes["identity_role"] == "named_company_subject"
+    assert [(entity.type, entity.name) for entity in intent.target_entities] == [("interaction_subject", "Best Buy")]
+    assert intent.target_entities[0].attributes["identity_role"] == "unresolved_interaction_subject"
     assert "research_prospects" not in intent.requested_outcomes
     assert "send_outreach" not in intent.requested_outcomes
     assert intent.send_policy.mode == "unknown"
@@ -101,6 +102,68 @@ def test_descriptive_purchase_comparison_never_becomes_a_company_or_prospect_res
     assert "research_prospects" not in intent.requested_outcomes
     assert any(item.field == "comparison_scope" for item in intent.ambiguity)
     assert any("best buy in new computers" in item.text.lower() for item in intent.unmatched_material_clauses)
+
+
+def test_interaction_subjects_do_not_become_companies_or_absorb_topics_and_timing() -> None:
+    jane = interpret_instruction("Email Jane Smith about warranties.", fuzzy_enabled=False)
+    pronoun = interpret_instruction("Call them tomorrow.", fuzzy_enabled=False)
+    multiple = interpret_instruction("Contact Best Buy and Acme.", fuzzy_enabled=False)
+
+    assert [(item.type, item.name) for item in jane.target_entities] == [("interaction_subject", "Jane Smith")]
+    assert pronoun.target_entities == []
+    assert [(item.type, item.name) for item in multiple.target_entities] == [
+        ("interaction_subject", "Best Buy"),
+        ("interaction_subject", "Acme"),
+    ]
+
+
+def test_comparison_guard_is_clause_local_and_does_not_block_named_hubspot_lookup() -> None:
+    lookup = interpret_instruction("Find Best Buy in HubSpot.", fuzzy_enabled=False)
+    mixed = interpret_instruction(
+        "Research roofing companies in Austin and find me the best buy in new computers.",
+        fuzzy_enabled=False,
+    )
+    cheapest = interpret_instruction("Find me the cheapest desktop computer.", fuzzy_enabled=False)
+
+    assert not any(item.field == "comparison_scope" for item in lookup.ambiguity)
+    assert [(item.type, item.name) for item in lookup.target_entities] == [("company", "Best Buy")]
+    assert "research_prospects" in mixed.requested_outcomes
+    assert any("best buy" in item.text.lower() for item in mixed.unmatched_material_clauses)
+    assert "research_prospects" not in cheapest.requested_outcomes
+    assert any(item.field == "comparison_scope" for item in cheapest.ambiguity)
+
+
+def test_unsupported_comparison_clause_is_never_remapped_by_optional_outcome_proposer() -> None:
+    class Proposer:
+        called = False
+
+        def propose(self, *, instruction: str, clauses: tuple[dict[str, str], ...]) -> OutcomeProposal:
+            self.called = True
+            return OutcomeProposal(clauses=())
+
+    proposer = Proposer()
+    intent = interpret_instruction(
+        "Find me the best buy in new computers.", outcome_proposer=proposer, fuzzy_enabled=False
+    )
+
+    assert proposer.called is False
+    assert "research_prospects" not in intent.requested_outcomes
+
+
+def test_unresolved_interaction_subject_cannot_fill_a_crm_company_field() -> None:
+    intent = interpret_instruction("Email Jane Smith about warranties.", fuzzy_enabled=False)
+    crm_input = build_action_input(action_name="gtm.crm_upsert", intent=intent)
+
+    assert crm_input is not None
+    assert crm_input["data"]["company"] == "pending.binding.company"
+    assert crm_input["context"]["binding_required"] is True
+
+
+def test_external_crm_category_requires_a_provider_verified_value() -> None:
+    intent = interpret_instruction("Read technology companies from HubSpot.", fuzzy_enabled=False)
+
+    with pytest.raises(ValueError, match="provider-verified enumeration"):
+        build_action_input(action_name="crm.research", intent=intent)
 
 
 def test_missing_send_authorization_forbids_send() -> None:
