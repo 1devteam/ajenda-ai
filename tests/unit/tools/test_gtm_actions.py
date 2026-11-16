@@ -538,7 +538,13 @@ def test_gtm_email_check_fail_closed_on_credentialed_api_error() -> None:
     [
         ('{"messages": null}', False),
         ('{"messages": [{"threadId": "t1"}]}', False),
+        ('{"messages": [{"id": "m1"}]}', False),
+        ('{"messages": [], "nextPageToken": 12}', False),
+        ('{"messages": [], "nextPageToken": null}', False),
+        ('{"messages": [], "resultSizeEstimate": false}', False),
+        ('{"messages": [], "resultSizeEstimate": null}', False),
         ("{}", False),
+        ('{"resultSizeEstimate": false}', False),
         ('{"messages": [{"id": "m1"}]}', True),
     ],
 )

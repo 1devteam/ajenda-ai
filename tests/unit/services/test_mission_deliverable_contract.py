@@ -81,6 +81,20 @@ def test_email_message_artifact_remains_connector_output_not_revops_report() -> 
     assert request is None
 
 
+def test_email_artifact_policy_suffix_does_not_change_its_classification() -> None:
+    request = deliverable_contract.extract_deliverable_request(
+        "Review my Gmail inbox and return the retrieved email messages artifact. Do not send messages."
+    )
+    assert request is None
+
+
+def test_email_artifact_does_not_hide_separate_report_fields() -> None:
+    request = deliverable_contract.extract_deliverable_request(
+        "Review my Gmail inbox and return the retrieved email messages artifact. Provide sources."
+    )
+    assert request is not None
+
+
 def test_browser_observation_fields_do_not_become_prospect_website() -> None:
     request = deliverable_contract.extract_deliverable_request(
         "Open https://www.iana.org/domains/example and return the final URL, page title, visible text, observation timestamp, browser step trace, and blocked-request list."

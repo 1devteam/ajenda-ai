@@ -457,14 +457,26 @@ def email_check_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Actio
             if not isinstance(payload_json, dict):
                 raise ValueError("Gmail API returned a non-object response")
             messages = payload_json.get("messages")
-            if messages is None and "messages" not in payload_json and payload_json.get("resultSizeEstimate") == 0:
+            estimate = payload_json.get("resultSizeEstimate")
+            if "resultSizeEstimate" in payload_json and (type(estimate) is not int or estimate < 0):
+                raise ValueError("Gmail API returned an invalid result estimate")
+            if messages is None and "messages" not in payload_json and type(estimate) is int and estimate == 0:
                 messages = []
             if not isinstance(messages, list):
                 raise ValueError("Gmail API response does not establish a message list")
             if len(messages) > inp.limit:
                 raise ValueError("Gmail API returned more messages than requested")
+            page_token = payload_json.get("nextPageToken")
+            if "nextPageToken" in payload_json and not isinstance(page_token, str):
+                raise ValueError("Gmail API returned an invalid continuation token")
             for message in messages:
-                if not isinstance(message, dict) or not isinstance(message.get("id"), str) or not message["id"].strip():
+                if (
+                    not isinstance(message, dict)
+                    or not isinstance(message.get("id"), str)
+                    or not message["id"].strip()
+                    or not isinstance(message.get("threadId"), str)
+                    or not message["threadId"].strip()
+                ):
                     raise ValueError("Gmail API response contains an invalid message reference")
                 emails.append(
                     {
@@ -473,7 +485,7 @@ def email_check_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Actio
                         "snippet": message.get("snippet"),
                     }
                 )
-            has_more = bool(payload_json.get("nextPageToken"))
+            has_more = bool(page_token)
             status_code = resp.status_code
         except Exception as exc:
             raise ValueError(f"Gmail email check failed on credentialed path: {exc}") from exc
