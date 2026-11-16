@@ -75,8 +75,7 @@ def build_sales_action_input(
             # redundant. Larger quantities remain material list constraints;
             # location is always material because name search cannot enforce it.
             if location or (
-                intent.requested_quantity is not None
-                and (not explicit_company or intent.requested_quantity != 1)
+                intent.requested_quantity is not None and (not explicit_company or intent.requested_quantity != 1)
             ):
                 unsupported_scope = True
             if unsupported_scope:
