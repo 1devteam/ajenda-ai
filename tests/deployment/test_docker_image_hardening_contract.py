@@ -73,6 +73,12 @@ def test_api_images_include_autonomy_catalog_and_match_hardening() -> None:
         assert "AS builder" in text
 
 
+def test_worker_installs_playwright_driver_runtime_before_browser_setup() -> None:
+    text = _read(WORKER_DOCKERFILE)
+    assert "libatomic1" in text
+    assert text.index("libatomic1") < text.index("playwright install --with-deps chromium")
+
+
 def test_frontend_image_does_not_declare_credential_shaped_env_keys() -> None:
     text = _read(FRONTEND_DOCKERFILE)
 

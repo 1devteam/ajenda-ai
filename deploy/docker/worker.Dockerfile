@@ -32,7 +32,7 @@ COPY --from=builder /install /usr/local
 
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
-    && apt-get install -y --no-install-recommends libpq5 curl \
+    && apt-get install -y --no-install-recommends libpq5 curl libatomic1 \
     && groupadd --gid 1000 ajenda \
     && useradd --uid 1000 --gid 1000 --create-home --home-dir /home/ajenda --shell /usr/sbin/nologin ajenda \
     && playwright install --with-deps chromium \
