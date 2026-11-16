@@ -799,6 +799,43 @@ def test_sales_research_projects_only_provider_rows_and_preserves_zero_and_many_
     assert "valid_empty_result" not in many_result.output
 
 
+def test_sales_research_preserves_unverified_contact_relationship_in_crm_artifact() -> None:
+    from backend.services.plugins.crm_client import CrmSearchResult
+
+    registry = ActionRegistry()
+    register_sales_actions(registry)
+    context = _context()
+    context.runtime_credentials = {"sales.research": {"secret_value": "test"}}
+    client = MagicMock()
+    client.search.return_value = CrmSearchResult(
+        results=[
+            {
+                "id": "company-1",
+                "properties": {"name": "Acme"},
+                "contacts": [],
+                "contacts_status": "unverified",
+                "contacts_error": "association lookup failed",
+            }
+        ],
+        count=1,
+        source="hubspot",
+        real=True,
+        status_code=200,
+        query_filters={"company": "Acme"},
+        object_type="companies",
+        response_complete=True,
+    )
+    invocation = ToolInvocation(
+        action="sales.research",
+        input={"lead": {"company": "Acme"}, "context": {"require_external_crm": True}},
+    )
+    with patch("backend.services.tools.sales_action_research.default_crm_client", return_value=client):
+        result = registry.get("sales.research").handler(invocation, context)
+    record = result.output["crm_records"][0]
+    assert record["contacts_status"] == "unverified"
+    assert record["contacts_error"] == "association lookup failed"
+
+
 def test_sales_research_hubspot_adapter_source_counts_as_external_plugin() -> None:
     registry = get_default_action_registry(rebuild=True)
     handler = registry.get("sales.research").handler

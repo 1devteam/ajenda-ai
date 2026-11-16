@@ -485,6 +485,12 @@ CRM_RECORDS_SCHEMA = CompositionArtifactSchema(
             deliverable_field="company_name", json_path="$[].company", scope="per_item", required_when_item_exists=False
         ),
         ArtifactFieldProjection(deliverable_field="research_source", json_path="$[].source", scope="per_item"),
+        ArtifactFieldProjection(
+            deliverable_field="linked_contacts",
+            json_path="$[].contacts",
+            scope="per_item",
+            required_when_item_exists=False,
+        ),
     ),
 )
 

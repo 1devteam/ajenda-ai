@@ -935,6 +935,14 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
     entities.extend(_extract_industry_location_entities(text))
     if not entities:
         entities.extend(_extract_industry_audience_entities(text))
+    # Prefer an explicitly scoped CRM record over an unrelated recipient in a
+    # later prohibition such as "do not contact anyone".
+    if not entities and re.search(r"\bhubspot\b", text, flags=re.IGNORECASE):
+        for sentence in re.split(r"(?<=[.!?])\s+", text):
+            if re.search(r"\bhubspot\b", sentence, flags=re.IGNORECASE):
+                entities.extend(_extract_connector_company(sentence))
+                if entities:
+                    break
     # An interaction recipient is intentionally not promoted to a company.
     # Its name may be a person or organization, but composition cannot infer
     # which CRM identity field is appropriate from the verb alone.

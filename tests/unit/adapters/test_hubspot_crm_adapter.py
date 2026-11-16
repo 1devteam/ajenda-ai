@@ -115,6 +115,22 @@ def test_search_rejects_malformed_hubspot_result_body(client: TestClient) -> Non
     assert "results list" in response.json()["detail"]
 
 
+def test_company_contact_association_duplicate_ids_are_read_once() -> None:
+    hubspot = HubSpotClient(access_token=TOKEN)
+    with (
+        patch.object(
+            hubspot,
+            "_request",
+            return_value={"associations": {"contacts": {"results": [{"id": "one"}, {"id": "one"}]}}},
+        ),
+        patch.object(hubspot, "read", return_value={"id": "one"}) as read,
+    ):
+        contacts = hubspot._read_company_contacts(company_id="company")
+
+    assert contacts == [{"id": "one"}]
+    read.assert_called_once_with(record_type="contact", record_id="one")
+
+
 def test_search_by_domain(client: TestClient) -> None:
     with patch("services.hubspot_crm_adapter.hubspot.httpx.Client") as client_cls:
         http_client = MagicMock()

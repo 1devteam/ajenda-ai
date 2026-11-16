@@ -228,6 +228,10 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
             }
             if isinstance(match.get("contacts"), list):
                 record["contacts"] = [item for item in match["contacts"] if isinstance(item, dict)]
+            if isinstance(match.get("contacts_status"), str):
+                record["contacts_status"] = match["contacts_status"]
+            if isinstance(match.get("contacts_error"), str):
+                record["contacts_error"] = match["contacts_error"]
             crm_records.append(record)
 
     # Existing single-lead callers remain valid while composed runtime nodes

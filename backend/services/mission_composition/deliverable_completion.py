@@ -148,6 +148,14 @@ def _typed_field_has_value(*, artifact: MaterializedArtifact, field_key: Deliver
         )
     if not isinstance(artifact.payload, list) or not artifact.payload:
         return False
+    if field_key == "linked_contacts" and artifact.artifact_key == "crm_records":
+        return all(
+            isinstance(item, dict)
+            and item.get("contacts_status") in {"verified", "verified_empty"}
+            and isinstance(item.get("contacts"), list)
+            and ((item["contacts_status"] == "verified") == bool(item["contacts"]))
+            for item in artifact.payload
+        )
     for field in matching:
         path_field = _path_field(field.json_path)
         if path_field is None:
