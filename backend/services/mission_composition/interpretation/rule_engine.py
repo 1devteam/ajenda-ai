@@ -1005,12 +1005,14 @@ def _is_comparative_purchase_request(text: str) -> bool:
 def _extract_connector_company(text: str) -> list[TargetEntity]:
     """Extract an explicit company target for a HubSpot/CRM read."""
 
-    match = (
-        _HUBSPOT_COMPANY_AFTER.search(text)
-        or _HUBSPOT_COMPANY_NAMED.search(text)
-        or _HUBSPOT_COMPANY_RECORD_FOR.search(text)
-        or _HUBSPOT_COMPANY_BEFORE.search(text)
-    )
+    before = _HUBSPOT_COMPANY_BEFORE.search(text)
+    named = _HUBSPOT_COMPANY_NAMED.search(text)
+    # Prefer the narrow named-record span only when it is contained in the
+    # broader "read ... from HubSpot" subject. A later, unrelated named
+    # company must not replace the connector's actual target.
+    if before and named and before.start("name") <= named.start() and named.end("name") <= before.end("name"):
+        before = named
+    match = _HUBSPOT_COMPANY_AFTER.search(text) or before or named or _HUBSPOT_COMPANY_RECORD_FOR.search(text)
     if match is None:
         return []
     name = match.group("name").strip(" ,.;:")

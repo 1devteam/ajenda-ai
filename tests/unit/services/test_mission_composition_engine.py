@@ -211,6 +211,11 @@ def test_named_hubspot_company_record_uses_name_not_record_description() -> None
     assert [(entity.type, entity.name) for entity in intent.target_entities] == [("company", "Copper Circuit Systems")]
 
 
+def test_later_named_company_does_not_replace_hubspot_read_subject() -> None:
+    intent = interpret_instruction("Read Acme from HubSpot and inspect the company named Other.", fuzzy_enabled=False)
+    assert [(entity.type, entity.name) for entity in intent.target_entities] == [("company", "Acme")]
+
+
 def test_external_crm_category_requires_a_provider_verified_value() -> None:
     intent = interpret_instruction("Read technology companies from HubSpot.", fuzzy_enabled=False)
 
