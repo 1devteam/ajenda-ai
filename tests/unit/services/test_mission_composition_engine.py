@@ -159,6 +159,17 @@ def test_unresolved_interaction_subject_cannot_fill_a_crm_company_field() -> Non
     assert crm_input["context"]["binding_required"] is True
 
 
+def test_crm_company_is_not_replaced_by_recipient_of_later_prohibition() -> None:
+    intent = interpret_instruction(
+        "Read HubSpot CRM records for Copper Circuit Systems. "
+        "Return the company record and its linked contacts. "
+        "Do not contact anyone, send messages, or modify CRM records.",
+        fuzzy_enabled=False,
+    )
+    assert [(entity.type, entity.name) for entity in intent.target_entities] == [("company", "Copper Circuit Systems")]
+    assert not intent.unmatched_material_clauses
+
+
 def test_external_crm_category_requires_a_provider_verified_value() -> None:
     intent = interpret_instruction("Read technology companies from HubSpot.", fuzzy_enabled=False)
 

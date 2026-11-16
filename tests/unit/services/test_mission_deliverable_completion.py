@@ -33,6 +33,33 @@ def _qualified_row() -> dict[str, object]:
     }
 
 
+def test_linked_contacts_require_verified_association_observation() -> None:
+    def observed(status: str, contacts: list[dict[str, object]]) -> bool:
+        completion = evaluate_deliverable_completion(
+            _projection("Return the company record and its linked contacts."),
+            [
+                MaterializedArtifact(
+                    artifact_key="crm_records",
+                    payload=[
+                        {
+                            "id": "company",
+                            "source": "hubspot",
+                            "contacts_status": status,
+                            "contacts": contacts,
+                        }
+                    ],
+                )
+            ],
+        )
+        return completion.complete
+
+    assert observed("verified", [{"id": "one"}])
+    assert observed("verified_empty", [])
+    assert not observed("unverified", [])
+    assert not observed("verified", [])
+    assert not observed("verified_empty", [{"id": "one"}])
+
+
 def test_typed_and_whole_artifact_fields_complete_only_after_materialization() -> None:
     projection = _projection("Return company name, qualification reasons, qualification score, and drafts.")
 

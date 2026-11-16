@@ -263,10 +263,14 @@ class HubSpotClient:
                 detail="HubSpot company contact associations exceed the bounded association read",
             )
         contacts: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
         for reference in contact_refs:
             contact_id = str(reference.get("id") or "").strip()
             if not contact_id:
                 raise HubSpotApiError(status_code=502, detail="HubSpot contact association did not contain an ID")
+            if contact_id in seen_ids:
+                continue
+            seen_ids.add(contact_id)
             contact = self.read(record_type="contact", record_id=contact_id)
             contacts.append(contact)
         return contacts
