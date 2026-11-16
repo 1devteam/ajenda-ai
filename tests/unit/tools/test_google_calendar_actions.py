@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 from backend.services.tools.action_registry import ActionRegistry
 from backend.services.tools.google_calendar_actions import register_google_calendar_actions
 from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
+from backend.services.worker_runtime_contracts import _validate_declared_output_contract
 
 
 def _context() -> ActionRuntimeContext:
@@ -30,6 +32,11 @@ def test_google_calendar_events_read_simulated_without_credential(monkeypatch) -
 
     assert result.output["real"] is False
     assert result.output["events"][0]["id"] == "sim-gcal-1"
+    assert result.output["calendar_events"] == result.output["events"]
+    _validate_declared_output_contract(
+        SimpleNamespace(metadata_json={"expected_output_contract": {"artifact": "calendar_events"}}),
+        {"output": result.output},
+    )
     assert result.side_effect_class.value == "external_read"
 
 
@@ -71,6 +78,7 @@ def test_google_calendar_events_read_uses_api_with_runtime_credential() -> None:
 
     assert result.output["real"] is True
     assert result.output["events"][0]["id"] == "evt-live-1"
+    assert result.output["calendar_events"] == result.output["events"]
     assert authority.request.call_args.kwargs["headers"]["Authorization"] == "Bearer google-calendar-token"
 
 
@@ -97,3 +105,25 @@ def test_google_calendar_events_read_fail_closed_on_credentialed_api_error() -> 
             raise AssertionError("expected ValueError")
         except ValueError as exc:
             assert "credentialed path" in str(exc)
+
+
+def test_empty_calendar_response_emits_declared_empty_artifact() -> None:
+    registry = ActionRegistry()
+    register_google_calendar_actions(registry)
+    context = _context()
+    context.runtime_credentials = {"google_calendar.events_read": {"secret_value": "test-token"}}
+    response = NetworkEgressResponse(status_code=200, headers={}, body_text='{"items":[]}', body_truncated=False)
+    authority = MagicMock()
+    authority.request.return_value = (None, response)
+    with patch(
+        "backend.services.tools.google_calendar_actions.get_default_network_egress_authority", return_value=authority
+    ):
+        result = registry.get("google_calendar.events_read").handler(
+            ToolInvocation(action="google_calendar.events_read", input={}), context
+        )
+    assert result.output["real"] is True
+    assert result.output["calendar_events"] == []
+    _validate_declared_output_contract(
+        SimpleNamespace(metadata_json={"expected_output_contract": {"artifact": "calendar_events"}}),
+        {"output": result.output},
+    )

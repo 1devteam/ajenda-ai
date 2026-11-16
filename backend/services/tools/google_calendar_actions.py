@@ -154,6 +154,9 @@ def google_calendar_events_read(invocation: ToolInvocation, context: ActionRunti
     output = {
         "calendar_id": payload.calendar_id,
         "events": events,
+        # Composition declares this artifact name; keep events for existing
+        # action consumers while emitting the same provider observation.
+        "calendar_events": events,
         "count": len(events),
         "real": real,
         "source": "google_calendar_api" if real else "simulated",
