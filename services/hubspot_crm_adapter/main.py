@@ -47,6 +47,7 @@ async def health() -> dict[str, str]:
 async def search(
     company: str | None = Query(default=None),
     domain: str | None = Query(default=None),
+    industry: str | None = Query(default=None),
     authorization: str | None = Header(default=None),
 ) -> SearchResponse:
     try:
@@ -60,7 +61,7 @@ async def search(
         timeout_seconds=REQUEST_TIMEOUT_SECONDS,
     )
     try:
-        object_type, results = client.search(company=company, domain=domain)
+        object_type, results = client.search(company=company, domain=domain, industry=industry)
     except HubSpotApiError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 

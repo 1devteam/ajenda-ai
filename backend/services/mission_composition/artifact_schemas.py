@@ -537,6 +537,7 @@ _VALID_EMPTY_PER_ITEM_ARTIFACT_KEYS = frozenset(
         "prospect_candidates",
         "verified_prospect_candidates",
         "qualified_prospects",
+        "crm_records",
     }
 )
 
@@ -551,11 +552,11 @@ def is_proven_valid_empty_artifact(
 
     Per-item artifact schemas intentionally reject bare empty lists: an absent
     result must not satisfy a deliverable merely because it has the right JSON
-    shape.  Public research can nevertheless complete with no verified
-    identities or qualified prospects.  Its handler supplies a bounded marker
-    describing that evidence-backed outcome.  Runtime completion and the
-    operator read model must apply the same narrow exception so they cannot
-    disagree about the durable result.
+    shape. Public research and an explicit external CRM read can nevertheless
+    complete with no matching records, but only when their handler supplies a
+    bounded marker describing that evidence-backed outcome. Runtime completion
+    and the operator read model must apply the same narrow exception so they
+    cannot disagree about the durable result.
     """
 
     if artifact_key not in _VALID_EMPTY_PER_ITEM_ARTIFACT_KEYS or payload != []:

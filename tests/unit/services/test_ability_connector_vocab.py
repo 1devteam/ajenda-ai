@@ -261,11 +261,28 @@ def test_hubspot_source_research_does_not_dual_route_web_and_crm() -> None:
     assert selected[0].action_name == "sales.research"
     assert selected[0].readiness == "ready"
 
-    try:
+    with pytest.raises(ValueError, match=r"scope|company|sales\.research"):
+        # Location and requested quantity remain unsupported adapter filters.
         build_action_input(action_name="sales.research", intent=intent)
-        raise AssertionError("expected market-scoped HubSpot discovery to fail closed")
-    except ValueError as exc:
-        assert "scope" in str(exc).lower() or "company" in str(exc).lower()
+
+
+def test_hubspot_company_category_binds_industry_not_a_literal_company_name() -> None:
+    intent = interpret_instruction("Read HubSpot CRM records for technology companies.")
+
+    assert intent.target_entities[0].industry == "technology"
+    assert intent.target_entities[0].name is None
+    payload = build_action_input(action_name="sales.research", intent=intent)
+    assert payload["lead"] == {"industry": "technology", "source": "mission_composition"}
+    assert payload["context"]["require_external_crm"] is True
+
+
+def test_hubspot_company_name_with_separator_remains_an_exact_name_target() -> None:
+    intent = interpret_instruction("Read HubSpot CRM records for Ajenda Test - Pixel Ridge Technologies.")
+
+    assert intent.target_entities[0].name == "Ajenda Test - Pixel Ridge Technologies"
+    assert intent.target_entities[0].industry is None
+    payload = build_action_input(action_name="sales.research", intent=intent)
+    assert payload["lead"]["company"] == "Ajenda Test - Pixel Ridge Technologies"
 
 
 def test_hubspot_named_company_source_binds_external_research_input() -> None:

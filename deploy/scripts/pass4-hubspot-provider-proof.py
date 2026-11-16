@@ -38,6 +38,26 @@ INSTRUCTION = (
     "qualified contact to HubSpot CRM, and verify the saved record by reading it back. Do not send messages."
 )
 
+# This isolated proof tenant receives only the authority required by its
+# provider-read / approval-gated-write path.  It is persisted through the
+# public business-profile API below; onboarding must not imply execution
+# authority merely because a proof will run next.
+PASS4_OPERATING_CHARTER: dict[str, Any] = {
+    "schema_version": 1,
+    "may_prepare": [
+        "sales.research",
+        "crm.research",
+        "research.observe_contacts",
+        "sales.qualify",
+        "gtm.lead_enrich",
+        "crm.verify_effect",
+    ],
+    "may_perform": ["gtm.crm_upsert"],
+    "never_do": ["gtm.email_send", "gtm.social_publish", "webhook.dispatch"],
+    "approval_mode": "notify_before_external",
+    "revision": 0,
+}
+
 
 class ProofFailure(RuntimeError):
     pass
@@ -156,9 +176,53 @@ def register_hubspot(tenant_id: str, machine_key: str) -> dict[str, Any]:
     )
 
 
+def persist_pass4_operating_charter(*, headers: dict[str, str]) -> None:
+    """Grant the isolated proof tenant its narrow, revisioned authority.
+
+    The proof must use the same public profile boundary as a customer.  It
+    never treats onboarding or possession of a CRM credential as authority to
+    compose or execute an external effect.
+    """
+
+    profile = request("GET", "/v1/business-profile", headers=headers)
+    charter_state = profile.get("operating_charter")
+    if not isinstance(charter_state, dict):
+        raise ProofFailure("business profile omitted operating_charter state")
+    if charter_state.get("status") != "missing" or charter_state.get("revision") != 0:
+        raise ProofFailure(
+            "new Pass 4 proof tenant did not start with a missing revision-zero operating charter: "
+            f"{json.dumps(charter_state, sort_keys=True)}"
+        )
+    saved_profile = request(
+        "PUT",
+        "/v1/business-profile/facts/operating_charter",
+        body={
+            "approved_fact": {"value": dict(PASS4_OPERATING_CHARTER)},
+            "expected_charter_revision": 0,
+            "provenance_metadata": {"source": "pass4_hubspot_provider_proof"},
+        },
+        headers=headers,
+    )
+    saved_state = saved_profile.get("operating_charter")
+    if not isinstance(saved_state, dict):
+        raise ProofFailure("saved business profile omitted operating_charter state")
+    if saved_state.get("status") != "active" or saved_state.get("revision") != 1:
+        raise ProofFailure(
+            "Pass 4 proof operating charter was not persisted as active revision one: "
+            f"{json.dumps(saved_state, sort_keys=True)}"
+        )
+    persisted = saved_state.get("charter")
+    if not isinstance(persisted, dict):
+        raise ProofFailure("saved active operating charter omitted charter payload")
+    for field in ("may_prepare", "may_perform", "never_do", "approval_mode"):
+        if persisted.get(field) != PASS4_OPERATING_CHARTER.get(field):
+            raise ProofFailure(f"saved Pass 4 operating charter changed {field} during persistence")
+
+
 def main() -> int:
     tenant_id, machine_key, email, password = create_tenant()
     machine = machine_headers(tenant_id, machine_key)
+    persist_pass4_operating_charter(headers=machine)
     credential_response = register_hubspot(tenant_id, machine_key)
     credential = credential_response.get("credential", {})
     credential_id = require(credential, "credential_id")

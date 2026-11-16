@@ -38,6 +38,7 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
     any_external_attempt_failed = False
 
     for target in targets:
+        industry = str(target.get("industry") or "").strip()
         account_id = str(target.get("account_id") or (payload.account_id if not bound_prospects else "") or "")
         related: list[dict[str, Any]] = []
         if account_id:
@@ -57,6 +58,18 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
                     "sales.research requires each bound prospect to provide company/name or domain; "
                     "refusing tenant-profile substitution"
                 )
+        elif require_external_crm:
+            # An explicit provider CRM read is about the named provider target,
+            # not the tenant operating its Ajenda instance. In particular, do
+            # not append the tenant's profile domain to a provider lookup when
+            # the instruction supplied only a company name.
+            company = str(target.get("company") or target.get("name") or "").strip()
+            domain = str(target.get("domain") or "").strip() or None
+            if not company and not domain and not industry:
+                raise ValueError(
+                    "explicit external CRM research requires a company/name, domain, or industry; "
+                    "refusing tenant-profile substitution"
+                )
         else:
             company, domain = default_company_and_domain(
                 context=context,
@@ -68,6 +81,7 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
             context=context,
             company=company,
             domain=domain or "",
+            industry=industry,
             credential=cred,
             invocation=invocation,
             action_name="sales.research",
@@ -170,6 +184,36 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
             candidate["contacts"] = [item for item in match["contacts"] if isinstance(item, dict)]
         prospect_candidates.append(candidate)
 
+    # ``crm.read_records`` declares ``crm_records`` as its durable output
+    # artifact.  The generic research response above deliberately retains a
+    # target-shaped candidate when a CRM query has no match, which is useful to
+    # downstream research but is not a CRM record.  Project this artifact only
+    # from provider-returned matches so a completed CRM-read task cannot claim
+    # that the query target was found by HubSpot (or any other CRM source).
+    crm_records: list[dict[str, Any]] = []
+    for researched in researched_prospects:
+        research_source = str(researched.get("research_source") or "").strip()
+        for match in researched.get("crm_matches") or []:
+            if not isinstance(match, dict):
+                continue
+            record_id = str(match.get("id") or "").strip()
+            # The declared schema requires a durable provider identity.  A
+            # malformed provider row must not be materialized as a CRM record.
+            if not record_id:
+                continue
+            raw_properties = match.get("properties")
+            properties = raw_properties if isinstance(raw_properties, dict) else {}
+            record: dict[str, Any] = {
+                "id": record_id,
+                "company": str(properties.get("name") or match.get("company") or "").strip() or None,
+                "source": research_source or "external_crm",
+                "provider_record_id": record_id,
+                "provider_properties": properties,
+            }
+            if isinstance(match.get("contacts"), list):
+                record["contacts"] = [item for item in match["contacts"] if isinstance(item, dict)]
+            crm_records.append(record)
+
     # Existing single-lead callers remain valid while composed runtime nodes
     # consume the canonical prospect_candidates artifact.
     first_target = targets[0] if targets else {}
@@ -178,6 +222,7 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
         "lead": first_target,
         "related_records": related_records,
         "crm_matches": crm_matches,
+        "crm_records": crm_records,
         "research_notes": research_notes,
         "researched_prospects": researched_prospects,
         "prospect_candidates": prospect_candidates,
@@ -188,6 +233,14 @@ def sales_research(invocation: ToolInvocation, context: ActionRuntimeContext) ->
     }
     if any_external_attempt_failed:
         output["external_attempt_failed"] = True
+    if require_external_crm and any_external and not crm_records:
+        # A successful external CRM query can truthfully have no matching
+        # records. Preserve that outcome distinctly from a provider failure;
+        # the runtime artifact contract recognizes this bounded marker.
+        output["valid_empty_result"] = {
+            "classification": "valid_empty",
+            "reason": "The external CRM returned no records matching the explicitly requested target.",
+        }
     if any_external and cred is not None:
         output["credential_reference"] = {
             "provider": getattr(getattr(cred, "reference", None), "provider", None)

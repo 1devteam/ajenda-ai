@@ -43,7 +43,9 @@ def build_sales_action_input(
         }
         if require_external:
             crm_source = _source_instruction(intent).lower()
-            # sales.research only searches by company/domain — reject scopes the adapter drops.
+            # The external CRM adapter supports exact domain, company-name and
+            # company-industry filters. It does not support location, quantity,
+            # deal/pipeline, or arbitrary contact-list filters.
             unsupported_scope = False
             if re.search(r"\bdeals?\b|\bpipeline\b", crm_source) and not explicit_company:
                 unsupported_scope = True
@@ -59,15 +61,21 @@ def build_sales_action_input(
             # represented faithfully without inventing a company search term.
             if any(entity.type == "competitor_set" for entity in intent.target_entities):
                 unsupported_scope = True
-            if not explicit_company and (industry or location or intent.requested_quantity is not None):
+            if not explicit_company and (location or intent.requested_quantity is not None):
                 unsupported_scope = True
             if unsupported_scope:
                 raise ValueError(
                     "HubSpot request scope (object type / date filter / contact list) cannot be "
                     "expressed by sales.research company search; refusing silent wrong-scope read"
                 )
+        external_lead = dict(lead)
+        if require_external and industry and not explicit_company:
+            # Do not turn an industry/category into a fictitious company. The
+            # runtime action passes this explicit field to the adapter's
+            # company-industry filter.
+            external_lead.pop("company", None)
         return {
-            "lead": lead,
+            "lead": external_lead,
             "context": {
                 "require_external_crm": require_external,
                 "crm_source": "hubspot" if require_external else "auto",
