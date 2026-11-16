@@ -16,7 +16,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
-from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
+from backend.services.mission_composition.deliverable_completion import validate_materialized_artifact
+from backend.services.mission_composition.deliverable_runtime_artifacts import (
+    collect_materialized_artifacts,
+    declared_artifact_key,
+)
 
 
 class ProfileDeliverableRead(BaseModel):
@@ -59,7 +63,8 @@ def assemble_profile_deliverable(
     artifacts = {
         artifact.artifact_key: artifact.payload
         for artifact in collect_materialized_artifacts(list(tasks))
-        if artifact.artifact_key == "business_profile_facts"
+        if artifact.artifact_key in {"business_profile_facts", "business_review_report"}
+        and (artifact.artifact_key != "business_review_report" or validate_materialized_artifact(artifact).valid)
     }
     payload = artifacts.get("business_profile_facts")
     if not isinstance(payload, dict):
@@ -76,7 +81,12 @@ def assemble_profile_deliverable(
         raise ValueError("business profile deliverable profile_id is invalid") from exc
 
     status_counts = Counter(str(task.status) for task in tasks)
-    complete = bool(tasks) and all(str(task.status) == "completed" for task in tasks)
+    review_required = any(declared_artifact_key(task) == "business_review_report" for task in tasks)
+    complete = (
+        bool(tasks)
+        and all(str(task.status) == "completed" for task in tasks)
+        and (not review_required or "business_review_report" in artifacts)
+    )
     return ProfileDeliverableRead(
         mission_id=mission.id,
         objective=mission.objective,

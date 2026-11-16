@@ -947,8 +947,27 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
     # Its name may be a person or organization, but composition cannot infer
     # which CRM identity field is appropriate from the verb alone.
     if not entities:
-        action_subject = _NAMED_INTERACTION_SUBJECT.search(text)
-        if action_subject is not None:
+        # Bound subsequent interaction clauses without treating a title such
+        # as "Dr. Jane Smith" as a sentence break. Contrast also separates a
+        # prohibition from a later affirmative request.
+        interaction_start = (
+            r"(?:(?:please|then)\s+)?(?:do\s+not|don't|dont|never|without|contact|email|call|reach\s+out|meet\s+with)\b"
+        )
+        for sentence in re.split(
+            rf"(?<=[.!?])\s+(?={interaction_start})|\s+\b(?:but|however)\b\s+(?={interaction_start})|\n+",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            action_subject = _NAMED_INTERACTION_SUBJECT.search(sentence)
+            if action_subject is None:
+                continue
+            prefix = sentence[: action_subject.start()]
+            if re.search(
+                r"\b(?:do not|don't|dont|never|without|forbid|forbids|forbidden|prohibit|prohibits|prohibited)\b",
+                prefix,
+                flags=re.IGNORECASE,
+            ):
+                continue
             raw_subject = action_subject.group("name").strip(" ,.;:")
             for name in re.split(r"\s+and\s+", raw_subject, flags=re.IGNORECASE):
                 name = name.strip(" ,.;:")
@@ -963,6 +982,8 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
                         confidence=0.8,
                     )
                 )
+            if entities:
+                break
     # Connector company targets (HubSpot for Acme) — only when no market target already.
     if not entities:
         entities.extend(_extract_connector_company(text))
@@ -984,12 +1005,14 @@ def _is_comparative_purchase_request(text: str) -> bool:
 def _extract_connector_company(text: str) -> list[TargetEntity]:
     """Extract an explicit company target for a HubSpot/CRM read."""
 
-    match = (
-        _HUBSPOT_COMPANY_AFTER.search(text)
-        or _HUBSPOT_COMPANY_BEFORE.search(text)
-        or _HUBSPOT_COMPANY_NAMED.search(text)
-        or _HUBSPOT_COMPANY_RECORD_FOR.search(text)
-    )
+    before = _HUBSPOT_COMPANY_BEFORE.search(text)
+    named = _HUBSPOT_COMPANY_NAMED.search(text)
+    # Prefer the narrow named-record span only when it is contained in the
+    # broader "read ... from HubSpot" subject. A later, unrelated named
+    # company must not replace the connector's actual target.
+    if before and named and before.start("name") <= named.start() and named.end("name") <= before.end("name"):
+        before = named
+    match = _HUBSPOT_COMPANY_AFTER.search(text) or before or named or _HUBSPOT_COMPANY_RECORD_FOR.search(text)
     if match is None:
         return []
     name = match.group("name").strip(" ,.;:")
