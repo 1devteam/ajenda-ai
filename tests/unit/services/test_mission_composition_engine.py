@@ -133,6 +133,28 @@ def test_comparison_guard_is_clause_local_and_does_not_block_named_hubspot_looku
     assert any(item.field == "comparison_scope" for item in cheapest.ambiguity)
 
 
+def test_prohibited_interaction_cannot_become_research_target() -> None:
+    instruction = (
+        "Assess promising technology business opportunities for an experienced software developer in Austin, Texas. "
+        "Compare three options, provide public sources, assumptions, risks and practical validation steps in a report. "
+        "Do not contact anyone or modify CRM records."
+    )
+    intent = interpret_instruction(instruction, fuzzy_enabled=False)
+    assert all("anyone" not in (entity.name or "").lower() for entity in intent.target_entities)
+    record = MissionCompositionService(db=None).compose(tenant_id="tenant-negation", instruction=instruction)
+    assert not record.ready_to_start
+    assert all(
+        str((step.tool_input or {}).get(field, "")).lower() != "anyone or modify crm records"
+        for step in record.planned_steps
+        for field in ("query", "company")
+    )
+
+
+def test_prohibited_recipient_does_not_hide_later_positive_recipient() -> None:
+    intent = interpret_instruction("Do not contact Alice. Email Bob about the project.", fuzzy_enabled=False)
+    assert [(item.type, item.name) for item in intent.target_entities] == [("interaction_subject", "Bob")]
+
+
 def test_unsupported_comparison_clause_is_never_remapped_by_optional_outcome_proposer() -> None:
     class Proposer:
         called = False
@@ -168,6 +190,15 @@ def test_crm_company_is_not_replaced_by_recipient_of_later_prohibition() -> None
     )
     assert [(entity.type, entity.name) for entity in intent.target_entities] == [("company", "Copper Circuit Systems")]
     assert not intent.unmatched_material_clauses
+
+
+def test_named_hubspot_company_record_uses_name_not_record_description() -> None:
+    intent = interpret_instruction(
+        "Read the company record named Copper Circuit Systems from HubSpot. "
+        "Do not contact anyone or modify CRM records.",
+        fuzzy_enabled=False,
+    )
+    assert [(entity.type, entity.name) for entity in intent.target_entities] == [("company", "Copper Circuit Systems")]
 
 
 def test_external_crm_category_requires_a_provider_verified_value() -> None:

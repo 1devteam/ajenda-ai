@@ -947,8 +947,20 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
     # Its name may be a person or organization, but composition cannot infer
     # which CRM identity field is appropriate from the verb alone.
     if not entities:
-        action_subject = _NAMED_INTERACTION_SUBJECT.search(text)
-        if action_subject is not None:
+        # Search one sentence at a time so that a recipient or prohibition
+        # cannot consume a later sentence. A prohibited interaction is not a
+        # positive identity binding even if the recipient is a proper name.
+        for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
+            action_subject = _NAMED_INTERACTION_SUBJECT.search(sentence)
+            if action_subject is None:
+                continue
+            prefix = sentence[: action_subject.start()]
+            if re.search(
+                r"\b(?:do not|don't|dont|never|without|forbid|forbids|forbidden|prohibit|prohibits|prohibited)\b",
+                prefix,
+                flags=re.IGNORECASE,
+            ):
+                continue
             raw_subject = action_subject.group("name").strip(" ,.;:")
             for name in re.split(r"\s+and\s+", raw_subject, flags=re.IGNORECASE):
                 name = name.strip(" ,.;:")
@@ -963,6 +975,8 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
                         confidence=0.8,
                     )
                 )
+            if entities:
+                break
     # Connector company targets (HubSpot for Acme) — only when no market target already.
     if not entities:
         entities.extend(_extract_connector_company(text))
@@ -986,9 +1000,9 @@ def _extract_connector_company(text: str) -> list[TargetEntity]:
 
     match = (
         _HUBSPOT_COMPANY_AFTER.search(text)
-        or _HUBSPOT_COMPANY_BEFORE.search(text)
         or _HUBSPOT_COMPANY_NAMED.search(text)
         or _HUBSPOT_COMPANY_RECORD_FOR.search(text)
+        or _HUBSPOT_COMPANY_BEFORE.search(text)
     )
     if match is None:
         return []
