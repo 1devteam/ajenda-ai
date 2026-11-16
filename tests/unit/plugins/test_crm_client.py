@@ -135,6 +135,39 @@ def test_crm_search_url_encodes_company_names_with_spaces() -> None:
     assert "company=PRIDE+Proof+Co" in authority.request.call_args.kwargs["url"]
 
 
+def test_crm_search_forwards_industry_without_mislabeling_it_as_company() -> None:
+    destination = VettedNetworkDestination(
+        original_url="https://crm.example.com/v1/search",
+        connect_url="https://10.0.0.1/v1/search",
+        pinned_ip=__import__("ipaddress").ip_address("10.0.0.1"),
+        sni_hostname="crm.example.com",
+        host_header="crm.example.com",
+    )
+    authority = MagicMock()
+    authority.request.return_value = (
+        destination,
+        NetworkEgressResponse(
+            status_code=200,
+            headers={},
+            body_text='{"results":[],"count":0,"source":"hubspot"}',
+            body_truncated=False,
+        ),
+    )
+    credential = {"secret_value": "pak-token", "trusted_destination_hosts": ["crm.example.com"]}
+
+    with patch("backend.services.plugins.crm_client.get_default_network_egress_authority", return_value=authority):
+        StandardCrmClient().search(
+            context=_context(),
+            company="",
+            domain="",
+            industry="technology",
+            credential=credential,
+        )
+
+    query = authority.request.call_args.kwargs["url"].split("?", 1)[-1]
+    assert query == "industry=technology"
+
+
 def test_external_crm_upsert_requires_provider_readback() -> None:
     destination = VettedNetworkDestination(
         original_url="https://crm.example.com/v1/upsert",

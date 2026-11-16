@@ -7,6 +7,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.services.knowledge import ContextConditionState, SourceConditionObservation
+from backend.services.mission_composition.artifact_schemas import (
+    CRM_RECORDS_SCHEMA,
+    is_proven_valid_empty_artifact,
+    validate_artifact_payload,
+)
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 from backend.services.tools.action_registry import ActionRegistry, get_default_action_registry
 from backend.services.tools.local_records import default_local_record_provider
@@ -602,6 +607,22 @@ def test_sales_research_consumes_bound_prospect_candidates() -> None:
     assert result.output["researched_prospects"][0]["crm_matches"][0]["id"] == "crm-alpha"
     assert result.output["researched_prospects"][1]["crm_matches"][0]["id"] == "crm-beta"
     assert [item["id"] for item in result.output["crm_matches"]] == ["crm-alpha", "crm-beta"]
+    assert result.output["crm_records"] == [
+        {
+            "id": "crm-alpha",
+            "company": "Alpha Roofing",
+            "source": "ajenda_brain",
+            "provider_record_id": "crm-alpha",
+            "provider_properties": {},
+        },
+        {
+            "id": "crm-beta",
+            "company": "Beta Roofing",
+            "source": "ajenda_brain",
+            "provider_record_id": "crm-beta",
+            "provider_properties": {},
+        },
+    ]
     assert result.records_inspected == ["crm-alpha", "crm-beta"]
 
 
@@ -663,7 +684,61 @@ def test_sales_research_credentialed_uses_external_read_path() -> None:
     assert result.side_effect_class.value == "external_read"
     assert result.output["real"] is True
     assert result.output["plugin_required"] is True
+    assert result.output["crm_records"] == []
     assert authority.request.call_args.kwargs["headers"]["Idempotency-Key"] == "idem-crm-1"
+
+
+def test_sales_research_explicit_external_crm_does_not_substitute_tenant_domain_and_marks_valid_empty() -> None:
+    registry = ActionRegistry()
+    register_sales_actions(registry)
+    handler = registry.get("sales.research").handler
+    context = _context()
+    context.runtime_credentials = {
+        "sales.research": {
+            "secret_value": "crm-token",
+            "trusted_destination_hosts": ["hubspot-crm-ingress"],
+        }
+    }
+    destination = VettedNetworkDestination(
+        original_url="https://hubspot-crm-ingress/v1/search",
+        connect_url="https://10.0.0.2/v1/search",
+        pinned_ip=__import__("ipaddress").ip_address("10.0.0.2"),
+        sni_hostname="hubspot-crm-ingress",
+        host_header="hubspot-crm-ingress",
+    )
+    response = NetworkEgressResponse(
+        status_code=200,
+        headers={},
+        body_text='{"results":[],"count":0,"source":"hubspot"}',
+        body_truncated=False,
+    )
+    authority = MagicMock()
+    authority.request.return_value = (destination, response)
+
+    with patch(
+        "backend.services.plugins.crm_client.get_default_network_egress_authority",
+        return_value=authority,
+    ):
+        result = handler(
+            ToolInvocation(
+                action="sales.research",
+                input={"lead": {"company": "HubSpot"}, "context": {"require_external_crm": True}},
+                credential_reference={
+                    "credential_id": "hubspot-crm",
+                    "provider": "external_crm",
+                    "credential_type": "api_key",
+                },
+            ),
+            context,
+        )
+
+    assert "domain=" not in authority.request.call_args.kwargs["url"]
+    assert result.output["crm_records"] == []
+    assert is_proven_valid_empty_artifact(
+        artifact_key="crm_records",
+        payload=result.output["crm_records"],
+        output=result.output,
+    )
 
 
 def test_sales_research_hubspot_adapter_source_counts_as_external_plugin() -> None:
@@ -706,6 +781,16 @@ def test_sales_research_hubspot_adapter_source_counts_as_external_plugin() -> No
 
     assert result.output["plugin_required"] is True
     assert result.output["source"] == "hubspot"
+    assert result.output["crm_records"] == [
+        {
+            "id": "330345792208",
+            "company": None,
+            "source": "hubspot",
+            "provider_record_id": "330345792208",
+            "provider_properties": {},
+        }
+    ]
+    assert validate_artifact_payload(CRM_RECORDS_SCHEMA, result.output["crm_records"]) == ()
     assert "via external plugin" in result.summary
 
 

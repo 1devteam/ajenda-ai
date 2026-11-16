@@ -222,28 +222,33 @@ _CONTACTS_READ_PATTERNS = (
     r"\b(?:my|the)\s+(?:google\s+)?contacts\b",
 )
 
+_HUBSPOT_COMPANY_TOKEN = r"(?:[A-Za-z0-9][A-Za-z0-9.&'\-/]*|[-\u2013\u2014])"
 _HUBSPOT_COMPANY_AFTER = re.compile(
     r"\b(?:hubspot|(?:the\s+)?crm)\s+(?:for|about|on|matching)\s+"
-    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5}?)"
+    rf"(?P<name>{_HUBSPOT_COMPANY_TOKEN}(?:\s+{_HUBSPOT_COMPANY_TOKEN}){{0,8}}?)"
     r"(?=$|[,;.]|\s+\band\b|\s+\bthen\b)",
     re.IGNORECASE,
 )
 _HUBSPOT_COMPANY_BEFORE = re.compile(
     r"\b(?:find|search|check|read|look\s+up|show)\s+"
-    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5})"
+    rf"(?P<name>{_HUBSPOT_COMPANY_TOKEN}(?:\s+{_HUBSPOT_COMPANY_TOKEN}){{0,8}})"
     r"\s+(?:in|on|from)\s+(?:hubspot|(?:the\s+)?crm)\b",
     re.IGNORECASE,
 )
 _HUBSPOT_COMPANY_RECORD_FOR = re.compile(
     r"\b(?:crm\s+)?records?\s+(?:for|about|on)\s+"
-    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5}?)"
+    rf"(?P<name>{_HUBSPOT_COMPANY_TOKEN}(?:\s+{_HUBSPOT_COMPANY_TOKEN}){{0,8}}?)"
     r"(?=$|[,;.]|\s+\band\b|\s+\bthen\b)",
     re.IGNORECASE,
 )
 _HUBSPOT_COMPANY_NAMED = re.compile(
-    r"\b(?:company|account|record)\s+(?:named|called)\s+"
-    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5}?)"
+    r"\b(?:compan(?:y|ies)|accounts?|records?)\s+(?:named|called)\s+"
+    rf"(?P<name>{_HUBSPOT_COMPANY_TOKEN}(?:\s+{_HUBSPOT_COMPANY_TOKEN}){{0,8}}?)"
     r"(?=$|[,;.?!]|\s+\b(?:from|in|on|and|then)\b)",
+    re.IGNORECASE,
+)
+_HUBSPOT_COMPANY_CATEGORY = re.compile(
+    r"^(?P<industry>[A-Za-z][A-Za-z0-9&/\-]*(?:\s+[A-Za-z][A-Za-z0-9&/\-]*){0,4})\s+companies?$",
     re.IGNORECASE,
 )
 # Read-oriented calendar only. Imperative "schedule a meeting" is not events_read.
@@ -921,14 +926,29 @@ def _extract_connector_company(text: str) -> list[TargetEntity]:
     match = (
         _HUBSPOT_COMPANY_AFTER.search(text)
         or _HUBSPOT_COMPANY_BEFORE.search(text)
-        or _HUBSPOT_COMPANY_RECORD_FOR.search(text)
         or _HUBSPOT_COMPANY_NAMED.search(text)
+        or _HUBSPOT_COMPANY_RECORD_FOR.search(text)
     )
     if match is None:
         return []
     name = match.group("name").strip(" ,.;:")
     if not name or name.lower() in {"records", "contacts", "companies", "deals", "pipeline"}:
         return []
+    category = _HUBSPOT_COMPANY_CATEGORY.fullmatch(name)
+    if category is not None:
+        # A category such as “technology companies” is a provider-property
+        # filter, not a literal company identity. Keep that distinction in the
+        # typed target so the action layer never searches a company named
+        # “technology companies”.
+        return [
+            TargetEntity(
+                type="company",
+                industry=category.group("industry"),
+                attributes={"connector": "hubspot", "research_mode": "crm_read"},
+                provenance="explicit",
+                confidence=0.95,
+            )
+        ]
     return [
         TargetEntity(
             type="company",

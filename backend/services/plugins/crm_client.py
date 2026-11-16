@@ -120,6 +120,7 @@ class StandardCrmClient:
         context: ActionRuntimeContext,
         company: str = "",
         domain: str = "",
+        industry: str = "",
         credential: RuntimeCredentialMaterial | dict[str, Any] | None,
         invocation: ToolInvocation | None = None,
         action_name: str = "crm.research",
@@ -131,7 +132,7 @@ class StandardCrmClient:
                 query = urlencode(
                     {
                         key: value
-                        for key, value in (("company", company), ("domain", domain))
+                        for key, value in (("company", company), ("domain", domain), ("industry", industry))
                         if isinstance(value, str) and value.strip()
                     }
                 )

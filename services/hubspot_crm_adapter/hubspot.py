@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -54,6 +54,7 @@ class HubSpotClient:
         *,
         company: str | None,
         domain: str | None,
+        industry: str | None = None,
     ) -> tuple[str, list[dict[str, Any]]]:
         if domain and domain.strip():
             return self._search_object(
@@ -82,7 +83,8 @@ class HubSpotClient:
             # separate observed records so downstream qualification/enrichment
             # can consume real CRM relationships without inventing contacts.
             for result in results:
-                properties = result.get("properties") if isinstance(result.get("properties"), dict) else {}
+                raw_properties = result.get("properties")
+                properties = cast(dict[str, Any], raw_properties) if isinstance(raw_properties, dict) else {}
                 company_name = str(properties.get("name") or company).strip()
                 if not company_name:
                     continue
@@ -104,6 +106,17 @@ class HubSpotClient:
                     contacts = []
                 result["contacts"] = contacts
             return object_type, results
+        if industry and industry.strip():
+            return self._search_object(
+                object_type="companies",
+                filters=[
+                    {
+                        "propertyName": "industry",
+                        "operator": "EQ",
+                        "value": industry.strip(),
+                    }
+                ],
+            )
         return "companies", []
 
     def upsert(self, *, record_type: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -297,7 +310,7 @@ class HubSpotClient:
         if object_type == "contacts":
             return ["email", "firstname", "lastname", "company", "phone"]
         if object_type == "companies":
-            return ["name", "domain", "website", "phone", "description"]
+            return ["name", "domain", "website", "phone", "description", "industry"]
         if object_type == "deals":
             return ["dealname", "amount", "dealstage", "pipeline"]
         return []

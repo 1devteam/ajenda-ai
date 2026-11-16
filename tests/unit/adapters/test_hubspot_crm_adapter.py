@@ -82,6 +82,23 @@ def test_search_by_domain(client: TestClient) -> None:
     assert call_kwargs["json"]["filterGroups"][0]["filters"][0]["propertyName"] == "domain"
 
 
+def test_search_by_industry_uses_company_industry_filter(client: TestClient) -> None:
+    with patch("services.hubspot_crm_adapter.hubspot.httpx.Client") as client_cls:
+        http_client = MagicMock()
+        client_cls.return_value.__enter__.return_value = http_client
+        http_client.request.return_value = _mock_response(status_code=200, json_body={"results": []})
+
+        response = client.get(
+            "/v1/search",
+            params={"industry": "technology"},
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+
+    assert response.status_code == 200
+    filter_ = http_client.request.call_args.kwargs["json"]["filterGroups"][0]["filters"][0]
+    assert filter_ == {"propertyName": "industry", "operator": "EQ", "value": "technology"}
+
+
 def test_upsert_creates_contact(client: TestClient) -> None:
     search_response = _mock_response(status_code=200, json_body={"results": []})
     create_response = _mock_response(
