@@ -33,7 +33,7 @@ dependencies = [
   # Public search discovery (web.research / ddgs chain)
   "ddgs>=9.0,<10.0",
   # Governed browser execution; the worker image installs the pinned Chromium binary.
-  "playwright==1.64.1",
+  "playwright==1.65.1",
   # Security floor: CVE-2026-114613 is fixed in msgpack 1.2.3.
   "msgpack>=1.2.3,<2.0",
   # Keep the runtime image above the fixed proxy-TLS and chunk-parser CVEs.
