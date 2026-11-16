@@ -155,6 +155,16 @@ def test_prohibited_recipient_does_not_hide_later_positive_recipient() -> None:
     assert [(item.type, item.name) for item in intent.target_entities] == [("interaction_subject", "Bob")]
 
 
+def test_recipient_title_is_preserved_across_abbreviation() -> None:
+    intent = interpret_instruction("Email Dr. Jane Smith about the project.", fuzzy_enabled=False)
+    assert [(item.type, item.name) for item in intent.target_entities] == [("interaction_subject", "Dr. Jane Smith")]
+
+
+def test_contrast_separates_prohibited_and_requested_interactions() -> None:
+    intent = interpret_instruction("Do not contact Alice but email Bob.", fuzzy_enabled=False)
+    assert [(item.type, item.name) for item in intent.target_entities] == [("interaction_subject", "Bob")]
+
+
 def test_unsupported_comparison_clause_is_never_remapped_by_optional_outcome_proposer() -> None:
     class Proposer:
         called = False

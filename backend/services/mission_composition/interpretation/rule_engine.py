@@ -947,10 +947,17 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
     # Its name may be a person or organization, but composition cannot infer
     # which CRM identity field is appropriate from the verb alone.
     if not entities:
-        # Search one sentence at a time so that a recipient or prohibition
-        # cannot consume a later sentence. A prohibited interaction is not a
-        # positive identity binding even if the recipient is a proper name.
-        for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
+        # Bound subsequent interaction clauses without treating a title such
+        # as "Dr. Jane Smith" as a sentence break. Contrast also separates a
+        # prohibition from a later affirmative request.
+        interaction_start = (
+            r"(?:(?:please|then)\s+)?(?:do\s+not|don't|dont|never|without|contact|email|call|reach\s+out|meet\s+with)\b"
+        )
+        for sentence in re.split(
+            rf"(?<=[.!?])\s+(?={interaction_start})|\s+\b(?:but|however)\b\s+(?={interaction_start})|\n+",
+            text,
+            flags=re.IGNORECASE,
+        ):
             action_subject = _NAMED_INTERACTION_SUBJECT.search(sentence)
             if action_subject is None:
                 continue
