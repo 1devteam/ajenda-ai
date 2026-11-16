@@ -165,7 +165,7 @@ def test_sales_research_credentialed_invoke_without_capability_monkeypatch(
         NetworkEgressResponse(
             status_code=200,
             headers={},
-            body_text='{"results":[{"id":"330345792208"}],"count":1,"source":"hubspot"}',
+            body_text='{"results":[{"id":"330345792208"}],"count":1,"source":"hubspot","object_type":"companies"}',
             body_truncated=False,
         ),
     )

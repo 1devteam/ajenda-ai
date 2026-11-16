@@ -77,6 +77,7 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _extract_count,
     _extract_qualification_count,
     _extract_target_entities,
+    _is_comparative_purchase_request,
     _looks_like_fragment,
     _restatement,
     _success_for_outcomes,
@@ -358,8 +359,16 @@ def interpret_instruction(
             lower,
         )
     )
+    comparative_purchase_requested = _is_comparative_purchase_request(text)
+    # Clause-local semantics matter here.  A request may legitimately contain
+    # both supported prospect research and an unsupported shopping comparison;
+    # the latter must remain visible without deleting the former outcome.
+    supported_research_clause_requested = any(
+        _contains_any(clause.lower(), _RESEARCH_PATTERNS) and not _is_comparative_purchase_request(clause)
+        for clause in _segment_clauses(text)
+    )
     wants_research = (
-        (_contains_any(lower, _RESEARCH_PATTERNS) or website_fact_collection_requested)
+        (supported_research_clause_requested or website_fact_collection_requested)
         and (not direct_crm_record_read or explicit_research_verb)
         and (not connector_read or explicit_prospect_research or hubspot_as_research_source)
         and not wants_internal_followup_tasks
@@ -1118,6 +1127,22 @@ def interpret_instruction(
     else:
         label = "the requested market"
 
+    if comparative_purchase_requested:
+        clarifications.append(
+            _restatement(
+                field="comparison_scope",
+                understood="the instruction requests a comparative purchase recommendation",
+                missing="a supported business-research or procurement decision scope",
+                include_instruction=(
+                    "whether this is a business market/prospect research request, or a supported procurement "
+                    "decision with its evaluation criteria"
+                ),
+                reason=(
+                    "Ajenda does not treat a descriptive comparison phrase as a named company or as B2B prospect research."
+                ),
+            )
+        )
+
     # Clause coverage
     clause_models: list[InterpretedClause] = []
     unmatched: list[InterpretedClause] = []
@@ -1208,14 +1233,20 @@ def interpret_instruction(
     # An optional model can map previously-unmatched clauses to the existing
     # canonical vocabulary. Invalid or unavailable model output never repairs
     # a gap and never becomes authority.
-    if outcome_proposer is not None and unmatched:
+    # A deterministic unsupported comparison is an explicit authority
+    # boundary, not an invitation for the optional model to reinterpret it as
+    # a canonical research, send, or write outcome.
+    model_eligible_unmatched = [item for item in unmatched if not _is_comparative_purchase_request(item.text)]
+    if outcome_proposer is not None and model_eligible_unmatched:
         try:
             proposal = validate_outcome_proposal(
                 outcome_proposer.propose(
                     instruction=raw_instruction,
-                    clauses=tuple({"clause_id": item.clause_id, "text": item.text} for item in unmatched),
+                    clauses=tuple(
+                        {"clause_id": item.clause_id, "text": item.text} for item in model_eligible_unmatched
+                    ),
                 ),
-                allowed_clause_ids={item.clause_id for item in unmatched},
+                allowed_clause_ids={item.clause_id for item in model_eligible_unmatched},
             )
         except Exception:
             components_active.append("model_outcome_proposal_rejected")

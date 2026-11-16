@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlencode
 
@@ -19,6 +19,11 @@ class CrmSearchResult:
     real: bool
     status_code: int | None = None
     error: str | None = None
+    # A valid-empty result is only meaningful when the exact external query is
+    # observable and its response was complete and structurally valid.
+    query_filters: dict[str, str] = field(default_factory=dict)
+    object_type: str | None = None
+    response_complete: bool = False
 
 
 @dataclass(slots=True)
@@ -83,6 +88,33 @@ def _http_success(status_code: int) -> bool:
 def is_live_external_crm_result(*, source: str, real: bool, error: str | None = None) -> bool:
     """True when CRM search/upsert came from a live adapter, not Ajenda brain fallback."""
     return real and not error and source != "ajenda_brain"
+
+
+def _validate_external_search_payload(
+    *, body_text: str, body_truncated: bool
+) -> tuple[list[dict[str, Any]], int, str, str]:
+    """Validate an adapter search receipt before treating it as provider evidence."""
+
+    if body_truncated:
+        raise ValueError("CRM search response was truncated")
+    payload = json.loads(body_text)
+    if not isinstance(payload, dict):
+        raise ValueError("CRM search response must be an object")
+    results = payload.get("results")
+    if not isinstance(results, list) or any(not isinstance(item, dict) for item in results):
+        raise ValueError("CRM search response must contain a results list of objects")
+    raw_count = payload.get("count")
+    if isinstance(raw_count, bool) or not isinstance(raw_count, int) or raw_count < 0:
+        raise ValueError("CRM search response must contain a non-negative integer count")
+    if raw_count != len(results):
+        raise ValueError("CRM search response count did not match returned results")
+    source = payload.get("source")
+    object_type = payload.get("object_type")
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("CRM search response must identify its source")
+    if not isinstance(object_type, str) or not object_type.strip():
+        raise ValueError("CRM search response must identify its object type")
+    return results, raw_count, source.strip(), object_type.strip()
 
 
 def _parse_trusted_endpoint(raw_host: str) -> tuple[str, int | None]:
@@ -156,16 +188,23 @@ class StandardCrmClient:
                         error=f"CRM search returned HTTP {resp.status_code}",
                         status_code=resp.status_code,
                     )
-                payload = json.loads(resp.body_text or "{}")
-                results = payload.get("results", [])
-                if not isinstance(results, list):
-                    results = []
+                results, count, source, object_type = _validate_external_search_payload(
+                    body_text=resp.body_text,
+                    body_truncated=resp.body_truncated,
+                )
                 return CrmSearchResult(
                     results=results,
-                    count=int(payload.get("count", len(results))),
-                    source=str(payload.get("source", "external_crm")),
+                    count=count,
+                    source=source,
                     real=True,
                     status_code=resp.status_code,
+                    query_filters={
+                        key: value
+                        for key, value in (("company", company), ("domain", domain), ("industry", industry))
+                        if isinstance(value, str) and value.strip()
+                    },
+                    object_type=object_type,
+                    response_complete=True,
                 )
             except Exception as exc:
                 return self._internal_search_fallback(

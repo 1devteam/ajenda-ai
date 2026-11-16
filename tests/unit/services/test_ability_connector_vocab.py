@@ -266,14 +266,13 @@ def test_hubspot_source_research_does_not_dual_route_web_and_crm() -> None:
         build_action_input(action_name="sales.research", intent=intent)
 
 
-def test_hubspot_company_category_binds_industry_not_a_literal_company_name() -> None:
+def test_hubspot_company_category_requires_a_provider_verified_enumeration() -> None:
     intent = interpret_instruction("Read HubSpot CRM records for technology companies.")
 
     assert intent.target_entities[0].industry == "technology"
     assert intent.target_entities[0].name is None
-    payload = build_action_input(action_name="sales.research", intent=intent)
-    assert payload["lead"] == {"industry": "technology", "source": "mission_composition"}
-    assert payload["context"]["require_external_crm"] is True
+    with pytest.raises(ValueError, match="provider-verified enumeration"):
+        build_action_input(action_name="sales.research", intent=intent)
 
 
 def test_hubspot_company_name_with_separator_remains_an_exact_name_target() -> None:

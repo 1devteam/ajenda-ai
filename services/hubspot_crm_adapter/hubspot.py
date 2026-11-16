@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 import httpx
 
@@ -78,33 +78,28 @@ class HubSpotClient:
                     }
                 ],
             )
-            # HubSpot company search does not include contact properties. Read
-            # the tenant's matching contacts through the provider API as
-            # separate observed records so downstream qualification/enrichment
-            # can consume real CRM relationships without inventing contacts.
+            # A contact's free-text company property is not a relationship.
+            # Resolve contact associations from the matching company record ID
+            # so duplicate company names cannot inherit one another's contacts.
             for result in results:
-                raw_properties = result.get("properties")
-                properties = cast(dict[str, Any], raw_properties) if isinstance(raw_properties, dict) else {}
-                company_name = str(properties.get("name") or company).strip()
-                if not company_name:
+                company_id = str(result.get("id") or "").strip()
+                if not company_id:
+                    result["contacts"] = []
+                    result["contacts_status"] = "unverified"
+                    result["contacts_error"] = "HubSpot company search result did not contain an object ID"
                     continue
                 try:
-                    _, contacts = self._search_object(
-                        object_type="contacts",
-                        filters=[
-                            {
-                                "propertyName": "company",
-                                "operator": "CONTAINS_TOKEN",
-                                "value": company_name,
-                            }
-                        ],
-                    )
-                except HubSpotApiError:
-                    # The company observation remains valid when the token lacks
-                    # contact-search scope; the missing relationship is retained
-                    # as an evidence gap for the downstream observer.
-                    contacts = []
+                    contacts = self._read_company_contacts(company_id=company_id)
+                except HubSpotApiError as exc:
+                    # The company observation remains valid when relationship
+                    # observation fails, but an empty list must not masquerade
+                    # as a verified lack of associated contacts.
+                    result["contacts"] = []
+                    result["contacts_status"] = "unverified"
+                    result["contacts_error"] = exc.detail
+                    continue
                 result["contacts"] = contacts
+                result["contacts_status"] = "verified" if contacts else "verified_empty"
             return object_type, results
         if industry and industry.strip():
             return self._search_object(
@@ -226,10 +221,12 @@ class HubSpotClient:
                 path=f"/crm/v3/objects/{object_type}/search",
                 json_body=payload,
             )
-            results = response.get("results", []) if isinstance(response, dict) else []
-            if not isinstance(results, list):
-                break
-            normalized.extend(item for item in results if isinstance(item, dict))
+            if not isinstance(response, dict):
+                raise HubSpotApiError(status_code=502, detail="unexpected HubSpot search response")
+            results = response.get("results")
+            if not isinstance(results, list) or any(not isinstance(item, dict) for item in results):
+                raise HubSpotApiError(status_code=502, detail="HubSpot search response did not contain a results list")
+            normalized.extend(results)
             paging = response.get("paging") if isinstance(response, dict) else None
             next_page = paging.get("next") if isinstance(paging, dict) else None
             after = next_page.get("after") if isinstance(next_page, dict) else None
@@ -242,6 +239,37 @@ class HubSpotClient:
                 )
             payload["after"] = after.strip()
         return object_type, normalized
+
+    def _read_company_contacts(self, *, company_id: str) -> list[dict[str, Any]]:
+        """Read contacts linked by HubSpot association IDs for one company."""
+
+        encoded_properties = ",".join(self._default_properties("companies"))
+        payload = self._request(
+            method="GET",
+            path=(f"/crm/v3/objects/companies/{company_id}?properties={encoded_properties}&associations=contacts"),
+        )
+        if not isinstance(payload, dict):
+            raise HubSpotApiError(status_code=502, detail="unexpected HubSpot company association response")
+        associations = payload.get("associations")
+        contacts_container = associations.get("contacts") if isinstance(associations, dict) else None
+        contact_refs = contacts_container.get("results") if isinstance(contacts_container, dict) else None
+        if not isinstance(contact_refs, list) or any(not isinstance(item, dict) for item in contact_refs):
+            raise HubSpotApiError(
+                status_code=502, detail="HubSpot company association response did not contain contacts"
+            )
+        if isinstance(contacts_container.get("paging"), dict):
+            raise HubSpotApiError(
+                status_code=409,
+                detail="HubSpot company contact associations exceed the bounded association read",
+            )
+        contacts: list[dict[str, Any]] = []
+        for reference in contact_refs:
+            contact_id = str(reference.get("id") or "").strip()
+            if not contact_id:
+                raise HubSpotApiError(status_code=502, detail="HubSpot contact association did not contain an ID")
+            contact = self.read(record_type="contact", record_id=contact_id)
+            contacts.append(contact)
+        return contacts
 
     def _find_existing_id(self, *, object_type: str, properties: dict[str, str]) -> str | None:
         filters = self._identity_filters(object_type=object_type, properties=properties)

@@ -65,6 +65,56 @@ def test_search_by_company(client: TestClient) -> None:
     assert call_kwargs["json"]["filterGroups"][0]["filters"][0]["propertyName"] == "name"
 
 
+def test_company_contacts_are_resolved_by_association_id_not_company_name(client: TestClient) -> None:
+    with patch("services.hubspot_crm_adapter.hubspot.httpx.Client") as client_cls:
+        http_client = MagicMock()
+        client_cls.return_value.__enter__.return_value = http_client
+        http_client.request.side_effect = [
+            _mock_response(
+                status_code=200,
+                json_body={
+                    "results": [
+                        {"id": "company-1", "properties": {"name": "Duplicate Name"}},
+                        {"id": "company-2", "properties": {"name": "Duplicate Name"}},
+                    ]
+                },
+            ),
+            _mock_response(
+                status_code=200, json_body={"associations": {"contacts": {"results": [{"id": "contact-1"}]}}}
+            ),
+            _mock_response(status_code=200, json_body={"id": "contact-1", "properties": {"email": "one@example.com"}}),
+            _mock_response(
+                status_code=200, json_body={"associations": {"contacts": {"results": [{"id": "contact-2"}]}}}
+            ),
+            _mock_response(status_code=200, json_body={"id": "contact-2", "properties": {"email": "two@example.com"}}),
+        ]
+
+        response = client.get(
+            "/v1/search", params={"company": "Duplicate Name"}, headers={"Authorization": f"Bearer {TOKEN}"}
+        )
+
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert [[contact["id"] for contact in item["contacts"]] for item in results] == [["contact-1"], ["contact-2"]]
+    assert [item["contacts_status"] for item in results] == ["verified", "verified"]
+    calls = http_client.request.call_args_list
+    assert [call.args[0] for call in calls] == ["POST", "GET", "GET", "GET", "GET"]
+    assert "associations=contacts" in calls[1].args[1]
+    assert "/contacts/search" not in " ".join(call.args[1] for call in calls)
+
+
+def test_search_rejects_malformed_hubspot_result_body(client: TestClient) -> None:
+    with patch("services.hubspot_crm_adapter.hubspot.httpx.Client") as client_cls:
+        http_client = MagicMock()
+        client_cls.return_value.__enter__.return_value = http_client
+        http_client.request.return_value = _mock_response(status_code=200, json_body={})
+
+        response = client.get("/v1/search", params={"company": "Acme"}, headers={"Authorization": f"Bearer {TOKEN}"})
+
+    assert response.status_code == 502
+    assert "results list" in response.json()["detail"]
+
+
 def test_search_by_domain(client: TestClient) -> None:
     with patch("services.hubspot_crm_adapter.hubspot.httpx.Client") as client_cls:
         http_client = MagicMock()

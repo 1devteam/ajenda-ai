@@ -518,6 +518,27 @@ _RELATED_COMPANY_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+# An interaction verb identifies a recipient reference, not an organization.
+# A recipient can be a person, company, group, or unresolved pronoun.  The
+# interpreter must preserve that ambiguity instead of turning a title-like
+# span into a CRM company identity.
+_NAMED_INTERACTION_SUBJECT = re.compile(
+    r"\b(?:(?:reach\s+out\s+to|call|email|meet\s+with)\s+|"
+    r"contact\s+(?!information\b|info\b|details?\b|to\b))"
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5}?)"
+    r"(?=$|[,;.!?]|\s+\b(?:then|about|regarding|tomorrow|today|next|on|at|with)\b|\s+and\s+(?:find|research|identify|discover|show|compare)\b)",
+    re.IGNORECASE,
+)
+_COMPARATIVE_PURCHASE_REQUEST = re.compile(
+    # "Find Best Buy in HubSpot" is a named-record lookup.  A comparison uses
+    # the grammatical request "find me the best buy ..." or "find the best
+    # buy ...".  The determiner/pronoun is intentional: capitalization is not
+    # a safe identity signal.
+    r"\b(?:find|show|recommend|choose|compare)\s+"
+    r"(?:(?:me\s+)?the\s+best\s+buy|(?:me\s+)?(?:the\s+)?(?:cheapest|lowest[-\s]priced|highest[-\s]rated))\b",
+    re.IGNORECASE,
+)
+_UNRESOLVED_INTERACTION_SUBJECT = re.compile(r"^(?:them|him|her|it|this|that|these|those)(?:\s|$)", re.IGNORECASE)
 _LEADING_VERB_WORDS = frozenset(
     {
         "research",
@@ -889,7 +910,7 @@ def _extract_industry_audience_entities(text: str) -> list[TargetEntity]:
 
 
 def _extract_target_entities(text: str) -> list[TargetEntity]:
-    """Retain explicit research / connector targets (competitors, market, CRM company)."""
+    """Retain explicit research / connector targets and named action subjects."""
 
     entities = _extract_competitors_of(text)
     if not entities:
@@ -914,10 +935,42 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
     entities.extend(_extract_industry_location_entities(text))
     if not entities:
         entities.extend(_extract_industry_audience_entities(text))
+    # An interaction recipient is intentionally not promoted to a company.
+    # Its name may be a person or organization, but composition cannot infer
+    # which CRM identity field is appropriate from the verb alone.
+    if not entities:
+        action_subject = _NAMED_INTERACTION_SUBJECT.search(text)
+        if action_subject is not None:
+            raw_subject = action_subject.group("name").strip(" ,.;:")
+            for name in re.split(r"\s+and\s+", raw_subject, flags=re.IGNORECASE):
+                name = name.strip(" ,.;:")
+                if not name or _UNRESOLVED_INTERACTION_SUBJECT.match(name):
+                    continue
+                entities.append(
+                    TargetEntity(
+                        type="interaction_subject",
+                        name=name,
+                        attributes={"identity_role": "unresolved_interaction_subject"},
+                        provenance="explicit",
+                        confidence=0.8,
+                    )
+                )
     # Connector company targets (HubSpot for Acme) — only when no market target already.
     if not entities:
         entities.extend(_extract_connector_company(text))
     return entities
+
+
+def _is_comparative_purchase_request(text: str) -> bool:
+    """Return whether a descriptive purchase comparison is being requested.
+
+    This is a semantic guard for a known ambiguity in the broad ``find``
+    research alias. It does not identify products or vendors and it does not
+    make any provider call; unsupported comparison work remains explicit for
+    clarification rather than becoming B2B prospect discovery.
+    """
+
+    return _COMPARATIVE_PURCHASE_REQUEST.search(text) is not None
 
 
 def _extract_connector_company(text: str) -> list[TargetEntity]:
@@ -1286,6 +1339,11 @@ def _classify_clause(
     """Return (outcomes, material, recognized)."""
 
     lower = clause.lower()
+    if _is_comparative_purchase_request(clause):
+        # The existing canonical research outcome is B2B prospect research;
+        # consumer/procurement comparison is intentionally not silently
+        # remapped to it.
+        return [], True, False
     if business_income_review and _BUSINESS_REVIEW_CLAUSE.match(clause.strip()):
         return ["review_business_income"], True, True
     if business_need_review and _BUSINESS_NEED_REVIEW_CLAUSE.match(clause.strip()):
