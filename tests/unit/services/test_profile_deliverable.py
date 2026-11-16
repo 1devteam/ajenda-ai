@@ -71,3 +71,46 @@ def test_profile_deliverable_fails_closed_for_missing_artifact() -> None:
     mission = _mission()
     with pytest.raises(ValueError, match="artifact is absent"):
         assemble_profile_deliverable(mission=mission, tasks=[])
+
+
+def test_business_review_is_available_in_profile_deliverable() -> None:
+    mission = _mission()
+    profile = _task(mission, {"approved_facts": {}, "profile_brief": {"facts": {}}})
+    review = _task(mission, {})
+    report = {
+        "income_opportunities": [{"title": "Test demand"}],
+        "supporting_evidence": ["profile:1"],
+        "estimated_business_impact": ["Not estimated"],
+        "confidence": 0.5,
+        "assumptions": ["Unverified"],
+        "evidence_gaps": ["Revenue"],
+    }
+    review.metadata_json = {
+        "expected_output_contract": {"artifact": "business_review_report"},
+        "handler_result": {"output": {"business_review_report": report}},
+    }
+    result = assemble_profile_deliverable(mission=mission, tasks=[profile, review])
+    assert result.artifacts["business_review_report"] == report
+    assert result.complete
+
+
+def test_missing_declared_review_does_not_mark_profile_deliverable_complete() -> None:
+    mission = _mission()
+    profile = _task(mission, {"approved_facts": {}, "profile_brief": {"facts": {}}})
+    review = _task(mission, {})
+    review.metadata_json = {"expected_output_contract": {"artifact": "business_review_report"}}
+    result = assemble_profile_deliverable(mission=mission, tasks=[profile, review])
+    assert not result.complete
+
+
+def test_invalid_declared_review_does_not_mark_profile_deliverable_complete() -> None:
+    mission = _mission()
+    profile = _task(mission, {"approved_facts": {}, "profile_brief": {"facts": {}}})
+    review = _task(mission, {})
+    review.metadata_json = {
+        "expected_output_contract": {"artifact": "business_review_report"},
+        "handler_result": {"output": {"business_review_report": {"income_opportunities": []}}},
+    }
+    result = assemble_profile_deliverable(mission=mission, tasks=[profile, review])
+    assert not result.complete
+    assert "business_review_report" not in result.artifacts
