@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from backend.services.mission_composition.action_input_common import (
@@ -15,14 +16,17 @@ from backend.services.mission_composition.contracts import MissionIntent
 def build_provider_read_action_input(*, action_name: str, intent: MissionIntent) -> dict[str, Any] | None:
     limit = _prospect_count(intent)
     if action_name == "google_calendar.events_read":
-        start, end = _calendar_window_from_objective(
-            intent.raw_instruction or intent.normalized_instruction or intent.objective
-        )
+        instruction = intent.raw_instruction or intent.normalized_instruction or intent.objective
+        start, end = _calendar_window_from_objective(instruction)
         payload: dict[str, Any] = {"calendar_id": "primary", "limit": max(limit, 20)}
         if start:
             payload["start"] = start
         if end:
             payload["end"] = end
+        if not start and re.search(r"\bupcoming\b", instruction, flags=re.IGNORECASE):
+            # Resolve "now" when the worker actually calls the provider, not
+            # at composition or while a mission waits for approval.
+            payload["upcoming"] = True
         return payload
     if action_name == "calendar.read":
         start, end = _calendar_window_from_objective(intent.objective)

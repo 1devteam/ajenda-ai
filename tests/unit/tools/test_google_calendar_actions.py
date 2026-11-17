@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 from backend.services.tools.action_registry import ActionRegistry
@@ -127,3 +129,28 @@ def test_empty_calendar_response_emits_declared_empty_artifact() -> None:
         SimpleNamespace(metadata_json={"expected_output_contract": {"artifact": "calendar_events"}}),
         {"output": result.output},
     )
+
+
+def test_upcoming_calendar_uses_execution_time_and_reports_more_results() -> None:
+    registry = ActionRegistry()
+    register_google_calendar_actions(registry)
+    context = _context()
+    context.runtime_credentials = {"google_calendar.events_read": {"secret_value": "test-token"}}
+    response = NetworkEgressResponse(
+        status_code=200, headers={}, body_text='{"items":[],"nextPageToken":"next-page"}', body_truncated=False
+    )
+    authority = MagicMock()
+    authority.request.return_value = (None, response)
+    before = datetime.now(UTC)
+    with patch(
+        "backend.services.tools.google_calendar_actions.get_default_network_egress_authority", return_value=authority
+    ):
+        result = registry.get("google_calendar.events_read").handler(
+            ToolInvocation(action="google_calendar.events_read", input={"upcoming": True}), context
+        )
+    after = datetime.now(UTC)
+    query = parse_qs(urlparse(authority.request.call_args.kwargs["url"]).query)
+    observed_start = datetime.fromisoformat(query["timeMin"][0])
+    assert before <= observed_start <= after
+    assert result.output["effective_start"] == query["timeMin"][0]
+    assert result.output["has_more"] is True

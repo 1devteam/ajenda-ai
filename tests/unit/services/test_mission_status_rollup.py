@@ -403,3 +403,33 @@ def test_rollup_does_not_reject_full_message_content() -> None:
     with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
         service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
     assert mission.metadata_json["acceptance"]["status"] == "met"
+
+
+def test_rollup_marks_paged_upcoming_calendar_incomplete() -> None:
+    tenant_id = "tenant-calendar-page"
+    mission_id = uuid.uuid4()
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="Read upcoming calendar events",
+        status=MissionState.RUNNING.value,
+        metadata_json={},
+    )
+    mission.id = mission_id
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.COMPLETED.value,
+        action="google_calendar.events_read",
+        output={"calendar_events": [{"id": "event-1"}], "has_more": True},
+    )
+    task.metadata_json["tool_invocation"]["input"] = {"upcoming": True}
+    task.metadata_json["expected_output_contract"] = {"artifact": "calendar_events"}
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task])
+    service._audit.append = MagicMock()
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
+    assert mission.metadata_json["acceptance"]["status"] == "partially_met"
+    assert "additional calendar events were not retrieved" in mission.metadata_json["acceptance"]["reasons"]

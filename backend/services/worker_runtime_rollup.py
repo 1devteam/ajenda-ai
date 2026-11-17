@@ -303,16 +303,31 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
             metadata = sibling.metadata_json if isinstance(sibling.metadata_json, dict) else {}
             invocation = metadata.get("tool_invocation")
             contract = metadata.get("expected_output_contract")
-            output = handler_output_for_task(sibling)
+            observed_output = handler_output_for_task(sibling)
             if (
                 isinstance(invocation, dict)
                 and invocation.get("action") == "gtm.email_check"
                 and isinstance(contract, dict)
                 and contract.get("artifact") == "email_messages"
                 and contract.get("materialization_role") != "intermediate"
-                and output.get("retrieval_scope") == "message_references"
+                and observed_output.get("retrieval_scope") == "message_references"
             ):
                 acceptance_reasons.append("message content was not retrieved")
+                acceptance_met = False
+                break
+        for sibling in siblings:
+            metadata = sibling.metadata_json if isinstance(sibling.metadata_json, dict) else {}
+            invocation = metadata.get("tool_invocation")
+            invocation_input = invocation.get("input") if isinstance(invocation, dict) else None
+            observed_output = handler_output_for_task(sibling)
+            if (
+                isinstance(invocation, dict)
+                and invocation.get("action") == "google_calendar.events_read"
+                and isinstance(invocation_input, dict)
+                and invocation_input.get("upcoming") is True
+                and observed_output.get("has_more") is True
+            ):
+                acceptance_reasons.append("additional calendar events were not retrieved")
                 acceptance_met = False
                 break
         acceptance_status = "met" if acceptance_met else "partially_met"

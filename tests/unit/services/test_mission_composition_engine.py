@@ -85,6 +85,16 @@ def test_possessive_profile_read_composes_without_a_fabricated_count() -> None:
     assert [step.action_name for step in record.planned_steps] == ["retrieval.hybrid_search"]
 
 
+def test_upcoming_calendar_request_defers_current_time_to_worker() -> None:
+    from backend.services.mission_composition.action_input_provider_reads import build_provider_read_action_input
+
+    intent = interpret_instruction("Read my Google Calendar for upcoming events.")
+    payload = build_provider_read_action_input(action_name="google_calendar.events_read", intent=intent)
+    assert payload is not None
+    assert payload["upcoming"] is True
+    assert "start" not in payload
+
+
 def test_profile_source_request_retains_the_existing_profile_read_path() -> None:
     record = MissionCompositionService(db=None).compose(
         tenant_id="tenant-test",

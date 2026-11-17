@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -33,6 +34,7 @@ class GoogleCalendarEventsReadInput(BaseModel):
     calendar_id: str = Field(default="primary", min_length=1, max_length=160)
     start: str | None = Field(default=None, max_length=80)
     end: str | None = Field(default=None, max_length=80)
+    upcoming: bool = False
     limit: int = Field(default=10, ge=1, le=50)
 
 
@@ -98,6 +100,9 @@ def _simulated_events() -> list[dict[str, Any]]:
 
 def google_calendar_events_read(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = GoogleCalendarEventsReadInput.model_validate(invocation.input)
+    if payload.upcoming and payload.start:
+        raise ValueError("upcoming and an explicit start cannot both be supplied")
+    effective_start = datetime.now(UTC).isoformat() if payload.upcoming else payload.start
     credential = _get_runtime_credential(
         context,
         action=invocation.action,
@@ -107,6 +112,7 @@ def google_calendar_events_read(invocation: ToolInvocation, context: ActionRunti
     events: list[dict[str, Any]]
     real = False
     status_code: int | None = None
+    has_more: bool | None = None
 
     from backend.services.tools.external_sim_policy import require_external_secret
 
@@ -117,7 +123,7 @@ def google_calendar_events_read(invocation: ToolInvocation, context: ActionRunti
         url = _events_url(
             calendar_id=payload.calendar_id,
             limit=payload.limit,
-            start=payload.start,
+            start=effective_start,
             end=payload.end,
         )
         headers = {"Authorization": f"Bearer {secret}"}
@@ -143,7 +149,13 @@ def google_calendar_events_read(invocation: ToolInvocation, context: ActionRunti
             raw_items = parsed.get("items")
             if not isinstance(raw_items, list):
                 raise ValueError("Google Calendar API response missing items list")
-            events = [item for item in raw_items if isinstance(item, dict)]
+            if any(not isinstance(item, dict) for item in raw_items):
+                raise ValueError("Google Calendar API response contains invalid event items")
+            next_page = parsed.get("nextPageToken")
+            if next_page is not None and (not isinstance(next_page, str) or not next_page):
+                raise ValueError("Google Calendar API response has an invalid page token")
+            has_more = next_page is not None
+            events = raw_items
             real = True
         except Exception as exc:
             raise ValueError(f"Google Calendar events read failed on credentialed path: {exc}") from exc
@@ -160,6 +172,8 @@ def google_calendar_events_read(invocation: ToolInvocation, context: ActionRunti
         "count": len(events),
         "real": real,
         "source": "google_calendar_api" if real else "simulated",
+        "effective_start": effective_start,
+        "has_more": has_more,
     }
     if status_code is not None:
         output["real_response"] = {"status_code": status_code}
