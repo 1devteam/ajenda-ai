@@ -1040,6 +1040,19 @@ def test_terminal_paths_record_dispatched_causal_observations(terminal_path: str
     session.commit.assert_called()
 
 
+@pytest.mark.parametrize("lease_state", [WorkerLeaseState.RELEASED.value, WorkerLeaseState.EXPIRED.value])
+def test_observation_checkpoint_rejects_inactive_lease(lease_state: str) -> None:
+    service, session, _queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    lease.status = lease_state
+    with pytest.raises(ValueError, match="current lease"):
+        service.checkpoint_causal_observations(
+            tenant_id=tenant_id, lease_id=lease.id, worker_id=worker_id, task_id=task.id, observations=[]
+        )
+    session.commit.assert_not_called()
+
+
 def test_block_completion_failure_blocks_task_releases_lease_and_cleans_queue_claim() -> None:
     service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
         status=ExecutionTaskState.RUNNING.value

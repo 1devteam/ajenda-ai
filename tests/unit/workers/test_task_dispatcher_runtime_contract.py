@@ -223,6 +223,7 @@ def test_dispatcher_executes_tool_invoke_and_persists_structured_result(monkeypa
     monkeypatch.setattr(TaskDispatcher, "_heartbeat_loop", lambda self, lease_id, stop: None)
     monkeypatch.setattr(TaskDispatcher, "_load_task", lambda self, task_id: task)
     monkeypatch.setattr(TaskDispatcher, "_complete", complete)
+    monkeypatch.setattr(TaskDispatcher, "_checkpoint_observations", lambda self, **kwargs: None)
     monkeypatch.setattr(TaskDispatcher, "_fail", lambda self, **kwargs: pytest.fail(f"unexpected fail: {kwargs}"))
 
     dispatcher = TaskDispatcher(

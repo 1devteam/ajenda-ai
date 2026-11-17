@@ -207,6 +207,10 @@ class TaskDispatcher:
                 "lease_id": str(lease_id),
                 "session_factory": self.session_factory,
             }
+            if task_type == _TOOL_INVOKE_TASK_TYPE:
+                context["persist_runtime_observations"] = lambda observations: self._checkpoint_observations(
+                    task_id=task_id, lease_id=lease_id, observations=observations
+                )
             if self.vector_session_factory is not None:
                 context["vector_session_factory"] = self.vector_session_factory
             output_reason = _OUTPUT_REASON_BY_TASK_TYPE.get(task_type)
@@ -268,6 +272,24 @@ class TaskDispatcher:
         finally:
             stop_event.set()
             heartbeat_thread.join(timeout=5.0)
+
+    def _checkpoint_observations(
+        self, *, task_id: uuid.UUID, lease_id: uuid.UUID, observations: list[dict[str, Any]]
+    ) -> None:
+        session = self._open_tenant_session()
+        try:
+            WorkerRuntimeService(session, self.queue).checkpoint_causal_observations(
+                tenant_id=self.tenant_id,
+                lease_id=lease_id,
+                worker_id=self.worker_id,
+                task_id=task_id,
+                observations=observations,
+            )
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     def _heartbeat_loop(self, lease_id: uuid.UUID, stop: threading.Event) -> None:
         """Background thread: sends an immediate and periodic lease heartbeat."""

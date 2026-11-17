@@ -43,6 +43,45 @@ def test_started_observation_is_durable_before_any_terminal_callback(pg_engine, 
         ).first()
 
 
+def test_checkpoint_survives_worker_interruption_before_terminal_callback(
+    pg_engine, queue_adapter, monkeypatch
+) -> None:
+    factory = _session_factory(pg_engine)
+    tenant_id, task_id, lease_id = _create_running_task(
+        session_factory=factory,
+        queue_adapter=queue_adapter,
+        worker_id="worker-interrupted-after-checkpoint",
+        metadata_json={"task_type": "tool.invoke"},
+    )
+
+    def handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
+        context["persist_runtime_observations"](
+            [{"stage": "provider_selection", "decision": "provider_selected", "reason_code": "registered"}]
+        )
+        raise SystemExit("simulated worker process interruption")
+
+    monkeypatch.setattr(task_dispatcher, "_HANDLER_REGISTRY", {"tool.invoke": cast(TaskHandler, handler)})
+    dispatcher = TaskDispatcher(
+        session_factory=factory,
+        queue=queue_adapter,
+        worker_id="worker-interrupted-after-checkpoint",
+        tenant_id=tenant_id,
+    )
+    with pytest.raises(SystemExit):
+        dispatcher.execute(task_id=task_id, lease_id=lease_id)
+    with factory() as session:
+        task = session.get(ExecutionTask, task_id)
+        assert task is not None and task.status == ExecutionTaskState.RUNNING.value
+        events = session.scalars(select(AuditEvent).where(AuditEvent.tenant_id == tenant_id)).all()
+        envelopes = [RuntimeEvidenceLedger.read_envelope(event) for event in events]
+        assert any(
+            envelope is not None
+            and envelope.event_type == "runtime_decision.provider_selection"
+            and envelope.causation_id == str(lease_id)
+            for envelope in envelopes
+        )
+
+
 @pytest.mark.parametrize("failure_mode", ["handler", "output_contract"])
 def test_failed_handler_persists_its_causal_observation(
     pg_engine, queue_adapter, redis_client, monkeypatch, failure_mode: str

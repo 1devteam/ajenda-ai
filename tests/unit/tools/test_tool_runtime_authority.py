@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy.exc import OperationalError
@@ -115,6 +117,30 @@ def _context(tenant_id: str = "tenant") -> dict[str, object]:
         "lease_id": "lease-1",
         "session_factory": _session_factory,
     }
+
+
+def test_checkpoint_failure_prevents_provider_invocation(monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.services.tools import runtime_authority
+
+    registry = MagicMock()
+    authority = ToolRuntimeAuthority(registry=registry)
+    invocation = ToolInvocation(action="record.search", input={})
+    monkeypatch.setattr(
+        runtime_authority, "bind_tool_invocation_for_task", lambda **_: ({}, {"skipped": "no dependencies"})
+    )
+    monkeypatch.setattr(
+        authority,
+        "authorize",
+        lambda **_: (invocation, SimpleNamespace(name="record.search", provider="local"), SideEffectClass.NONE),
+    )
+
+    def fail_checkpoint(_observations: object) -> None:
+        raise RuntimeError("checkpoint unavailable")
+
+    context = {**_context(), "persist_runtime_observations": fail_checkpoint}
+    with pytest.raises(RuntimeError, match="checkpoint unavailable"):
+        authority.execute(task=_task(), context=context)
+    registry.invoke.assert_not_called()
 
 
 def test_runtime_enriches_invocation_credential_reference_from_task_metadata() -> None:
