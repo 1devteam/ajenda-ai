@@ -181,6 +181,24 @@ def test_profile_route_returns_dedicated_profile_deliverable(monkeypatch) -> Non
     assert body["complete"] is True
 
 
+def test_route_returns_incomplete_gmail_references_without_revops_state(monkeypatch) -> None:
+    tenant_id = uuid.uuid4()
+    mission = _mission(tenant_id=str(tenant_id), instruction="Return company name.")
+    mission.metadata_json = {}
+    task = _task(mission=mission, artifact="email_messages", payload=[{"id": "m1", "thread_id": "t1"}])
+    task.metadata_json["tool_invocation"] = {"action": "gtm.email_check"}
+    _repositories(monkeypatch, mission=mission, tasks=[task])
+    client = TestClient(_build_app(tenant_id), raise_server_exceptions=False)
+
+    response = client.get(f"/v1/missions/{mission.id}/deliverable")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["artifacts"]["email_messages"][0]["id"] == "m1"
+    assert body["completion"]["complete"] is False
+    assert body["result_semantics"]["source_observations"][0]["real"] is None
+
+
 def test_knowledge_change_proposals_are_read_only_and_tenant_scoped(monkeypatch) -> None:
     tenant_id = uuid.uuid4()
     mission = _mission(tenant_id=str(tenant_id), instruction="Return company name.")

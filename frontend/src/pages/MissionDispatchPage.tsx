@@ -17,6 +17,7 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import PageErrorAlert from "../components/PageErrorAlert";
+import { EmailReferences } from "../components/EmailReferences";
 import type {
   AbilityTaskStatusResponse,
   BridgeRuntimeAuthorityReadResponse,
@@ -773,6 +774,9 @@ export default function MissionDispatchPage() {
             const isWebObservation = Boolean(observation && typeof observation === "object");
             const identity = deliverable.artifacts?.public_identity_observation;
             const isIdentityObservation = Boolean(identity && typeof identity === "object");
+            const emailReferences = Array.isArray(deliverable.artifacts?.email_messages)
+              ? deliverable.artifacts.email_messages
+              : null;
             const observationRecord = isWebObservation
               ? (observation as Record<string, unknown>)
               : null;
@@ -783,7 +787,7 @@ export default function MissionDispatchPage() {
             <div>
               <p className="cc-section-kicker">Durable output</p>
               <h2>
-                {isWebObservation ? "Web page observation" : isIdentityObservation ? "Public identity observation" : "Prospect candidates"}
+                {emailReferences ? "Gmail message references" : isWebObservation ? "Web page observation" : isIdentityObservation ? "Public identity observation" : "Prospect candidates"}
               </h2>
             </div>
             <span
@@ -794,13 +798,15 @@ export default function MissionDispatchPage() {
               {deliverable.completion.artifact_complete ? "artifact complete" : "incomplete"}
             </span>
           </div>
-          {deliverable.task_state.all_succeeded && !deliverable.completion.artifact_complete ? (
+          {!emailReferences && deliverable.task_state.all_succeeded && !deliverable.completion.artifact_complete ? (
             <p className="callout">
               Tasks succeeded, but the requested artifact is incomplete. Ajenda is not treating this mission as
               successful.
             </p>
           ) : null}
-          {observationRecord ? (
+          {emailReferences ? (
+            <EmailReferences messages={emailReferences} sourceObservations={deliverable.result_semantics?.source_observations} />
+          ) : observationRecord ? (
             <div className="code-block">
               <p><strong>Source URL:</strong> {String(observationRecord.source_url ?? "—")}</p>
               <p><strong>Final URL:</strong> {String(observationRecord.final_url ?? "—")}</p>
