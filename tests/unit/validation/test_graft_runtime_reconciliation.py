@@ -1,3 +1,6 @@
+import hashlib
+import json
+
 from backend.services.mission_composition.semantic_vocabulary import build_semantic_selection
 from scripts.validation.graft_runtime_reconciliation import (
     RuntimeReconciliationSnapshot,
@@ -112,6 +115,16 @@ def test_legacy_snapshot_is_explicitly_unverified() -> None:
     report = reconcile_snapshot(snapshot)
     assert report["provenance_status"] == "legacy_unverified"
     assert report["source_authenticity_verified"] is False
+
+
+def test_version_one_digest_keeps_original_wire_format() -> None:
+    snapshot = RuntimeReconciliationSnapshot.model_validate(
+        {"tenant_id": "tenant-a", "mission_id": "mission-1", "graph_expected_nodes": ["research"]}
+    )
+    legacy_payload = snapshot.model_dump(mode="json", exclude={"runtime_evidence", "provenance"})
+    legacy_payload["provenance"] = None
+    digest = hashlib.sha256(json.dumps(legacy_payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    assert snapshot_digest(snapshot) == f"sha256:{digest}"
 
 
 def test_export_digest_detects_tampering() -> None:

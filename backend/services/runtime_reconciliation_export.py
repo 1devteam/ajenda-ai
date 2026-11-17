@@ -18,9 +18,6 @@ def export_runtime_reconciliation_snapshot(
         for node in projection.selected_nodes
         if node.get("node_key") or node.get("key")
     )
-    if not selected_keys:
-        raise ValueError("cannot export reconciliation without admitted selected nodes")
-
     tenant_id = projection.tenant_id
 
     def stage(key: str, status: str) -> dict[str, str]:
@@ -68,8 +65,10 @@ def export_runtime_reconciliation_snapshot(
 
     snapshot = RuntimeReconciliationSnapshot.model_validate(
         {
+            "schema_version": 2,
             "tenant_id": tenant_id,
             "mission_id": str(projection.mission_id),
+            "runtime_evidence": projection,
             "graph_expected_nodes": selected_keys,
             "selected_nodes": selected,
             "materialized_tasks": materialized,
@@ -81,7 +80,7 @@ def export_runtime_reconciliation_snapshot(
     return seal_snapshot(
         snapshot,
         producer="ajenda.runtime_reconciliation_export",
-        producer_version="1",
+        producer_version="2",
         source_record_ids=tuple(sorted(set(source_record_ids))),
         evidence_contract_version="mixed_or_unknown",
     )
