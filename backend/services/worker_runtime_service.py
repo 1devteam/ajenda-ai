@@ -178,9 +178,12 @@ class WorkerRuntimeService:
         worker_id: str,
         lease_id: uuid.UUID,
         evidence_references: list[str],
+        runtime_observations: list[Any] | None = None,
     ) -> None:
         metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
-        raw_items = metadata.get("runtime_causal_observations")
+        raw_items = (
+            runtime_observations if runtime_observations is not None else metadata.get("runtime_causal_observations")
+        )
         if not isinstance(raw_items, list):
             return
         for raw in raw_items:
@@ -895,6 +898,7 @@ class WorkerRuntimeService:
         task_type: str,
         side_effect_class: str,
         reason: str,
+        runtime_observations: list[Any] | None = None,
     ) -> ExecutionTask:
         """Block a task after a side-effecting handler completed but completion persistence failed."""
 
@@ -942,6 +946,13 @@ class WorkerRuntimeService:
                 },
             )
         )
+        self._append_task_causal_observations(
+            task=task,
+            worker_id=worker_id,
+            lease_id=lease.id,
+            evidence_references=[],
+            runtime_observations=runtime_observations,
+        )
         self._session.flush()
         self._session.commit()
 
@@ -965,6 +976,7 @@ class WorkerRuntimeService:
         lease_id: uuid.UUID,
         worker_id: str,
         reason: str,
+        runtime_observations: list[Any] | None = None,
     ) -> ExecutionTask:
         lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
         task = self._get_task_for_lease(lease)
@@ -1036,6 +1048,7 @@ class WorkerRuntimeService:
             worker_id=worker_id,
             lease_id=lease.id,
             evidence_references=[],
+            runtime_observations=runtime_observations,
         )
         self._refresh_deliverable_completion_read_model(task=task)
         self._maybe_rollup_mission_status(task=task, worker_id=worker_id)

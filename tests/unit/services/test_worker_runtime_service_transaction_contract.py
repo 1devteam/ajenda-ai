@@ -1006,6 +1006,40 @@ def test_worker_runtime_release_fails_closed_when_claim_metadata_points_to_newer
     session.commit.assert_not_called()
 
 
+@pytest.mark.parametrize("terminal_path", ["fail", "block"])
+def test_terminal_paths_record_dispatched_causal_observations(terminal_path: str) -> None:
+    service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
+        status=ExecutionTaskState.RUNNING.value
+    )
+    service._evidence_ledger = MagicMock()
+    queue.fail_task.return_value = QueueOperationResult(ok=True)
+    queue.complete_task.return_value = QueueOperationResult(ok=True)
+    observation = {"stage": "provider_selection", "decision": "provider_selected", "reason_code": "registered"}
+    kwargs = {
+        "tenant_id": tenant_id,
+        "lease_id": lease.id,
+        "worker_id": worker_id,
+        "reason": "handler failed",
+        "runtime_observations": [observation],
+    }
+    if terminal_path == "fail":
+        service.fail(**kwargs)
+        assert task.status == ExecutionTaskState.FAILED.value
+    else:
+        service.block_completion_failure(**kwargs, task_type="tool.invoke", side_effect_class="external_write")
+        assert task.status == ExecutionTaskState.BLOCKED.value
+    event = next(
+        call.kwargs
+        for call in service._evidence_ledger.append_causal_observation.call_args_list
+        if call.kwargs["observation"].stage == "provider_selection"
+    )
+    assert event["tenant_id"] == tenant_id
+    assert event["observation"].stage == "provider_selection"
+    assert event["causation_id"] == str(lease.id)
+    assert lease.status == WorkerLeaseState.RELEASED.value
+    session.commit.assert_called()
+
+
 def test_block_completion_failure_blocks_task_releases_lease_and_cleans_queue_claim() -> None:
     service, session, queue, lease, task, tenant_id, worker_id = _terminal_runtime_subject(
         status=ExecutionTaskState.RUNNING.value

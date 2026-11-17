@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
+from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.lineage_record import LineageRecord
@@ -14,11 +15,75 @@ from backend.domain.mission import Mission
 from backend.domain.tenant import Tenant
 from backend.domain.worker_lease import WorkerLease
 from backend.services.execution_coordinator import ExecutionCoordinator
+from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers import task_dispatcher
 from backend.workers.task_dispatcher import TaskDispatcher, TaskHandler, TaskHandlerContext
 
 pytestmark = pytest.mark.integration
+
+
+def test_started_observation_is_durable_before_any_terminal_callback(pg_engine, queue_adapter) -> None:
+    factory = _session_factory(pg_engine)
+    tenant_id, task_id, lease_id = _create_running_task(
+        session_factory=factory,
+        queue_adapter=queue_adapter,
+        worker_id="worker-interrupted",
+        metadata_json={"task_type": "unstarted_handler"},
+    )
+    with factory() as session:
+        task = session.get(ExecutionTask, task_id)
+        assert task is not None and task.status == ExecutionTaskState.RUNNING.value
+        events = session.scalars(
+            select(AuditEvent).where(AuditEvent.tenant_id == tenant_id, AuditEvent.action == "execution_started")
+        ).all()
+        assert any(event.payload_json.get("lease_id") == str(lease_id) for event in events)
+        assert not session.scalars(
+            select(AuditEvent).where(AuditEvent.tenant_id == tenant_id, AuditEvent.action == "execution_completed")
+        ).first()
+
+
+@pytest.mark.parametrize("failure_mode", ["handler", "output_contract"])
+def test_failed_handler_persists_its_causal_observation(
+    pg_engine, queue_adapter, redis_client, monkeypatch, failure_mode: str
+) -> None:
+    worker_id = "worker-causal-failure"
+    factory = _session_factory(pg_engine)
+    tenant_id, task_id, lease_id = _create_running_task(
+        session_factory=factory,
+        queue_adapter=queue_adapter,
+        worker_id=worker_id,
+        metadata_json={"task_type": "causal_failure", "expected_output_contract": {"artifact": "required_artifact"}},
+    )
+
+    def handler(task: ExecutionTask, context: TaskHandlerContext) -> dict[str, Any]:
+        task.metadata_json = {
+            **task.metadata_json,
+            "runtime_causal_observations": [
+                {"stage": "provider_selection", "decision": "provider_selected", "reason_code": "registered"}
+            ],
+        }
+        if failure_mode == "handler":
+            raise RuntimeError("provider failure")
+        return {"handler": "test", "status": "completed", "output": {}}
+
+    monkeypatch.setattr(task_dispatcher, "_HANDLER_REGISTRY", {"causal_failure": cast(TaskHandler, handler)})
+    monkeypatch.setattr(task_dispatcher, "_OUTPUT_REASON_BY_TASK_TYPE", {"causal_failure": "test output"})
+    TaskDispatcher(session_factory=factory, queue=queue_adapter, worker_id=worker_id, tenant_id=tenant_id).execute(
+        task_id=task_id, lease_id=lease_id
+    )
+    _assert_failed_without_output(
+        session_factory=factory, redis_client=redis_client, tenant_id=tenant_id, task_id=task_id, lease_id=lease_id
+    )
+    with factory() as session:
+        events = session.scalars(select(AuditEvent).where(AuditEvent.tenant_id == tenant_id)).all()
+        envelopes = [RuntimeEvidenceLedger.read_envelope(event) for event in events]
+        assert any(
+            envelope is not None
+            and envelope.event_type == "runtime_decision.provider_selection"
+            and envelope.causation_id == str(lease_id)
+            for envelope in envelopes
+        )
 
 
 def _session_factory(pg_engine):
