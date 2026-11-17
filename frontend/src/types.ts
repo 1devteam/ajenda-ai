@@ -452,6 +452,7 @@ export interface ProfileDeliverableResponse {
   missing_fields: string[];
   conflicting_fields: string[];
   evidence_ids: string[];
+  profile_source_evidence_ids: string[];
   complete: boolean;
   grants_execution_authority: false;
 }

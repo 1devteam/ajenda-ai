@@ -799,7 +799,7 @@ export default function MissionDispatchPage() {
           <p>Missing fields: {profileDeliverable.missing_fields.length ? profileDeliverable.missing_fields.join(", ") : "none recorded"}</p>
           <p>Conflicting fields: {profileDeliverable.conflicting_fields.length ? profileDeliverable.conflicting_fields.join(", ") : "none recorded"}</p>
           <p>Source: approved business profile ({profileDeliverable.profile_id ?? "profile ID not recorded"})</p>
-          <p>Evidence records: {profileDeliverable.evidence_ids.length ? profileDeliverable.evidence_ids.join(", ") : "not recorded"}</p>
+          <p>Profile source evidence: {profileDeliverable.profile_source_evidence_ids?.length ? profileDeliverable.profile_source_evidence_ids.join(", ") : "not recorded"}</p>
         </section>
       ) : null}
 

@@ -18,7 +18,8 @@ vi.mock("../api/client", () => ({
   getProfileDeliverable: vi.fn(async () => ({
     schema_version: 1, kind: "business_profile_brief", mission_id: "mission-1", objective: "Read approved profile",
     profile_id: "profile-1", approved_facts: {}, profile_brief: { facts: { business_name: "Ajenda AI" } },
-    missing_fields: ["description"], conflicting_fields: [], evidence_ids: ["evidence-1"], complete: true,
+    missing_fields: ["description"], conflicting_fields: [], evidence_ids: ["unrelated-evidence"],
+    profile_source_evidence_ids: ["evidence-1"], complete: true,
     grants_execution_authority: false,
   })),
 }));
@@ -44,5 +45,6 @@ it("shows the existing profile artifact and evidence after the generic deliverab
   expect(container.textContent).toContain("Ajenda AI");
   expect(container.textContent).toContain("profile-1");
   expect(container.textContent).toContain("evidence-1");
+  expect(container.textContent).not.toContain("unrelated-evidence");
   expect(container.textContent).toContain("Missing fields: description");
 });
