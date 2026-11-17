@@ -35,6 +35,10 @@ def _source_mode(intent: MissionIntent) -> CoverageMode:
         r"\b(?:ajenda(?:['\u2019]s)?\s+internal\s+crm|internal\s+(?:ajenda\s+)?crm)\b", text
     ):
         return "internal_crm"
+    if intent.requested_outcomes and set(intent.requested_outcomes) <= {"read_business_profile"}:
+        # The existing mode vocabulary has no approved-profile mode. Do not
+        # label this tenant-owned read as a public/provider research source.
+        return "unknown"
     if intent.target_entities or intent.requested_outcomes:
         return "public_or_provider"
     return "unknown"
@@ -57,7 +61,19 @@ def assess_coverage(intent: MissionIntent, *, internal_capacity: int | None = No
     """Assess known applicability/capacity without touching runtime state."""
 
     mode = _source_mode(intent)
-    requested = intent.requested_quantity or intent.qualification_quantity or 3
+    requested = intent.requested_quantity or intent.qualification_quantity
+    if requested is None:
+        # A count used by a prospect workflow is not a user request for every
+        # other mission.  Without a quantity there is no capacity threshold to
+        # assess; preserve the unknown rather than inventing three records.
+        return CoverageAssessment(
+            mode=mode,
+            status="unknown",
+            requested_quantity=None,
+            available_quantity=internal_capacity if mode == "internal_crm" else None,
+            reasons=("no_quantity_requested",),
+            source_reference="mission_intent_and_runtime_source_contracts",
+        )
     if mode == "internal_crm" and internal_capacity is not None:
         _, _, scope_key = _scope(intent)
         if internal_capacity < requested:

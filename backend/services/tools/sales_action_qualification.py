@@ -236,22 +236,23 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         else scored_prospects[0]
         if scored_prospects
         else {
-            "score": 0,
-            "score_10": 0,
+            "score": None,
+            "score_10": None,
             "qualification_dimensions": {},
             "qualification_threshold_10": empty_threshold,
-            "qualified": False,
+            "qualified": None,
             "reasons": ["no observed prospects were available for qualification"]
             if binding_required
             else ["insufficient local qualification signals"],
         }
     )
     raw_score = primary.get("score")
-    score = raw_score if isinstance(raw_score, int) else 0
-    qualified = bool(primary.get("qualified"))
+    score = raw_score if isinstance(raw_score, int) and not isinstance(raw_score, bool) else None
+    qualified = bool(primary.get("qualified")) if score is not None else None
     output = {
         "score": score,
-        "score_10": primary.get("score_10", 0),
+        "score_10": primary.get("score_10"),
+        "assessment_status": "evaluated" if score is not None else "insufficient_evidence",
         "qualification_dimensions": primary.get("qualification_dimensions", {}),
         "qualification_threshold_10": primary.get("qualification_threshold_10", 7),
         "qualified": qualified,
@@ -279,7 +280,11 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
             else None
         ),
     }
-    summary = f"Qualified {len(qualified_prospects)} prospect(s); primary score={score}, qualified={qualified}."
+    summary = (
+        f"Qualified {len(qualified_prospects)} prospect(s); primary score={score}, qualified={qualified}."
+        if score is not None
+        else "No prospect was available to score; qualification requires additional evidence."
+    )
     return ActionResult(
         action="sales.qualify",
         provider="local_sales",
@@ -291,19 +296,20 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
                 provider="local_sales",
                 summary=summary,
                 payload=output,
-                confidence=0.72,
+                confidence=0.72 if score is not None else 0.0,
             )
         ],
         summary=summary,
-        confidence=0.72,
+        confidence=0.72 if score is not None else 0.0,
     )
 
 
 def sales_score_lead(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     result = sales_qualify(invocation, context)
+    score = result.output["score"]
     output = {
-        "lead_score": result.output["score"],
-        "score_band": "high" if result.output["score"] >= 75 else "medium" if result.output["score"] >= 50 else "low",
+        "lead_score": score,
+        "score_band": "unknown" if score is None else "high" if score >= 75 else "medium" if score >= 50 else "low",
         "reasons": result.output["reasons"],
     }
     summary = f"Lead score is {output['lead_score']} ({output['score_band']})."
@@ -318,22 +324,22 @@ def sales_score_lead(invocation: ToolInvocation, context: ActionRuntimeContext) 
                 provider="local_sales",
                 summary=summary,
                 payload=output,
-                confidence=0.72,
+                confidence=0.72 if score is not None else 0.0,
             )
         ],
         summary=summary,
-        confidence=0.72,
+        confidence=0.72 if score is not None else 0.0,
     )
 
 
 def sales_recommend_next_action(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = SalesLeadInput.model_validate(invocation.input)
     qualify_result = sales_qualify(invocation, context)
-    score = int(qualify_result.output["score"])
-    recommendation = "draft_followup" if score >= 60 else "research_more"
+    score = qualify_result.output["score"]
+    recommendation = "draft_followup" if score is not None and score >= 60 else "research_more"
     rationale = (
         "Qualification score is high enough for follow-up."
-        if score >= 60
+        if score is not None and score >= 60
         else "More account/contact context is needed."
     )
     output = {"recommendation": recommendation, "rationale": rationale, "lead": payload.lead, "score": score}
@@ -349,9 +355,9 @@ def sales_recommend_next_action(invocation: ToolInvocation, context: ActionRunti
                 provider="local_sales",
                 summary=summary,
                 payload=output,
-                confidence=0.7,
+                confidence=0.7 if score is not None else 0.0,
             )
         ],
         summary=summary,
-        confidence=0.7,
+        confidence=0.7 if score is not None else 0.0,
     )

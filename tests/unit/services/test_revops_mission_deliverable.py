@@ -89,6 +89,44 @@ def _task(
     return task
 
 
+@pytest.mark.parametrize(
+    ("upcoming", "effective_start", "has_more", "expected_complete"),
+    [
+        (True, "2026-11-17T07:00:00+00:00", False, True),
+        (True, None, False, False),
+        (True, "invalid", False, False),
+        (True, "2026-11-17T07:00:00+00:00", True, False),
+        (False, None, None, False),
+    ],
+)
+def test_calendar_readback_preserves_scope_and_pagination(
+    upcoming: bool, effective_start: str | None, has_more: bool | None, expected_complete: bool
+) -> None:
+    mission = _mission("Return company name.")
+    mission.objective = "Read my Google Calendar for upcoming events."
+    mission.metadata_json = {}
+    events = [{"id": "event-1"}]
+    task = _task(
+        task_id=1,
+        artifact="calendar_events",
+        payload=events,
+        handler_fields={
+            "output": {
+                "calendar_events": events,
+                "real": True,
+                "effective_start": effective_start,
+                "has_more": has_more,
+            }
+        },
+        metadata_fields={"tool_invocation": {"action": "google_calendar.events_read", "input": {"upcoming": upcoming}}},
+    )
+    result = assemble_revops_mission_deliverable(mission=mission, tasks=[task])
+    assert result.artifacts["calendar_events"] == events
+    assert result.completion.complete is expected_complete
+    assert result.result_semantics["source_observations"][0]["has_more"] is has_more
+    assert result.grants_execution_authority is False
+
+
 def test_email_reference_readback_is_visible_but_not_a_complete_message_deliverable() -> None:
     mission = _mission("Return company name.")
     mission.metadata_json = {}

@@ -38,6 +38,7 @@ import type {
   MissionCreateRequest,
   MissionLifecycleReadResponse,
   MissionDeliverableResponse,
+  ProfileDeliverableResponse,
   MissionRuntimeEvidenceProjection,
   MissionLaunchResponse,
   MissionListResponse,
@@ -853,6 +854,16 @@ export async function getMissionDeliverable(
   return withAuthedRuntime(caller, (config) =>
     request<MissionDeliverableResponse>(
       `/v1/missions/${encodeURIComponent(missionId)}/deliverable`,
+      {},
+      runtimeOptions(config),
+    ),
+  );
+}
+
+export async function getProfileDeliverable(caller: AuthedCaller, missionId: string): Promise<ProfileDeliverableResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<ProfileDeliverableResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/profile-deliverable`,
       {},
       runtimeOptions(config),
     ),

@@ -390,6 +390,57 @@ def test_observe_contacts_promotes_external_directory_links_after_verification()
     assert promoted[0]["identity_status"] == "verified"
     assert promoted[0]["identity_evidence_urls"] == [directory.url, official.url]
     assert result.output["observed_contacts"][0]["website"] == official.url
+    attempts = result.output["directory_link_resolution"]["attempts"]
+    assert attempts == [
+        {
+            "source_host": "directory.example",
+            "target_host": "acmehvac.example",
+            "status_code": 200,
+            "page_observed": True,
+            "accepted": True,
+            "reasons": [],
+        }
+    ]
+
+
+def test_directory_follow_explains_missing_location_without_copying_page_content() -> None:
+    from backend.services.tools.web_actions import research_verify_public_candidates
+
+    directory = PageSnapshot(
+        url="https://directory.example/list",
+        real=True,
+        status_code=200,
+        title="Software development companies in Austin",
+        text_preview="A directory of software providers",
+        body_preview="",
+        extraction={"links": [{"url": "https://acmesoft.example/?tracking=private", "text": "Acme Software"}]},
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    official = PageSnapshot(
+        url="https://acmesoft.example/",
+        real=True,
+        status_code=200,
+        title="Acme Software",
+        text_preview="Custom software development services",
+        body_preview="",
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.verify_public_candidates",
+        input={
+            "prospects": [{"company": directory.title, "domain": "directory.example", "url": directory.url}],
+            "requested_quantity": 1,
+            "binding_required": True,
+            "context": {"industry": "software development", "location": "Austin"},
+        },
+    )
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", side_effect=[directory, official]):
+        result = research_verify_public_candidates(invocation, _context())
+    attempt = result.output["directory_link_resolution"]["attempts"][0]
+    assert attempt["accepted"] is False
+    assert "location_not_observed" in attempt["reasons"]
+    assert "tracking" not in str(attempt)
+    assert result.output["verified_prospect_candidates"] == []
 
 
 def test_observe_contacts_uses_linked_title_when_directory_label_is_generic() -> None:

@@ -30,6 +30,23 @@ def _context() -> ActionRuntimeContext:
     )
 
 
+def test_missing_bound_prospect_is_unknown_not_a_zero_fit_score() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    payload = {"prospects": [], "context": {"binding_required": True}}
+    result = registry.invoke(ToolInvocation(action="sales.qualify", input=payload), _context())
+    assert result.output["assessment_status"] == "insufficient_evidence"
+    assert result.output["score"] is None
+    assert result.output["score_10"] is None
+    assert result.output["qualified"] is None
+    assert result.confidence == 0.0
+    score = registry.invoke(ToolInvocation(action="sales.score_lead", input=payload), _context())
+    assert score.output["lead_score"] is None
+    assert score.output["score_band"] == "unknown"
+    recommendation = registry.invoke(ToolInvocation(action="sales.recommend_next_action", input=payload), _context())
+    assert recommendation.output["recommendation"] == "research_more"
+    assert recommendation.output["score"] is None
+
+
 def test_real_contact_requires_a_usable_value_not_a_real_page_marker() -> None:
     assert _has_real_contact({"contacts": [{"real": True, "kind": None, "value": None}]}) is False
     assert _has_real_contact({"contacts": [{"real": True, "kind": "email", "value": "owner@example.test"}]})

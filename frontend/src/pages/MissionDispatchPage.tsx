@@ -7,6 +7,7 @@ import {
   createMissionPlan,
   getMissionDispatchReadiness,
   getMissionDeliverable,
+  getProfileDeliverable,
   getMissionLifecycle,
   getMissionRuntimeEvidence,
   getMissionRuntimeReadiness,
@@ -26,6 +27,7 @@ import type {
   RuntimeReadinessReadResponse,
   RuntimeTaskMaterializationReadResponse,
   MissionDeliverableResponse,
+  ProfileDeliverableResponse,
   MissionRuntimeEvidenceProjection,
 } from "../types";
 import {
@@ -258,6 +260,7 @@ export default function MissionDispatchPage() {
   const [monitoredTaskId, setMonitoredTaskId] = useState("");
   const [taskStatus, setTaskStatus] = useState<AbilityTaskStatusResponse | null>(null);
   const [deliverable, setDeliverable] = useState<MissionDeliverableResponse | null>(null);
+  const [profileDeliverable, setProfileDeliverable] = useState<ProfileDeliverableResponse | null>(null);
   const [runtimeEvidence, setRuntimeEvidence] = useState<MissionRuntimeEvidenceProjection | null>(null);
 
   const allowedActions = useMemo(() => intakeAllowedActions(lifecycle?.intake ?? null), [lifecycle?.intake]);
@@ -296,12 +299,33 @@ export default function MissionDispatchPage() {
       return;
     }
     try {
-      setDeliverable(await getMissionDeliverable(session, missionId));
+      const result = await getMissionDeliverable(session, missionId);
+      setProfileDeliverable(null);
+      setDeliverable(result);
     } catch (err) {
       const status = typeof err === "object" && err && "status" in err ? Number((err as { status?: unknown }).status) : 0;
+      if (status === 404) {
+        try {
+          const profile = await getProfileDeliverable(session, missionId);
+          setDeliverable(null);
+          setProfileDeliverable(profile);
+          return;
+        } catch (profileError) {
+          const profileStatus = typeof profileError === "object" && profileError && "status" in profileError
+            ? Number((profileError as { status?: unknown }).status) : 0;
+          if (profileStatus !== 404) {
+            setError(profileError);
+            return;
+          }
+        }
+      }
       const fallback = taskOverride ? deliverableFromTaskStatus(taskOverride) : null;
       if (status === 404 && fallback) {
+        setProfileDeliverable(null);
         setDeliverable(fallback);
+      } else if (status === 404) {
+        setProfileDeliverable(null);
+        setDeliverable(null);
       } else if (status !== 404) {
         setError(err);
       }
@@ -767,6 +791,18 @@ export default function MissionDispatchPage() {
         </section>
       ) : null}
 
+      {profileDeliverable ? (
+        <section className="panel" aria-label="Business profile deliverable">
+          <h2>Approved business profile</h2>
+          <p>{profileDeliverable.complete ? "Profile artifact available" : "Profile artifact incomplete"}</p>
+          <pre className="code-block">{pretty(profileDeliverable.profile_brief)}</pre>
+          <p>Missing fields: {profileDeliverable.missing_fields.length ? profileDeliverable.missing_fields.join(", ") : "none recorded"}</p>
+          <p>Conflicting fields: {profileDeliverable.conflicting_fields.length ? profileDeliverable.conflicting_fields.join(", ") : "none recorded"}</p>
+          <p>Source: approved business profile ({profileDeliverable.profile_id ?? "profile ID not recorded"})</p>
+          <p>Profile source evidence: {profileDeliverable.profile_source_evidence_ids?.length ? profileDeliverable.profile_source_evidence_ids.join(", ") : "not recorded"}</p>
+        </section>
+      ) : null}
+
       {deliverable ? (
         <section className="panel" aria-label="Mission deliverable">
           {(() => {
@@ -776,6 +812,9 @@ export default function MissionDispatchPage() {
             const isIdentityObservation = Boolean(identity && typeof identity === "object");
             const emailReferences = Array.isArray(deliverable.artifacts?.email_messages)
               ? deliverable.artifacts.email_messages
+              : null;
+            const calendarEvents = Array.isArray(deliverable.artifacts?.calendar_events)
+              ? deliverable.artifacts.calendar_events
               : null;
             const observationRecord = isWebObservation
               ? (observation as Record<string, unknown>)
@@ -806,6 +845,11 @@ export default function MissionDispatchPage() {
           ) : null}
           {emailReferences ? (
             <EmailReferences messages={emailReferences} sourceObservations={deliverable.result_semantics?.source_observations} />
+          ) : calendarEvents ? (
+            <div aria-label="Calendar events">
+              <h3>Calendar events returned</h3>
+              {calendarEvents.length ? <pre className="code-block">{pretty(calendarEvents)}</pre> : <p>No events returned in the recorded provider page.</p>}
+            </div>
           ) : observationRecord ? (
             <div className="code-block">
               <p><strong>Source URL:</strong> {String(observationRecord.source_url ?? "—")}</p>
@@ -867,6 +911,12 @@ export default function MissionDispatchPage() {
           ) : (
             <p className="muted">No prospect candidates were produced.</p>
           )}
+          {deliverable.limitations?.length ? (
+            <div aria-label="Deliverable limitations">
+              <h3>Evidence limits</h3>
+              <ul>{deliverable.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
+            </div>
+          ) : null}
           {deliverable.completion.assembly_errors.length > 0 ? (
             <ul className="violation-list">
               {deliverable.completion.assembly_errors.map((item) => (

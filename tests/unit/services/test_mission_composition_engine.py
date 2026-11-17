@@ -48,6 +48,69 @@ def setup_function() -> None:
     clear_proposals_for_tests()
 
 
+def test_named_prospect_qualification_retains_subject_without_assuming_company_identity() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-test",
+        instruction="Qualify Copper Circuit Systems as a prospect using Ajenda\u2019s approved business profile.",
+    )
+    assert record.intent.requested_quantity == 1
+    assert record.intent.quantity_provenance == "inferred_deterministic"
+    assert not record.ready_to_start
+    assert any(item.field == "profile_qualification_binding" for item in record.clarifications)
+    assert [(item.type, item.name) for item in record.intent.target_entities] == [
+        ("named_prospect_subject", "Copper Circuit Systems")
+    ]
+    research = next(step for step in record.planned_steps if step.action_name == "web.research")
+    assert research.tool_input["query"] == "Copper Circuit Systems"
+    assert research.tool_input["company"] is None
+    qualification = next(step for step in record.planned_steps if step.action_name == "sales.qualify")
+    assert qualification.tool_input["context"]["requested_quantity"] == 1
+    assert "company" not in qualification.tool_input["lead"]
+
+
+def test_named_person_is_not_promoted_to_company_during_qualification() -> None:
+    intent = interpret_instruction("Qualify Jane Smith as a prospect.")
+    assert [(item.type, item.name) for item in intent.target_entities] == [("named_prospect_subject", "Jane Smith")]
+    assert intent.requested_quantity == 1
+
+
+def test_possessive_profile_read_composes_without_a_fabricated_count() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-test", instruction="Read my approved business profile."
+    )
+    assert record.ready_to_start
+    assert record.intent.requested_quantity is None
+    assert record.coverage_assessment is not None
+    assert record.coverage_assessment.requested_quantity is None
+    assert [step.action_name for step in record.planned_steps] == ["retrieval.hybrid_search"]
+
+
+def test_upcoming_calendar_request_defers_current_time_to_worker() -> None:
+    from backend.services.mission_composition.action_input_provider_reads import build_provider_read_action_input
+
+    intent = interpret_instruction("Read my Google Calendar for upcoming events.")
+    payload = build_provider_read_action_input(action_name="google_calendar.events_read", intent=intent)
+    assert payload is not None
+    assert payload["upcoming"] is True
+    assert "start" not in payload
+
+
+def test_profile_source_request_retains_the_existing_profile_read_path() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-test",
+        instruction=(
+            "Summarize Ajenda\u2019s approved business profile, including its services, target customers, "
+            "and any important information that is missing. Show the sources used."
+        ),
+    )
+    assert record.ready_to_start
+    assert not record.intent.unmatched_material_clauses
+    assert [step.action_name for step in record.planned_steps] == ["retrieval.hybrid_search"]
+    assert record.coverage_assessment is not None
+    assert record.coverage_assessment.requested_quantity is None
+    assert record.coverage_assessment.mode == "unknown"
+
+
 def test_interpreter_roofing_forbids_send_and_targets_austin() -> None:
     intent = interpret_instruction(ROOFING_INSTRUCTION)
     assert "research_prospects" in intent.requested_outcomes

@@ -20,6 +20,7 @@ from backend.services.mission_composition.deliverable_completion import validate
 from backend.services.mission_composition.deliverable_runtime_artifacts import (
     collect_materialized_artifacts,
     declared_artifact_key,
+    materialized_artifact_for_task,
 )
 
 
@@ -39,6 +40,7 @@ class ProfileDeliverableRead(BaseModel):
     conflicting_fields: tuple[str, ...] = ()
     artifacts: dict[str, Any] = Field(default_factory=dict)
     evidence_ids: tuple[uuid.UUID, ...] = ()
+    profile_source_evidence_ids: tuple[uuid.UUID, ...] = ()
     task_statuses: dict[str, int] = Field(default_factory=dict)
     complete: bool = False
     grants_execution_authority: Literal[False] = False
@@ -80,6 +82,27 @@ def assemble_profile_deliverable(
     except (TypeError, ValueError) as exc:
         raise ValueError("business profile deliverable profile_id is invalid") from exc
 
+    # A mission can contain evidence from several tasks. Only identify a record
+    # as the profile source when it belongs to a completed producer of this
+    # exact artifact and contains the same approved-profile payload.
+    profile_task_ids = {
+        task.id
+        for task in tasks
+        if (artifact := materialized_artifact_for_task(task)) is not None
+        and artifact.artifact_key == "business_profile_facts"
+        and artifact.payload == payload
+    }
+    profile_source_evidence_ids = tuple(
+        evidence.id
+        for evidence in evidence_records
+        if evidence.execution_task_id in profile_task_ids
+        and evidence.collection_status == "collected"
+        and isinstance(evidence.structured_payload, dict)
+        and evidence.structured_payload.get("business_profile_facts") == payload
+        and payload.get("source") == "approved_business_profile"
+        and profile_id is not None
+    )
+
     status_counts = Counter(str(task.status) for task in tasks)
     review_required = any(declared_artifact_key(task) == "business_review_report" for task in tasks)
     complete = (
@@ -97,6 +120,7 @@ def assemble_profile_deliverable(
         conflicting_fields=tuple(str(value) for value in profile_brief.get("conflicting_fields", ()) if value),
         artifacts=artifacts,
         evidence_ids=tuple(evidence.id for evidence in evidence_records),
+        profile_source_evidence_ids=profile_source_evidence_ids,
         task_statuses=dict(sorted(status_counts.items())),
         complete=complete,
     )

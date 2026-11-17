@@ -357,7 +357,12 @@ _BUSINESS_PROFILE_READ_PATTERNS = (
 # A profile used as mission context is not itself a profile-read deliverable.
 # Keep this clause recognized so composition does not silently drop the
 # operator's declared company/product authority.
+_DIRECT_BUSINESS_PROFILE_CONTEXT = (
+    r"\b(?:use|using|based\s+on|with)\s+(?:(?:the|my|our)\s+|[A-Za-z][A-Za-z0-9-]*['\u2019]s\s+)?"
+    r"(?:approved\s+)?(?:business|company)\s+profile\b"
+)
 _BUSINESS_PROFILE_CONTEXT_PATTERNS = (
+    _DIRECT_BUSINESS_PROFILE_CONTEXT,
     r"\buse\s+(?:the\s+)?(?:approved\s+)?(?:business|company)\s+profile\b",
     # "Create a business profile for Acme" describes a public-research
     # deliverable. It is not permission to read the tenant's approved profile;
@@ -377,6 +382,11 @@ _BUSINESS_PROFILE_DELIVERABLE_PATTERNS = (
     r"\bcompany brief\b",
     r"\bevidence[- ]backed brief\b",
     r"\bmissing or conflicting (?:facts|information)\b",
+)
+_PROFILE_SOURCE_REQUEST = re.compile(
+    r"^(?:show|include|provide|list|cite)\s+(?:me\s+)?(?:the\s+)?(?:supporting\s+)?"
+    r"(?:sources?|citations?|evidence)(?:\s+(?:used|references?|records?))?\s*[.!?]?$",
+    re.IGNORECASE,
 )
 # Publish/post verbs only — "prospects on LinkedIn" is research, not publishing.
 _PUBLISH_PATTERNS = (
@@ -527,6 +537,12 @@ _NAMED_INTERACTION_SUBJECT = re.compile(
     r"contact\s+(?!information\b|info\b|details?\b|to\b))"
     r"(?P<name>[A-Za-z0-9][A-Za-z0-9.&'\-/]*(?:\s+[A-Za-z0-9][A-Za-z0-9.&'\-/]*){0,5}?)"
     r"(?=$|[,;.!?]|\s+\b(?:then|about|regarding|tomorrow|today|next|on|at|with)\b|\s+and\s+(?:find|research|identify|discover|show|compare)\b)",
+    re.IGNORECASE,
+)
+_NAMED_PROSPECT_SUBJECT = re.compile(
+    r"\b(?:qualify|assess|evaluate|score)\s+"
+    r"(?P<name>[A-Z][A-Za-z0-9.&'\-/]*(?:\s+[A-Z][A-Za-z0-9.&'\-/]*){1,7}?)"
+    r"\s+as\s+(?:an?\s+)?(?:prospect|lead)\b",
     re.IGNORECASE,
 )
 _COMPARATIVE_PURCHASE_REQUEST = re.compile(
@@ -984,6 +1000,26 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
                 )
             if entities:
                 break
+    # A named prospect may be a person or an organization. Retain the name
+    # without using it as evidence of company identity.
+    if not entities:
+        named_prospect = _NAMED_PROSPECT_SUBJECT.search(text)
+        if named_prospect is not None:
+            name = named_prospect.group("name").strip()
+            if (
+                name[0].isupper()
+                and not re.search(r"\b(?:and|or)\b", name, flags=re.IGNORECASE)
+                and not re.match(r"^(?:the|this|that|these|those|our|my)\b", name, flags=re.IGNORECASE)
+            ):
+                entities.append(
+                    TargetEntity(
+                        type="named_prospect_subject",
+                        name=name,
+                        attributes={"identity_role": "unresolved_prospect_subject"},
+                        provenance="explicit",
+                        confidence=0.9,
+                    )
+                )
     # Connector company targets (HubSpot for Acme) — only when no market target already.
     if not entities:
         entities.extend(_extract_connector_company(text))
@@ -1370,6 +1406,11 @@ def _classify_clause(
     """Return (outcomes, material, recognized)."""
 
     lower = clause.lower()
+    if profile_mission and _PROFILE_SOURCE_REQUEST.fullmatch(clause.strip()):
+        # The existing profile deliverable exposes the approved profile ID
+        # and evidence record IDs. This clause requests that provenance; it
+        # does not authorize a separate provider or outbound action.
+        return ["read_business_profile"], True, True
     if _is_comparative_purchase_request(clause):
         # The existing canonical research outcome is B2B prospect research;
         # consumer/procurement comparison is intentionally not silently

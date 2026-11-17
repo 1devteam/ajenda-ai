@@ -9,6 +9,15 @@ def _intent(instruction: str):
     return interpret_instruction(instruction)
 
 
+def test_profile_request_does_not_invent_prospect_quantity() -> None:
+    intent = _intent("Summarize Ajenda\u2019s approved business profile, including its services and target customers.")
+    assert intent.requested_quantity is None
+    assessment = assess_coverage(intent)
+    assert assessment.requested_quantity is None
+    assert assessment.status == "unknown"
+    assert assessment.reasons == ("no_quantity_requested",)
+
+
 def test_supported_fixture_scope_reports_capacity() -> None:
     assessment = assess_coverage(
         _intent("Find five software development companies in Austin using local fixture data only.")

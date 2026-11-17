@@ -46,6 +46,7 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _CRM_READ_PATTERNS,
     _CRM_READBACK_VERIFICATION_PATTERN,
     _CRM_UPDATE_PATTERNS,
+    _DIRECT_BUSINESS_PROFILE_CONTEXT,
     _DIRECT_CRM_RECORD_READ,
     _DRAFT_PATTERNS,
     _EMAIL_MESSAGE_DELIVERY_CLAUSE,
@@ -972,6 +973,12 @@ def interpret_instruction(
     else:
         send_policy = SendPolicy(mode="unknown", condition="none", source="unresolved", confidence=0.0)
 
+    entities = _extract_target_entities(text)
+    if not entities and wants_research_report:
+        entities = _extract_named_report_company(text)
+    if not entities and wants_crm_read:
+        entities = _extract_connector_company(text)
+
     count = _extract_count(text)
     qualification_count = _extract_qualification_count(text)
     recommendation_count = _extract_recommendation_count(text) if wants_research_report else None
@@ -1008,6 +1015,18 @@ def interpret_instruction(
                 rule_id="entity.quantity",
             )
         )
+    elif len(entities) == 1 and entities[0].type == "named_prospect_subject" and "qualify_prospects" in outcomes:
+        quantity = 1
+        quantity_provenance = "inferred_deterministic"
+        evidence.append(
+            _evidence(
+                field_path="requested_quantity",
+                source="inferred_deterministic",
+                normalized_value="1",
+                confidence=0.9,
+                rule_id="entity.singular_named_prospect",
+            )
+        )
     elif outcomes and any(o in outcomes for o in ("research_prospects", "qualify_prospects")):
         # Default quantity only for low-risk prospect research — not drafts/calendar.
         quantity = 3
@@ -1025,11 +1044,6 @@ def interpret_instruction(
         quantity = None
         quantity_provenance = None
 
-    entities = _extract_target_entities(text)
-    if not entities and wants_research_report:
-        entities = _extract_named_report_company(text)
-    if not entities and wants_crm_read:
-        entities = _extract_connector_company(text)
     # Multiple explicit market scopes are valid only when the instruction
     # clearly asks for a combined comparison. Exclusive wording such as
     # "but only" is a contradiction, not a second executable target. Fail
@@ -1466,6 +1480,21 @@ def interpret_instruction(
                 missing="the research report has no named company, market, competitor set, or other bounded subject",
                 include_instruction="the company or market the report should cover, including location when relevant",
                 reason="Research-report synthesis requires a bounded evidence subject.",
+            )
+        )
+
+    if wants_qualify and _contains_any(lower, (_DIRECT_BUSINESS_PROFILE_CONTEXT,)):
+        # Qualification currently has no governed binding from the approved
+        # profile reader to its fit scorer. A successful generic score would
+        # otherwise imply that the requested profile was used when it was not.
+        clarifications.append(
+            Clarification(
+                field="profile_qualification_binding",
+                question=(
+                    "This qualification request requires approved business-profile evidence, "
+                    "but the current qualification path cannot yet use that evidence."
+                ),
+                reason="Approved-profile evidence is not bound to the qualification scorer.",
             )
         )
 
