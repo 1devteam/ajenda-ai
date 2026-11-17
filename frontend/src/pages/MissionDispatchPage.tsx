@@ -7,6 +7,7 @@ import {
   createMissionPlan,
   getMissionDispatchReadiness,
   getMissionDeliverable,
+  getProfileDeliverable,
   getMissionLifecycle,
   getMissionRuntimeEvidence,
   getMissionRuntimeReadiness,
@@ -26,6 +27,7 @@ import type {
   RuntimeReadinessReadResponse,
   RuntimeTaskMaterializationReadResponse,
   MissionDeliverableResponse,
+  ProfileDeliverableResponse,
   MissionRuntimeEvidenceProjection,
 } from "../types";
 import {
@@ -258,6 +260,7 @@ export default function MissionDispatchPage() {
   const [monitoredTaskId, setMonitoredTaskId] = useState("");
   const [taskStatus, setTaskStatus] = useState<AbilityTaskStatusResponse | null>(null);
   const [deliverable, setDeliverable] = useState<MissionDeliverableResponse | null>(null);
+  const [profileDeliverable, setProfileDeliverable] = useState<ProfileDeliverableResponse | null>(null);
   const [runtimeEvidence, setRuntimeEvidence] = useState<MissionRuntimeEvidenceProjection | null>(null);
 
   const allowedActions = useMemo(() => intakeAllowedActions(lifecycle?.intake ?? null), [lifecycle?.intake]);
@@ -296,12 +299,33 @@ export default function MissionDispatchPage() {
       return;
     }
     try {
-      setDeliverable(await getMissionDeliverable(session, missionId));
+      const result = await getMissionDeliverable(session, missionId);
+      setProfileDeliverable(null);
+      setDeliverable(result);
     } catch (err) {
       const status = typeof err === "object" && err && "status" in err ? Number((err as { status?: unknown }).status) : 0;
+      if (status === 404) {
+        try {
+          const profile = await getProfileDeliverable(session, missionId);
+          setDeliverable(null);
+          setProfileDeliverable(profile);
+          return;
+        } catch (profileError) {
+          const profileStatus = typeof profileError === "object" && profileError && "status" in profileError
+            ? Number((profileError as { status?: unknown }).status) : 0;
+          if (profileStatus !== 404) {
+            setError(profileError);
+            return;
+          }
+        }
+      }
       const fallback = taskOverride ? deliverableFromTaskStatus(taskOverride) : null;
       if (status === 404 && fallback) {
+        setProfileDeliverable(null);
         setDeliverable(fallback);
+      } else if (status === 404) {
+        setProfileDeliverable(null);
+        setDeliverable(null);
       } else if (status !== 404) {
         setError(err);
       }
@@ -764,6 +788,18 @@ export default function MissionDispatchPage() {
             {taskStatus.action ? ` · ${taskStatus.action}` : ""}
           </p>
           <pre className="code-block">{pretty(taskStatus)}</pre>
+        </section>
+      ) : null}
+
+      {profileDeliverable ? (
+        <section className="panel" aria-label="Business profile deliverable">
+          <h2>Approved business profile</h2>
+          <p>{profileDeliverable.complete ? "Profile artifact available" : "Profile artifact incomplete"}</p>
+          <pre className="code-block">{pretty(profileDeliverable.profile_brief)}</pre>
+          <p>Missing fields: {profileDeliverable.missing_fields.length ? profileDeliverable.missing_fields.join(", ") : "none recorded"}</p>
+          <p>Conflicting fields: {profileDeliverable.conflicting_fields.length ? profileDeliverable.conflicting_fields.join(", ") : "none recorded"}</p>
+          <p>Source: approved business profile ({profileDeliverable.profile_id ?? "profile ID not recorded"})</p>
+          <p>Evidence records: {profileDeliverable.evidence_ids.length ? profileDeliverable.evidence_ids.join(", ") : "not recorded"}</p>
         </section>
       ) : null}
 

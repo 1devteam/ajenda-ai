@@ -15,6 +15,7 @@ from backend.services.mission_composition.deliverable_runtime_read_model import 
 )
 from backend.services.ontology.algorithms import evaluate_runtime_artifact_completeness
 from backend.services.runtime_evidence_ledger import RuntimeCausalObservation
+from backend.services.tools.mission_input_binding import handler_output_for_task
 from backend.services.worker_runtime_contracts import (
     _TERMINAL_TASK_STATES,
     WorkerRuntimeCollaborator,
@@ -295,6 +296,25 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
         ):
             acceptance_reasons.append("durable deliverable is incomplete")
             acceptance_met = False
+        # The existing Gmail deliverable explicitly marks a references-only
+        # response incomplete. Keep mission acceptance aligned even when this
+        # simple read has no deliverable_runtime_state.
+        for sibling in siblings:
+            metadata = sibling.metadata_json if isinstance(sibling.metadata_json, dict) else {}
+            invocation = metadata.get("tool_invocation")
+            contract = metadata.get("expected_output_contract")
+            output = handler_output_for_task(sibling)
+            if (
+                isinstance(invocation, dict)
+                and invocation.get("action") == "gtm.email_check"
+                and isinstance(contract, dict)
+                and contract.get("artifact") == "email_messages"
+                and contract.get("materialization_role") != "intermediate"
+                and output.get("retrieval_scope") == "message_references"
+            ):
+                acceptance_reasons.append("message content was not retrieved")
+                acceptance_met = False
+                break
         acceptance_status = "met" if acceptance_met else "partially_met"
         evidence_ledger = getattr(service, "_evidence_ledger", None)
         if evidence_ledger is not None:

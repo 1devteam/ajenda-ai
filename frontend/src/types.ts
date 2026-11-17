@@ -441,6 +441,21 @@ export interface MissionLaunchResponse {
   idempotency_key?: string | null;
 }
 
+export interface ProfileDeliverableResponse {
+  schema_version: number;
+  kind: "business_profile_brief";
+  mission_id: string;
+  objective: string;
+  profile_id: string | null;
+  approved_facts: Record<string, unknown>;
+  profile_brief: Record<string, unknown>;
+  missing_fields: string[];
+  conflicting_fields: string[];
+  evidence_ids: string[];
+  complete: boolean;
+  grants_execution_authority: false;
+}
+
 export interface MissionDeliverableResponse {
   schema_version: number;
   kind: string;

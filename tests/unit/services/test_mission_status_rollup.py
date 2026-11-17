@@ -351,3 +351,55 @@ def test_rollup_fails_when_tasks_succeed_but_deliverable_is_incomplete() -> None
     assert mission.status == MissionState.FAILED.value
     assert mission.metadata_json["acceptance"]["status"] == "partially_met"
     assert "durable deliverable is incomplete" in mission.metadata_json["acceptance"]["reasons"]
+
+
+def test_rollup_does_not_accept_message_references_as_retrieved_content() -> None:
+    tenant_id = "tenant-reference-only"
+    mission_id = uuid.uuid4()
+    mission = Mission(
+        tenant_id=tenant_id, objective="Review my recent messages", status=MissionState.RUNNING.value, metadata_json={}
+    )
+    mission.id = mission_id
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.COMPLETED.value,
+        action="gtm.email_check",
+        output={"email_messages": [{"id": "message-1"}], "retrieval_scope": "message_references"},
+    )
+    task.metadata_json["expected_output_contract"] = {"artifact": "email_messages"}
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task])
+    service._audit.append = MagicMock()
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
+    assert mission.metadata_json["acceptance"]["status"] == "partially_met"
+    assert "message content was not retrieved" in mission.metadata_json["acceptance"]["reasons"]
+    assert mission.metadata_json["acceptance"]["algorithm_results"][0]["output"]["completeness_score"] == 0.0
+
+
+def test_rollup_does_not_reject_full_message_content() -> None:
+    tenant_id = "tenant-full-message"
+    mission_id = uuid.uuid4()
+    mission = Mission(
+        tenant_id=tenant_id, objective="Review my messages", status=MissionState.RUNNING.value, metadata_json={}
+    )
+    mission.id = mission_id
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.COMPLETED.value,
+        action="gtm.email_check",
+        output={"email_messages": [{"id": "message-1", "snippet": "observed"}], "retrieval_scope": "message_content"},
+    )
+    task.metadata_json["expected_output_contract"] = {"artifact": "email_messages"}
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task])
+    service._audit.append = MagicMock()
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
+    assert mission.metadata_json["acceptance"]["status"] == "met"
