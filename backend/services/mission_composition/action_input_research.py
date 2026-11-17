@@ -116,14 +116,23 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
             domain = urlparse(domain).netloc.removeprefix("www.") or domain
         if isinstance(domain, str) and domain:
             domain = domain.split("/", 1)[0].removeprefix("www.")
-        extracted_company = (entity.name.strip() if entity and entity.name else None) or domain
+        # A named prospect can be a person or a company. Its name is useful as
+        # a search term but is not a verified company identity.
+        unresolved_prospect = bool(entity and entity.type == "named_prospect_subject")
+        extracted_company = (
+            entity.name.strip() if entity and entity.name and not unresolved_prospect else None
+        ) or domain
         # Free-text company extraction is appropriate for an explicitly
         # site-scoped request (for example, "scrape Acme's website").  It is
         # not an identity source for a market search: words immediately before
         # "website" in the requested deliverable are otherwise easily
         # mistaken for a company name.  Keep a market target unbound until
         # discovery returns an evidence-backed candidate.
-        if extracted_company is None and not (entity and (entity.industry or entity.location)):
+        if (
+            extracted_company is None
+            and not unresolved_prospect
+            and not (entity and (entity.industry or entity.location))
+        ):
             extracted_company = _extract_company_from_instruction(source)
         if entity and entity.type == "web_page" and domain:
             research_query = f"{domain} official website"

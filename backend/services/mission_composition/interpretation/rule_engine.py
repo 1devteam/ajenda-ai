@@ -529,6 +529,12 @@ _NAMED_INTERACTION_SUBJECT = re.compile(
     r"(?=$|[,;.!?]|\s+\b(?:then|about|regarding|tomorrow|today|next|on|at|with)\b|\s+and\s+(?:find|research|identify|discover|show|compare)\b)",
     re.IGNORECASE,
 )
+_NAMED_PROSPECT_SUBJECT = re.compile(
+    r"\b(?:qualify|assess|evaluate|score)\s+"
+    r"(?P<name>[A-Z][A-Za-z0-9.&'\-/]*(?:\s+[A-Z][A-Za-z0-9.&'\-/]*){1,7}?)"
+    r"\s+as\s+(?:an?\s+)?(?:prospect|lead)\b",
+    re.IGNORECASE,
+)
 _COMPARATIVE_PURCHASE_REQUEST = re.compile(
     # "Find Best Buy in HubSpot" is a named-record lookup.  A comparison uses
     # the grammatical request "find me the best buy ..." or "find the best
@@ -984,6 +990,26 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
                 )
             if entities:
                 break
+    # A named prospect may be a person or an organization. Retain the name
+    # without using it as evidence of company identity.
+    if not entities:
+        named_prospect = _NAMED_PROSPECT_SUBJECT.search(text)
+        if named_prospect is not None:
+            name = named_prospect.group("name").strip()
+            if (
+                name[0].isupper()
+                and not re.search(r"\b(?:and|or)\b", name, flags=re.IGNORECASE)
+                and not re.match(r"^(?:the|this|that|these|those|our|my)\b", name, flags=re.IGNORECASE)
+            ):
+                entities.append(
+                    TargetEntity(
+                        type="named_prospect_subject",
+                        name=name,
+                        attributes={"identity_role": "unresolved_prospect_subject"},
+                        provenance="explicit",
+                        confidence=0.9,
+                    )
+                )
     # Connector company targets (HubSpot for Acme) — only when no market target already.
     if not entities:
         entities.extend(_extract_connector_company(text))

@@ -178,6 +178,13 @@ def test_validate_denies_objective_without_scope_signal() -> None:
     assert "objective_lacks_scope_signal" in codes
 
 
+def test_validate_accepts_possessive_business_profile_as_scope() -> None:
+    validate_mission_intake_prompt(
+        objective="Read my approved business profile.",
+        success_criteria=[_valid_criterion()],
+    )
+
+
 def test_validate_accepts_source_bound_scope_without_weakening_other_quality_checks() -> None:
     validate_mission_intake_prompt(
         objective="Review the referenced business need assessment and recommend the next action.",

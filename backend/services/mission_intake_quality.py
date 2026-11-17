@@ -562,6 +562,10 @@ def _has_scope_signal(text: str) -> bool:
     # a market/location vocabulary intended for prospect research.
     if re.search(r"\bhttps?://[^\s<>()]+", lowered):
         return True
+    # A possessive reference to the tenant's business profile names a
+    # concrete data source, even when it contains no market or quantity.
+    if re.search(r"\b(?:my|our)\s+(?:(?:approved|current)\s+)?business\s+profile\b", lowered):
+        return True
     if any(char.isdigit() for char in text):
         return True
     return any(marker in lowered for marker in _SCOPE_SIGNAL_MARKERS)
