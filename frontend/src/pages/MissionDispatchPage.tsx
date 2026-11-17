@@ -813,6 +813,9 @@ export default function MissionDispatchPage() {
             const emailReferences = Array.isArray(deliverable.artifacts?.email_messages)
               ? deliverable.artifacts.email_messages
               : null;
+            const calendarEvents = Array.isArray(deliverable.artifacts?.calendar_events)
+              ? deliverable.artifacts.calendar_events
+              : null;
             const observationRecord = isWebObservation
               ? (observation as Record<string, unknown>)
               : null;
@@ -842,6 +845,11 @@ export default function MissionDispatchPage() {
           ) : null}
           {emailReferences ? (
             <EmailReferences messages={emailReferences} sourceObservations={deliverable.result_semantics?.source_observations} />
+          ) : calendarEvents ? (
+            <div aria-label="Calendar events">
+              <h3>Calendar events returned</h3>
+              {calendarEvents.length ? <pre className="code-block">{pretty(calendarEvents)}</pre> : <p>No events returned in the recorded provider page.</p>}
+            </div>
           ) : observationRecord ? (
             <div className="code-block">
               <p><strong>Source URL:</strong> {String(observationRecord.source_url ?? "—")}</p>
@@ -903,6 +911,12 @@ export default function MissionDispatchPage() {
           ) : (
             <p className="muted">No prospect candidates were produced.</p>
           )}
+          {deliverable.limitations?.length ? (
+            <div aria-label="Deliverable limitations">
+              <h3>Evidence limits</h3>
+              <ul>{deliverable.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
+            </div>
+          ) : null}
           {deliverable.completion.assembly_errors.length > 0 ? (
             <ul className="violation-list">
               {deliverable.completion.assembly_errors.map((item) => (

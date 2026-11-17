@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
+import pytest
+
 from backend.services.network_egress import NetworkEgressResponse, VettedNetworkDestination
 from backend.services.tools.action_registry import ActionRegistry
 from backend.services.tools.google_calendar_actions import register_google_calendar_actions
@@ -154,3 +156,23 @@ def test_upcoming_calendar_uses_execution_time_and_reports_more_results() -> Non
     assert before <= observed_start <= after
     assert result.output["effective_start"] == query["timeMin"][0]
     assert result.output["has_more"] is True
+
+
+@pytest.mark.parametrize("body", ['{"items":[null]}', '{"items":[],"nextPageToken":7}'])
+def test_calendar_rejects_malformed_provider_items_or_pagination(body: str) -> None:
+    registry = ActionRegistry()
+    register_google_calendar_actions(registry)
+    context = _context()
+    context.runtime_credentials = {"google_calendar.events_read": {"secret_value": "test-token"}}
+    authority = MagicMock()
+    authority.request.return_value = (
+        None,
+        NetworkEgressResponse(status_code=200, headers={}, body_text=body, body_truncated=False),
+    )
+    with patch(
+        "backend.services.tools.google_calendar_actions.get_default_network_egress_authority", return_value=authority
+    ):
+        with pytest.raises(ValueError):
+            registry.get("google_calendar.events_read").handler(
+                ToolInvocation(action="google_calendar.events_read", input={}), context
+            )

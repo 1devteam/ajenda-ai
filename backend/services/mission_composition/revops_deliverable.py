@@ -76,6 +76,100 @@ def assemble_revops_mission_deliverable(
     )
     state = load_deliverable_runtime_state(_runtime_state_from_metadata(mission.metadata_json))
     if state is None:
+        calendar_tasks = [
+            task
+            for task in tasks
+            if task.status == ExecutionTaskState.COMPLETED.value
+            and declared_artifact_key(task) == "calendar_events"
+            and isinstance(task.metadata_json, dict)
+            and isinstance(task.metadata_json.get("tool_invocation"), dict)
+            and task.metadata_json["tool_invocation"].get("action") == "google_calendar.events_read"
+        ]
+        calendar_artifacts = collect_materialized_artifacts(calendar_tasks)
+        calendar_artifact = next(
+            (artifact for artifact in calendar_artifacts if artifact.artifact_key == "calendar_events"), None
+        )
+        if calendar_artifact is not None:
+            if len(tasks) != 1 or len(calendar_tasks) != 1 or not isinstance(calendar_artifact.payload, list):
+                raise ValueError("calendar event artifact is ambiguous or invalid")
+            if any(not isinstance(item, dict) for item in calendar_artifact.payload):
+                raise ValueError("calendar event artifact contains invalid records")
+            calendar_task = calendar_tasks[0]
+            output = handler_output_for_task(calendar_task)
+            invocation = calendar_task.metadata_json["tool_invocation"]
+            invocation_input = invocation.get("input") if isinstance(invocation.get("input"), dict) else {}
+            calendar_limitations: list[str] = []
+            if output.get("real") is not True:
+                calendar_limitations.append("A real Calendar provider response was not established.")
+            if output.get("has_more") is True:
+                calendar_limitations.append("Additional Calendar events were not retrieved.")
+            elif output.get("has_more") is not False:
+                calendar_limitations.append("Calendar pagination completeness was not recorded.")
+            if "upcoming" in mission.objective.casefold():
+                raw_start = output.get("effective_start")
+                try:
+                    parsed_start = (
+                        datetime.fromisoformat(raw_start.replace("Z", "+00:00")) if isinstance(raw_start, str) else None
+                    )
+                except ValueError:
+                    parsed_start = None
+                if invocation_input.get("upcoming") is not True or parsed_start is None or parsed_start.tzinfo is None:
+                    calendar_limitations.append("The upcoming time bound was not recorded.")
+            complete = not calendar_limitations and all(
+                task.status == ExecutionTaskState.COMPLETED.value for task in tasks
+            )
+            effective_now = now or datetime.now(UTC)
+            if effective_now.tzinfo is None:
+                raise ValueError("assembler now must be timezone-aware")
+            return RevOpsMissionDeliverableRead(
+                mission_id=mission.id,
+                objective=mission.objective,
+                artifacts={"calendar_events": calendar_artifact.payload},
+                limitations=tuple(calendar_limitations),
+                approval_state=_approval_state(
+                    prospects=(), tasks=tasks, outcome_reviews=outcome_reviews, now=effective_now.astimezone(UTC)
+                ),
+                effects=_effects(tasks=tasks, evidence_records=evidence_records),
+                evidence_references=tuple(
+                    RevOpsEvidenceReferenceRead(
+                        evidence_id=evidence.id,
+                        execution_task_id=evidence.execution_task_id,
+                        evidence_type=evidence.evidence_type,
+                        evidence_source=evidence.evidence_source,
+                        summary=evidence.summary,
+                        confidence=evidence.confidence,
+                        collection_status=evidence.collection_status,
+                    )
+                    for evidence in sorted(evidence_records, key=lambda item: (item.created_at, str(item.id)))
+                ),
+                task_state=RevOpsTaskStateRead(
+                    task_count=len(tasks),
+                    statuses=dict(sorted(Counter(task.status for task in tasks).items())),
+                    all_terminal=bool(tasks) and all(task.status in _TERMINAL_TASK_STATES for task in tasks),
+                    all_succeeded=bool(tasks)
+                    and all(task.status == ExecutionTaskState.COMPLETED.value for task in tasks),
+                ),
+                completion=RevOpsCompletionRead(
+                    artifact_complete=complete,
+                    complete=complete,
+                    unresolved_items=tuple(calendar_limitations),
+                    observed_row_count=len(calendar_artifact.payload),
+                ),
+                result_semantics={
+                    "completion_scope": "calendar_provider_page",
+                    "source_observations": [
+                        {
+                            "task_id": str(calendar_task.id),
+                            "real": output.get("real"),
+                            "effective_start": output.get("effective_start"),
+                            "has_more": output.get("has_more"),
+                        }
+                    ],
+                    "mission_acceptance": mission.metadata_json.get("acceptance")
+                    if isinstance(mission.metadata_json, dict)
+                    else None,
+                },
+            )
         email_tasks = [
             task
             for task in tasks
