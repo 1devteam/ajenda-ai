@@ -66,6 +66,7 @@ Important active references include:
 | Document | What it controls |
 |---|---|
 | [`deployment/production-env-contract.md`](deployment/production-env-contract.md) | Runtime configuration, role identities, migrator-first ordering, target status. |
+| [`deployment/dev-studio.md`](deployment/dev-studio.md) | Operator setup and browser verification for the private `dev.ajenda.ai` Compose entry point. |
 | [`deployment/STAGING_PROOF.md`](deployment/STAGING_PROOF.md) | Compose staging/runtime proof contract. |
 | [`deployment/RUNTIME_LIMITS.md`](deployment/RUNTIME_LIMITS.md) | Runtime operational limits. |
 | [`../deploy/compose/README.database-lifecycle.md`](../deploy/compose/README.database-lifecycle.md) | First provisioning versus routine persistent-database startup. |
