@@ -51,6 +51,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     verified_prospect_candidates: list[dict[str, object]] = []
     unobserved: list[dict[str, object]] = []
     followed_directory_links = 0
+    directory_link_attempts: list[dict[str, object]] = []
     followed_link_hosts: set[str] = set()
     limit = payload.requested_quantity
     page_attempt_limit = min(max(limit * 3, limit), 50)
@@ -509,6 +510,30 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                 host_text_match = bool(host_tokens) and any(token in linked_text for token in host_tokens)
                 industry_text_match = any(marker in linked_text for marker in industry_markers)
                 locality_text_match = any(marker in linked_text for marker in location_markers)
+                reasons: list[str] = []
+                if not linked_snapshot.real:
+                    reasons.append("page_fetch_failed")
+                else:
+                    if linked_actual_host != linked_host:
+                        reasons.append("redirected_host_mismatch")
+                    if not industry_text_match:
+                        reasons.append("industry_not_observed")
+                    if not locality_text_match:
+                        reasons.append("location_not_observed")
+                    if not (identity_text_match or host_text_match):
+                        reasons.append("identity_not_observed")
+                # Record bounded, host-level decisions without copying link
+                # query strings or untrusted page content into the audit.
+                directory_link_attempts.append(
+                    {
+                        "source_host": source_host,
+                        "target_host": linked_host,
+                        "status_code": linked_snapshot.status_code,
+                        "page_observed": linked_snapshot.real,
+                        "accepted": not reasons,
+                        "reasons": reasons,
+                    }
+                )
                 if (
                     not linked_snapshot.real
                     or linked_actual_host != linked_host
@@ -777,6 +802,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             "unique_hosts": len(followed_link_hosts),
             "max_followed": limit * 3,
             "page_attempt_limit": page_attempt_limit,
+            "attempts": directory_link_attempts,
         },
         "requested_quantity": limit,
         "accept_met": accept_met,
