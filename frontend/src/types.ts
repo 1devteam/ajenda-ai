@@ -447,6 +447,7 @@ export interface MissionDeliverableResponse {
   mission_id: string;
   objective: string;
   artifacts?: Record<string, unknown>;
+  result_semantics?: Record<string, unknown>;
   prospects: Array<{
     prospect_id?: string | null;
     company_name?: string | null;

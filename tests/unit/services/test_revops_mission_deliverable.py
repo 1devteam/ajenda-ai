@@ -89,6 +89,68 @@ def _task(
     return task
 
 
+def test_email_reference_readback_is_visible_but_not_a_complete_message_deliverable() -> None:
+    mission = _mission("Return company name.")
+    mission.metadata_json = {}
+    task = _task(
+        task_id=1,
+        artifact="email_messages",
+        payload=[{"id": "m1", "thread_id": "t1", "snippet": None}],
+        metadata_fields={"tool_invocation": {"action": "gtm.email_check"}},
+    )
+    result = assemble_revops_mission_deliverable(mission=mission, tasks=[task])
+    assert result.artifacts["email_messages"][0]["id"] == "m1"
+    assert not result.completion.complete
+    assert not result.completion.artifact_complete
+    assert "message content was not retrieved" in result.limitations[0].lower()
+    assert not result.grants_execution_authority
+    assert result.result_semantics["source_observations"][0]["real"] is None
+    assert result.result_semantics["source_observations"][0]["retrieval_scope"] == "unknown"
+
+
+def test_missing_runtime_state_does_not_accept_unrelated_email_artifact() -> None:
+    mission = _mission("Return company name.")
+    mission.metadata_json = {}
+    task = _task(task_id=1, artifact="email_messages", payload=[{"id": "m1"}])
+    with pytest.raises(ValueError, match="runtime state is absent"):
+        assemble_revops_mission_deliverable(mission=mission, tasks=[task])
+
+
+def test_email_reference_readback_keeps_simulation_visible() -> None:
+    mission = _mission("Return company name.")
+    mission.metadata_json = {}
+    task = _task(
+        task_id=1,
+        artifact="email_messages",
+        payload=[{"id": "sim-1"}],
+        handler_fields={"output": {"email_messages": [{"id": "sim-1"}], "real": False, "retrieval_scope": "simulated"}},
+        metadata_fields={"tool_invocation": {"action": "gtm.email_check"}},
+    )
+    result = assemble_revops_mission_deliverable(mission=mission, tasks=[task])
+    assert result.result_semantics["source_observations"][0]["real"] is False
+    assert result.result_semantics["source_observations"][0]["retrieval_scope"] == "simulated"
+
+
+def test_email_reference_readback_rejects_malformed_or_conflicting_artifacts() -> None:
+    mission = _mission("Return company name.")
+    mission.metadata_json = {}
+
+    def email_task(task_id: int, payload: object) -> ExecutionTask:
+        return _task(
+            task_id=task_id,
+            artifact="email_messages",
+            payload=payload,
+            metadata_fields={"tool_invocation": {"action": "gtm.email_check"}},
+        )
+
+    with pytest.raises(ValueError, match="email reference artifact is invalid"):
+        assemble_revops_mission_deliverable(mission=mission, tasks=[email_task(1, [{"thread_id": "t1"}])])
+    with pytest.raises(ValueError, match="runtime state is absent"):
+        assemble_revops_mission_deliverable(
+            mission=mission, tasks=[email_task(1, [{"id": "m1"}]), email_task(2, [{"id": "m2"}])]
+        )
+
+
 def _artifact_tasks() -> list[ExecutionTask]:
     return [
         _task(

@@ -488,6 +488,8 @@ def test_gtm_email_check_uses_gmail_api_with_runtime_credential_material() -> No
     assert result.output["emails"] == [{"id": "m1", "thread_id": "t1", "snippet": "Hello"}]
     assert result.output["email_messages"] == result.output["emails"]
     assert result.output["real"] is True
+    assert result.output["retrieval_scope"] == "message_references"
+    assert "message bodies and headers were not retrieved" in result.limitations[0]
     assert "is%3Aunread" in authority.request.call_args.kwargs["url"]
 
 
@@ -512,6 +514,7 @@ def test_gtm_email_check_fail_closed_on_credentialed_api_error() -> None:
         sni_hostname="gmail.googleapis.com",
         host_header="gmail.googleapis.com",
     )
+
     response = NetworkEgressResponse(status_code=503, headers={}, body_text="unavailable", body_truncated=False)
     authority = MagicMock()
     authority.request.return_value = (destination, response)
@@ -528,6 +531,53 @@ def test_gtm_email_check_fail_closed_on_credentialed_api_error() -> None:
                 ),
                 context,
             )
+
+
+@pytest.mark.parametrize(
+    ("body", "truncated"),
+    [
+        ('{"messages": null}', False),
+        ('{"messages": [{"threadId": "t1"}]}', False),
+        ('{"messages": [{"id": "m1"}]}', False),
+        ('{"messages": [], "nextPageToken": 12}', False),
+        ('{"messages": [], "nextPageToken": null}', False),
+        ('{"messages": [], "resultSizeEstimate": false}', False),
+        ('{"messages": [], "resultSizeEstimate": null}', False),
+        ("{}", False),
+        ('{"resultSizeEstimate": false}', False),
+        ('{"messages": [{"id": "m1"}]}', True),
+    ],
+)
+def test_gtm_email_check_rejects_unproven_provider_results(body: str, truncated: bool) -> None:
+    from backend.services.tools.gtm_action_email import email_check_handler
+
+    context = _context()
+    context.runtime_credentials = {"gtm.email_check": {"secret_value": "token-123"}}
+    authority = MagicMock()
+    authority.request.return_value = (
+        None,
+        NetworkEgressResponse(status_code=200, headers={}, body_text=body, body_truncated=truncated),
+    )
+    with patch("backend.services.tools.gtm_action_email.get_default_network_egress_authority", return_value=authority):
+        with pytest.raises(ValueError, match="credentialed path"):
+            email_check_handler(ToolInvocation(action="gtm.email_check", input={}), context)
+
+
+def test_gtm_email_check_records_explicit_empty_response() -> None:
+    from backend.services.tools.gtm_action_email import email_check_handler
+
+    context = _context()
+    context.runtime_credentials = {"gtm.email_check": {"secret_value": "token-123"}}
+    authority = MagicMock()
+    authority.request.return_value = (
+        None,
+        NetworkEgressResponse(status_code=200, headers={}, body_text='{"resultSizeEstimate":0}', body_truncated=False),
+    )
+    with patch("backend.services.tools.gtm_action_email.get_default_network_egress_authority", return_value=authority):
+        result = email_check_handler(ToolInvocation(action="gtm.email_check", input={}), context)
+    assert result.output["email_messages"] == []
+    assert result.output["real_response"] == {"status_code": 200}
+    assert result.output["retrieval_scope"] == "message_references"
 
 
 def test_gtm_email_check_simulated_without_credential(monkeypatch) -> None:

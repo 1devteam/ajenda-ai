@@ -424,6 +424,8 @@ def email_check_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Actio
     )
 
     emails: list[dict[str, Any]] = []
+    has_more = False
+    status_code: int | None = None
     secret = _credential_secret(gmail_cred)
     from backend.services.tools.external_sim_policy import require_external_secret
 
@@ -449,10 +451,33 @@ def email_check_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Actio
             )
             if not _http_is_success(resp.status_code):
                 raise ValueError(f"Gmail API returned HTTP {resp.status_code}")
-            payload_json = json.loads(resp.body_text or "{}")
-            for message in payload_json.get("messages", [])[: inp.limit]:
-                if not isinstance(message, dict):
-                    continue
+            if resp.body_truncated:
+                raise ValueError("Gmail API response was truncated")
+            payload_json = json.loads(resp.body_text)
+            if not isinstance(payload_json, dict):
+                raise ValueError("Gmail API returned a non-object response")
+            messages = payload_json.get("messages")
+            estimate = payload_json.get("resultSizeEstimate")
+            if "resultSizeEstimate" in payload_json and (type(estimate) is not int or estimate < 0):
+                raise ValueError("Gmail API returned an invalid result estimate")
+            if messages is None and "messages" not in payload_json and type(estimate) is int and estimate == 0:
+                messages = []
+            if not isinstance(messages, list):
+                raise ValueError("Gmail API response does not establish a message list")
+            if len(messages) > inp.limit:
+                raise ValueError("Gmail API returned more messages than requested")
+            page_token = payload_json.get("nextPageToken")
+            if "nextPageToken" in payload_json and not isinstance(page_token, str):
+                raise ValueError("Gmail API returned an invalid continuation token")
+            for message in messages:
+                if (
+                    not isinstance(message, dict)
+                    or not isinstance(message.get("id"), str)
+                    or not message["id"].strip()
+                    or not isinstance(message.get("threadId"), str)
+                    or not message["threadId"].strip()
+                ):
+                    raise ValueError("Gmail API response contains an invalid message reference")
                 emails.append(
                     {
                         "id": message.get("id"),
@@ -460,6 +485,8 @@ def email_check_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Actio
                         "snippet": message.get("snippet"),
                     }
                 )
+            has_more = bool(page_token)
+            status_code = resp.status_code
         except Exception as exc:
             raise ValueError(f"Gmail email check failed on credentialed path: {exc}") from exc
     elif not emails:
@@ -484,8 +511,13 @@ def email_check_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Actio
         # output it actually promised.
         "email_messages": emails,
         "real": credentialed_path,
+        "retrieval_scope": "message_references" if credentialed_path else "simulated",
+        "has_more": has_more,
     }
-    summary = f"Gmail check ({len(emails)} results)" if credentialed_path else "Gmail check (simulated)"
+    if status_code is not None:
+        payload["real_response"] = {"status_code": status_code}
+    limitations = ["Gmail list returned message references; message bodies and headers were not retrieved."]
+    summary = f"Gmail check ({len(emails)} message references)" if credentialed_path else "Gmail check (simulated)"
     return ActionResult(
         action=inv.action,
         provider="external_email",
@@ -502,4 +534,5 @@ def email_check_handler(inv: ToolInvocation, ctx: ActionRuntimeContext) -> Actio
             )
         ],
         summary=summary,
+        limitations=limitations if credentialed_path else [],
     )

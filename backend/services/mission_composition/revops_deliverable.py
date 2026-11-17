@@ -21,12 +21,14 @@ from backend.services.mission_composition.deliverable_completion import (
 )
 from backend.services.mission_composition.deliverable_runtime_artifacts import (
     collect_materialized_artifacts,
+    declared_artifact_key,
 )
 from backend.services.mission_composition.deliverable_runtime_state import (
     load_deliverable_runtime_state,
 )
 from backend.services.mission_composition.revops_deliverable_approval import _approval_state
 from backend.services.mission_composition.revops_deliverable_contracts import (
+    RevOpsCompletionRead,
     RevOpsEvidenceReferenceRead,
     RevOpsTaskStateRead,
 )
@@ -41,6 +43,7 @@ from backend.services.mission_composition.revops_deliverable_runtime import (
     _validate_ownership,
     _validated_artifacts,
 )
+from backend.services.tools.mission_input_binding import handler_output_for_task
 
 _DRAFT_REVIEW_STATUSES = frozenset({"pending", "approved", "rejected", "sent"})
 _TERMINAL_TASK_STATES = frozenset(
@@ -73,7 +76,75 @@ def assemble_revops_mission_deliverable(
     )
     state = load_deliverable_runtime_state(_runtime_state_from_metadata(mission.metadata_json))
     if state is None:
-        raise ValueError("mission deliverable runtime state is absent")
+        email_tasks = [
+            task
+            for task in tasks
+            if task.status == ExecutionTaskState.COMPLETED.value
+            and declared_artifact_key(task) == "email_messages"
+            and isinstance(task.metadata_json, dict)
+            and isinstance(task.metadata_json.get("tool_invocation"), dict)
+            and task.metadata_json["tool_invocation"].get("action") == "gtm.email_check"
+        ]
+        collected = collect_materialized_artifacts(email_tasks)
+        email_artifact = next((artifact for artifact in collected if artifact.artifact_key == "email_messages"), None)
+        if email_artifact is None or not isinstance(email_artifact.payload, list):
+            raise ValueError("mission deliverable runtime state is absent")
+        if any(
+            not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]
+            for item in email_artifact.payload
+        ):
+            raise ValueError("email reference artifact is invalid")
+        effective_now = now or datetime.now(UTC)
+        if effective_now.tzinfo is None:
+            raise ValueError("assembler now must be timezone-aware")
+        source_observations = []
+        for item in email_tasks:
+            output = handler_output_for_task(item)
+            scope = output.get("retrieval_scope")
+            source_observations.append(
+                {
+                    "task_id": str(item.id),
+                    "real": output.get("real") if isinstance(output.get("real"), bool) else None,
+                    "retrieval_scope": scope if scope in ("message_references", "simulated") else "unknown",
+                    "has_more": output.get("has_more") if isinstance(output.get("has_more"), bool) else None,
+                }
+            )
+        return RevOpsMissionDeliverableRead(
+            mission_id=mission.id,
+            objective=mission.objective,
+            artifacts={"email_messages": email_artifact.payload},
+            limitations=("Message content was not retrieved; these are message references only.",),
+            approval_state=_approval_state(
+                prospects=(), tasks=tasks, outcome_reviews=outcome_reviews, now=effective_now.astimezone(UTC)
+            ),
+            effects=_effects(tasks=tasks, evidence_records=evidence_records),
+            evidence_references=tuple(
+                RevOpsEvidenceReferenceRead(
+                    evidence_id=evidence.id,
+                    execution_task_id=evidence.execution_task_id,
+                    evidence_type=evidence.evidence_type,
+                    evidence_source=evidence.evidence_source,
+                    summary=evidence.summary,
+                    confidence=evidence.confidence,
+                    collection_status=evidence.collection_status,
+                )
+                for evidence in sorted(evidence_records, key=lambda item: (item.created_at, str(item.id)))
+            ),
+            task_state=RevOpsTaskStateRead(
+                task_count=len(tasks),
+                statuses=dict(sorted(Counter(task.status for task in tasks).items())),
+                all_terminal=bool(tasks) and all(task.status in _TERMINAL_TASK_STATES for task in tasks),
+                all_succeeded=bool(tasks) and all(task.status == ExecutionTaskState.COMPLETED.value for task in tasks),
+            ),
+            completion=RevOpsCompletionRead(unresolved_items=("Message content was not retrieved.",)),
+            result_semantics={
+                "completion_scope": "message_references",
+                "source_observations": source_observations,
+                "mission_acceptance": mission.metadata_json.get("acceptance")
+                if isinstance(mission.metadata_json, dict)
+                else None,
+            },
+        )
     request_fields = tuple(field.field_key for field in state.request.fields)
     projected_fields = tuple(binding.field_key for binding in state.projection.bindings)
     if projected_fields != request_fields:
