@@ -178,9 +178,12 @@ class WorkerRuntimeService:
         worker_id: str,
         lease_id: uuid.UUID,
         evidence_references: list[str],
+        runtime_observations: list[Any] | None = None,
     ) -> None:
         metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
-        raw_items = metadata.get("runtime_causal_observations")
+        raw_items = (
+            runtime_observations if runtime_observations is not None else metadata.get("runtime_causal_observations")
+        )
         if not isinstance(raw_items, list):
             return
         for raw in raw_items:
@@ -200,6 +203,41 @@ class WorkerRuntimeService:
                 )
             except (TypeError, ValueError):
                 logger.exception("invalid task causal observation for %s", task.id)
+
+    def checkpoint_causal_observations(
+        self,
+        *,
+        tenant_id: str,
+        lease_id: uuid.UUID,
+        worker_id: str,
+        task_id: uuid.UUID,
+        observations: list[dict[str, Any]],
+    ) -> None:
+        """Commit reached decision facts before invoking a provider under the current lease."""
+        lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+        task = self._get_task_for_lease(lease)
+        metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        if (
+            task.id != task_id
+            or task.tenant_id != tenant_id
+            or task.status != ExecutionTaskState.RUNNING.value
+            or lease.status != WorkerLeaseState.ACTIVE.value
+            or metadata.get("worker_lease_id") != str(lease.id)
+        ):
+            raise ValueError("observation checkpoint requires the running task's current lease")
+        validated = [RuntimeCausalObservation.model_validate(item) for item in observations]
+        for observation in validated:
+            self._evidence_ledger.append_causal_observation(
+                tenant_id=tenant_id,
+                mission_id=task.mission_id,
+                producer="tool_runtime_authority",
+                actor=worker_id,
+                observation=observation,
+                causation_id=str(lease.id),
+                correlation_id=str(task.mission_id),
+            )
+        self._session.flush()
+        self._session.commit()
 
     def claim_next_task(self, *, tenant_id: str, worker_id: str) -> ExecutionTask | None:
         message = self._queue.claim_task(tenant_id=tenant_id, worker_id=worker_id)
@@ -895,6 +933,7 @@ class WorkerRuntimeService:
         task_type: str,
         side_effect_class: str,
         reason: str,
+        runtime_observations: list[Any] | None = None,
     ) -> ExecutionTask:
         """Block a task after a side-effecting handler completed but completion persistence failed."""
 
@@ -942,6 +981,13 @@ class WorkerRuntimeService:
                 },
             )
         )
+        self._append_task_causal_observations(
+            task=task,
+            worker_id=worker_id,
+            lease_id=lease.id,
+            evidence_references=[],
+            runtime_observations=runtime_observations,
+        )
         self._session.flush()
         self._session.commit()
 
@@ -965,6 +1011,7 @@ class WorkerRuntimeService:
         lease_id: uuid.UUID,
         worker_id: str,
         reason: str,
+        runtime_observations: list[Any] | None = None,
     ) -> ExecutionTask:
         lease = self._get_owned_lease(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
         task = self._get_task_for_lease(lease)
@@ -1036,6 +1083,7 @@ class WorkerRuntimeService:
             worker_id=worker_id,
             lease_id=lease.id,
             evidence_references=[],
+            runtime_observations=runtime_observations,
         )
         self._refresh_deliverable_completion_read_model(task=task)
         self._maybe_rollup_mission_status(task=task, worker_id=worker_id)

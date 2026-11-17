@@ -7,9 +7,10 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.services.mission_composition.semantic_vocabulary import SemanticSelection
+from backend.services.mission_runtime_evidence_projection import MissionRuntimeEvidenceProjection
 
 
 class RuntimeStage(BaseModel):
@@ -46,10 +47,10 @@ class SnapshotProvenance(BaseModel):
 class RuntimeReconciliationSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: int = Field(default=1, ge=1, le=1)
+    schema_version: int = Field(default=1, ge=1, le=2)
     tenant_id: str = Field(min_length=1, max_length=160)
     mission_id: str = Field(min_length=1, max_length=160)
-    graph_expected_nodes: tuple[str, ...] = Field(min_length=1, max_length=500)
+    graph_expected_nodes: tuple[str, ...] = Field(max_length=500)
     selected_nodes: tuple[RuntimeStage, ...] = ()
     materialized_tasks: tuple[RuntimeStage, ...] = ()
     queued_tasks: tuple[RuntimeStage, ...] = ()
@@ -58,11 +59,30 @@ class RuntimeReconciliationSnapshot(BaseModel):
     semantic_selection: SemanticSelection | None = None
     findings: tuple[ReconciliationFinding, ...] = ()
     provenance: SnapshotProvenance | None = None
+    runtime_evidence: MissionRuntimeEvidenceProjection | None = None
+
+    @model_validator(mode="after")
+    def validate_runtime_evidence(self) -> RuntimeReconciliationSnapshot:
+        if self.schema_version == 1:
+            if not self.graph_expected_nodes or self.runtime_evidence is not None:
+                raise ValueError("version 1 requires selected nodes and cannot carry runtime evidence")
+        else:
+            if self.runtime_evidence is None:
+                raise ValueError("version 2 requires runtime evidence")
+            if (
+                self.runtime_evidence.tenant_id != self.tenant_id
+                or str(self.runtime_evidence.mission_id) != self.mission_id
+            ):
+                raise ValueError("runtime evidence tenant or mission does not match snapshot")
+        return self
 
 
 def snapshot_digest(snapshot: RuntimeReconciliationSnapshot) -> str:
     """Digest the entire exported payload except the self-referential digest."""
-    payload = snapshot.model_dump(mode="json", exclude={"provenance": {"sha256"}})
+    excluded: dict[str, Any] = {"provenance": {"sha256"}}
+    if snapshot.schema_version == 1:
+        excluded["runtime_evidence"] = True
+    payload = snapshot.model_dump(mode="json", exclude=excluded)
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
@@ -102,6 +122,32 @@ STAGES = (
 
 def reconcile_snapshot(snapshot: RuntimeReconciliationSnapshot) -> dict[str, Any]:
     findings = list(snapshot.findings)
+    runtime = snapshot.runtime_evidence
+    if runtime is not None:
+        if not snapshot.graph_expected_nodes:
+            findings.append(
+                ReconciliationFinding(
+                    finding_id="runtime.selection_not_observed",
+                    category="evidence",
+                    message="No admitted selected nodes were observed in the runtime evidence.",
+                )
+            )
+        if runtime.contradictions:
+            findings.append(
+                ReconciliationFinding(
+                    finding_id="runtime.contradictions_observed",
+                    category="runtime",
+                    message="Runtime evidence contains contradictions; inspect runtime_evidence for details.",
+                )
+            )
+        if runtime.mission_status == "failed":
+            findings.append(
+                ReconciliationFinding(
+                    finding_id="runtime.mission_failed",
+                    category="runtime",
+                    message="The recorded mission status is failed; inspect runtime_evidence for details.",
+                )
+            )
     provenance_status = "legacy_unverified"
     if snapshot.provenance is not None:
         provenance_status = "digest_verified"
@@ -198,6 +244,8 @@ def reconcile_snapshot(snapshot: RuntimeReconciliationSnapshot) -> dict[str, Any
         "mission_id": snapshot.mission_id,
         "provenance_status": provenance_status,
         "source_authenticity_verified": False,
+        "runtime_evidence": runtime.model_dump(mode="json") if runtime is not None else None,
+        "status_scope": "structural_reconciliation_not_business_success",
         "stage_counts": {stage_name: len(getattr(snapshot, stage_name)) for stage_name in STAGES},
         "semantic_reconciliation": (
             "not_available"

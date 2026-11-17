@@ -291,6 +291,15 @@ def test_worker_executes_tool_invoke_task_and_persists_evidence_shaped_output(
         assert evidence.structured_payload["count"] >= 1
         assert evidence.materialization_reference["lineage_record_id"] == str(lineage[0].id)
         assert evidence.artifact_references[0]["lineage_record_id"] == str(lineage[0].id)
+        observations = verify_session.scalars(
+            select(AuditEvent).where(
+                AuditEvent.tenant_id == tenant_id,
+                AuditEvent.mission_id == final_task.mission_id,
+                AuditEvent.category == "runtime_decision",
+                AuditEvent.action.in_(("input_binding", "provider_selection")),
+            )
+        ).all()
+        assert sorted(event.action for event in observations) == ["input_binding", "provider_selection"]
         assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
     finally:

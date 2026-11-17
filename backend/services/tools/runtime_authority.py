@@ -124,6 +124,11 @@ class ToolRuntimeAuthority:
                 **task.metadata_json,
                 "runtime_causal_observations": observations,
             }
+            checkpoint = context.get("persist_runtime_observations")
+            if callable(checkpoint):
+                checkpoint(observations)
+                # The terminal transaction must not emit these facts a second time.
+                task.metadata_json = {**task.metadata_json, "runtime_causal_observations": []}
         runtime_credentials = {}
         resolved_credential = self._resolve_runtime_credential(
             task=task,
