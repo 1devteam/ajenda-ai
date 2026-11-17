@@ -306,6 +306,66 @@ def test_worker_executes_tool_invoke_task_and_persists_evidence_shaped_output(
         verify_session.close()
 
 
+def test_worker_preserves_insufficient_qualification_evidence_without_zero_score(pg_engine, queue_adapter) -> None:
+    tenant_id = str(uuid.uuid4())
+    worker_id = "worker-qualification-unknown"
+    factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    with factory() as session:
+        session.add(
+            Tenant(id=uuid.UUID(tenant_id), name="Qualification Tenant", slug=f"qual-{tenant_id[:8]}", plan="free")
+        )
+        mission = Mission(tenant_id=tenant_id, objective="Qualification evidence test", status="running")
+        session.add(mission)
+        session.flush()
+        task = ExecutionTask(
+            tenant_id=tenant_id,
+            mission_id=mission.id,
+            title="Qualify only observed prospects",
+            description="Verify missing evidence stays unknown",
+            status=ExecutionTaskState.PLANNED.value,
+            metadata_json={
+                "task_type": "tool.invoke",
+                "tool_invocation": {
+                    "schema_version": 1,
+                    "action": "sales.qualify",
+                    "input": {"prospects": [], "context": {"binding_required": True}},
+                },
+            },
+            compliance_category="operational",
+            jurisdiction="US-ALL",
+            requires_human_review=False,
+        )
+        session.add(task)
+        session.flush()
+        task_id = task.id
+        assert ExecutionCoordinator(session, queue_adapter).queue_task(tenant_id=tenant_id, task_id=task_id).ok
+        session.commit()
+        runtime = WorkerRuntimeService(session, queue_adapter)
+        claimed = runtime.claim_next_task(tenant_id=tenant_id, worker_id=worker_id)
+        assert claimed is not None
+        lease_id = uuid.UUID(str(claimed.metadata_json["worker_lease_id"]))
+        runtime.heartbeat(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+        runtime.start_execution(tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id)
+    TaskDispatcher(session_factory=factory, queue=queue_adapter, worker_id=worker_id, tenant_id=tenant_id).execute(
+        task_id=task_id, lease_id=lease_id
+    )
+    with factory() as session:
+        completed = session.get(ExecutionTask, task_id)
+        assert completed is not None and completed.status == ExecutionTaskState.COMPLETED.value
+        output = completed.metadata_json["output"]
+        assert output["assessment_status"] == "insufficient_evidence"
+        assert output["score"] is None
+        assert output["qualified"] is None
+        evidence = session.scalars(
+            select(EvidenceRecord).where(
+                EvidenceRecord.tenant_id == tenant_id,
+                EvidenceRecord.mission_id == completed.mission_id,
+                EvidenceRecord.evidence_source == "tool.invoke.sales.qualify",
+            )
+        ).all()
+        assert evidence and evidence[0].structured_payload["score"] is None
+
+
 def test_queued_external_write_is_denied_after_charter_revocation_before_fake_provider(
     pg_engine, queue_adapter, monkeypatch
 ) -> None:
