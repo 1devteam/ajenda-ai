@@ -357,7 +357,12 @@ _BUSINESS_PROFILE_READ_PATTERNS = (
 # A profile used as mission context is not itself a profile-read deliverable.
 # Keep this clause recognized so composition does not silently drop the
 # operator's declared company/product authority.
+_DIRECT_BUSINESS_PROFILE_CONTEXT = (
+    r"\b(?:use|using|based\s+on|with)\s+(?:(?:the|my|our)\s+|[A-Za-z][A-Za-z0-9-]*['\u2019]s\s+)?"
+    r"(?:approved\s+)?(?:business|company)\s+profile\b"
+)
 _BUSINESS_PROFILE_CONTEXT_PATTERNS = (
+    _DIRECT_BUSINESS_PROFILE_CONTEXT,
     r"\buse\s+(?:the\s+)?(?:approved\s+)?(?:business|company)\s+profile\b",
     # "Create a business profile for Acme" describes a public-research
     # deliverable. It is not permission to read the tenant's approved profile;

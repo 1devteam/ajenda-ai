@@ -55,6 +55,8 @@ def test_named_prospect_qualification_retains_subject_without_assuming_company_i
     )
     assert record.intent.requested_quantity == 1
     assert record.intent.quantity_provenance == "inferred_deterministic"
+    assert not record.ready_to_start
+    assert any(item.field == "profile_qualification_binding" for item in record.clarifications)
     assert [(item.type, item.name) for item in record.intent.target_entities] == [
         ("named_prospect_subject", "Copper Circuit Systems")
     ]

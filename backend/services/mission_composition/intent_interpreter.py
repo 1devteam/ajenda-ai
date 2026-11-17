@@ -46,6 +46,7 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _CRM_READ_PATTERNS,
     _CRM_READBACK_VERIFICATION_PATTERN,
     _CRM_UPDATE_PATTERNS,
+    _DIRECT_BUSINESS_PROFILE_CONTEXT,
     _DIRECT_CRM_RECORD_READ,
     _DRAFT_PATTERNS,
     _EMAIL_MESSAGE_DELIVERY_CLAUSE,
@@ -1479,6 +1480,21 @@ def interpret_instruction(
                 missing="the research report has no named company, market, competitor set, or other bounded subject",
                 include_instruction="the company or market the report should cover, including location when relevant",
                 reason="Research-report synthesis requires a bounded evidence subject.",
+            )
+        )
+
+    if wants_qualify and _contains_any(lower, (_DIRECT_BUSINESS_PROFILE_CONTEXT,)):
+        # Qualification currently has no governed binding from the approved
+        # profile reader to its fit scorer. A successful generic score would
+        # otherwise imply that the requested profile was used when it was not.
+        clarifications.append(
+            Clarification(
+                field="profile_qualification_binding",
+                question=(
+                    "This qualification request requires approved business-profile evidence, "
+                    "but the current qualification path cannot yet use that evidence."
+                ),
+                reason="Approved-profile evidence is not bound to the qualification scorer.",
             )
         )
 
