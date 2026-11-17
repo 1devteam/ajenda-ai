@@ -378,6 +378,11 @@ _BUSINESS_PROFILE_DELIVERABLE_PATTERNS = (
     r"\bevidence[- ]backed brief\b",
     r"\bmissing or conflicting (?:facts|information)\b",
 )
+_PROFILE_SOURCE_REQUEST = re.compile(
+    r"^(?:show|include|provide|list|cite)\s+(?:me\s+)?(?:the\s+)?(?:supporting\s+)?"
+    r"(?:sources?|citations?|evidence)(?:\s+(?:used|references?|records?))?\s*[.!?]?$",
+    re.IGNORECASE,
+)
 # Publish/post verbs only — "prospects on LinkedIn" is research, not publishing.
 _PUBLISH_PATTERNS = (
     r"\bpublish\b",
@@ -1396,6 +1401,11 @@ def _classify_clause(
     """Return (outcomes, material, recognized)."""
 
     lower = clause.lower()
+    if profile_mission and _PROFILE_SOURCE_REQUEST.fullmatch(clause.strip()):
+        # The existing profile deliverable exposes the approved profile ID
+        # and evidence record IDs. This clause requests that provenance; it
+        # does not authorize a separate provider or outbound action.
+        return ["read_business_profile"], True, True
     if _is_comparative_purchase_request(clause):
         # The existing canonical research outcome is B2B prospect research;
         # consumer/procurement comparison is intentionally not silently

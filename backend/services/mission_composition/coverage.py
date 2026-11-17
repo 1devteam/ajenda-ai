@@ -35,6 +35,10 @@ def _source_mode(intent: MissionIntent) -> CoverageMode:
         r"\b(?:ajenda(?:['\u2019]s)?\s+internal\s+crm|internal\s+(?:ajenda\s+)?crm)\b", text
     ):
         return "internal_crm"
+    if intent.requested_outcomes and set(intent.requested_outcomes) <= {"read_business_profile"}:
+        # The existing mode vocabulary has no approved-profile mode. Do not
+        # label this tenant-owned read as a public/provider research source.
+        return "unknown"
     if intent.target_entities or intent.requested_outcomes:
         return "public_or_provider"
     return "unknown"

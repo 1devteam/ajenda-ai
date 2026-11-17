@@ -83,6 +83,22 @@ def test_possessive_profile_read_composes_without_a_fabricated_count() -> None:
     assert [step.action_name for step in record.planned_steps] == ["retrieval.hybrid_search"]
 
 
+def test_profile_source_request_retains_the_existing_profile_read_path() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-test",
+        instruction=(
+            "Summarize Ajenda\u2019s approved business profile, including its services, target customers, "
+            "and any important information that is missing. Show the sources used."
+        ),
+    )
+    assert record.ready_to_start
+    assert not record.intent.unmatched_material_clauses
+    assert [step.action_name for step in record.planned_steps] == ["retrieval.hybrid_search"]
+    assert record.coverage_assessment is not None
+    assert record.coverage_assessment.requested_quantity is None
+    assert record.coverage_assessment.mode == "unknown"
+
+
 def test_interpreter_roofing_forbids_send_and_targets_austin() -> None:
     intent = interpret_instruction(ROOFING_INSTRUCTION)
     assert "research_prospects" in intent.requested_outcomes
