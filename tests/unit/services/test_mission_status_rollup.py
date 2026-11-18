@@ -563,7 +563,9 @@ def test_invalid_refresh_state_is_recorded_without_fabricating_completion() -> N
         objective="Read CRM accounts",
         status=MissionState.RUNNING.value,
         metadata_json={
-            "mission_intake": {"context": {"composition": {"deliverable_runtime_state": {"invalid": True}}}}
+            "mission_intake": {
+                "context": {"composition": {"deliverable_runtime_state": {"invalid": True}}}
+            }
         },
     )
     mission.id = mission_id
@@ -578,5 +580,46 @@ def test_invalid_refresh_state_is_recorded_without_fabricating_completion() -> N
         mission.metadata_json = {}
         service._refresh_deliverable_completion_read_model(task=task)
         assert task.metadata_json["deliverable_refresh_issue"] == "invalid_completion_state"
+
+
+
+def test_successful_refresh_clears_prior_issue_and_preserves_completion() -> None:
+    tenant_id = "tenant-refresh-recovered"
+    mission_id = uuid.uuid4()
+    request = extract_deliverable_request("Return company name.")
+    assert request is not None
+    state = build_deliverable_runtime_state(request)
+    assert state is not None
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="Return internal CRM account names",
+        status=MissionState.RUNNING.value,
+        metadata_json={"mission_intake": {"context": {"composition": {"deliverable_runtime_state": state}}}},
+    )
+    mission.id = mission_id
+    task = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    task.metadata_json = {
+        "deliverable_refresh_issue": "refresh_exception",
+        "expected_output_contract": {"artifact": "crm_records"},
+        "handler_result": {
+            "output": {
+                "crm_records": [
+                    {"id": "account-1", "company": "Sample", "source": "internal_record"}
+                ]
+            }
+        },
+    }
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task])  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._refresh_deliverable_completion_read_model(task=task)
+
+    assert "deliverable_refresh_issue" not in task.metadata_json
+    completion = mission.metadata_json["mission_intake"]["context"]["composition"]["deliverable_runtime_state"][
+        "completion"
+    ]
+    assert completion["complete"] is True
 
 
