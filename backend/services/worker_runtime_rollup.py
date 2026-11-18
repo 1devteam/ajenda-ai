@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from typing import get_args
 
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, MissionState
@@ -10,6 +11,7 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.runtime.state_machine import InvalidTransitionError
 from backend.runtime.transitions import transition_mission, transition_task
 from backend.services.mission_acceptance import evaluate_mission_acceptance
+from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
 from backend.services.mission_composition.deliverable_runtime_read_model import (
     refresh_deliverable_completion_metadata,
 )
@@ -24,6 +26,37 @@ from backend.services.worker_runtime_contracts import (
 )
 
 logger = logging.getLogger("ajenda.worker_runtime_rollup")
+
+
+def _deliverable_incomplete_diagnostics(raw_completion: object) -> list[str]:
+    """Explain a failed durable read model without exposing customer values.
+
+    The authoritative mission acceptance decision remains fail-closed. Only
+    field identifiers, typed statuses, and unresolved-item counts are emitted.
+    """
+    if not isinstance(raw_completion, dict):
+        return ["durable deliverable completion was not recorded"]
+
+    reasons: list[str] = []
+    fields = raw_completion.get("fields")
+    if isinstance(fields, list):
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            field_key = field.get("field_key")
+            status = field.get("status")
+            if (
+                isinstance(field_key, str)
+                and field_key in get_args(DeliverableFieldKey)
+                and status in {"missing_artifact", "invalid_artifact", "insufficient_rows", "unproven"}
+            ):
+                reasons.append(f"durable deliverable field {field_key}: {status}")
+    unresolved = raw_completion.get("unresolved_request_items")
+    if isinstance(unresolved, list) and unresolved:
+        reasons.append(f"durable deliverable has {len(unresolved)} unresolved request item(s)")
+    if not reasons:
+        reasons.append("durable deliverable is incomplete without a recorded field-level explanation")
+    return reasons
 
 
 def refresh_deliverable_completion_read_model(service: WorkerRuntimeCollaborator, *, task: ExecutionTask) -> None:
@@ -295,6 +328,7 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
             isinstance(raw_completion, dict) and raw_completion.get("complete") is True
         ):
             acceptance_reasons.append("durable deliverable is incomplete")
+            acceptance_reasons.extend(_deliverable_incomplete_diagnostics(raw_completion))
             acceptance_met = False
         # The existing Gmail deliverable explicitly marks a references-only
         # response incomplete. Keep mission acceptance aligned even when this
