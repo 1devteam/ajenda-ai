@@ -11,12 +11,19 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
 from backend.domain.outcome_review import OutcomeReview
 from backend.services.mission_composition.deliverable_contract import extract_deliverable_request
+from backend.services.mission_composition.deliverable_runtime_read_model import refresh_deliverable_completion_metadata
 from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
     build_deliverable_runtime_state,
+    deliverable_minimum_rows,
 )
 from backend.services.mission_composition.revops_deliverable import assemble_revops_mission_deliverable
-from backend.services.tools.schemas import ToolInvocation, tool_invocation_sha256
+from backend.services.mission_composition.service import MissionCompositionService, _runtime_deliverable_request
+from backend.services.tools.local_records import build_local_record_provider
+from backend.services.tools.record_store import LocalRecordStoreAdapter
+from backend.services.tools.sales_action_records import record_search
+from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation, tool_invocation_sha256
+from backend.services.worker_runtime_contracts import _validate_declared_output_contract
 
 MISSION_ID = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
 TENANT_ID = "tenant-revops"
@@ -746,3 +753,83 @@ def test_assembler_rejects_cross_tenant_inputs_and_absent_runtime_state() -> Non
             tasks=[],
             now=datetime(2026, 8, 30, 14, 0, tzinfo=UTC),
         )
+
+
+@pytest.mark.parametrize(
+    ("count_scope", "phrase", "expected_names", "expected_complete"),
+    [
+        ("up to three", "Ajenda Test Customer", ["Cedar Supply", "Mesa Fabrication", "Ridge Logistics"], True),
+        ("up to three", "Ajenda Test Customer - Cedar", ["Cedar Supply"], True),
+        ("up to three", "Ajenda Test Customer - No Match 699", [], True),
+        ("three", "Ajenda Test Customer - No Match 699", [], False),
+    ],
+)
+def test_composed_internal_crm_search_materializes_the_requested_result(
+    count_scope: str, phrase: str, expected_names: list[str], expected_complete: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    instruction = (
+        f"In Ajenda\u2019s internal CRM, find {count_scope} account records whose names contain “{phrase}”. "
+        "Return only their names. If none match, say so. Do not modify records, contact anyone, or use external sources."
+    )
+    record = MissionCompositionService(db=None).compose(tenant_id=TENANT_ID, instruction=instruction)
+    assert record.ready_to_start, record.clarifications
+    assert record.allowed_actions == ["record.search"]
+    assert len(record.planned_steps) == 1
+    step = record.planned_steps[0]
+    assert step.tool_input == {"record_type": "account", "query": phrase, "query_field": "name", "limit": 3}
+    requests = _runtime_deliverable_request(record.intent)
+    assert requests is not None and not requests.unresolved_items
+    assert [field.field_key for field in requests.fields] == ["company_name"]
+    mission = _mission("Return company name.")
+    state = build_deliverable_runtime_state(requests, minimum_rows=deliverable_minimum_rows(record.intent))
+    mission.metadata_json = {
+        "mission_intake": {"context": {"composition": {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: state}}}
+    }
+
+    records = {"decoy": {"id": "decoy", "name": "Other company", "description": phrase}}
+    for name in ("Cedar Supply", "Mesa Fabrication", "Ridge Logistics"):
+        records[name] = {"id": name, "name": f"Ajenda Test Customer - {name}"}
+    provider = build_local_record_provider(
+        {
+            TENANT_ID: {"account": records},
+            "other-tenant": {"account": {"foreign": {"id": "foreign", "name": phrase}}},
+        }
+    )
+    monkeypatch.setattr(
+        "backend.services.tools.sales_action_records._provider", lambda _: LocalRecordStoreAdapter(provider)
+    )
+    invocation = ToolInvocation(action=step.action_name, input=step.tool_input)
+    action = record_search(
+        invocation,
+        ActionRuntimeContext(
+            tenant_id=TENANT_ID, mission_id=MISSION_ID, task_id=uuid.UUID(int=1), worker_id="worker", lease_id="lease"
+        ),
+    )
+    rows = action.output["crm_records"]
+    assert [row["name"] for row in rows] == [f"Ajenda Test Customer - {name}" for name in expected_names]
+    task = _task(
+        task_id=1,
+        artifact="crm_records",
+        payload=rows,
+        handler_fields={"output": action.output},
+        metadata_fields={"tool_invocation": invocation.model_dump(mode="json")},
+    )
+    _validate_declared_output_contract(task, {"output": action.output})
+    mission.metadata_json, completion = refresh_deliverable_completion_metadata(mission.metadata_json, [task])
+    assert completion is not None and completion.complete == expected_complete
+    report = assemble_revops_mission_deliverable(mission=mission, tasks=[task])
+    assert report.artifacts["crm_records"] == rows
+    assert report.completion.complete == expected_complete
+    assert report.task_state.all_succeeded
+
+    if not rows:
+        # The same receipt cannot prove a different filter or an unexecuted search.
+        task.metadata_json["tool_invocation"]["input"]["query"] = "Changed query"
+        with pytest.raises(ValueError, match="must attest"):
+            _validate_declared_output_contract(task, {"output": action.output})
+        invalid = assemble_revops_mission_deliverable(mission=mission, tasks=[task])
+        assert not invalid.completion.complete
+
+        bare_output = {"record_type": "account", "count": 0, "records": [], "crm_records": []}
+        with pytest.raises(ValueError, match="must attest"):
+            _validate_declared_output_contract(task, {"output": bare_output})

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from backend.services.tools.record_types import SUPPORTED_RECORD_TYPES
 
@@ -42,6 +42,7 @@ class LocalRecordProvider:
         tenant_id: str,
         record_type: str,
         query: str = "",
+        query_field: Literal["name"] | None = None,
         filters: dict[str, Any] | None = None,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
@@ -53,8 +54,14 @@ class LocalRecordProvider:
         normalized_query = query.lower().strip()
         matches: list[dict[str, Any]] = []
         for record in source.values():
-            if normalized_query and normalized_query not in " ".join(str(value).lower() for value in record.values()):
-                continue
+            if normalized_query:
+                searchable = (
+                    str(record.get(query_field) or "")
+                    if query_field is not None
+                    else " ".join(str(value) for value in record.values())
+                )
+                if normalized_query not in searchable.lower():
+                    continue
             if any(record.get(key) != value for key, value in filters.items()):
                 continue
             matches.append(deepcopy(record))

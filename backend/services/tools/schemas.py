@@ -150,6 +150,7 @@ class RecordSearchInput(BaseModel):
 
     record_type: str = Field(min_length=1, max_length=80)
     query: str = Field(default="", max_length=240)
+    query_field: Literal["name"] | None = None
     filters: dict[str, Any] = Field(default_factory=dict)
     limit: int = Field(default=10, ge=1, le=50)
 

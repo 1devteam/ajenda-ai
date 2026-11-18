@@ -21,6 +21,7 @@ from backend.services.mission_composition.contracts import compare_reviewed_sema
 from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
     build_deliverable_runtime_state,
+    deliverable_minimum_rows,
 )
 from backend.services.mission_composition.plan_compiler import compile_plan_payload, compile_task_graph_preview
 from backend.services.mission_composition.proposal_store import get_proposal
@@ -262,7 +263,7 @@ class MissionCompositionCompilePhase:
                 coverage_assessment=record.coverage_assessment,
                 epistemic_context=record.epistemic_context,
                 know_how=select_vertical_know_how(record.intent.requested_outcomes) or REVOPS_V1_KNOW_HOW,
-                minimum_rows=record.intent.requested_quantity or 0,
+                minimum_rows=deliverable_minimum_rows(record.intent),
                 minimum_rows_by_artifact={
                     "qualified_prospects": record.intent.qualification_quantity
                     or record.intent.requested_quantity

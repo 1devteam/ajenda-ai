@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from typing import Any, Literal, Protocol, TypeVar, runtime_checkable
 
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,7 @@ class RecordStore(Protocol):
         tenant_id: str,
         record_type: str,
         query: str = "",
+        query_field: Literal["name"] | None = None,
         filters: dict[str, Any] | None = None,
         limit: int = 10,
     ) -> list[dict[str, Any]]: ...
@@ -52,6 +53,7 @@ class DurableRecordStore:
         tenant_id: str,
         record_type: str,
         query: str = "",
+        query_field: Literal["name"] | None = None,
         filters: dict[str, Any] | None = None,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
@@ -60,6 +62,7 @@ class DurableRecordStore:
             tenant_id=tenant_id,
             record_type=record_type,
             query=query,
+            query_field=query_field,
             filters=filters,
             limit=limit,
         )
@@ -114,6 +117,7 @@ class SessionScopedDurableRecordStore:
         tenant_id: str,
         record_type: str,
         query: str = "",
+        query_field: Literal["name"] | None = None,
         filters: dict[str, Any] | None = None,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
@@ -122,6 +126,7 @@ class SessionScopedDurableRecordStore:
                 tenant_id=tenant_id,
                 record_type=record_type,
                 query=query,
+                query_field=query_field,
                 filters=filters,
                 limit=limit,
             )
@@ -166,6 +171,7 @@ class LocalRecordStoreAdapter:
         tenant_id: str,
         record_type: str,
         query: str = "",
+        query_field: Literal["name"] | None = None,
         filters: dict[str, Any] | None = None,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
@@ -173,6 +179,7 @@ class LocalRecordStoreAdapter:
             tenant_id=tenant_id,
             record_type=record_type,
             query=query,
+            query_field=query_field,
             filters=filters,
             limit=limit,
         )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
 
 from backend.services.knowledge.knowledge_applicability import KnowledgeApplicabilityContext
@@ -14,6 +15,7 @@ from backend.services.knowledge.knowledge_retrieval import KnowledgeRetrievalQue
 from backend.services.mission_composition.action_input_common import (
     _compact_research_query,
     _prospect_count,
+    _source_instruction,
     _target_bits,
 )
 from backend.services.mission_composition.contracts import MissionIntent
@@ -21,6 +23,54 @@ from backend.services.ontology.commercial_state import GoalSemanticSignature
 from backend.services.ontology.types import BusinessObjectRef, business_object_semantic_signature
 from backend.services.tools.knowledge_actions import KnowledgeInformedDecisionSupportInput
 from backend.services.tools.schemas import DecisionRecommendInput
+
+_CRM_SEARCH_FILTER = re.compile(
+    r"\b(?P<scope>search\s+query|(?:account\s+)?names?\s+contains?)\s*:?\s*"
+    r'(?:“(?P<curly>[^”]*)”|"(?P<double>[^"]*)"|\'(?P<single>[^\']*)\')',
+    re.IGNORECASE,
+)
+_CRM_SEARCH_FILTER_CUE = re.compile(r"\b(?:search\s+query|(?:account\s+)?names?\s+contains?)\b", re.IGNORECASE)
+_OPPORTUNITY_RECORD_READ = re.compile(
+    r"\b(?:internal\s+crm\s+(?:opportunit(?:y|ies)|deals?)|(?:opportunity|deal)\s+records?)\b",
+    re.IGNORECASE,
+)
+
+
+def _internal_crm_search_input(intent: MissionIntent, limit: int) -> dict[str, Any]:
+    instruction = _source_instruction(intent)
+    opportunity_read = bool(_OPPORTUNITY_RECORD_READ.search(instruction))
+    if opportunity_read and re.search(
+        r"\b(?:open|closed|activity\s+history|follow[- ]up|recommendations?|stage)\b", instruction, re.IGNORECASE
+    ):
+        raise ValueError(
+            "Internal CRM opportunity search does not yet support requested status, activity history, "
+            "or follow-up analysis. Specify a plain opportunity-record read to continue."
+        )
+
+    filters = list(_CRM_SEARCH_FILTER.finditer(instruction))
+    if len(filters) > 1 or (not filters and _CRM_SEARCH_FILTER_CUE.search(instruction)):
+        raise ValueError("Internal CRM search requires one non-empty quoted search phrase.")
+    result: dict[str, Any] = {
+        "record_type": (
+            "contact"
+            if "create_internal_followup_tasks" in intent.requested_outcomes
+            else "opportunity"
+            if opportunity_read
+            else "account"
+        ),
+        "query": "",
+        "limit": limit,
+    }
+    if filters:
+        match = filters[0]
+        value = next((match.group(key) for key in ("curly", "double", "single") if match.group(key) is not None), "")
+        value = value.strip()
+        if not 1 <= len(value) <= 240:
+            raise ValueError("Internal CRM search phrase must contain 1 to 240 characters.")
+        result["query"] = value
+        if not match.group("scope").casefold().startswith("search"):
+            result["query_field"] = "name"
+    return result
 
 
 def _assessment_decision_input(
@@ -368,14 +418,11 @@ def build_analysis_action_input(
             "limit": min(max(limit, 5), 20),
         }
     if action_name == "record.search":
+        if "internal_crm_source" in intent.context_requirements:
+            return _internal_crm_search_input(intent, limit)
         return {
-            "record_type": ("contact" if "create_internal_followup_tasks" in intent.requested_outcomes else "account"),
-            # Internal CRM missions request a bounded record set. Matching the
-            # full natural-language instruction against stored record text can
-            # hide every valid account before qualification starts.
-            "query": ""
-            if "internal_crm_source" in intent.context_requirements
-            else _compact_research_query(intent)[:240],
+            "record_type": "contact" if "create_internal_followup_tasks" in intent.requested_outcomes else "account",
+            "query": _compact_research_query(intent)[:240],
             "limit": limit,
         }
     if action_name in {"document.search", "retrieval.hybrid_search"}:

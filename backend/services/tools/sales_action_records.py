@@ -19,15 +19,18 @@ from backend.services.tools.schemas import (
     RecordWriteInput,
     SideEffectClass,
     ToolInvocation,
+    tool_invocation_sha256,
 )
 
 
 def record_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload = RecordSearchInput.model_validate(invocation.input)
-    records = _provider(context).search_records(
+    provider = _provider(context)
+    records = provider.search_records(
         tenant_id=context.tenant_id,
         record_type=payload.record_type,
         query=payload.query,
+        query_field=payload.query_field,
         filters=payload.filters,
         limit=payload.limit,
     )
@@ -45,7 +48,7 @@ def record_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         if payload.record_type == "account":
             # Bind observation to tenant-owned CRM relationships rather than
             # inventing contact data or falling back to public discovery.
-            related_contacts = _provider(context).search_records(
+            related_contacts = provider.search_records(
                 tenant_id=context.tenant_id,
                 record_type="contact",
                 filters={"account_id": str(record.get("id") or "")},
@@ -54,7 +57,7 @@ def record_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
             if related_contacts:
                 normalized["contacts"] = related_contacts
         crm_records.append(normalized)
-    output = {
+    output: dict[str, Any] = {
         "record_type": payload.record_type,
         "records": records,
         # Canonical mission artifact alias for the internal CRM → GTM path.
@@ -62,6 +65,24 @@ def record_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         "crm_records": crm_records,
         "count": len(crm_records),
     }
+    if not crm_records:
+        output["valid_empty_result"] = {
+            "classification": "valid_empty",
+            "reason": "The tenant-scoped internal CRM search completed with no matching records.",
+            "provider_queries": [
+                {
+                    "source": "local_records",
+                    "object_type": payload.record_type,
+                    "filters": {
+                        "search_sha256": tool_invocation_sha256(
+                            {"action": "record.search", "input": payload.model_dump(mode="json")}
+                        ),
+                    },
+                    "response_complete": True,
+                    "result_count": 0,
+                }
+            ],
+        }
     summary = f"Found {len(records)} {payload.record_type} record(s)."
     return ActionResult(
         action="record.search",

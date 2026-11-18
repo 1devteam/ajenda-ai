@@ -277,6 +277,16 @@ _FIELD_PATTERNS: tuple[tuple[DeliverableFieldKey, tuple[str, ...]], ...] = (
 )
 
 
+_INTERNAL_CRM_NAMES = re.compile(
+    r"(?:(?:only|the|their|matching)\s+)*(?:account\s+)?names?",
+    re.IGNORECASE,
+)
+
+
+def is_internal_crm_names_item(item: str) -> bool:
+    return _INTERNAL_CRM_NAMES.fullmatch(item.strip()) is not None
+
+
 def _field_key(item: str) -> DeliverableFieldKey | None:
     normalized = " ".join(item.strip().lower().split())
     for field_key, patterns in _FIELD_PATTERNS:
@@ -309,11 +319,14 @@ def extract_deliverable_request(text: str) -> DeliverableRequest | None:
     body = match.group("body")
     scope: Literal["per_prospect", "mission"] = "per_prospect" if "for each" in prefix.lower() else "mission"
 
+    internal_crm_context = bool(re.search(r"\binternal\s+crm\b", text, re.IGNORECASE))
     fields: list[DeliverableFieldRequirement] = []
     unresolved: list[str] = []
     seen: set[str] = set()
     for item in _split_requested_items(body):
         field_key = _field_key(item)
+        if field_key is None and internal_crm_context and is_internal_crm_names_item(item):
+            field_key = "company_name"
         if field_key is None:
             unresolved.append(item[:500])
             continue

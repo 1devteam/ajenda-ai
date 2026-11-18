@@ -6,6 +6,7 @@ from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
 from backend.services.mission_composition.artifact_schemas import (
     ARTIFACT_SCHEMAS_BY_KEY,
+    is_proven_empty_local_crm_search,
     is_proven_valid_empty_artifact,
     validate_artifact_payload,
 )
@@ -156,6 +157,16 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
         ):
             raise ValueError("intermediate output contract is only permitted for governed research discovery")
         return
+    invocation = metadata.get("tool_invocation")
+    if (
+        artifact_key == "crm_records"
+        and raw_output[artifact_key] == []
+        and isinstance(invocation, dict)
+        and invocation.get("action") == "record.search"
+    ):
+        if is_proven_empty_local_crm_search(invocation=invocation, output=raw_output):
+            return
+        raise ValueError("empty internal CRM result must attest to the executed record search")
     if is_proven_valid_empty_artifact(
         artifact_key=artifact_key,
         payload=raw_output[artifact_key],

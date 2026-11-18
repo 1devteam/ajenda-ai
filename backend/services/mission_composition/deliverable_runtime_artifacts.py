@@ -9,10 +9,10 @@ execution authority.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
 
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.execution_task import ExecutionTask
+from backend.services.mission_composition.artifact_schemas import is_proven_empty_local_crm_search
 from backend.services.mission_composition.deliverable_completion import MaterializedArtifact
 from backend.services.tools.mission_input_binding import handler_output_for_task
 
@@ -66,7 +66,13 @@ def materialized_artifact_for_task(task: ExecutionTask) -> MaterializedArtifact 
                 return None
         else:
             return None
-    return MaterializedArtifact(artifact_key=artifact_key, payload=payload)
+    return MaterializedArtifact(
+        artifact_key=artifact_key,
+        payload=payload,
+        verified_empty=artifact_key == "crm_records"
+        and payload == []
+        and is_proven_empty_local_crm_search(invocation=metadata.get("tool_invocation"), output=output),
+    )
 
 
 def collect_materialized_artifacts(tasks: list[ExecutionTask]) -> tuple[MaterializedArtifact, ...]:
@@ -77,32 +83,32 @@ def collect_materialized_artifacts(tasks: list[ExecutionTask]) -> tuple[Material
     selecting an arbitrary winner, which leaves the requested deliverable incomplete.
     """
 
-    grouped = _group_materialized_payloads(tasks)
+    grouped = _group_materialized_artifacts(tasks)
     collected: list[MaterializedArtifact] = []
     for artifact_key in sorted(grouped):
-        payloads = grouped[artifact_key]
-        first = payloads[0]
-        if any(payload != first for payload in payloads[1:]):
+        artifacts = grouped[artifact_key]
+        first = artifacts[0]
+        if any(artifact != first for artifact in artifacts[1:]):
             continue
-        collected.append(MaterializedArtifact(artifact_key=artifact_key, payload=first))
+        collected.append(first)
     return tuple(collected)
 
 
-def _group_materialized_payloads(tasks: list[ExecutionTask]) -> dict[str, list[Any]]:
-    grouped: dict[str, list[Any]] = defaultdict(list)
+def _group_materialized_artifacts(tasks: list[ExecutionTask]) -> dict[str, list[MaterializedArtifact]]:
+    grouped: dict[str, list[MaterializedArtifact]] = defaultdict(list)
     for task in sorted(tasks, key=lambda item: str(item.id)):
         artifact = materialized_artifact_for_task(task)
         if artifact is not None:
-            grouped[artifact.artifact_key].append(artifact.payload)
+            grouped[artifact.artifact_key].append(artifact)
     return grouped
 
 
 def conflicting_materialized_artifact_keys(tasks: list[ExecutionTask]) -> tuple[str, ...]:
     """Return artifact keys with divergent completed payloads."""
 
-    grouped = _group_materialized_payloads(tasks)
+    grouped = _group_materialized_artifacts(tasks)
     return tuple(
         artifact_key
-        for artifact_key, payloads in sorted(grouped.items())
-        if len(payloads) > 1 and any(payload != payloads[0] for payload in payloads[1:])
+        for artifact_key, artifacts in sorted(grouped.items())
+        if any(artifact != artifacts[0] for artifact in artifacts[1:])
     )
