@@ -41,6 +41,7 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _COMPONENTS_ACTIVE,
     _CONDITIONAL_SEND_PATTERNS,
     _CONTACTS_READ_PATTERNS,
+    _COORDINATED_PROHIBITION_START,
     _CRM_NEGATION_PATTERNS,
     _CRM_READ_NEGATION_PATTERNS,
     _CRM_READ_PATTERNS,
@@ -53,6 +54,7 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _EMAIL_READ_PATTERNS,
     _ENRICH_PATTERNS,
     _GITHUB_READ_PATTERNS,
+    _GOAL_EVALUATION_REPORT_CLAUSE,
     _HUBSPOT_PROHIBITION_PATTERNS,
     _INTERNAL_CRM_PATTERNS,
     _INTERNAL_CRM_READ_NEGATION_PATTERNS,
@@ -66,6 +68,7 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _PUBLISH_PATTERNS,
     _PUBLISH_RESULT_BASED,
     _QUALIFY_PATTERNS,
+    _RECIPIENT_LOOKUP_PROHIBITION,
     _REPORT_SYNTHESIS_REQUEST,
     _RESEARCH_PATTERNS,
     _SALESFORCE_QUERY_PATTERNS,
@@ -271,6 +274,15 @@ def interpret_instruction(
     uses_business_profile = _contains_any(lower, _BUSINESS_PROFILE_CONTEXT_PATTERNS)
     wants_social_draft = _contains_any(lower, _SOCIAL_DRAFT_PATTERNS)
     wants_draft = _contains_any(lower, _DRAFT_PATTERNS) and not wants_social_draft
+    recipient_lookup_forbidden = bool(_RECIPIENT_LOOKUP_PROHIBITION.search(text))
+    clauses = _segment_clauses(text)
+    action_clauses = [
+        _RECIPIENT_LOOKUP_PROHIBITION.sub("", clause) if recipient_lookup_forbidden else clause
+        for clause in clauses
+        if not _COORDINATED_PROHIBITION_START.match(clause)
+    ]
+    if recipient_lookup_forbidden:
+        context_requirements.append("recipient_lookup_forbidden")
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
     wants_email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
     internal_crm_requested = _contains_any(lower, _INTERNAL_CRM_PATTERNS)
@@ -366,7 +378,7 @@ def interpret_instruction(
     # the latter must remain visible without deleting the former outcome.
     supported_research_clause_requested = any(
         _contains_any(clause.lower(), _RESEARCH_PATTERNS) and not _is_comparative_purchase_request(clause)
-        for clause in _segment_clauses(text)
+        for clause in action_clauses
     )
     wants_research = (
         (supported_research_clause_requested or website_fact_collection_requested)
@@ -383,7 +395,10 @@ def interpret_instruction(
         # source. The words "companies in ..." must not turn it into public
         # discovery unless the operator explicitly asks to research/find them.
         wants_research = False
-    wants_research_report = _REPORT_SYNTHESIS_REQUEST.search(text) is not None and not business_income_review_requested
+    report_text = ". ".join(clause for clause in action_clauses if not _GOAL_EVALUATION_REPORT_CLAUSE.match(clause))
+    wants_research_report = (
+        _REPORT_SYNTHESIS_REQUEST.search(report_text) is not None and not business_income_review_requested
+    )
     # A report request implies bounded research plus synthesis even when it
     # does not use the legacy "research report" wording.
     if wants_research_report:
@@ -393,7 +408,7 @@ def interpret_instruction(
     if wants_research and hubspot_as_research_source and explicit_prospect_research:
         wants_crm_read = False
         connector_read = wants_email_read or wants_crm_read or wants_salesforce_query
-    wants_observe = _contains_any(lower, _OBSERVE_CONTACT_PATTERNS)
+    wants_observe = any(_contains_any(clause.lower(), _OBSERVE_CONTACT_PATTERNS) for clause in action_clauses)
     # Enrich only when explicitly requested — not invented from draft+qualify.
     wants_enrich = _contains_any(lower, _ENRICH_PATTERNS)
     wants_calendar = _contains_any(lower, _CALENDAR_PATTERNS)
@@ -539,7 +554,17 @@ def interpret_instruction(
             )
         )
     # Ability vocabulary layer (score/rank/… → canonical outcomes).
-    for vocab_hit in match_outcome_phrases(text):
+    for vocab_hit in match_outcome_phrases(". ".join(action_clauses)):
+        if (
+            wants_draft
+            and not internal_crm_read
+            and not wants_research
+            and vocab_hit.outcome == "observe_contacts"
+            and not wants_observe
+        ):
+            # "Draft an email for <company>" names the draft subject. It does
+            # not request that we discover contact details for that company.
+            continue
         # Phrase/pattern matching is intentionally broad for legacy connector
         # wording, but a negated CRM clause must never create a read_crm outcome.
         if vocab_hit.outcome == "read_crm" and not wants_crm_read:
@@ -849,6 +874,9 @@ def interpret_instruction(
     # ("do not send anything until I approve").
     constraints: list[str] = []
     forbidden: list[str] = []
+    if recipient_lookup_forbidden:
+        constraints.append("Do not look up recipients")
+        forbidden.extend(["research.observe_contacts", "gtm.lead_enrich"])
     contradictions: list[Contradiction] = []
     if send_contradiction:
         contradictions.append(
@@ -1107,6 +1135,17 @@ def interpret_instruction(
                     rule_id="entity.email_recipient",
                 )
             )
+    if wants_draft and recipient_lookup_forbidden and not any(entity.email for entity in entities):
+        clarifications.append(
+            _restatement(
+                field="recipient_email",
+                understood="prepare a draft without looking up a recipient",
+                missing="a recipient address supplied by the operator",
+                include_instruction="the email address to use for the draft, keeping the no-lookup and no-send limits",
+                reason="The existing draft action needs a supplied recipient when recipient lookup is prohibited.",
+            )
+        )
+
     if entities and entities[0].type == "competitor_set" and entities[0].name:
         evidence.append(
             _evidence(
@@ -1172,6 +1211,10 @@ def interpret_instruction(
             business_need_review=business_need_review_requested,
             goal_progress_evaluation="evaluate_goal_progress" in outcomes,
         )
+        if outcomes == ["observe_web_page"] and re.fullmatch(r"read[ -]only", clause_text.strip(), flags=re.IGNORECASE):
+            material = True
+            recognized = True
+            constraints.append("Read the public page without submitting forms or changing external records")
         if "verify_runtime_controls" in outcomes and re.search(
             r"\b(?:check|verify|evidence|runtime|network|secure|private|retry|audit|local)\b",
             clause_text,

@@ -1889,3 +1889,79 @@ def test_credential_reference_is_copied_into_graph_input_contract() -> None:
     cred = node["input_contract"].get("credential_reference")
     assert cred is not None
     assert "execution_constraints" not in node["input_contract"]
+
+
+def test_draft_without_recipient_lookup_asks_for_address_without_discovery() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction=(
+            "Draft an introduction email for the fictional company Cedar Supply for my review. "
+            "Do not send anything or look up a recipient."
+        ),
+    )
+    assert not record.ready_to_start
+    assert [gap.field for gap in record.clarifications] == ["recipient_email"]
+    assert [step.action_name for step in record.planned_steps] == ["gtm.email_draft"]
+    assert set(record.forbidden_actions) >= {"gtm.email_send", "research.observe_contacts", "gtm.lead_enrich"}
+    assert record.intent.requested_quantity is None
+
+
+def test_draft_with_supplied_recipient_uses_one_action_and_no_lookup() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction="Draft an introduction email for review to test@example.com without looking up a recipient.",
+    )
+    assert record.ready_to_start
+    assert record.allowed_actions == ["gtm.email_draft"]
+    assert len(record.planned_steps) == 1
+    assert record.planned_steps[0].tool_input["recipient"] == "test@example.com"
+    assert record.planned_steps[0].tool_input["context"]["binding_required"] is False
+    assert record.intent.requested_quantity is None
+
+
+def test_explicit_contact_observation_cannot_override_recipient_lookup_prohibition() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction=("Collect contact information and draft an email to test@example.com. Do not look up a recipient."),
+    )
+    assert not record.ready_to_start
+    assert "observe_contacts" in record.intent.requested_outcomes
+    assert "research.observe_contacts" in record.forbidden_actions
+    assert "research.observe_contacts" not in record.allowed_actions
+    assert all(step.action_name != "research.observe_contacts" for step in record.planned_steps)
+
+
+def test_explicit_public_research_and_draft_keep_requested_contact_observation() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction=(
+            "Research three software development companies in Austin, Texas, collect contact information, "
+            "and draft emails for review. Do not send."
+        ),
+    )
+    assert record.ready_to_start
+    assert {"web.research", "research.observe_contacts", "gtm.email_draft"} <= set(record.allowed_actions)
+    assert "gtm.email_send" not in record.allowed_actions
+
+
+def test_read_only_clause_stays_bound_to_web_observation() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction=(
+            "Observe the public web page at https://www.austintexas.gov/ and return a web page observation "
+            "with the page title and final URL. Read only."
+        ),
+    )
+    assert record.ready_to_start
+    assert record.allowed_actions == ["web.browser_session"]
+    assert "Read the public page without submitting forms or changing external records" in record.intent.constraints
+
+
+def test_goal_evaluation_report_does_not_compile_prospect_research() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction="Evaluate goal progress for Ajenda AI for the last 30 days. Return a goal evaluation report.",
+    )
+    assert record.ready_to_start
+    assert record.intent.requested_outcomes == ["evaluate_goal_progress"]
+    assert record.allowed_actions == ["analysis.evaluate_goal_progress"]

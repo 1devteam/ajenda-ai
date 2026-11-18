@@ -337,6 +337,7 @@ def route_jobs_for_intent(
             selected.append(verifier_job)
             selected_keys.add(verifier_job.job_key)
 
+    recipient_lookup_forbidden = "recipient_lookup_forbidden" in intent.context_requirements
     expanded = list(selected)
     pending = list(selected)
     while pending:
@@ -345,6 +346,10 @@ def route_jobs_for_intent(
         if not deps:
             deps = [JobDependency(job_key=k, kind="hard") for k in job.depends_on_jobs]
         for dep in deps:
+            if recipient_lookup_forbidden and job.job_key == "email.prepare_outreach":
+                # The operator must supply the draft's recipient. Do not
+                # expand this job into prospect discovery to obtain one.
+                continue
             if dep.job_key in selected_keys:
                 continue
             if (
@@ -595,7 +600,7 @@ def resolve_jobs(
     connected_integrations = connected_integrations or set()
     preferred_credential_by_integration = preferred_credential_by_integration or {}
     credential_type_by_id = credential_type_by_id or {}
-    forbid_actions = {item.strip() for item in intent.forbidden_outcomes if item.strip()}
+    forbid_actions = set(intent.effective_forbidden_actions())
     # Structured send policy is authoritative (do not reparse constraint prose).
     if intent.send_policy.mode in {"forbid", "conditional"} or intent.blocks_send():
         forbid_actions.add("gtm.email_send")
