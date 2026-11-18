@@ -21,6 +21,8 @@ import PageErrorAlert from "../components/PageErrorAlert";
 import { EmailReferences } from "../components/EmailReferences";
 import type {
   AbilityTaskStatusResponse,
+  ApiFailure,
+  MissionLaunchResponse,
   BridgeRuntimeAuthorityReadResponse,
   MissionLifecycleReadResponse,
   RuntimeDispatchReadinessReadResponse,
@@ -205,6 +207,40 @@ function formatCompileFailure(compiled: Record<string, unknown>): string {
   return `Server compile is not ready (status=${status}).`;
 }
 
+function launchRequestError(error: unknown): unknown {
+  const body = (error as Partial<ApiFailure> | null)?.body;
+  if (typeof body === "object" && body !== null && "detail" in body) {
+    const detail = body.detail;
+    if (
+      typeof detail === "object" && detail !== null &&
+      "code" in detail && detail.code === "COMPILE_NOT_READY" &&
+      "compile" in detail && typeof detail.compile === "object" && detail.compile !== null
+    ) {
+      return `Mission launch stopped at graph compilation. ${formatCompileFailure(detail.compile as Record<string, unknown>)}`;
+    }
+  }
+  return error;
+}
+
+function queueAdmissionFailure(response: MissionLaunchResponse): string {
+  const summary = [
+    "Queue admission reported blockers.",
+    `${response.queued_task_ids.length} task(s) queued in this launch.`,
+  ];
+  if (response.pending_review_task_ids.length > 0) {
+    summary.push(`${response.pending_review_task_ids.length} task(s) waiting for policy review.`);
+  }
+  const blockers = response.blockers.map(({ code, message, reason, task_id }) => {
+    const detail = [
+      typeof message === "string" ? message : "",
+      typeof reason === "string" && reason !== message ? reason : "",
+      typeof task_id === "string" ? `Task ${task_id}` : "",
+    ].filter(Boolean).join(" ");
+    return [typeof code === "string" ? code : "", detail].filter(Boolean).join(" — ") || "Unspecified queue blocker";
+  });
+  return [summary.join(" "), ...blockers].join("\n");
+}
+
 function stepStatusFor(
   stepId: (typeof PIPELINE_STEPS)[number]["id"],
   lifecycle: MissionLifecycleReadResponse | null,
@@ -256,6 +292,7 @@ export default function MissionDispatchPage() {
   const [authorities, setAuthorities] = useState<BridgeRuntimeAuthorityReadResponse | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [launchError, setLaunchError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
   const [monitoredTaskId, setMonitoredTaskId] = useState("");
   const [taskStatus, setTaskStatus] = useState<AbilityTaskStatusResponse | null>(null);
@@ -264,6 +301,16 @@ export default function MissionDispatchPage() {
   const [runtimeEvidence, setRuntimeEvidence] = useState<MissionRuntimeEvidenceProjection | null>(null);
 
   const allowedActions = useMemo(() => intakeAllowedActions(lifecycle?.intake ?? null), [lifecycle?.intake]);
+  let launchUnavailable = "";
+  if (!session) {
+    launchUnavailable = "Sign in to start execution.";
+  } else if (!lifecycle) {
+    launchUnavailable = "Mission details must load before execution can start.";
+  } else if (!compositionReadyFromIntake(lifecycle.intake)) {
+    launchUnavailable = "Ajenda needs clarification on the mission before execution can start. Review the mission request in Missions.";
+  } else if (allowedActions.length === 0) {
+    launchUnavailable = "No executable steps were planned for this mission.";
+  }
   const successCriteria = useMemo(() => intakeSuccessCriteria(lifecycle?.intake ?? null), [lifecycle?.intake]);
   const crmOutcome = useMemo(() => crmOutcomeFromTask(taskStatus), [taskStatus]);
 
@@ -401,6 +448,7 @@ export default function MissionDispatchPage() {
 
   async function runStep(label: string, fn: () => Promise<void>) {
     setLoading(label);
+    setLaunchError(null);
     setError(null);
     setNotice("");
     try {
@@ -534,28 +582,31 @@ export default function MissionDispatchPage() {
   }
 
   async function handleRunPipeline() {
-    if (!session || !lifecycle || allowedActions.length === 0 || !compositionReadyFromIntake(lifecycle.intake)) {
+    if (!session || launchUnavailable || loading !== null) {
       return;
     }
     setLoading("Running full pipeline…");
     setError(null);
+    setLaunchError(null);
     setNotice("");
     try {
       const response = await launchMission(session, missionId);
-      if (response.blockers.length > 0) {
-        throw new Error("Mission launch was blocked — review the runtime blockers below.");
+      if (response.queued_task_ids.length > 0) {
+        setMonitoredTaskId(response.queued_task_ids[0]);
       }
-      setMonitoredTaskId(response.queued_task_ids[0] ?? "");
-      await refreshLifecycle();
-      await refreshReadinessViews();
-      setNotice(
-        `Mission launched — ${response.queued_task_ids.length} task(s) queued for workers.`,
-      );
+      if (response.blockers.length > 0) {
+        setLaunchError(queueAdmissionFailure(response));
+      } else {
+        setNotice(`Mission launch finished. ${response.queued_task_ids.length} task(s) queued in this launch.`);
+      }
     } catch (err) {
-      setError(err);
-      await refreshLifecycle();
-      await refreshReadinessViews();
+      setLaunchError(launchRequestError(err));
     } finally {
+      await Promise.all([
+        refreshLifecycle().catch(setError),
+        refreshReadinessViews(),
+        refreshRuntimeEvidence(),
+      ]);
       setLoading(null);
     }
   }
@@ -571,9 +622,6 @@ export default function MissionDispatchPage() {
     if (autoExecuteStarted.current || loading !== null) {
       return;
     }
-    if (allowedActions.length === 0) {
-      return;
-    }
     autoExecuteStarted.current = true;
     setSearchParams(
       (prev) => {
@@ -586,7 +634,7 @@ export default function MissionDispatchPage() {
     void handleRunPipeline();
     // Intentionally once per mission load with execute=1.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- auto-start handoff
-  }, [session, lifecycle, missionId, searchParams, allowedActions.length, loading]);
+  }, [session, lifecycle, missionId, searchParams, launchUnavailable, loading]);
 
   if (!missionId) {
     return (
@@ -643,12 +691,18 @@ export default function MissionDispatchPage() {
           <button
             type="button"
             className="primary-button"
-            disabled={!session || loading !== null || allowedActions.length === 0}
+            disabled={Boolean(launchUnavailable) || loading !== null}
+            aria-describedby={launchUnavailable ? "mission-launch-unavailable" : undefined}
             onClick={() => void handleRunPipeline()}
           >
             {loading === "Running full pipeline…" ? "Running…" : "Start execution"}
           </button>
         </div>
+
+        {launchUnavailable ? (
+          <p id="mission-launch-unavailable" className="muted">{launchUnavailable}</p>
+        ) : null}
+        <PageErrorAlert error={launchError} />
 
         <ol className="dispatch-pipeline">
           {PIPELINE_STEPS.map((step) => {
