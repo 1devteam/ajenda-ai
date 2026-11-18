@@ -91,9 +91,7 @@ def refresh_deliverable_completion_read_model(service: WorkerRuntimeCollaborator
         intake = metadata.get("mission_intake")
         context = intake.get("context") if isinstance(intake, dict) else None
         composition = context.get("composition") if isinstance(context, dict) else None
-        has_deliverable_state = (
-            isinstance(composition, dict) and "deliverable_runtime_state" in composition
-        )
+        has_deliverable_state = isinstance(composition, dict) and "deliverable_runtime_state" in composition
         siblings = service._tasks.list_for_mission(task.mission_id)
         updated_metadata, completion = refresh_deliverable_completion_metadata(metadata, siblings)
         if completion is None:

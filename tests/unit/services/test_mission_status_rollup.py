@@ -563,9 +563,7 @@ def test_invalid_refresh_state_is_recorded_without_fabricating_completion() -> N
         objective="Read CRM accounts",
         status=MissionState.RUNNING.value,
         metadata_json={
-            "mission_intake": {
-                "context": {"composition": {"deliverable_runtime_state": {"invalid": True}}}
-            }
+            "mission_intake": {"context": {"composition": {"deliverable_runtime_state": {"invalid": True}}}}
         },
     )
     mission.id = mission_id
@@ -602,11 +600,7 @@ def test_successful_refresh_clears_prior_issue_and_preserves_completion() -> Non
         "deliverable_refresh_issue": "refresh_exception",
         "expected_output_contract": {"artifact": "crm_records"},
         "handler_result": {
-            "output": {
-                "crm_records": [
-                    {"id": "account-1", "company": "Sample", "source": "internal_record"}
-                ]
-            }
+            "output": {"crm_records": [{"id": "account-1", "company": "Sample", "source": "internal_record"}]}
         },
     }
     service = WorkerRuntimeService(MagicMock(), MagicMock())
@@ -621,5 +615,3 @@ def test_successful_refresh_clears_prior_issue_and_preserves_completion() -> Non
         "completion"
     ]
     assert completion["complete"] is True
-
-
