@@ -624,6 +624,17 @@ _COORDINATED_PROHIBITION_START = re.compile(
     r"^(?:do not|don't|dont|never)\b",
     re.IGNORECASE,
 )
+_RECIPIENT_LOOKUP_PROHIBITION = re.compile(
+    r"\b(?:do not|don['\u2019]t|dont|never|without)\b[^.!?;]{0,140}"
+    r"\b(?:look(?:ing)?\s+up|find(?:ing)?|search(?:ing)?\s+for)\s+"
+    r"(?:(?:a|an|the|any)\s+)?(?:recipients?\b|contacts?\b|(?:email|phone)\s+(?:addresses?|numbers?)\b)",
+    re.IGNORECASE,
+)
+_GOAL_EVALUATION_REPORT_CLAUSE = re.compile(
+    r"^(?:return|provide|include|produce|create|prepare)\s+(?:(?:a|the)\s+)?"
+    r"goal(?:\s+progress)?\s+evaluation\s+report\b",
+    re.IGNORECASE,
+)
 _DETAILED_RETURN_DELIVERABLE = re.compile(
     r"^(?:return|produce|provide|create)\b.*(?:sourced\s+comparison|comparison\s+table|report\b|highlight\b|evidence\s+gaps?)",
     re.IGNORECASE,
@@ -1420,6 +1431,10 @@ def _classify_clause(
         return ["review_business_income"], True, True
     if business_need_review and _BUSINESS_NEED_REVIEW_CLAUSE.match(clause.strip()):
         return ["review_business_need"], True, True
+    if _RECIPIENT_LOOKUP_PROHIBITION.match(clause.strip()):
+        return [], True, True
+    if goal_progress_evaluation and _GOAL_EVALUATION_REPORT_CLAUSE.match(clause.strip()):
+        return ["evaluate_goal_progress"], True, True
     if goal_progress_evaluation and re.match(
         r"^(?:return|provide|include|list)\b.*\b(?:status|confidence|kpi|progress\s+gaps?|evidence\s+gaps?|explanations?)\b",
         clause.strip(),

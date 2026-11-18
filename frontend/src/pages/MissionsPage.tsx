@@ -94,6 +94,15 @@ export default function MissionsPage() {
     }
   }
 
+  function startNewRequest() {
+    setInstruction("");
+    setInterpretationThreadId(null);
+    setProposal(null);
+    setConfirmed(null);
+    setConfirmIdempotencyKey(null);
+    setError(null);
+  }
+
   async function handleCompose(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!session) {
@@ -197,6 +206,11 @@ export default function MissionsPage() {
 
           <div className="cc-composer-actions">
             <span>Enter the details Ajenda needs to define success.</span>
+            {interpretationThreadId ? (
+              <button type="button" className="ghost-button" disabled={loading || confirming} onClick={startNewRequest}>
+                New request
+              </button>
+            ) : null}
             <button type="submit" className="primary-button" disabled={!session || loading || !instruction.trim()}>
               {loading ? "Planning…" : "Plan mission"}
             </button>
