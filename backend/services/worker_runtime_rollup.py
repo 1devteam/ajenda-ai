@@ -59,8 +59,24 @@ def _deliverable_incomplete_diagnostics(raw_completion: object) -> list[str]:
     return reasons
 
 
+def _record_deliverable_refresh_issue(
+    service: WorkerRuntimeCollaborator, *, task: ExecutionTask, code: str | None
+) -> None:
+    """Persist a bounded diagnostic on the task without disclosing provider output."""
+
+    metadata = dict(task.metadata_json) if isinstance(task.metadata_json, dict) else {}
+    if code is None:
+        if "deliverable_refresh_issue" not in metadata:
+            return
+        metadata.pop("deliverable_refresh_issue", None)
+    else:
+        metadata["deliverable_refresh_issue"] = code
+    task.metadata_json = metadata
+    service._session.add(task)
+
+
 def refresh_deliverable_completion_read_model(service: WorkerRuntimeCollaborator, *, task: ExecutionTask) -> None:
-    """Refresh non-authoritative deliverable state without blocking task completion."""
+    """Refresh non-authoritative completion; retain a durable failure code if unavailable."""
 
     if task.mission_id is None:
         return
@@ -71,24 +87,38 @@ def refresh_deliverable_completion_read_model(service: WorkerRuntimeCollaborator
         )
         if mission is None:
             return
-        siblings = service._tasks.list_for_mission(task.mission_id)
-        updated_metadata, completion = refresh_deliverable_completion_metadata(
-            dict(mission.metadata_json or {}),
-            siblings,
+        metadata = dict(mission.metadata_json or {})
+        intake = metadata.get("mission_intake")
+        context = intake.get("context") if isinstance(intake, dict) else None
+        composition = context.get("composition") if isinstance(context, dict) else None
+        has_deliverable_state = (
+            isinstance(composition, dict) and "deliverable_runtime_state" in composition
         )
+        siblings = service._tasks.list_for_mission(task.mission_id)
+        updated_metadata, completion = refresh_deliverable_completion_metadata(metadata, siblings)
         if completion is None:
+            if has_deliverable_state:
+                _record_deliverable_refresh_issue(service, task=task, code="invalid_completion_state")
             return
         mission.metadata_json = updated_metadata
         service._session.add(mission)
+        _record_deliverable_refresh_issue(service, task=task, code=None)
     except Exception as exc:
         logger.warning(
             "deliverable_completion_refresh_skipped",
             extra={
                 "mission_id": str(task.mission_id),
                 "task_id": str(task.id),
-                "reason": str(exc),
+                "error_type": type(exc).__name__,
             },
         )
+        try:
+            _record_deliverable_refresh_issue(service, task=task, code="refresh_exception")
+        except Exception:
+            logger.exception(
+                "deliverable_completion_refresh_issue_persistence_failed",
+                extra={"mission_id": str(task.mission_id), "task_id": str(task.id)},
+            )
 
 
 def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: ExecutionTask, worker_id: str) -> None:
@@ -329,6 +359,21 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
         ):
             acceptance_reasons.append("durable deliverable is incomplete")
             acceptance_reasons.extend(_deliverable_incomplete_diagnostics(raw_completion))
+            refresh_issues = sorted(
+                {
+                    issue
+                    for sibling in siblings
+                    for issue in [
+                        (
+                            sibling.metadata_json.get("deliverable_refresh_issue")
+                            if isinstance(sibling.metadata_json, dict)
+                            else None
+                        )
+                    ]
+                    if issue in {"invalid_completion_state", "refresh_exception"}
+                }
+            )
+            acceptance_reasons.extend(f"deliverable refresh issue: {issue}" for issue in refresh_issues)
             acceptance_met = False
         # The existing Gmail deliverable explicitly marks a references-only
         # response incomplete. Keep mission acceptance aligned even when this
