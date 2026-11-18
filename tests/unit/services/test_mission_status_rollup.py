@@ -353,6 +353,96 @@ def test_rollup_fails_when_tasks_succeed_but_deliverable_is_incomplete() -> None
     assert "durable deliverable is incomplete" in mission.metadata_json["acceptance"]["reasons"]
 
 
+def test_rollup_reports_unmet_deliverable_fields_without_record_values() -> None:
+    tenant_id = "tenant-diagnostics"
+    mission_id = uuid.uuid4()
+    request = extract_deliverable_request("Return company name.")
+    assert request is not None
+    runtime_state = build_deliverable_runtime_state(request)
+    assert runtime_state is not None
+    completion = {
+        "complete": False,
+        "fields": [
+            {
+                "field_key": "company_name",
+                "status": "missing_artifact",
+                "artifact_keys": ["crm_records"],
+                "observed_rows": 0,
+                "required_rows": 0,
+            }
+        ],
+        "unresolved_request_items": [],
+    }
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="Return internal account names",
+        status=MissionState.RUNNING.value,
+        metadata_json={
+            "mission_intake": {
+                "context": {
+                    "composition": {
+                        "deliverable_runtime_state": {**runtime_state, "completion": completion}
+                    }
+                }
+            }
+        },
+    )
+    mission.id = mission_id
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.COMPLETED.value,
+    )
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task])  # type: ignore[method-assign]
+    service._audit.append = MagicMock()  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
+
+    assert mission.status == MissionState.FAILED.value
+    reasons = mission.metadata_json["acceptance"]["reasons"]
+    assert "durable deliverable is incomplete" in reasons
+    assert "durable deliverable field company_name: missing_artifact" in reasons
+    assert all("customer" not in reason.lower() for reason in reasons)
+
+
+def test_rollup_reports_missing_completion_record_without_claiming_success() -> None:
+    tenant_id = "tenant-no-completion"
+    mission_id = uuid.uuid4()
+    request = extract_deliverable_request("Return company name.")
+    assert request is not None
+    runtime_state = build_deliverable_runtime_state(request)
+    assert runtime_state is not None
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="Return internal account names",
+        status=MissionState.RUNNING.value,
+        metadata_json={
+            "mission_intake": {
+                "context": {"composition": {"deliverable_runtime_state": runtime_state}}
+            }
+        },
+    )
+    mission.id = mission_id
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.COMPLETED.value,
+    )
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task])  # type: ignore[method-assign]
+    service._audit.append = MagicMock()  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
+
+    assert mission.status == MissionState.FAILED.value
+    assert "durable deliverable completion was not recorded" in mission.metadata_json["acceptance"]["reasons"]
+
+
 def test_rollup_does_not_accept_message_references_as_retrieved_content() -> None:
     tenant_id = "tenant-reference-only"
     mission_id = uuid.uuid4()

@@ -26,6 +26,58 @@ from backend.services.worker_runtime_contracts import (
 logger = logging.getLogger("ajenda.worker_runtime_rollup")
 
 
+def _deliverable_incomplete_diagnostics(raw_completion: object) -> list[str]:
+    """Explain a failed durable read model without exposing customer values.
+
+    The authoritative mission acceptance decision remains fail-closed. Only
+    field identifiers, typed statuses, and unresolved-item counts are emitted.
+    """
+    if not isinstance(raw_completion, dict):
+        return ["durable deliverable completion was not recorded"]
+
+    reasons: list[str] = []
+    fields = raw_completion.get("fields")
+    if isinstance(fields, list):
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            field_key = field.get("field_key")
+            status = field.get("status")
+            if (
+                isinstance(field_key, str)
+                and field_key in {
+                    "company_name", "website", "product_description", "qualification_evidence",
+                    "qualification_reasons", "qualification_dimensions", "disqualifiers",
+                    "recommended_next_action", "ajenda_relevance", "qualification_score",
+                    "research_summary", "income_opportunities", "supporting_evidence",
+                    "estimated_business_impact", "confidence", "missing_information",
+                    "sources", "drafts", "social_drafts", "assumptions", "limitations",
+                    "source_url", "final_url", "title", "extracted_observations",
+                    "observation_timestamp", "browser_trace", "blocked_requests",
+                    "observation_satisfied", "expected_company", "expected_industry",
+                    "expected_location", "identity_status", "identity_evidence_urls",
+                    "identity_match_reasons", "identity_match_evidence", "identity_gaps",
+                    "revenue_amount", "revenue_currency", "revenue_source", "goal_status",
+                    "goal_confidence", "kpi_evaluations", "progress_gaps", "evidence_gaps",
+                    "evaluation_explanations", "crm_matches", "research_notes",
+                    "research_source", "research_status", "contacts", "linked_contacts",
+                    "enrichment_mode", "enrichment_real", "draft_artifact_id",
+                    "draft_recipient", "draft_subject", "recipient_bound",
+                    "crm_record_id", "record_operation", "readback_verified",
+                    "pipeline_status", "pipeline_source", "pipeline_data",
+                }
+                and status in {"missing_artifact", "invalid_artifact", "insufficient_rows", "unproven"}
+            ):
+                reasons.append(f"durable deliverable field {field_key}: {status}")
+    unresolved = raw_completion.get("unresolved_request_items")
+    if isinstance(unresolved, list) and unresolved:
+        reasons.append(f"durable deliverable has {len(unresolved)} unresolved request item(s)")
+    if not reasons:
+        reasons.append("durable deliverable is incomplete without a recorded field-level explanation")
+    return reasons
+
+
+
 def refresh_deliverable_completion_read_model(service: WorkerRuntimeCollaborator, *, task: ExecutionTask) -> None:
     """Refresh non-authoritative deliverable state without blocking task completion."""
 
@@ -295,6 +347,7 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
             isinstance(raw_completion, dict) and raw_completion.get("complete") is True
         ):
             acceptance_reasons.append("durable deliverable is incomplete")
+            acceptance_reasons.extend(_deliverable_incomplete_diagnostics(raw_completion))
             acceptance_met = False
         # The existing Gmail deliverable explicitly marks a references-only
         # response incomplete. Keep mission acceptance aligned even when this
