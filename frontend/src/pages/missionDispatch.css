@@ -1,0 +1,41 @@
+/* The command shell already reserves space for its sidebar. */
+.page-shell.mission-dispatch {
+  width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mission-dispatch .compact-hero,
+.mission-dispatch .panel-heading-row {
+  flex-wrap: wrap;
+}
+
+.mission-dispatch .compact-hero h1 {
+  max-width: 34ch;
+}
+
+.mission-dispatch .dispatch-diagnostics {
+  margin-top: 1rem;
+}
+
+.mission-dispatch .dispatch-diagnostics summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.mission-dispatch .dispatch-pipeline {
+  margin-top: 0.75rem;
+}
+
+.mission-dispatch .dispatch-step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.mission-dispatch .dispatch-step-actions {
+  margin: 0;
+}

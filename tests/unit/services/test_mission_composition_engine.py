@@ -1783,6 +1783,7 @@ def test_generic_crm_read_is_internal_and_has_no_hubspot_fallback() -> None:
     assert [item.action_name for item in selections] == ["record.search"]
     assert selections[0].connection_provider is None
     assert {item.action for item in selections[0].alternatives} == set()
+    assert compile_planned_steps(selections, intent=intent)[0].title == "Search Ajenda internal CRM records"
 
 
 def test_explicit_hubspot_read_remains_connector_bound() -> None:
@@ -1793,6 +1794,7 @@ def test_explicit_hubspot_read_remains_connector_bound() -> None:
     assert missing == []
     assert [item.action_name for item in selections] == ["sales.research"]
     assert selections[0].connection_provider == "hubspot"
+    assert compile_planned_steps(selections, intent=intent)[0].title == "Read HubSpot CRM records"
 
 
 def test_generic_crm_write_uses_internal_persistence_without_hubspot() -> None:

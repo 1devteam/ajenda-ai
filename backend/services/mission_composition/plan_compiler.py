@@ -333,12 +333,16 @@ def compile_planned_steps(
                 compile_gap = str(exc)[:500]
                 tool_input = {}
 
+        title = job.display_name if job else selection.action_name
+        if selection.job_key == "crm.read_records" and selection.action_name == "record.search":
+            title = "Search Ajenda internal CRM records"
+
         step = PlannedStepPreview(
             step_key=f"ability-{_slug(selection.action_name)}",
             sequence=index,
             job_key=selection.job_key,
             action_name=selection.action_name,
-            title=job.display_name if job else selection.action_name,
+            title=title,
             description=selection.selection_reason,
             depends_on=depends_on,
             output_contract=produced,
