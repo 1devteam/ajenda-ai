@@ -359,18 +359,13 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
         ):
             acceptance_reasons.append("durable deliverable is incomplete")
             acceptance_reasons.extend(_deliverable_incomplete_diagnostics(raw_completion))
+            refresh_issue_codes = {"invalid_completion_state", "refresh_exception"}
             refresh_issues = sorted(
                 {
-                    issue
+                    metadata["deliverable_refresh_issue"]
                     for sibling in siblings
-                    for issue in [
-                        (
-                            sibling.metadata_json.get("deliverable_refresh_issue")
-                            if isinstance(sibling.metadata_json, dict)
-                            else None
-                        )
-                    ]
-                    if issue in {"invalid_completion_state", "refresh_exception"}
+                    if isinstance(metadata := sibling.metadata_json, dict)
+                    and metadata.get("deliverable_refresh_issue") in refresh_issue_codes
                 }
             )
             acceptance_reasons.extend(f"deliverable refresh issue: {issue}" for issue in refresh_issues)

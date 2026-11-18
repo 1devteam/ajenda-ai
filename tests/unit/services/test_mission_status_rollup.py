@@ -528,11 +528,7 @@ def test_refresh_exception_is_durable_and_does_not_claim_mission_success() -> No
         tenant_id=tenant_id,
         objective="Return internal CRM account names",
         status=MissionState.RUNNING.value,
-        metadata_json={
-            "mission_intake": {
-                "context": {"composition": {"deliverable_runtime_state": runtime_state}}
-            }
-        },
+        metadata_json={"mission_intake": {"context": {"composition": {"deliverable_runtime_state": runtime_state}}}},
     )
     mission.id = mission_id
     task = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
@@ -559,7 +555,7 @@ def test_refresh_exception_is_durable_and_does_not_claim_mission_success() -> No
     assert all("sensitive" not in reason for reason in reasons)
 
 
-def test_invalid_refresh_state_is_recorded_without_affecting_tasks_without_deliverables() -> None:
+def test_invalid_refresh_state_is_recorded_without_fabricating_completion() -> None:
     tenant_id = "tenant-invalid-refresh"
     mission_id = uuid.uuid4()
     mission = Mission(
