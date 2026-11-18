@@ -379,11 +379,7 @@ def test_rollup_reports_unmet_deliverable_fields_without_record_values() -> None
         status=MissionState.RUNNING.value,
         metadata_json={
             "mission_intake": {
-                "context": {
-                    "composition": {
-                        "deliverable_runtime_state": {**runtime_state, "completion": completion}
-                    }
-                }
+                "context": {"composition": {"deliverable_runtime_state": {**runtime_state, "completion": completion}}}
             }
         },
     )
@@ -419,11 +415,7 @@ def test_rollup_reports_missing_completion_record_without_claiming_success() -> 
         tenant_id=tenant_id,
         objective="Return internal account names",
         status=MissionState.RUNNING.value,
-        metadata_json={
-            "mission_intake": {
-                "context": {"composition": {"deliverable_runtime_state": runtime_state}}
-            }
-        },
+        metadata_json={"mission_intake": {"context": {"composition": {"deliverable_runtime_state": runtime_state}}}},
     )
     mission.id = mission_id
     task = _task(
