@@ -11,6 +11,7 @@ import {
   getMissionLifecycle,
   getMissionRuntimeEvidence,
   getMissionRuntimeReadiness,
+  getMissionRuntimeTaskMaterialization,
   getTaskStatus,
   launchMission,
   materializeMissionRuntimeTasks,
@@ -42,7 +43,42 @@ import { failureText, pretty } from "../utils/errors";
 
 import "./missionDispatch.css";
 
-type StepStatus = "pending" | "complete" | "blocked" | "running";
+type StepStatus = "pending" | "complete" | "blocked" | "partially admitted";
+
+const CLOSED_MISSION_STATES = new Set(["completed", "failed", "cancelled", "archived"]);
+
+function queueStepStatus(
+  materialization: RuntimeTaskMaterializationReadResponse | null,
+  dispatch: RuntimeDispatchReadinessReadResponse | null,
+): StepStatus {
+  const receipt = dispatch?.queue_admission_reference;
+  if (!receipt) return "pending";
+  if (
+    materialization?.materialization_status !== "materialized" ||
+    receipt.mission_id !== materialization.mission_id ||
+    receipt.tenant_id !== materialization.tenant_id ||
+    !Array.isArray(receipt.materialized_execution_task_ids) ||
+    !Array.isArray(receipt.admitted_execution_task_ids)
+  ) {
+    return "blocked";
+  }
+
+  const current = new Set(materialization.created_execution_task_ids);
+  const covered = new Set(receipt.materialized_execution_task_ids);
+  const admitted = new Set(receipt.admitted_execution_task_ids);
+  if (
+    current.size === 0 ||
+    covered.size !== current.size ||
+    [...current].some((id) => !covered.has(id)) ||
+    [...admitted].some((id) => !current.has(id))
+  ) {
+    return "blocked";
+  }
+
+  if (receipt.admission_status === "admitted" && admitted.size === current.size) return "complete";
+  if (receipt.admission_status === "partially_admitted" && admitted.size > 0) return "partially admitted";
+  return "blocked";
+}
 
 function crmOutcomeFromTask(task: AbilityTaskStatusResponse | null): {
   persisted: number;
@@ -273,9 +309,10 @@ function stepStatusFor(
     case "readiness":
       return extras.readiness?.ready ? "complete" : extras.readiness ? "blocked" : "pending";
     case "tasks":
-      return extras.materialization?.materialization_status === "materialized" ? "complete" : "pending";
+      return extras.materialization?.materialization_status === "materialized" ? "complete"
+        : extras.materialization?.materialization_status === "blocked" ? "blocked" : "pending";
     case "queue":
-      return extras.dispatch?.queued_task_count ? "complete" : "pending";
+      return queueStepStatus(extras.materialization, extras.dispatch);
     default:
       return "pending";
   }
@@ -283,6 +320,10 @@ function stepStatusFor(
 
 export default function MissionDispatchPage() {
   const { missionId = "" } = useParams();
+  return <MissionDispatch key={missionId} missionId={missionId} />;
+}
+
+function MissionDispatch({ missionId }: { missionId: string }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
   const autoExecuteStarted = useRef(false);
@@ -304,6 +345,23 @@ export default function MissionDispatchPage() {
 
   const allowedActions = useMemo(() => intakeAllowedActions(lifecycle?.intake ?? null), [lifecycle?.intake]);
   const internalSearchOnly = allowedActions.length === 1 && allowedActions[0] === "record.search";
+  const closed = Boolean(lifecycle && CLOSED_MISSION_STATES.has(lifecycle.mission.status));
+  const directTaskExecution = lifecycle?.completeness.has_task_graph === false
+    && lifecycle.completeness.has_materialization === false
+    && lifecycle.completeness.has_runtime_admission === false
+    && Boolean(runtimeEvidence?.task_flows.length)
+    && runtimeEvidence?.task_flows.every((task) => typeof task.task_id === "string" && task.node_key === null)
+    && runtimeEvidence?.task_flows.some((task) => task.queue_admitted === true);
+  const acceptance = runtimeEvidence?.acceptance?.status
+    ? runtimeEvidence.acceptance : deliverable?.result_semantics?.mission_acceptance;
+  const acceptanceRecord = acceptance && typeof acceptance === "object"
+    ? acceptance as Record<string, unknown> : null;
+  const acceptanceIncomplete = acceptanceRecord?.status === "partially_met" || acceptanceRecord?.status === "failed";
+  const acceptanceReasons = Array.isArray(acceptanceRecord?.reasons)
+    ? [...new Set(acceptanceRecord.reasons.filter(
+      (reason): reason is string => typeof reason === "string" && reason.trim().length > 0,
+    ))]
+    : [];
   const pipeline = PIPELINE_STEPS.map((step) => ({
     ...step,
     status: stepStatusFor(step.id, lifecycle, {
@@ -317,8 +375,10 @@ export default function MissionDispatchPage() {
   let launchUnavailable = "";
   if (!session) {
     launchUnavailable = "Sign in to start execution.";
-  } else if (!lifecycle) {
+  } else if (!lifecycle || lifecycle.mission.mission_id !== missionId) {
     launchUnavailable = "Mission details must load before execution can start.";
+  } else if (closed || directTaskExecution) {
+    launchUnavailable = "This mission is available for review.";
   } else if (!compositionReadyFromIntake(lifecycle.intake)) {
     launchUnavailable = "Ajenda needs clarification on the mission before execution can start. Review the mission request in Missions.";
   } else if (allowedActions.length === 0) {
@@ -340,17 +400,16 @@ export default function MissionDispatchPage() {
     if (!session || !missionId) {
       return;
     }
-    try {
-      const [readinessResponse, dispatchResponse] = await Promise.all([
-        getMissionRuntimeReadiness(session, missionId),
-        getMissionDispatchReadiness(session, missionId),
-      ]);
-      setReadiness(readinessResponse);
-      setDispatchReadiness(dispatchResponse);
-    } catch (err) {
-      setReadiness(null);
-      setDispatchReadiness(null);
-      setError(err);
+    const [readinessResult, dispatchResult, materializationResult] = await Promise.allSettled([
+      getMissionRuntimeReadiness(session, missionId),
+      getMissionDispatchReadiness(session, missionId),
+      getMissionRuntimeTaskMaterialization(session, missionId),
+    ]);
+    setReadiness(readinessResult.status === "fulfilled" ? readinessResult.value : null);
+    setDispatchReadiness(dispatchResult.status === "fulfilled" ? dispatchResult.value : null);
+    setTaskMaterialization(materializationResult.status === "fulfilled" ? materializationResult.value : null);
+    for (const result of [readinessResult, dispatchResult, materializationResult]) {
+      if (result.status === "rejected" && result.reason?.status !== 404) setError(result.reason);
     }
   }, [session, missionId]);
 
@@ -417,9 +476,7 @@ export default function MissionDispatchPage() {
         if (!cancelled) {
           setLifecycle(lifecycleResponse);
         }
-        await refreshReadinessViews();
-        await refreshDeliverable();
-        await refreshRuntimeEvidence();
+        await Promise.all([refreshReadinessViews(), refreshDeliverable(), refreshRuntimeEvidence()]);
       } catch (err) {
         if (!cancelled) {
           setError(err);
@@ -437,29 +494,35 @@ export default function MissionDispatchPage() {
       return;
     }
     let cancelled = false;
+    let timer: number | undefined;
     async function poll() {
       try {
         const status = await getTaskStatus(session!, monitoredTaskId);
-        if (!cancelled) {
-          setTaskStatus(status);
-        }
-        await refreshDeliverable(status);
-        await refreshRuntimeEvidence();
+        if (cancelled) return;
+        setTaskStatus(status);
+        await Promise.all([
+          refreshDeliverable(status),
+          refreshRuntimeEvidence(),
+          ...(!closed ? [refreshLifecycle(), refreshReadinessViews()] : []),
+        ]);
       } catch (err) {
         if (!cancelled) {
           setError(err);
         }
       }
+      if (!cancelled && !closed) {
+        timer = window.setTimeout(() => void poll(), 3000);
+      }
     }
     void poll();
-    const timer = window.setInterval(() => void poll(), 3000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
     };
-  }, [session, monitoredTaskId, refreshDeliverable, refreshRuntimeEvidence]);
+  }, [session, monitoredTaskId, closed, refreshDeliverable, refreshLifecycle, refreshReadinessViews, refreshRuntimeEvidence]);
 
   async function runStep(label: string, fn: () => Promise<void>) {
+    if (closed || directTaskExecution || lifecycle?.mission.mission_id !== missionId) return;
     setLoading(label);
     setLaunchError(null);
     setError(null);
@@ -681,7 +744,7 @@ export default function MissionDispatchPage() {
           <p className="mission-card-meta">
             <strong>ID:</strong> <code>{lifecycle.mission.mission_id}</code>
           </p>
-          {allowedActions.length > 0 ? (
+          {directTaskExecution ? null : allowedActions.length > 0 ? (
             <p className="mission-card-meta">
               <strong>Ajenda planned {allowedActions.length} step(s)</strong> for this outcome (composition engine —
               not user-selected skills).
@@ -696,8 +759,8 @@ export default function MissionDispatchPage() {
 
       <section className="panel">
         <div className="panel-heading-row">
-          <h2>Execution pipeline</h2>
-          <button
+          <h2>{directTaskExecution ? "Direct task execution" : "Execution pipeline"}</h2>
+          {closed ? <Link className="ghost-link" to="/missions">Plan a new run</Link> : directTaskExecution ? null : <button
             type="button"
             className="primary-button"
             disabled={Boolean(launchUnavailable) || loading !== null}
@@ -705,33 +768,36 @@ export default function MissionDispatchPage() {
             onClick={() => void handleRunPipeline()}
           >
             {loading === "Running full pipeline…" ? "Running…" : "Start execution"}
-          </button>
+          </button>}
         </div>
 
-        {launchUnavailable ? (
+        {directTaskExecution ? (
+          <p>Recorded tasks ran through the direct execution path.</p>
+        ) : null}
+        {!closed && !directTaskExecution && launchUnavailable ? (
           <p id="mission-launch-unavailable" className="muted">{launchUnavailable}</p>
         ) : null}
         <PageErrorAlert error={launchError} />
 
         {notice ? <p role="status">{notice}</p> : null}
-        {lifecycle && nextStage && !["completed", "failed", "cancelled"].includes(lifecycle.mission.status) ? (
+        {lifecycle && nextStage && !closed && !directTaskExecution ? (
           <p className="mission-card-meta">Next incomplete stage: <strong>{nextStage.label}</strong></p>
         ) : null}
-        {readiness?.blockers[0] ? <p className="mission-card-meta">{readiness.blockers[0].message}</p> : null}
+        {!closed && !directTaskExecution && readiness?.blockers[0] ? <p className="mission-card-meta">{readiness.blockers[0].message}</p> : null}
 
-        <details className="dispatch-diagnostics">
-          <summary>Pipeline diagnostics and controls</summary>
+        {!directTaskExecution ? <details className="dispatch-diagnostics">
+          <summary>{closed ? "Recorded pipeline stages" : "Pipeline diagnostics and controls"}</summary>
           <ol className="dispatch-pipeline">
             {pipeline.map((step) => (
-              <li className={`dispatch-step dispatch-step-${step.status}`} key={step.id}>
+              <li className={`dispatch-step dispatch-step-${step.status.replace(" ", "-")}`} key={step.id}>
                 <div className="dispatch-step-header">
                   <span className="dispatch-step-indicator" aria-hidden />
                   <div>
                     <strong>{step.label}</strong>
-                    <span className="dispatch-step-status">{step.status}</span>
+                    <span className="dispatch-step-status">{closed && step.status === "pending" ? "not recorded" : step.status}</span>
                   </div>
                 </div>
-                <div className="dispatch-step-actions">
+                {!closed ? <div className="dispatch-step-actions">
                   {step.id === "plan" ? (
                     <button type="button" className="ghost-button" disabled={!session || loading !== null} onClick={() => void handlePreparePlan()}>
                       {loading === "Creating plan…" ? "Working…" : lifecycle?.completeness.has_plan ? "Recreate plan" : "Create plan"}
@@ -772,14 +838,14 @@ export default function MissionDispatchPage() {
                       {loading === "Queueing tasks…" ? "Working…" : "Queue for workers"}
                     </button>
                   ) : null}
-                </div>
+                </div> : null}
               </li>
             ))}
           </ol>
-        </details>
+        </details> : null}
       </section>
 
-      {lifecycle && lifecycle.missing_next_steps.length > 0 ? (
+      {lifecycle && !closed && !directTaskExecution && lifecycle.missing_next_steps.length > 0 ? (
         <section className="panel">
           <h2>Runtime gaps</h2>
           <p className="muted">These block worker execution until resolved.</p>
@@ -810,7 +876,7 @@ export default function MissionDispatchPage() {
         </section>
       ) : null}
 
-      {readiness && (readiness.blockers.length > 0 || readiness.warnings.length > 0) ? (
+      {!closed && !directTaskExecution && readiness && (readiness.blockers.length > 0 || readiness.warnings.length > 0) ? (
         <section className="panel">
           <h2>Runtime readiness</h2>
           <p className="muted">
@@ -864,6 +930,16 @@ export default function MissionDispatchPage() {
           <p>Conflicting fields: {profileDeliverable.conflicting_fields.length ? profileDeliverable.conflicting_fields.join(", ") : "none recorded"}</p>
           <p>Source: approved business profile ({profileDeliverable.profile_id ?? "profile ID not recorded"})</p>
           <p>Profile source evidence: {profileDeliverable.profile_source_evidence_ids?.length ? profileDeliverable.profile_source_evidence_ids.join(", ") : "not recorded"}</p>
+        </section>
+      ) : null}
+
+      {closed && acceptanceIncomplete ? (
+        <section className="panel" aria-label="Outcome acceptance">
+          <h2>Outcome acceptance</h2>
+          <p>{acceptanceRecord?.status === "partially_met" ? "Requirements partially met." : "Requirements unmet."}</p>
+          {acceptanceReasons.length > 0 ? (
+            <ul>{acceptanceReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+          ) : null}
         </section>
       ) : null}
 

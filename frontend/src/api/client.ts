@@ -1009,6 +1009,19 @@ export async function getMissionRuntimeReadiness(
   );
 }
 
+export async function getMissionRuntimeTaskMaterialization(
+  caller: AuthedCaller,
+  missionId: string,
+): Promise<RuntimeTaskMaterializationReadResponse> {
+  return withAuthedRuntime(caller, (config) =>
+    request<RuntimeTaskMaterializationReadResponse>(
+      `/v1/missions/${encodeURIComponent(missionId)}/runtime-task-materialization`,
+      {},
+      runtimeOptions(config),
+    ),
+  );
+}
+
 export async function materializeMissionRuntimeTasks(
   caller: AuthedCaller,
   missionId: string,
