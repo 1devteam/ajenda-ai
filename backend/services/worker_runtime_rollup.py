@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import get_args
 from datetime import UTC, datetime
 
 from backend.domain.audit_event import AuditEvent
@@ -10,6 +11,7 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.runtime.state_machine import InvalidTransitionError
 from backend.runtime.transitions import transition_mission, transition_task
 from backend.services.mission_acceptance import evaluate_mission_acceptance
+from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
 from backend.services.mission_composition.deliverable_runtime_read_model import (
     refresh_deliverable_completion_metadata,
 )
@@ -45,27 +47,7 @@ def _deliverable_incomplete_diagnostics(raw_completion: object) -> list[str]:
             status = field.get("status")
             if (
                 isinstance(field_key, str)
-                and field_key in {
-                    "company_name", "website", "product_description", "qualification_evidence",
-                    "qualification_reasons", "qualification_dimensions", "disqualifiers",
-                    "recommended_next_action", "ajenda_relevance", "qualification_score",
-                    "research_summary", "income_opportunities", "supporting_evidence",
-                    "estimated_business_impact", "confidence", "missing_information",
-                    "sources", "drafts", "social_drafts", "assumptions", "limitations",
-                    "source_url", "final_url", "title", "extracted_observations",
-                    "observation_timestamp", "browser_trace", "blocked_requests",
-                    "observation_satisfied", "expected_company", "expected_industry",
-                    "expected_location", "identity_status", "identity_evidence_urls",
-                    "identity_match_reasons", "identity_match_evidence", "identity_gaps",
-                    "revenue_amount", "revenue_currency", "revenue_source", "goal_status",
-                    "goal_confidence", "kpi_evaluations", "progress_gaps", "evidence_gaps",
-                    "evaluation_explanations", "crm_matches", "research_notes",
-                    "research_source", "research_status", "contacts", "linked_contacts",
-                    "enrichment_mode", "enrichment_real", "draft_artifact_id",
-                    "draft_recipient", "draft_subject", "recipient_bound",
-                    "crm_record_id", "record_operation", "readback_verified",
-                    "pipeline_status", "pipeline_source", "pipeline_data",
-                }
+                and field_key in get_args(DeliverableFieldKey)
                 and status in {"missing_artifact", "invalid_artifact", "insufficient_rows", "unproven"}
             ):
                 reasons.append(f"durable deliverable field {field_key}: {status}")
