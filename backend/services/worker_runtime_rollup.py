@@ -359,16 +359,15 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
         ):
             acceptance_reasons.append("durable deliverable is incomplete")
             acceptance_reasons.extend(_deliverable_incomplete_diagnostics(raw_completion))
-            refresh_issue_codes = {"invalid_completion_state", "refresh_exception"}
-            refresh_issues = sorted(
-                {
-                    metadata["deliverable_refresh_issue"]
-                    for sibling in siblings
-                    if isinstance(metadata := sibling.metadata_json, dict)
-                    and metadata.get("deliverable_refresh_issue") in refresh_issue_codes
-                }
-            )
-            acceptance_reasons.extend(f"deliverable refresh issue: {issue}" for issue in refresh_issues)
+            refresh_issues: set[str] = set()
+            for sibling in siblings:
+                sibling_metadata = sibling.metadata_json
+                if not isinstance(sibling_metadata, dict):
+                    continue
+                issue = sibling_metadata.get("deliverable_refresh_issue")
+                if isinstance(issue, str) and issue in {"invalid_completion_state", "refresh_exception"}:
+                    refresh_issues.add(issue)
+            acceptance_reasons.extend(f"deliverable refresh issue: {issue}" for issue in sorted(refresh_issues))
             acceptance_met = False
         # The existing Gmail deliverable explicitly marks a references-only
         # response incomplete. Keep mission acceptance aligned even when this
