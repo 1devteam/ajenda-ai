@@ -40,6 +40,8 @@ import {
 } from "../utils/missionBridge";
 import { failureText, pretty } from "../utils/errors";
 
+import "./missionDispatch.css";
+
 type StepStatus = "pending" | "complete" | "blocked" | "running";
 
 function crmOutcomeFromTask(task: AbilityTaskStatusResponse | null): {
@@ -301,6 +303,17 @@ export default function MissionDispatchPage() {
   const [runtimeEvidence, setRuntimeEvidence] = useState<MissionRuntimeEvidenceProjection | null>(null);
 
   const allowedActions = useMemo(() => intakeAllowedActions(lifecycle?.intake ?? null), [lifecycle?.intake]);
+  const internalSearchOnly = allowedActions.length === 1 && allowedActions[0] === "record.search";
+  const pipeline = PIPELINE_STEPS.map((step) => ({
+    ...step,
+    status: stepStatusFor(step.id, lifecycle, {
+      readiness,
+      materialization: taskMaterialization,
+      dispatch: dispatchReadiness,
+      authorities,
+    }),
+  }));
+  const nextStage = pipeline.find((step) => step.status !== "complete");
   let launchUnavailable = "";
   if (!session) {
     launchUnavailable = "Sign in to start execution.";
@@ -646,15 +659,11 @@ export default function MissionDispatchPage() {
   }
 
   return (
-    <main className="page-shell">
+    <main className="page-shell mission-dispatch">
       <section className="hero compact-hero">
         <div>
           <p className="eyebrow">Mission execution</p>
           <h1>{lifecycle?.mission.objective ?? "Loading mission…"}</h1>
-          <p>
-            Ajenda already chose the work for this mission. Start execution to materialize tasks and queue workers —
-            without picking skills. Composition missions usually already have a plan and task graph.
-          </p>
         </div>
         <div className="hero-actions">
           <Link className="ghost-link" to="/missions">
@@ -704,21 +713,22 @@ export default function MissionDispatchPage() {
         ) : null}
         <PageErrorAlert error={launchError} />
 
-        <ol className="dispatch-pipeline">
-          {PIPELINE_STEPS.map((step) => {
-            const status = stepStatusFor(step.id, lifecycle, {
-              readiness,
-              materialization: taskMaterialization,
-              dispatch: dispatchReadiness,
-              authorities,
-            });
-            return (
-              <li className={`dispatch-step dispatch-step-${status}`} key={step.id}>
+        {notice ? <p role="status">{notice}</p> : null}
+        {lifecycle && nextStage && !["completed", "failed", "cancelled"].includes(lifecycle.mission.status) ? (
+          <p className="mission-card-meta">Next incomplete stage: <strong>{nextStage.label}</strong></p>
+        ) : null}
+        {readiness?.blockers[0] ? <p className="mission-card-meta">{readiness.blockers[0].message}</p> : null}
+
+        <details className="dispatch-diagnostics">
+          <summary>Pipeline diagnostics and controls</summary>
+          <ol className="dispatch-pipeline">
+            {pipeline.map((step) => (
+              <li className={`dispatch-step dispatch-step-${step.status}`} key={step.id}>
                 <div className="dispatch-step-header">
                   <span className="dispatch-step-indicator" aria-hidden />
                   <div>
                     <strong>{step.label}</strong>
-                    <span className="dispatch-step-status">{status}</span>
+                    <span className="dispatch-step-status">{step.status}</span>
                   </div>
                 </div>
                 <div className="dispatch-step-actions">
@@ -764,9 +774,9 @@ export default function MissionDispatchPage() {
                   ) : null}
                 </div>
               </li>
-            );
-          })}
-        </ol>
+            ))}
+          </ol>
+        </details>
       </section>
 
       {lifecycle && lifecycle.missing_next_steps.length > 0 ? (
@@ -870,6 +880,15 @@ export default function MissionDispatchPage() {
             const calendarEvents = Array.isArray(deliverable.artifacts?.calendar_events)
               ? deliverable.artifacts.calendar_events
               : null;
+            const rawCrmRecords = deliverable.artifacts?.crm_records;
+            const crmRecords = Array.isArray(rawCrmRecords) ? rawCrmRecords : null;
+            const crmNames = crmRecords?.flatMap((record: unknown) => {
+              if (typeof record !== "object" || record === null) return [];
+              const { name, company } = record as { name?: unknown; company?: unknown };
+              const label = typeof name === "string" && name.trim() ? name : company;
+              return typeof label === "string" && label.trim() ? [label] : [];
+            }) ?? [];
+            const showInternalSearch = internalSearchOnly || (allowedActions.includes("record.search") && crmRecords !== null);
             const observationRecord = isWebObservation
               ? (observation as Record<string, unknown>)
               : null;
@@ -880,7 +899,7 @@ export default function MissionDispatchPage() {
             <div>
               <p className="cc-section-kicker">Durable output</p>
               <h2>
-                {emailReferences ? "Gmail message references" : isWebObservation ? "Web page observation" : isIdentityObservation ? "Public identity observation" : "Prospect candidates"}
+                {emailReferences ? "Gmail message references" : calendarEvents ? "Calendar events" : isWebObservation ? "Web page observation" : isIdentityObservation ? "Public identity observation" : showInternalSearch ? "Internal CRM search" : "Prospect candidates"}
               </h2>
             </div>
             <span
@@ -930,6 +949,16 @@ export default function MissionDispatchPage() {
               <p><strong>Match evidence:</strong></p>
               <pre>{pretty(identityRecord.identity_match_evidence ?? [])}</pre>
               <p><strong>Identity gaps:</strong> {pretty(identityRecord.identity_gaps ?? [])}</p>
+            </div>
+          ) : showInternalSearch ? (
+            <div aria-label="Internal CRM search results">
+              {crmNames.length > 0 ? (
+                <ul>{crmNames.map((name, index) => <li key={`${name}-${index}`}>{name}</li>)}</ul>
+              ) : crmRecords?.length === 0 && deliverable.completion.complete && deliverable.task_state.all_succeeded ? (
+                <p>No matching internal CRM records.</p>
+              ) : (
+                <p className="muted">No verified internal CRM search result is available yet.</p>
+              )}
             </div>
           ) : deliverable.prospects.length > 0 ? (
             <div className="table-wrap">
@@ -1034,12 +1063,6 @@ export default function MissionDispatchPage() {
               Select the <code>record.write</code> task in Materialized tasks to load persisted CRM counts and linked opportunities.
             </p>
           )}
-        </section>
-      ) : null}
-
-      {notice ? (
-        <section className="panel success-panel">
-          <p>{notice}</p>
         </section>
       ) : null}
 

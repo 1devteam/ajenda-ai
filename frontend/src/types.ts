@@ -406,6 +406,7 @@ export interface MissionComposeResponse {
     title: string;
     action_name: string;
     depends_on: string[];
+    tool_input?: Record<string, unknown>;
   }>;
   task_graph_preview: Record<string, unknown>;
   intelligence_envelope?: Record<string, unknown> | null;

@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({
   getMissionLifecycle: vi.fn(),
   launchMission: vi.fn(),
   getTaskStatus: vi.fn(),
+  getMissionDeliverable: vi.fn(async () => null as unknown),
 }));
 const auth = vi.hoisted(() => ({ session: { tenantId: "tenant-a" } }));
 
@@ -17,7 +18,6 @@ vi.mock("../api/client", () => ({
   getMissionRuntimeReadiness: vi.fn(async () => ({ ready: false, blockers: [], warnings: [] })),
   getMissionDispatchReadiness: vi.fn(async () => ({ queued_task_count: 0 })),
   getMissionRuntimeEvidence: vi.fn(async () => null),
-  getMissionDeliverable: vi.fn(async () => null),
 }));
 
 let root: Root;
@@ -117,4 +117,33 @@ it("shows queue blockers and monitors tasks that were queued", async () => {
   expect(alert?.textContent).toContain("policy_review_required");
   expect(alert?.textContent).toContain("Task sent to policy review.");
   expect(api.getTaskStatus).toHaveBeenCalledWith(auth.session, "queued-task");
+});
+
+
+it("shows the next incomplete stage and keeps manual controls in diagnostics", async () => {
+  mockLifecycle({ ready_to_start: true });
+  await renderMission();
+
+  expect(container.textContent).toContain("Next incomplete stage: Graph materialization");
+  expect(container.querySelector("details.dispatch-diagnostics")?.hasAttribute("open")).toBe(false);
+  expect(container.querySelector("details.dispatch-diagnostics")?.textContent).toContain("Provision authority");
+});
+
+it.each([
+  { rows: [{ id: "a", name: "Ajenda Test Customer - Cedar Supply" }], complete: true, expected: "Ajenda Test Customer - Cedar Supply" },
+  { rows: [], complete: true, expected: "No matching internal CRM records." },
+  { rows: [], complete: false, expected: "No verified internal CRM search result is available yet." },
+])("distinguishes CRM result evidence ($expected)", async ({ rows, complete, expected }) => {
+  mockLifecycle({ ready_to_start: true });
+  api.getMissionDeliverable.mockResolvedValue({
+    artifacts: { crm_records: rows },
+    prospects: [],
+    task_state: { all_succeeded: complete },
+    completion: { complete, artifact_complete: complete, assembly_errors: [] },
+  });
+
+  await renderMission();
+  expect(container.querySelector('[aria-label="Mission deliverable"]')?.textContent).toContain("Internal CRM search");
+  expect(container.querySelector('[aria-label="Internal CRM search results"]')?.textContent).toContain(expected);
+  expect(container.textContent).not.toContain("No prospect candidates were produced");
 });

@@ -71,6 +71,10 @@ export default function MissionsPage() {
     [historyCutoff, missions],
   );
 
+  const internalSearch = proposal?.planned_steps.find((step) => step.action_name === "record.search");
+  const searchQuery = internalSearch?.tool_input?.query;
+  const searchLimit = internalSearch?.tool_input?.limit;
+
   function startFreshMissionHistoryView() {
     if (!session) {
       return;
@@ -207,6 +211,25 @@ export default function MissionsPage() {
           <h2>{proposal.clarifications.length > 0 ? "Needs clarity" : "Ready to review"}</h2>
           <p className="mission-card-objective">{proposal.mission_brief.objective}</p>
 
+          {internalSearch ? (
+            <dl className="mission-card-meta">
+              <dt><strong>Source</strong></dt>
+              <dd>Ajenda internal CRM</dd>
+              {typeof searchQuery === "string" ? (
+                <>
+                  <dt><strong>Search filter</strong></dt>
+                  <dd>{searchQuery.trim() ? searchQuery : "No text filter was bound."}</dd>
+                </>
+              ) : null}
+              {typeof searchLimit === "number" ? (
+                <>
+                  <dt><strong>Maximum records</strong></dt>
+                  <dd>{searchLimit}</dd>
+                </>
+              ) : null}
+            </dl>
+          ) : null}
+
           {proposal.mission_brief.success_criteria.length > 0 ? (
             <div className="mission-card-meta">
               <strong>Success looks like</strong>
@@ -228,7 +251,9 @@ export default function MissionsPage() {
             <strong>Work Ajenda will run</strong>
             <ol>
               {proposal.planned_steps.map((step) => (
-                <li key={step.step_key}>{step.title}</li>
+                <li key={step.step_key}>
+                  {step.action_name === "record.search" ? "Search Ajenda internal CRM records" : step.title}
+                </li>
               ))}
             </ol>
             <p className="field-hint">
