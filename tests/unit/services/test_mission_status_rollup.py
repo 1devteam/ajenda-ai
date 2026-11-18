@@ -580,7 +580,6 @@ def test_invalid_refresh_state_is_recorded_without_fabricating_completion() -> N
         assert task.metadata_json["deliverable_refresh_issue"] == "invalid_completion_state"
 
 
-
 def test_successful_refresh_clears_prior_issue_and_preserves_completion() -> None:
     tenant_id = "tenant-refresh-recovered"
     mission_id = uuid.uuid4()
