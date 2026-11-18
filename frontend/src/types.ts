@@ -714,6 +714,13 @@ export interface RuntimeDispatchReadinessReadResponse {
   not_ready_task_ids: string[];
   blocked_task_ids: string[];
   task_count: number;
+  queue_admission_reference: {
+    mission_id: string;
+    tenant_id: string;
+    admission_status: string;
+    materialized_execution_task_ids: string[];
+    admitted_execution_task_ids: string[];
+  } | null;
   queued_task_count: number;
   blockers: Array<Record<string, unknown>>;
   warnings: Array<Record<string, unknown>>;

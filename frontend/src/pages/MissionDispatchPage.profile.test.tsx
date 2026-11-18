@@ -13,6 +13,7 @@ vi.mock("../api/client", () => ({
   })),
   getMissionRuntimeReadiness: vi.fn(async () => ({ ready: true, blockers: [], warnings: [] })),
   getMissionDispatchReadiness: vi.fn(async () => ({ queued_task_count: 0 })),
+  getMissionRuntimeTaskMaterialization: vi.fn(async () => { throw { status: 404 }; }),
   getMissionRuntimeEvidence: vi.fn(async () => null),
   getMissionDeliverable: vi.fn(async () => { throw { status: 404 }; }),
   getProfileDeliverable: vi.fn(async () => ({
