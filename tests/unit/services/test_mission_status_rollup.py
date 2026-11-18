@@ -515,3 +515,102 @@ def test_rollup_marks_paged_upcoming_calendar_incomplete() -> None:
         service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
     assert mission.metadata_json["acceptance"]["status"] == "partially_met"
     assert "additional calendar events were not retrieved" in mission.metadata_json["acceptance"]["reasons"]
+
+
+def test_refresh_exception_is_durable_and_does_not_claim_mission_success() -> None:
+    tenant_id = "tenant-refresh-error"
+    mission_id = uuid.uuid4()
+    request = extract_deliverable_request("Return company name.")
+    assert request is not None
+    runtime_state = build_deliverable_runtime_state(request)
+    assert runtime_state is not None
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="Return internal CRM account names",
+        status=MissionState.RUNNING.value,
+        metadata_json={"mission_intake": {"context": {"composition": {"deliverable_runtime_state": runtime_state}}}},
+    )
+    mission.id = mission_id
+    task = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task])  # type: ignore[method-assign]
+    service._audit.append = MagicMock()  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    with (
+        patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo),
+        patch(
+            "backend.services.worker_runtime_rollup.refresh_deliverable_completion_metadata",
+            side_effect=ValueError("sensitive CRM customer contents"),
+        ),
+    ):
+        service._refresh_deliverable_completion_read_model(task=task)
+        assert task.metadata_json["deliverable_refresh_issue"] == "refresh_exception"
+        service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
+
+    assert mission.status == MissionState.FAILED.value
+    reasons = mission.metadata_json["acceptance"]["reasons"]
+    assert "deliverable refresh issue: refresh_exception" in reasons
+    assert all("sensitive" not in reason for reason in reasons)
+
+
+def test_invalid_refresh_state_is_recorded_without_fabricating_completion() -> None:
+    tenant_id = "tenant-invalid-refresh"
+    mission_id = uuid.uuid4()
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="Read CRM accounts",
+        status=MissionState.RUNNING.value,
+        metadata_json={
+            "mission_intake": {"context": {"composition": {"deliverable_runtime_state": {"invalid": True}}}}
+        },
+    )
+    mission.id = mission_id
+    task = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task])  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._refresh_deliverable_completion_read_model(task=task)
+        assert task.metadata_json["deliverable_refresh_issue"] == "invalid_completion_state"
+        mission.metadata_json = {}
+        service._refresh_deliverable_completion_read_model(task=task)
+        assert task.metadata_json["deliverable_refresh_issue"] == "invalid_completion_state"
+
+
+def test_successful_refresh_clears_prior_issue_and_preserves_completion() -> None:
+    tenant_id = "tenant-refresh-recovered"
+    mission_id = uuid.uuid4()
+    request = extract_deliverable_request("Return company name.")
+    assert request is not None
+    state = build_deliverable_runtime_state(request)
+    assert state is not None
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="Return internal CRM account names",
+        status=MissionState.RUNNING.value,
+        metadata_json={"mission_intake": {"context": {"composition": {"deliverable_runtime_state": state}}}},
+    )
+    mission.id = mission_id
+    task = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    task.metadata_json = {
+        "deliverable_refresh_issue": "refresh_exception",
+        "expected_output_contract": {"artifact": "crm_records"},
+        "handler_result": {
+            "output": {"crm_records": [{"id": "account-1", "company": "Sample", "source": "internal_record"}]}
+        },
+    }
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task])  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._refresh_deliverable_completion_read_model(task=task)
+
+    assert "deliverable_refresh_issue" not in task.metadata_json
+    completion = mission.metadata_json["mission_intake"]["context"]["composition"]["deliverable_runtime_state"][
+        "completion"
+    ]
+    assert completion["complete"] is True
