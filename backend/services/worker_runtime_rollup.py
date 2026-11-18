@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import get_args
 from datetime import UTC, datetime
+from typing import get_args
 
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, MissionState
@@ -57,7 +57,6 @@ def _deliverable_incomplete_diagnostics(raw_completion: object) -> list[str]:
     if not reasons:
         reasons.append("durable deliverable is incomplete without a recorded field-level explanation")
     return reasons
-
 
 
 def refresh_deliverable_completion_read_model(service: WorkerRuntimeCollaborator, *, task: ExecutionTask) -> None:
