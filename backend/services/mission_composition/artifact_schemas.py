@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
+from backend.services.tools.schemas import RecordSearchInput, tool_invocation_sha256
 
 
 class ArtifactFieldProjection(BaseModel):
@@ -598,6 +599,39 @@ def is_proven_valid_empty_artifact(
             and query["result_count"] == 0
             for query in queries
         )
+    )
+
+
+def is_proven_empty_local_crm_search(*, invocation: object, output: dict[str, Any]) -> bool:
+    """Verify that a zero-row receipt describes the record.search invocation."""
+
+    if not isinstance(invocation, dict) or invocation.get("action") != "record.search":
+        return False
+    inputs = invocation.get("input")
+    if not isinstance(inputs, dict) or output.get("records") != [] or output.get("count") != 0:
+        return False
+    if not is_proven_valid_empty_artifact(artifact_key="crm_records", payload=output.get("crm_records"), output=output):
+        return False
+    try:
+        search = RecordSearchInput.model_validate(inputs)
+    except ValidationError:
+        return False
+    search_sha256 = tool_invocation_sha256({"action": "record.search", "input": search.model_dump(mode="json")})
+    queries = output["valid_empty_result"]["provider_queries"]
+    return (
+        queries
+        == [
+            {
+                "source": "local_records",
+                "object_type": search.record_type,
+                "filters": {"search_sha256": search_sha256},
+                "response_complete": True,
+                "result_count": 0,
+            }
+        ]
+        and type(queries[0]["result_count"]) is int
+        and type(output.get("count")) is int
+        and output.get("record_type") == search.record_type
     )
 
 

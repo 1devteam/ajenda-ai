@@ -20,8 +20,8 @@ def test_composition_owners_persist_canonical_deliverable_runtime_state() -> Non
     assert canonical_builder in confirm_source
     assert "DELIVERABLE_RUNTIME_STATE_METADATA_KEY" in confirm_source
     assert canonical_builder in recompile_source
-    assert "minimum_rows=record.intent.requested_quantity or 0" in confirm_source
-    assert "minimum_rows=record.intent.requested_quantity or 0" in recompile_source
+    assert "minimum_rows=deliverable_minimum_rows(record.intent)" in confirm_source
+    assert "minimum_rows=deliverable_minimum_rows(record.intent)" in recompile_source
     assert "DELIVERABLE_RUNTIME_STATE_METADATA_KEY" in recompile_source
     assert "extract_deliverable_request" not in confirm_source
     assert "extract_deliverable_request" not in recompile_source

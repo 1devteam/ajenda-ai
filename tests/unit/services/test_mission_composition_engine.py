@@ -1965,3 +1965,51 @@ def test_goal_evaluation_report_does_not_compile_prospect_research() -> None:
     assert record.ready_to_start
     assert record.intent.requested_outcomes == ["evaluate_goal_progress"]
     assert record.allowed_actions == ["analysis.evaluate_goal_progress"]
+
+
+def test_internal_crm_opportunity_history_is_blocked_without_account_substitution() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction=(
+            "Review my open internal CRM opportunities and identify which ones may need follow-up. "
+            "Explain your recommendations using the available activity history, and flag records that "
+            "do not have enough evidence."
+        ),
+    )
+    assert not record.ready_to_start
+    assert any("activity history" in clarification.question for clarification in record.clarifications)
+    assert all(step.tool_input.get("record_type") != "account" for step in record.planned_steps)
+
+
+def test_plain_internal_crm_opportunity_read_uses_opportunity_record_type() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant", instruction="List opportunity records from Ajenda internal CRM."
+    )
+    assert record.ready_to_start
+    assert record.planned_steps[0].tool_input["record_type"] == "opportunity"
+
+
+def test_internal_crm_text_query_is_preserved_instead_of_running_an_unfiltered_read() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction=(
+            "Read up to three internal CRM account records in Ajenda that match the search query "
+            '"Ajenda Test Customer - No Match 699". Return the matching account names. '
+            "Use only Ajenda internal CRM records."
+        ),
+    )
+    assert record.ready_to_start
+    assert record.planned_steps[0].tool_input == {
+        "record_type": "account",
+        "query": "Ajenda Test Customer - No Match 699",
+        "limit": 3,
+    }
+
+
+def test_unquoted_internal_crm_filter_does_not_run_as_an_unfiltered_read() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction="Read internal CRM account records that match the search query Acme.",
+    )
+    assert not record.ready_to_start
+    assert any("quoted search phrase" in clarification.question for clarification in record.clarifications)

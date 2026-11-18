@@ -34,6 +34,7 @@ class MaterializedArtifact(BaseModel):
 
     artifact_key: str = Field(min_length=1, max_length=120)
     payload: Any
+    verified_empty: bool = False
 
 
 class ArtifactValidation(BaseModel):
@@ -222,7 +223,10 @@ def evaluate_deliverable_completion(
             if not present:
                 status = "missing_artifact"
             elif any(not validations[artifact.artifact_key].valid for artifact in present):
-                status = "invalid_artifact"
+                if all(artifact.verified_empty and artifact.payload == [] for artifact in present):
+                    status = "insufficient_rows" if required_rows else "satisfied"
+                else:
+                    status = "invalid_artifact"
             elif (
                 required_rows
                 and max(

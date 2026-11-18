@@ -26,6 +26,7 @@ from backend.services.mission_composition.contracts import (
     SuccessCriterion,
     TargetEntity,
 )
+from backend.services.mission_composition.deliverable_contract import is_internal_crm_names_item
 from backend.services.mission_composition.interpretation.fuzzy import fuzzy_outcome_candidates
 from backend.services.mission_composition.interpretation.lexical import classify_lexical_frame
 from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
@@ -1211,6 +1212,32 @@ def interpret_instruction(
             business_need_review=business_need_review_requested,
             goal_progress_evaluation="evaluate_goal_progress" in outcomes,
         )
+        if (
+            "read_crm" in outcomes
+            and "internal_crm_source" in context_requirements
+            and re.fullmatch(
+                r"(?:in|from|using|use(?:\s+only)?)\s+(?:the\s+)?ajenda(?:['\u2019]s)?\s+internal\s+crm(?:\s+records)?",
+                clause_text.strip(),
+                flags=re.IGNORECASE,
+            )
+        ):
+            mapped = ["read_crm"]
+            material = True
+            recognized = True
+        if "read_crm" in outcomes and "internal_crm_source" in context_requirements:
+            # The absence clause qualifies the same record read, without
+            # introducing another action or suppressing other deliverables.
+            names_request = re.fullmatch(
+                r"return\s+([^.!?]+)(?:\.\s+if\s+none\s+match,?\s+say\s+so)?",
+                clause_text.strip(),
+                flags=re.IGNORECASE,
+            )
+            if (names_request and is_internal_crm_names_item(names_request[1])) or re.fullmatch(
+                r"if\s+none\s+match,?\s+say\s+so", clause_text.strip(), flags=re.IGNORECASE
+            ):
+                mapped = ["read_crm"]
+                material = True
+                recognized = True
         if outcomes == ["observe_web_page"] and re.fullmatch(r"read[ -]only", clause_text.strip(), flags=re.IGNORECASE):
             material = True
             recognized = True

@@ -231,7 +231,7 @@ export default function MissionsPage() {
               <dd>Ajenda internal CRM</dd>
               {typeof searchQuery === "string" ? (
                 <>
-                  <dt><strong>Search filter</strong></dt>
+                  <dt><strong>{internalSearch.tool_input?.query_field === "name" ? "Name contains" : "Search filter"}</strong></dt>
                   <dd>{searchQuery.trim() ? searchQuery : "No text filter was bound."}</dd>
                 </>
               ) : null}

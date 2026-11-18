@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from sqlalchemy.dialects import postgresql
+
+from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
 from backend.services.tools.record_store import LocalRecordStoreAdapter, SessionScopedDurableRecordStore
 
 
@@ -56,3 +59,23 @@ def test_resolve_record_store_uses_in_memory_without_session_factory() -> None:
         )
     )
     assert isinstance(store, LocalRecordStoreAdapter)
+
+
+def test_postgres_name_search_uses_literal_substring_before_the_row_limit() -> None:
+    session = MagicMock()
+    session.scalars.return_value.all.return_value = []
+    assert (
+        TenantInternalRecordRepository(session).search_records(
+            tenant_id="tenant-a", record_type="account", query="Customer_100%", query_field="name", limit=3
+        )
+        == []
+    )
+
+    statement = session.scalars.call_args.args[0].compile(dialect=postgresql.dialect())
+    sql = str(statement)
+    assert "tenant_internal_records.tenant_id =" in sql
+    assert "tenant_internal_records.record_type =" in sql
+    assert "tenant_internal_records.data_json ->>" in sql
+    assert "ILIKE" in sql and "ESCAPE '/'" in sql
+    assert "search_text" not in sql.split("WHERE", 1)[1]
+    assert {"tenant-a", "account", "name", "customer/_100/%", 9} <= set(statement.params.values())

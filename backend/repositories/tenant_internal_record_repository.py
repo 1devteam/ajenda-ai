@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -21,6 +21,7 @@ class TenantInternalRecordRepository:
         tenant_id: str,
         record_type: str,
         query: str = "",
+        query_field: Literal["name"] | None = None,
         filters: dict[str, Any] | None = None,
         limit: int = 10,
         offset: int = 0,
@@ -35,12 +36,15 @@ class TenantInternalRecordRepository:
             TenantInternalRecord.deleted.is_(False),
         )
         normalized_query = query.lower().strip()
-        if normalized_query:
-            pattern = f"%{normalized_query}%"
+        if normalized_query and query_field == "name":
+            stmt = stmt.where(
+                TenantInternalRecord.data_json[query_field].astext.icontains(normalized_query, autoescape=True)
+            )
+        elif normalized_query:
             stmt = stmt.where(
                 or_(
-                    TenantInternalRecord.search_text.ilike(pattern),
-                    TenantInternalRecord.record_id.ilike(pattern),
+                    TenantInternalRecord.search_text.icontains(normalized_query, autoescape=True),
+                    TenantInternalRecord.record_id.icontains(normalized_query, autoescape=True),
                 )
             )
         # Apply exact filters before the bounded SQL window.  Applying them
@@ -86,9 +90,11 @@ class TenantInternalRecordRepository:
         )
         normalized_query = query.lower().strip()
         if normalized_query:
-            pattern = f"%{normalized_query}%"
             stmt = stmt.where(
-                or_(TenantInternalRecord.search_text.ilike(pattern), TenantInternalRecord.record_id.ilike(pattern))
+                or_(
+                    TenantInternalRecord.search_text.icontains(normalized_query, autoescape=True),
+                    TenantInternalRecord.record_id.icontains(normalized_query, autoescape=True),
+                )
             )
         filters = filters or {}
         rows = self._session.scalars(stmt).all()

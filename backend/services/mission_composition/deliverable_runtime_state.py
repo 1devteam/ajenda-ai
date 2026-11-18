@@ -8,6 +8,7 @@ authority and does not claim that any artifact has been produced.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -20,6 +21,7 @@ from backend.services.mission_composition.contracts import (
     EpistemicContradictionStatus,
     EpistemicFreshness,
     GraphLineage,
+    MissionIntent,
 )
 from backend.services.mission_composition.deliverable_contract import DeliverableRequest
 from backend.services.mission_composition.deliverable_projection import (
@@ -110,6 +112,20 @@ class DeliverableRuntimeState(BaseModel):
     runtime_reconciliation: RuntimeReconciliation | None = None
     lifecycle: DeliverableArtifactLifecycle = Field(default_factory=DeliverableArtifactLifecycle)
     grants_execution_authority: Literal[False] = False
+
+
+def deliverable_minimum_rows(intent: MissionIntent) -> int:
+    """Keep an internal CRM read's explicit upper bound out of its row minimum."""
+
+    instruction = intent.raw_instruction or intent.objective
+    if (
+        set(intent.requested_outcomes) == {"read_crm"}
+        and "internal_crm_source" in intent.context_requirements
+        and re.search(r"\bup\s+to\s+(?:[1-9]\d*|one|two|three|four|five|six|seven|eight|nine|ten)\b", instruction, re.I)
+        and not re.search(r"\b(?:at\s+least|minimum\s+of|exactly)\b", instruction, re.I)
+    ):
+        return 0
+    return intent.requested_quantity or 0
 
 
 def build_deliverable_runtime_state(
