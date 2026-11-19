@@ -342,6 +342,18 @@ _HUBSPOT_PROHIBITION_PATTERNS = (
     r"\b(?:do not|don't|dont|never|without)\s+(?:use|access|query|read|write|update|sync|push|contact)\b[^.!?]{0,96}\bhubspot\b",
     r"\b(?:do not|don't|dont|never)\s+hubspot\b",
 )
+_PUBLIC_WEB_PROHIBITION = re.compile(
+    r"\b(?:do not|don't|dont|never|without)\s+(?:browse|browsing|search|searching|use|using|access|accessing)"
+    r"\s+(?:the\s+)?(?:public\s+)?(?:web|internet)\b"
+    r"|\bno\s+(?:public\s+)?(?:web|internet)\s+(?:search|browsing|access)\b",
+    re.IGNORECASE,
+)
+_EXTERNAL_ACTION_PROHIBITION = re.compile(
+    r"\b(?:do not|don't|dont|never|without)\b[^.!?]{0,200}"
+    r"\b(?:perform|performing|take|taking)\s+(?:any\s+)?external\s+actions?\b"
+    r"|\bno\s+external\s+actions?\b",
+    re.IGNORECASE,
+)
 _NO_EXTERNAL_ACTION_PATTERNS = (
     r"\b(?:do not|don't|dont|never)\b[^.!?]{0,180}\b(?:contact|send|modify|perform)\b",
     r"\bwithout\b[^.!?]{0,180}\b(?:contact|send|modify|perform)\b",
@@ -1608,6 +1620,9 @@ def _classify_clause(
             + _NO_EXTERNAL_ACTION_PATTERNS,
         )
     )
+    if _PUBLIC_WEB_PROHIBITION.search(lower) or _EXTERNAL_ACTION_PROHIBITION.search(lower):
+        material = True
+        recognized = True
     if external_action_forbidden and re.search(
         r"\b(?:browse|contact|send|modify|perform)\b|\bexternal action\b", lower
     ):

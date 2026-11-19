@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict
+
+if TYPE_CHECKING:
+    from backend.services.mission_composition.contracts import MissionIntent, PlannedStepPreview
 
 MISSION_INTAKE_QUALITY_SCHEMA_VERSION = 2
 
@@ -378,7 +381,8 @@ class MissionIntakeQualityDeniedError(ValueError):
 
 def build_composed_mission_intake_quality_input(
     *,
-    intent: Any,
+    intent: MissionIntent,
+    planned_steps: list[PlannedStepPreview],
     allowed_actions: list[str],
     source_bound_scope: bool,
 ) -> dict[str, Any]:
@@ -388,6 +392,21 @@ def build_composed_mission_intake_quality_input(
     keeps proposal and confirmation aligned on the exact quality inputs.
     """
 
+    evidenced_outcomes = {
+        item.normalized_value
+        for item in intent.interpretation_evidence
+        if item.normalized_value is not None
+        and item.source in {"explicit", "inferred_deterministic"}
+        and item.field_path == f"requested_outcomes.{item.normalized_value}"
+    }
+    outcome_bound = (
+        intent.interpretation_ready
+        and bool(intent.requested_outcomes)
+        and set(intent.requested_outcomes).issubset(evidenced_outcomes)
+        and any(item.measurable for item in intent.success_criteria)
+        and bool(planned_steps)
+        and all(step.action_name in allowed_actions and step.compile_gap is None for step in planned_steps)
+    )
     success_criteria = [
         {
             "description": item.description,
@@ -422,6 +441,7 @@ def build_composed_mission_intake_quality_input(
         or ["composition-selected outcomes for this mission only"],
         "allowed_actions": allowed_actions,
         "source_bound_scope": source_bound_scope,
+        "outcome_bound": outcome_bound,
         "operator_notes": "Abilities selected by mission_composition_engine.",
         "success_criteria": success_criteria,
         "constraints": [{"name": item[:120], "description": item, "hard": True} for item in constraint_descriptions],
@@ -437,6 +457,7 @@ def validate_composed_mission_intake(
     allowed_actions: list[str],
     source_bound_scope: bool,
     operator_notes: str,
+    outcome_bound: bool = False,
 ) -> None:
     """Apply the one intake-quality contract used by proposal and confirmation.
 
@@ -472,6 +493,7 @@ def validate_composed_mission_intake(
         allowed_actions=allowed_actions,
         source_bound_scope=source_bound_scope,
         operator_notes=operator_notes,
+        outcome_bound=outcome_bound,
         allow_legacy_v1=False,
     )
 
@@ -594,6 +616,7 @@ def validate_mission_intake_prompt(
     allowed_actions: list[str] | None = None,
     operator_notes: str | None = None,
     source_bound_scope: bool = False,
+    outcome_bound: bool = False,
     allow_legacy_v1: bool = False,
 ) -> None:
     """Fail closed when mission prompt text is too vague to plan or measure.
@@ -601,7 +624,9 @@ def validate_mission_intake_prompt(
     ``source_bound_scope`` is for an internal caller that has already bound the
     mission to an immutable, tenant-owned subject reference. It relaxes only
     the duplicate textual-scope requirement; all other quality checks remain
-    in force. Public mission intake leaves it false.
+    in force. ``outcome_bound`` similarly replaces only the objective's lexical
+    action check with evidence from trusted composition. Public intake uses
+    the default false values.
     """
 
     if allow_legacy_v1:
@@ -663,7 +688,7 @@ def validate_mission_intake_prompt(
                 ),
             )
         )
-    elif not _contains_outcome_signal(normalized_objective):
+    elif not _contains_outcome_signal(normalized_objective) and not outcome_bound:
         violations.append(
             MissionIntakeQualityViolation(
                 field="objective",

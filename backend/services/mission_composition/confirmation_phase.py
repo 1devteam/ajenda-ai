@@ -204,6 +204,7 @@ class MissionCompositionConfirmationPhase:
         )
         intake_quality_input = build_composed_mission_intake_quality_input(
             intent=record.intent,
+            planned_steps=record.planned_steps,
             allowed_actions=record.allowed_actions,
             source_bound_scope=source_bound_scope,
         )
@@ -219,6 +220,7 @@ class MissionCompositionConfirmationPhase:
                 scope_limits=scope_limits,
                 allowed_actions=intake_quality_input["allowed_actions"],
                 source_bound_scope=intake_quality_input["source_bound_scope"],
+                outcome_bound=intake_quality_input["outcome_bound"],
                 operator_notes=intake_quality_input["operator_notes"],
             )
         except MissionIntakeQualityDeniedError as exc:

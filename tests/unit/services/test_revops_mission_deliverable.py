@@ -843,3 +843,103 @@ def test_composed_internal_crm_search_materializes_the_requested_result(
         bare_output = {"record_type": "account", "count": 0, "records": [], "crm_records": []}
         with pytest.raises(ValueError, match="must attest"):
             _validate_declared_output_contract(task, {"output": bare_output})
+
+
+def test_public_research_readback_preserves_discovery_and_verification_without_promoting_rejections() -> None:
+    mission = _mission("Return company names and websites.")
+    discovery_rows = [
+        {"company": "Found in directory", "website": "https://directory.example/listing", "provider_secret": "omit"},
+    ]
+    discovery = _task(
+        task_id=1,
+        artifact="prospect_candidates",
+        payload=discovery_rows,
+        metadata_fields={
+            "expected_output_contract": {"artifact": "prospect_candidates", "materialization_role": "intermediate"},
+            "tool_invocation": {"action": "web.research", "input": {"include_public_search": True}},
+        },
+    )
+    verification = _task(
+        task_id=2,
+        artifact="verified_prospect_candidates",
+        payload=[],
+        handler_fields={
+            "output": {
+                "verified_prospect_candidates": [],
+                "unobserved": [
+                    {
+                        "company": "Found in directory",
+                        "url": "https://directory.example/listing",
+                        "reason": "identity_unverified",
+                        "identity_gaps": ["No first-party website"],
+                        "provider_secret": "omit",
+                    }
+                ],
+                "observed_count": 0,
+                "requested_quantity": 3,
+            }
+        },
+        metadata_fields={"tool_invocation": {"action": "research.verify_public_candidates"}},
+    )
+    result = assemble_revops_mission_deliverable(mission=mission, tasks=[verification, discovery])
+
+    discovered, verified = result.result_semantics["public_research_stages"]
+    assert discovered["stage"] == "discovery"
+    assert discovered["candidates"] == [
+        {"company": "Found in directory", "website": "https://directory.example/listing"}
+    ]
+    assert verified["stage"] == "verification"
+    assert verified["verified_candidates"] == []
+    assert verified["observed_count"] == 0
+    assert verified["requested_quantity"] == 3
+    assert verified["unverified_observations"] == [
+        {
+            "company": "Found in directory",
+            "url": "https://directory.example/listing",
+            "reason": "identity_unverified",
+            "identity_gaps": ["No first-party website"],
+        }
+    ]
+    assert not result.prospects
+    assert not result.completion.complete
+    assert not result.grants_execution_authority
+
+
+def test_failed_public_verification_is_not_reported_as_an_empty_success() -> None:
+    mission = _mission("Return company name.")
+    task = _task(
+        task_id=1,
+        artifact="verified_prospect_candidates",
+        payload=[],
+        status=ExecutionTaskState.FAILED.value,
+        metadata_fields={"tool_invocation": {"action": "research.verify_public_candidates"}},
+    )
+
+    result = assemble_revops_mission_deliverable(mission=mission, tasks=[task])
+
+    assert result.result_semantics["public_research_stages"] == [
+        {"stage": "verification", "status": "failed", "task_id": str(task.id)},
+    ]
+    assert not result.completion.artifact_complete
+
+
+def test_public_research_readback_keeps_mixed_discovery_source_provenance() -> None:
+    mission = _mission("Return company name.")
+    rows = [
+        {"company": "Internal Company", "source_scope": "tenant_internal", "real": True},
+        {"company": "Public Company", "source_scope": "public_search", "real": True},
+        {"company": "Fixture Company", "source_scope": "local_fixture", "real": False},
+    ]
+    discovery = _task(
+        task_id=1,
+        artifact="prospect_candidates",
+        payload=rows,
+        handler_fields={"output": {"prospect_candidates": rows, "public_search_real": True}},
+        metadata_fields={"tool_invocation": {"action": "web.research", "input": {"include_public_search": True}}},
+    )
+
+    result = assemble_revops_mission_deliverable(mission=mission, tasks=[discovery])
+
+    stage = result.result_semantics["public_research_stages"][0]
+    assert stage["candidates"] == rows
+    assert stage["public_search_observed"] is True

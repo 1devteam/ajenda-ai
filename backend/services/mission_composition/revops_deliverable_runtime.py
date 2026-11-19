@@ -133,3 +133,86 @@ def _validated_artifacts(
                 continue
         validated[artifact.artifact_key] = artifact
     return validated
+
+
+def _research_rows(value: object) -> list[dict[str, object]]:
+    """Expose public research labels and provenance without copying provider payloads."""
+    if not isinstance(value, list):
+        return []
+    rows: list[dict[str, object]] = []
+    for row in value:
+        if not isinstance(row, dict):
+            continue
+        fields = {
+            key: row[key]
+            for key in (
+                "company",
+                "website",
+                "url",
+                "reason",
+                "identity_status",
+                "source",
+                "source_scope",
+                "source_reliability",
+                "evidence_class",
+            )
+            if isinstance(row.get(key), str) and row[key].strip()
+        }
+        if isinstance(row.get("real"), bool):
+            fields["real"] = row["real"]
+        for key in ("identity_gaps", "identity_evidence_urls"):
+            values = row.get(key)
+            if isinstance(values, list):
+                fields[key] = [item for item in values if isinstance(item, str) and item.strip()]
+        if fields:
+            rows.append(fields)
+    return rows
+
+
+def _public_research_stages(tasks: Sequence[ExecutionTask]) -> list[dict[str, Any]]:
+    """Keep source-stage observations separate from deliverable acceptance."""
+    stages: list[dict[str, Any]] = []
+    for task in sorted(tasks, key=lambda item: (item.created_at, str(item.id))):
+        metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        invocation = metadata.get("tool_invocation")
+        if not isinstance(invocation, dict):
+            continue
+        action = invocation.get("action")
+        inputs = invocation.get("input")
+        if (
+            action == "web.research"
+            and declared_artifact_key(task) == "prospect_candidates"
+            and isinstance(inputs, dict)
+            and (inputs.get("include_public_search") is True or inputs.get("local_fixture_only") is True)
+        ):
+            stage = "discovery"
+        elif (
+            action == "research.verify_public_candidates"
+            and declared_artifact_key(task) == "verified_prospect_candidates"
+        ):
+            stage = "verification"
+        else:
+            continue
+        read: dict[str, Any] = {"stage": stage, "task_id": str(task.id), "status": task.status}
+        output = handler_output_for_task(task) if task.status == ExecutionTaskState.COMPLETED.value else {}
+        if output:
+            if stage == "discovery":
+                read["candidates"] = _research_rows(output.get("prospect_candidates"))
+                if (
+                    isinstance(inputs, dict)
+                    and inputs.get("include_public_search") is True
+                    and isinstance(provider_observed := output.get("public_search_real"), bool)
+                ):
+                    read["public_search_observed"] = provider_observed
+            else:
+                read["verified_candidates"] = _research_rows(output.get("verified_prospect_candidates"))
+                read["unverified_observations"] = _research_rows(output.get("unobserved"))
+                for key in ("observed_count", "requested_quantity"):
+                    value = output.get(key)
+                    if type(value) is int and value >= 0:
+                        read[key] = value
+            gap = output.get("research_gap")
+            if isinstance(gap, str) and gap.strip():
+                read["research_gap"] = gap
+        stages.append(read)
+    return stages

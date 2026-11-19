@@ -54,6 +54,7 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _EMAIL_MESSAGE_DELIVERY_CLAUSE,
     _EMAIL_READ_PATTERNS,
     _ENRICH_PATTERNS,
+    _EXTERNAL_ACTION_PROHIBITION,
     _GITHUB_READ_PATTERNS,
     _GOAL_EVALUATION_REPORT_CLAUSE,
     _HUBSPOT_PROHIBITION_PATTERNS,
@@ -65,6 +66,7 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _NO_EXTERNAL_ACTION_PATTERNS,
     _NO_SEND_PATTERNS,
     _OBSERVE_CONTACT_PATTERNS,
+    _PUBLIC_WEB_PROHIBITION,
     _PUBLISH_NEGATION_PATTERNS,
     _PUBLISH_PATTERNS,
     _PUBLISH_RESULT_BASED,
@@ -875,6 +877,25 @@ def interpret_instruction(
     # ("do not send anything until I approve").
     constraints: list[str] = []
     forbidden: list[str] = []
+    for pattern, scope, description in (
+        (_PUBLIC_WEB_PROHIBITION, "public_web_forbidden", "Do not browse the web"),
+        (_EXTERNAL_ACTION_PROHIBITION, "external_actions_forbidden", "Do not perform external actions"),
+    ):
+        prohibition = pattern.search(lower)
+        if prohibition is None:
+            continue
+        constraints.append(description)
+        context_requirements.append(scope)
+        evidence.append(
+            _evidence(
+                field_path=f"context_requirements.{scope}",
+                source="explicit",
+                source_text=prohibition.group(),
+                normalized_value=scope,
+                confidence=0.98,
+                rule_id=f"scope.{scope}",
+            )
+        )
     if recipient_lookup_forbidden:
         constraints.append("Do not look up recipients")
         forbidden.extend(["research.observe_contacts", "gtm.lead_enrich"])
