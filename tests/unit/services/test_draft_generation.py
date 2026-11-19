@@ -95,9 +95,19 @@ def test_generate_and_persist_draft_persists_when_session_available(
         model="gpt-4o-mini",
         used_llm=True,
     )
-    mock_persist.return_value = {"artifact_id": "pitch_email-deadbeef", "review_status": "pending"}
-
     session = MagicMock()
+    session.bind.dialect.name = "postgresql"
+
+    def persist_for_tenant(persistence_session: MagicMock, **record: object) -> dict[str, object]:
+        assert persistence_session is session
+        session.execute.assert_called_once()
+        statement, params = session.execute.call_args.args
+        assert str(statement) == "SELECT set_config('app.current_tenant_id', :tenant_id, true)"
+        assert params == {"tenant_id": record["tenant_id"]}
+        session.commit.assert_not_called()
+        return {"artifact_id": "pitch_email-deadbeef", "review_status": "pending"}
+
+    mock_persist.side_effect = persist_for_tenant
     ctx = ActionRuntimeContext(
         tenant_id="tenant-1",
         task_id=uuid.uuid4(),
@@ -119,7 +129,11 @@ def test_generate_and_persist_draft_persists_when_session_available(
 
     assert output["artifact_id"] == "pitch_email-deadbeef"
     assert output["generation_mode"] == "llm"
+    assert mock_persist.call_args.kwargs["tenant_id"] == ctx.tenant_id
+    assert mock_persist.call_args.kwargs["mission_id"] == str(ctx.mission_id)
+    assert mock_persist.call_args.kwargs["task_id"] == str(ctx.task_id)
     session.commit.assert_called_once()
+    session.close.assert_called_once()
 
 
 @patch("backend.services.draft_generation.resolve_business_context")
