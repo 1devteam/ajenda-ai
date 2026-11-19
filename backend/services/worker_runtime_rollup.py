@@ -319,7 +319,13 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
                 )
             return
 
-        # All graph tasks terminal.
+        # All graph tasks terminal. Recompute the non-authoritative deliverable
+        # read model from this exact terminal task set before accepting an
+        # outcome. A previously cached completion may have been recorded before
+        # the final task output was visible, or a preceding refresh may have
+        # failed. Never accept a stale success snapshot in place of live task
+        # artifact verification.
+        refresh_deliverable_completion_read_model(service, task=task)
         any_failed = any(item.status in failedish for item in siblings)
         acceptance_contract = _mission_acceptance_contract(mission)
         acceptance_reasons = _observe_acceptance_reasons(
