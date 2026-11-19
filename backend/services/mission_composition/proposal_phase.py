@@ -333,6 +333,7 @@ class MissionCompositionProposalPhase:
         )
         intake_quality_input = build_composed_mission_intake_quality_input(
             intent=intent,
+            planned_steps=planned_steps,
             allowed_actions=allowed_actions,
             source_bound_scope=source_bound_scope,
         )
@@ -345,6 +346,7 @@ class MissionCompositionProposalPhase:
                 scope_limits=intake_quality_input["scope_limits"],
                 allowed_actions=intake_quality_input["allowed_actions"],
                 source_bound_scope=intake_quality_input["source_bound_scope"],
+                outcome_bound=intake_quality_input["outcome_bound"],
                 operator_notes=intake_quality_input["operator_notes"],
             )
         except MissionIntakeQualityDeniedError as exc:

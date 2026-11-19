@@ -6,6 +6,7 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
@@ -294,7 +295,14 @@ def test_counterfactual_plans_are_read_only_comparisons() -> None:
     assert all("uncalibrated" in plan["calibration_reference"] for plan in plans)
 
 
-def test_confirm_creates_mission_plan_graph_not_queue() -> None:
+@pytest.mark.parametrize(
+    ("instruction", "required_action"),
+    [
+        (ROOFING_INSTRUCTION, "web.research"),
+        ("Assess goal progress for launching Ajenda AI.", "analysis.evaluate_goal_progress"),
+    ],
+)
+def test_confirm_creates_mission_plan_graph_not_queue(instruction: str, required_action: str) -> None:
     tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
     mission_id = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
     plan_id = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
@@ -329,7 +337,7 @@ def test_confirm_creates_mission_plan_graph_not_queue() -> None:
         plan_repo_cls.return_value.create_or_get_active_for_mission.return_value = plan
 
         client = TestClient(app)
-        compose = client.post("/v1/missions/compose", json={"instruction": ROOFING_INSTRUCTION})
+        compose = client.post("/v1/missions/compose", json={"instruction": instruction})
         assert compose.status_code == 200, compose.text
         proposal_id = compose.json()["proposal_id"]
         composition = compose.json()["composition"]
@@ -352,6 +360,7 @@ def test_confirm_creates_mission_plan_graph_not_queue() -> None:
     assert body["next_steps"].index(
         next(step for step in body["next_steps"] if "runtime-admission" in step and "queue" not in step)
     ) < body["next_steps"].index(next(step for step in body["next_steps"] if "runtime-task-materialization" in step))
+    assert required_action in body["allowed_actions"]
     assert "gtm.email_send" not in body["allowed_actions"]
     assert MISSION_TASK_GRAPH_METADATA_KEY in body["task_graph"] or body["task_graph"].get("nodes") is not None
 
@@ -367,3 +376,31 @@ def test_confirm_creates_mission_plan_graph_not_queue() -> None:
     )
     intake = (added.metadata_json or {})[MISSION_INTAKE_METADATA_KEY]
     assert "gtm.email_send" not in intake.get("allowed_actions", [])
+
+
+def test_confirmation_cannot_persist_a_plan_with_a_prohibited_web_source() -> None:
+    tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    app = _build_app(tenant_id)
+    instruction = "Research three software development companies in Austin, Texas. Do not search the public web."
+    with (
+        patch.object(composition_module, "require_route_permission", return_value=None),
+        patch("backend.services.mission_composition.service.BusinessProfileRepository") as profile_repo_cls,
+        patch("backend.services.mission_composition.service.ProviderRuntimeCredentialRepository") as cred_repo_cls,
+        patch("backend.services.mission_composition.service.MissionRepository") as mission_repo_cls,
+    ):
+        profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = _active_profile()
+        cred_repo_cls.return_value.list_for_tenant.return_value = []
+        client = TestClient(app)
+
+        compose = client.post("/v1/missions/compose", json={"instruction": instruction})
+        assert compose.status_code == 200, compose.text
+        proposal = compose.json()
+        assert proposal["ready_to_start"] is False
+        confirm = client.post(
+            f"/v1/missions/proposals/{proposal['proposal_id']}/confirm",
+            json={"composition": proposal["composition"]},
+        )
+
+    assert confirm.status_code == 422, confirm.text
+    assert confirm.json()["detail"]["code"] == "PROPOSAL_NOT_READY"
+    mission_repo_cls.return_value.add.assert_not_called()

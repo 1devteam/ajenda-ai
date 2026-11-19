@@ -17,7 +17,7 @@ from backend.services.mission_composition.contracts import (
 )
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
 from backend.services.tools.action_registry import get_default_action_registry
-from backend.services.tools.schemas import SideEffectClass
+from backend.services.tools.schemas import CredentialReference, SideEffectClass, ToolInvocation
 
 
 def _slug(action: str) -> str:
@@ -247,6 +247,7 @@ def compile_planned_steps(
     ready = _order_selected_jobs(ready=ready, selected_keys=selected_keys, intent=intent)
     step_by_job: dict[str, PlannedStepPreview] = {}
     steps: list[PlannedStepPreview] = []
+    source_constraints = set(intent.context_requirements) if intent is not None else set()
 
     for index, selection in enumerate(ready, start=1):
         job = BUSINESS_JOBS_BY_KEY.get(selection.job_key)
@@ -329,6 +330,35 @@ def compile_planned_steps(
                     # enforce. This prevents a vertical handoff from reaching graph
                     # materialization with an input contract that can never run.
                     definition.input_model.model_validate(tool_input)
+                if source_constraints.intersection({"external_actions_forbidden", "public_web_forbidden"}):
+                    action = selection.action_name
+                    reference = (
+                        CredentialReference.model_validate(selection.credential_reference)
+                        if selection.credential_reference is not None
+                        else None
+                    )
+                    effect = definition.side_effect_for(
+                        ToolInvocation(action=action, input=tool_input, credential_reference=reference)
+                    )
+                    public_web = (
+                        action == "web.research"
+                        and bool(
+                            tool_input.get("include_public_search")
+                            or tool_input.get("fetch_public_page")
+                            or tool_input.get("relation_requirements")
+                        )
+                    ) or (
+                        action != "web.research"
+                        and (action.startswith("web.") or definition.provider == "ajenda_internet")
+                    )
+                    if "external_actions_forbidden" in source_constraints and (
+                        public_web or selection.requires_connection or effect.value.startswith("external_")
+                    ):
+                        raise ValueError(
+                            f"The request prohibits external actions, but {action} needs an external source or action."
+                        )
+                    if "public_web_forbidden" in source_constraints and public_web:
+                        raise ValueError(f"The request prohibits web browsing, but {action} needs public web access.")
             except (ValueError, TypeError) as exc:
                 compile_gap = str(exc)[:500]
                 tool_input = {}

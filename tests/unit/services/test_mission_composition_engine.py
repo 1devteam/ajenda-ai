@@ -2093,3 +2093,77 @@ def test_unquoted_internal_crm_filter_does_not_run_as_an_unfiltered_read() -> No
     )
     assert not record.ready_to_start
     assert any("quoted search phrase" in clarification.question for clarification in record.clarifications)
+
+
+def test_short_goal_evaluation_can_start_after_typed_compilation() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-test", instruction="Assess goal progress for launching Ajenda AI."
+    )
+
+    assert record.ready_to_start
+    assert record.allowed_actions == ["analysis.evaluate_goal_progress"]
+    assert [(step.action_name, step.output_contract) for step in record.planned_steps] == [
+        ("analysis.evaluate_goal_progress", "goal_progress_evaluation")
+    ]
+
+
+def test_internal_only_company_brief_cannot_start_with_external_research() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-test",
+        instruction=(
+            "Search Ajenda's approved business profile and governed internal memory, then prepare an evidence-backed "
+            "company brief and a draft introduction explaining who Ajenda is, what it provides, who it serves, "
+            "and what makes it different. Do not browse the web, contact anyone, send email, modify CRM records, "
+            "or perform any external action."
+        ),
+    )
+
+    assert not record.ready_to_start
+    assert "Do not browse the web" in record.intent.constraints
+    assert "Do not perform external actions" in record.intent.constraints
+    research = next(step for step in record.planned_steps if step.action_name == "web.research")
+    assert research.compile_gap
+    assert "prohibits external actions" in research.compile_gap
+    assert not research.tool_input
+
+
+def test_no_web_search_conflict_is_reported_without_blanket_external_action_language() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-test",
+        instruction="Research three software development companies in Austin, Texas. Do not search the public web.",
+    )
+
+    assert not record.ready_to_start
+    assert "Do not browse the web" in record.intent.constraints
+    assert "Do not perform external actions" not in record.intent.constraints
+    assert any("prohibits web browsing" in item.question for item in record.clarifications)
+
+
+def test_no_web_search_does_not_block_governed_internal_profile_retrieval() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-test", instruction="Read my approved business profile. Do not browse the web."
+    )
+
+    assert record.ready_to_start
+    assert "Do not browse the web" in record.intent.constraints
+    assert record.allowed_actions == ["retrieval.hybrid_search"]
+
+
+def test_no_external_actions_blocks_connected_provider_read_during_compilation() -> None:
+    intent = interpret_instruction(
+        "Check HubSpot for Acme Roofing and summarize the CRM record. Do not perform any external action."
+    )
+    selections, missing = resolve_jobs(
+        route_jobs_for_intent(intent),
+        intent=intent,
+        connected_integrations={"hubspot"},
+        preferred_credential_by_integration={"hubspot": ("test-credential", "oauth")},
+    )
+
+    assert not missing
+    step = next(
+        step for step in compile_planned_steps(selections, intent=intent) if step.action_name == "sales.research"
+    )
+    assert step.compile_gap
+    assert "prohibits external actions" in step.compile_gap
+    assert not step.tool_input
