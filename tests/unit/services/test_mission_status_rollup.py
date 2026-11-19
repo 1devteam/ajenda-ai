@@ -687,3 +687,38 @@ def test_terminal_rollup_does_not_accept_stale_success_without_task_artifact() -
     assert mission.status == MissionState.FAILED.value
     assert "durable deliverable field company_name: missing_artifact" in mission.metadata_json["acceptance"]["reasons"]
 
+
+def test_terminal_rollup_rejects_invalid_envelope_even_with_cached_success_flag() -> None:
+    tenant_id = "tenant-terminal-invalid-success"
+    mission_id = uuid.uuid4()
+    mission = Mission(
+        tenant_id=tenant_id,
+        objective="Read CRM accounts",
+        status=MissionState.RUNNING.value,
+        metadata_json={
+            "mission_intake": {
+                "context": {
+                    "composition": {
+                        "deliverable_runtime_state": {
+                            "grants_execution_authority": True,
+                            "completion": {"complete": True},
+                        }
+                    }
+                }
+            }
+        },
+    )
+    mission.id = mission_id
+    task = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task])  # type: ignore[method-assign]
+    service._audit.append = MagicMock()  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
+
+    assert task.metadata_json["deliverable_refresh_issue"] == "invalid_completion_state"
+    assert mission.status == MissionState.FAILED.value
+    assert "deliverable refresh issue: invalid_completion_state" in mission.metadata_json["acceptance"]["reasons"]

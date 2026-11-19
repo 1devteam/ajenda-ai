@@ -358,6 +358,17 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
             raw_composition.get("deliverable_runtime_state") if isinstance(raw_composition, dict) else None
         )
         raw_completion = raw_runtime_state.get("completion") if isinstance(raw_runtime_state, dict) else None
+        # A malformed durable envelope can carry an old complete=True value.
+        # The refresh owner records a typed issue when it cannot validate that
+        # envelope. Never promote that stale flag to accepted mission outcome.
+        task_metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+        terminal_refresh_issue = task_metadata.get("deliverable_refresh_issue")
+        if isinstance(raw_runtime_state, dict) and terminal_refresh_issue in {
+            "invalid_completion_state",
+            "refresh_exception",
+        }:
+            acceptance_reasons.append(f"deliverable refresh issue: {terminal_refresh_issue}")
+            acceptance_met = False
         if isinstance(raw_runtime_state, dict) and not (
             isinstance(raw_completion, dict) and raw_completion.get("complete") is True
         ):
