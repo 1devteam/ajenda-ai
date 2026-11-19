@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from backend.services.internet.contracts import PageSnapshot
 from backend.services.internet.modes import InternetAccessMode
 from backend.services.tools.action_registry import get_default_action_registry
@@ -311,7 +313,8 @@ def test_observe_contacts_marks_matching_site_verified_and_directory_unverified(
     assert any(item.get("reason") == "identity_unverified" for item in result.output["unobserved"])
 
 
-def test_verify_public_candidates_does_not_extract_contacts_and_uses_phoenix_location() -> None:
+@pytest.mark.parametrize("domain", ["acmehvac.example", "https://acmehvac.example/"])
+def test_verify_public_candidates_does_not_extract_contacts_and_uses_phoenix_location(domain: str) -> None:
     from backend.services.tools.web_actions import research_verify_public_candidates
 
     official = PageSnapshot(
@@ -329,7 +332,7 @@ def test_verify_public_candidates_does_not_extract_contacts_and_uses_phoenix_loc
             "prospects": [
                 {
                     "company": "Acme HVAC",
-                    "domain": "acmehvac.example",
+                    "domain": domain,
                     "url": official.url,
                     "website": official.url,
                     "sources": [official.url],

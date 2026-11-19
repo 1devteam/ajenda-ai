@@ -103,6 +103,12 @@ _COMPANY_INTRODUCTION_DRAFT = re.compile(
     r"(?=\s*(?:explaining\b|describing\b|about\b|for\s+review\s*$|$))",
     re.IGNORECASE,
 )
+_GOAL_EVALUATION_WINDOW = re.compile(
+    r"\b(?:last|past|previous|preceding|most\s+recent)\s+"
+    r"(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|thirty|sixty|ninety)\s+)?"
+    r"(?:days?|weeks?|months?|quarters?|years?)\b",
+    re.IGNORECASE,
+)
 _RECIPIENT_DIRECTED_DRAFT = re.compile(
     r"@|\b(?:outreach|personali[sz]ed|prospects?|recipients?|e-?mail)\b",
     re.IGNORECASE,
@@ -1078,7 +1084,21 @@ def interpret_instruction(
     if not entities and wants_crm_read:
         entities = _extract_connector_company(text)
 
-    count = 1 if company_introduction and set(outcomes) == {"read_business_profile"} else _extract_count(text)
+    quantity_text = text
+    if "evaluate_goal_progress" in outcomes and (window := _GOAL_EVALUATION_WINDOW.search(text)):
+        context_requirements.append("goal_evaluation_time_window")
+        quantity_text = _GOAL_EVALUATION_WINDOW.sub(" ", text)
+        evidence.append(
+            _evidence(
+                field_path="context_requirements.goal_evaluation_time_window",
+                source="explicit",
+                source_text=window.group(),
+                normalized_value="goal_evaluation_time_window",
+                confidence=0.98,
+                rule_id="goal.evaluation_window",
+            )
+        )
+    count = 1 if company_introduction and set(outcomes) == {"read_business_profile"} else _extract_count(quantity_text)
     qualification_count = _extract_qualification_count(text)
     recommendation_count = _extract_recommendation_count(text) if wants_research_report else None
     prospect_count_explicit = bool(

@@ -43,7 +43,7 @@ function valuesFromProfile(profile: BusinessProfileReadResponse | null): FormVal
   const values: FormValues = {};
   for (const field of BUSINESS_PROFILE_FIELDS) {
     if (field.kind === "list") {
-      values[field.category] = listToInput(readProfileList(facts, field.category));
+      values[field.category] = listToInput(readProfileList(facts, field.category, field.fallbackKeys));
       continue;
     }
     values[field.category] = readProfileText(facts, field.category, field.fallbackKeys);

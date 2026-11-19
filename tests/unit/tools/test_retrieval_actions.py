@@ -3,6 +3,9 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from backend.services.data_plane.memory_chunk_store import InMemoryMemoryChunkStore
 from backend.services.tools.action_registry import get_default_action_registry
 from backend.services.tools.schemas import ActionRuntimeContext, ToolInvocation
 
@@ -107,3 +110,36 @@ def test_retrieval_hybrid_search_includes_retrieval_contracts_when_mission_scope
     assert result.output["retrieval_contracts"][0]["strategy"] == "hybrid"
     contract_ids = result.evidence[0].provenance.get("retrieval_contract_ids", [])
     assert contract_ids == [str(contract.id)]
+
+
+@pytest.mark.parametrize("durable", [True, False])
+def test_profile_introduction_distinguishes_empty_search_from_unavailable_memory(durable: bool) -> None:
+    from backend.services.tools import retrieval_actions
+
+    memory = MagicMock()
+    memory.keyword_search.return_value = []
+    profile = {
+        "profile_id": str(uuid.uuid4()),
+        "source": "approved_business_profile",
+        "profile_brief": {
+            "facts": {"business_name": "Ajenda AI", "description": "Governed operations."},
+            "conflicting_fields": [],
+        },
+    }
+    store = memory if durable else InMemoryMemoryChunkStore()
+    with (
+        patch.object(retrieval_actions, "_approved_profile_hit", return_value=[{"content": profile}]),
+        patch.object(retrieval_actions, "resolve_memory_chunk_store", return_value=store),
+    ):
+        result = retrieval_actions.retrieval_hybrid_search(
+            ToolInvocation(
+                action="retrieval.hybrid_search",
+                input={"query": "Approved business profile", "mode": "approved_profile_introduction"},
+            ),
+            _context(),
+        )
+    draft = result.output["business_profile_facts"]["company_introduction_draft"]
+    assert draft["memory_reference_ids"] == []
+    assert draft["memory_lookup_status"] == ("no_matches" if durable else "unavailable")
+    assert memory.keyword_search.call_count == int(durable)
+    memory.vector_search.assert_not_called()

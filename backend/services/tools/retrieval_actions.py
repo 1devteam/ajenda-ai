@@ -6,10 +6,10 @@ from typing import Any
 from backend.db.tenant_session import activate_tenant_session
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
-from backend.services.business_profile.company_introduction import build_company_introduction
+from backend.services.business_profile.company_introduction import MemoryLookupStatus, build_company_introduction
 from backend.services.business_profile.context_resolver import resolve_business_context
 from backend.services.business_profile.record_sync import build_profile_brief
-from backend.services.data_plane.memory_chunk_store import resolve_memory_chunk_store
+from backend.services.data_plane.memory_chunk_store import InMemoryMemoryChunkStore, resolve_memory_chunk_store
 from backend.services.ontology.product_knowledge import product_catalog_hits
 from backend.services.tools.action_registry_contracts import ActionDefinition, ActionRegistryPort
 from backend.services.tools.record_store import resolve_record_store
@@ -115,16 +115,24 @@ def _approved_profile_introduction(payload: RetrievalHybridInput, context: Actio
     brief = profile["profile_brief"]
     business_name = brief["facts"].get("business_name")
     memory_ids: tuple[str, ...] = ()
+    memory_status: MemoryLookupStatus = "unavailable"
     if isinstance(business_name, str) and business_name.strip():
-        hits = resolve_memory_chunk_store(context).keyword_search(
-            tenant_id=context.tenant_id,
-            query=business_name,
-            limit=payload.limit,
-        )
-        memory_ids = tuple(
-            dict.fromkeys(str(hit["id"]) for hit in hits if hit.get("tenant_id") == context.tenant_id and hit.get("id"))
-        )
-    draft = build_company_introduction(brief, memory_reference_ids=memory_ids)
+        store = resolve_memory_chunk_store(context)
+        # This resolver creates a fresh, empty store when the durable keyword
+        # path cannot be used. An empty fallback is not a completed search.
+        if not isinstance(store, InMemoryMemoryChunkStore):
+            hits = store.keyword_search(
+                tenant_id=context.tenant_id,
+                query=business_name,
+                limit=payload.limit,
+            )
+            memory_ids = tuple(
+                dict.fromkeys(
+                    str(hit["id"]) for hit in hits if hit.get("tenant_id") == context.tenant_id and hit.get("id")
+                )
+            )
+            memory_status = "matched" if memory_ids else "no_matches"
+    draft = build_company_introduction(brief, memory_reference_ids=memory_ids, memory_lookup_status=memory_status)
     output = {
         "business_profile_facts": {**profile, "company_introduction_draft": draft.model_dump(mode="json")},
     }
@@ -144,6 +152,7 @@ def _approved_profile_introduction(payload: RetrievalHybridInput, context: Actio
                 inspected=[profile["profile_id"], *memory_ids],
                 provenance={
                     "source": "approved_business_profile",
+                    "memory_keyword_lookup_status": memory_status,
                     "memory_keyword_reference_count": len(memory_ids),
                 },
             )

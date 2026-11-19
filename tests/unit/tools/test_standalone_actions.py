@@ -771,3 +771,59 @@ def test_web_search_merges_internal_records_and_public_results(monkeypatch) -> N
     assert result.output["search_real"] is True
     assert result.output["web_result_count"] == 1
     assert result.side_effect_class.value == "external_read"
+
+
+def test_hybrid_discovery_keeps_public_results_when_internal_quota_is_full(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    class Store:
+        def search_records(self, **kwargs):  # type: ignore[no-untyped-def]
+            if kwargs["record_type"] != "account":
+                return []
+            return [
+                {"id": str(i), "name": f"Directory listing {i}", "website": f"https://directory{i}.example"}
+                for i in range(3)
+            ]
+
+    monkeypatch.setattr(standalone_actions, "resolve_record_store", lambda _: Store())
+    monkeypatch.setattr(
+        standalone_actions,
+        "_fetch_governed_public_search",
+        lambda **_: {
+            "provider": "fixture",
+            "real": True,
+            "results": [{"title": "Official Studio", "url": "https://studio.example", "real": True}],
+        },
+    )
+    output = standalone_actions.web_research(
+        ToolInvocation(
+            action="web.research",
+            input={"query": "software development companies in Austin", "limit": 3, "include_public_search": True},
+        ),
+        _context(),
+    ).output
+    assert len(output["internal_prospect_candidates"]) == 3
+    public_candidates = output["public_prospect_candidates"]
+    assert [row["website"] for row in public_candidates] == ["https://studio.example"]
+    assert public_candidates[0]["identity_status"] == "unverified"
+    assert public_candidates[0] in output["prospect_candidates"]
+
+
+def test_search_phase_shares_candidate_budget_across_query_variants(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    queries: list[str] = []
+
+    def search(*, query: str, **_kwargs):  # type: ignore[no-untyped-def]
+        queries.append(query)
+        host = "official.example" if query == "market official website" else "directory.example"
+        return {"provider": "fixture", "real": True, "results": [{"url": f"https://{host}/{i}"} for i in range(9)]}
+
+    monkeypatch.setattr(standalone_actions, "_fetch_governed_public_search", search)
+    results, observed, *_ = standalone_actions._run_public_search_phase(
+        queries=("market", "market official website"), limit=9, timeout_seconds=8, phase="test"
+    )
+    assert observed
+    assert queries == ["market", "market official website"]
+    assert len(results) == 9
+    assert results[1]["url"] == "https://official.example/0"

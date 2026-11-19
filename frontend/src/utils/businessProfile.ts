@@ -30,8 +30,19 @@ export function readProfileText(
   return "";
 }
 
-export function readProfileList(facts: Record<string, unknown>, category: string): string[] {
-  const value = facts[category];
+export function readProfileList(
+  facts: Record<string, unknown>,
+  category: string,
+  fallbackKeys: string[] = [],
+): string[] {
+  for (const key of [category, ...fallbackKeys]) {
+    const items = profileListValue(facts[key]);
+    if (items.length) return items;
+  }
+  return [];
+}
+
+function profileListValue(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.map((item) => String(item).trim()).filter(Boolean);
   }

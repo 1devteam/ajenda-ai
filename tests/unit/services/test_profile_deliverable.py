@@ -241,6 +241,7 @@ def test_company_introduction_from_composed_task_is_readable_and_tenant_scoped()
     draft = read.company_introduction_draft
     assert draft is not None and draft.status == "draft"
     assert draft.memory_reference_ids == ("memory-1",)
+    assert draft.memory_lookup_status == "matched"
     assert draft.source_fields == ("business_name", "description", "products_services", "target_customers")
     assert "Mission planning" in draft.body
     assert "Disputed claim" not in draft.body

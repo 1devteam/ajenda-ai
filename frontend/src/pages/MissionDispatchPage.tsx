@@ -958,6 +958,10 @@ function MissionDispatch({ missionId }: { missionId: string }) {
               ))}
               {profileDeliverable.company_introduction_draft.memory_reference_ids.length ? (
                 <p>Internal memory references found: {profileDeliverable.company_introduction_draft.memory_reference_ids.join(", ")}</p>
+              ) : profileDeliverable.company_introduction_draft.memory_lookup_status === "unavailable" ? (
+                <p>Internal memory search was unavailable.</p>
+              ) : profileDeliverable.company_introduction_draft.memory_lookup_status === "no_matches" ? (
+                <p>Internal memory search returned no matching references.</p>
               ) : <p>No internal memory references were recorded.</p>}
               <details>
                 <summary>Approved profile evidence</summary>

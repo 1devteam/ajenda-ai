@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from itertools import zip_longest
 from typing import Any
 from urllib.parse import urlparse
 
@@ -303,11 +304,11 @@ def _run_public_search_phase(
     """Run deterministic governed searches while preserving phase provenance."""
 
     results: list[dict[str, Any]] = []
+    batches: list[list[dict[str, Any]]] = []
     real = False
     errors: list[str] = []
     attempts: list[dict[str, Any]] = []
     providers: list[str] = []
-    seen_urls: set[str] = set()
     for query in tuple(dict.fromkeys(item.strip() for item in queries if item.strip())):
         bundle = _fetch_governed_public_search(query=query, limit=limit, timeout_seconds=timeout_seconds)
         provider = str(bundle.get("provider") or "none")
@@ -316,8 +317,17 @@ def _run_public_search_phase(
         for attempt in bundle.get("attempts") or []:
             if isinstance(attempt, dict):
                 attempts.append({"phase": phase, "query": query, **attempt})
-        for item in bundle.get("results") or []:
-            if not isinstance(item, dict):
+        batches.append([item for item in bundle.get("results") or [] if isinstance(item, dict)][:limit])
+        real = real or bool(bundle.get("real"))
+        if bundle.get("error"):
+            errors.append(str(bundle["error"]))
+
+    # A full directory-heavy response must leave room for the official-site
+    # query. Merge ranks across the bounded query variants before truncation.
+    seen_urls: set[str] = set()
+    for ranked in zip_longest(*batches):
+        for item in ranked:
+            if item is None:
                 continue
             url = str(item.get("url") or item.get("FirstURL") or "").strip()
             if url and url in seen_urls:
@@ -325,13 +335,8 @@ def _run_public_search_phase(
             if url:
                 seen_urls.add(url)
             results.append(item)
-            if len(results) >= limit:
-                break
-        real = real or bool(bundle.get("real"))
-        if bundle.get("error"):
-            errors.append(str(bundle["error"]))
-        if len(results) >= limit:
-            break
+            if len(results) == limit:
+                return results, real, errors, attempts, providers
     return results, real, errors, attempts, providers
 
 
@@ -709,7 +714,15 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         if payload.local_fixture_only
         else internal_matches + list(crm_search.results or [])
     )
+    internal_limit = payload.limit
+    if web_results:
+        # At the maximum bounded pool size, reserve room for the independent
+        # public observations even when internal records fill the requested quota.
+        reserved_public = min(len(web_results), max(1, public_search_limit // 2))
+        internal_limit = min(internal_limit, public_search_limit - reserved_public)
     for record in candidate_records:
+        if len(internal_prospect_candidates) >= internal_limit:
+            break
         if not isinstance(record, dict):
             continue
         prospect = _prospect_from_record(record, source="internal_record", query=payload.query)
@@ -754,33 +767,28 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         seen_companies.add(key)
         prospect_candidates.append(prospect)
         internal_prospect_candidates.append(prospect)
-        if len(prospect_candidates) >= payload.limit:
+    rejected_public_candidates = 0
+    for index, item in enumerate(web_results):
+        if len(prospect_candidates) >= public_search_limit:
             break
-    if len(prospect_candidates) < payload.limit:
-        rejected_public_candidates = 0
-        for index, item in enumerate(web_results):
-            prospect = _prospect_from_web_result(item, index=index)
-            if not _public_candidate_is_verified(prospect):
-                rejected_public_candidates += 1
-                # Preserve the raw hit for the explicitly planned observation
-                # stage. It is source evidence, not a completed prospect; the
-                # intermediate output contract prevents it from materializing.
-                prospect["identity_status"] = "unverified"
-                prospect["evidence_class"] = "public_candidate_unverified"
-            else:
-                verified_public_candidate_count += 1
-                prospect["evidence_class"] = "public_observed"
-            prospect["source_scope"] = "public_search"
-            key = prospect["company"].lower()
-            if key in seen_companies:
-                continue
-            seen_companies.add(key)
-            prospect_candidates.append(prospect)
-            public_prospect_candidates.append(prospect)
-            if len(prospect_candidates) >= public_search_limit:
-                break
-    else:
-        rejected_public_candidates = 0
+        prospect = _prospect_from_web_result(item, index=index)
+        if not _public_candidate_is_verified(prospect):
+            rejected_public_candidates += 1
+            # Preserve the raw hit for the explicitly planned observation
+            # stage. It is source evidence, not a completed prospect; the
+            # intermediate output contract prevents it from materializing.
+            prospect["identity_status"] = "unverified"
+            prospect["evidence_class"] = "public_candidate_unverified"
+        else:
+            verified_public_candidate_count += 1
+            prospect["evidence_class"] = "public_observed"
+        prospect["source_scope"] = "public_search"
+        key = prospect["company"].lower()
+        if key in seen_companies:
+            continue
+        seen_companies.add(key)
+        prospect_candidates.append(prospect)
+        public_prospect_candidates.append(prospect)
 
     business_context = resolve_business_context(context)
     tenant_internal_records = internal_matches + list(crm_search.results or [])
