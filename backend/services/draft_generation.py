@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from backend.db.tenant_session import activate_tenant_session
 from backend.services.business_profile.context_resolver import BusinessContext, resolve_business_context
 from backend.services.document_artifacts import SUPPORTED_ARTIFACT_TYPES, persist_artifact
 from backend.services.llm.contracts import LlmGenerateRequest
@@ -297,6 +298,7 @@ def generate_and_persist_draft(
 
     session = session_factory()
     try:
+        activate_tenant_session(session, ctx.tenant_id)
         saved = persist_artifact(
             session,
             tenant_id=ctx.tenant_id,
