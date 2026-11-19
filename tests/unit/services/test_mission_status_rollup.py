@@ -432,7 +432,7 @@ def test_rollup_reports_missing_completion_record_without_claiming_success() -> 
         service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
 
     assert mission.status == MissionState.FAILED.value
-    assert "durable deliverable completion was not recorded" in mission.metadata_json["acceptance"]["reasons"]
+    assert "durable deliverable field company_name: missing_artifact" in mission.metadata_json["acceptance"]["reasons"]
 
 
 def test_rollup_does_not_accept_message_references_as_retrieved_content() -> None:
