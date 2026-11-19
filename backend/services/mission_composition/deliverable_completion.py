@@ -187,13 +187,17 @@ def evaluate_deliverable_completion(
     field_results: list[DeliverableFieldCompletion] = []
 
     for binding in projection.bindings:
+        present = [artifacts_by_key[key] for key in binding.artifact_keys if key in artifacts_by_key]
+        # A field may bind to several catalog artifacts. Only produced
+        # artifacts can impose their row minimum at runtime.
+        applicable_keys = tuple(artifact.artifact_key for artifact in present) or binding.artifact_keys
         # Quantities constrain row-oriented artifacts. A whole-artifact report
         # can contain an internal list, but its requested fields are presence
         # checks; applying the mission quantity to the enclosing object would
         # incorrectly mark a valid report as insufficient_rows.
         whole_artifact_binding = any(
             field.deliverable_field == binding.field_key and field.scope == "whole_artifact"
-            for artifact_key in binding.artifact_keys
+            for artifact_key in applicable_keys
             for field in (
                 ARTIFACT_SCHEMAS_BY_KEY[artifact_key].fields if artifact_key in ARTIFACT_SCHEMAS_BY_KEY else ()
             )
@@ -204,7 +208,7 @@ def evaluate_deliverable_completion(
             else max(
                 (
                     projection.minimum_rows_by_artifact.get(artifact_key, projection.minimum_rows)
-                    for artifact_key in binding.artifact_keys
+                    for artifact_key in applicable_keys
                 ),
                 default=projection.minimum_rows,
             )
@@ -212,14 +216,12 @@ def evaluate_deliverable_completion(
         if binding.status != "bound":
             status: FieldCompletionStatus = "unproven"
         elif binding.basis == "whole_artifact_identity":
-            present = [artifacts_by_key[key] for key in binding.artifact_keys if key in artifacts_by_key]
             status = (
                 "satisfied"
                 if any(_artifact_has_value(artifact.payload) for artifact in present)
                 else "missing_artifact"
             )
         elif binding.basis == "typed_artifact_field":
-            present = [artifacts_by_key[key] for key in binding.artifact_keys if key in artifacts_by_key]
             if not present:
                 status = "missing_artifact"
             elif any(not validations[artifact.artifact_key].valid for artifact in present):

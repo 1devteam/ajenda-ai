@@ -761,6 +761,7 @@ def test_assembler_rejects_cross_tenant_inputs_and_absent_runtime_state() -> Non
         ("up to three", "Ajenda Test Customer", ["Cedar Supply", "Mesa Fabrication", "Ridge Logistics"], True),
         ("up to three", "Ajenda Test Customer - Cedar", ["Cedar Supply"], True),
         ("up to three", "Ajenda Test Customer - No Match 699", [], True),
+        ("three", "Ajenda Test Customer - Cedar", ["Cedar Supply"], False),
         ("three", "Ajenda Test Customer - No Match 699", [], False),
     ],
 )
@@ -781,7 +782,14 @@ def test_composed_internal_crm_search_materializes_the_requested_result(
     assert requests is not None and not requests.unresolved_items
     assert [field.field_key for field in requests.fields] == ["company_name"]
     mission = _mission("Return company name.")
-    state = build_deliverable_runtime_state(requests, minimum_rows=deliverable_minimum_rows(record.intent))
+    state = build_deliverable_runtime_state(
+        requests,
+        minimum_rows=deliverable_minimum_rows(record.intent),
+        minimum_rows_by_artifact={
+            "qualified_prospects": record.intent.requested_quantity or 0,
+            "introduction_drafts": record.intent.requested_quantity or 0,
+        },
+    )
     mission.metadata_json = {
         "mission_intake": {"context": {"composition": {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: state}}}
     }
@@ -817,6 +825,8 @@ def test_composed_internal_crm_search_materializes_the_requested_result(
     _validate_declared_output_contract(task, {"output": action.output})
     mission.metadata_json, completion = refresh_deliverable_completion_metadata(mission.metadata_json, [task])
     assert completion is not None and completion.complete == expected_complete
+    assert completion.fields[0].required_rows == (0 if count_scope == "up to three" else 3)
+    assert completion.fields[0].observed_rows == len(expected_names)
     report = assemble_revops_mission_deliverable(mission=mission, tasks=[task])
     assert report.artifacts["crm_records"] == rows
     assert report.completion.complete == expected_complete
