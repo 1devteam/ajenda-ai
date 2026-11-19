@@ -125,12 +125,14 @@ it("labels sources in mixed discovery readback and exposes missing public provid
       status: "completed",
       public_search_observed: false,
       candidates: [
-        { company: "Internal Company", source_scope: "tenant_internal" },
+        { company: "Internal Company", source_scope: "tenant_internal", identity_status: "verified", identity_evidence_urls: ["https://example.com"] },
         { company: "Fixture Company", source_scope: "local_fixture" },
       ],
     }] },
   });
   expect(text).toContain("Internal CompanyInternal record");
   expect(text).toContain("Fixture CompanyFixture evidence");
+  expect(text).toContain("Candidate source URLs");
+  expect(text).not.toContain("Internal recordverified");
   expect(text).toContain("No public search provider response was recorded.");
 });

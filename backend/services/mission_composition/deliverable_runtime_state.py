@@ -23,7 +23,7 @@ from backend.services.mission_composition.contracts import (
     GraphLineage,
     MissionIntent,
 )
-from backend.services.mission_composition.deliverable_contract import DeliverableRequest
+from backend.services.mission_composition.deliverable_contract import DeliverableFieldRequirement, DeliverableRequest
 from backend.services.mission_composition.deliverable_projection import (
     DeliverableProjection,
     project_deliverable_request,
@@ -112,6 +112,21 @@ class DeliverableRuntimeState(BaseModel):
     runtime_reconciliation: RuntimeReconciliation | None = None
     lifecycle: DeliverableArtifactLifecycle = Field(default_factory=DeliverableArtifactLifecycle)
     grants_execution_authority: Literal[False] = False
+
+
+def goal_evaluation_deliverable_request() -> DeliverableRequest:
+    """Describe the default result for the typed goal evaluation outcome."""
+
+    return DeliverableRequest(
+        scope="mission",
+        fields=(
+            DeliverableFieldRequirement(field_key="goal_status", source_text="goal status"),
+            DeliverableFieldRequirement(field_key="goal_confidence", source_text="goal confidence"),
+            DeliverableFieldRequirement(field_key="kpi_evaluations", source_text="KPI evaluations"),
+            DeliverableFieldRequirement(field_key="progress_gaps", source_text="progress gaps"),
+            DeliverableFieldRequirement(field_key="evidence_gaps", source_text="evidence gaps"),
+        ),
+    )
 
 
 def deliverable_minimum_rows(intent: MissionIntent) -> int:

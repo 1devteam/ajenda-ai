@@ -79,10 +79,11 @@ function researchSourceLabel(row: Record<string, unknown>): string | null {
   return null;
 }
 
-function ResearchObservations({ title, rows, empty }: {
+function ResearchObservations({ title, rows, empty, discovery = false }: {
   title: string;
   rows: unknown;
   empty: string;
+  discovery?: boolean;
 }) {
   if (!Array.isArray(rows)) return null;
   const observations = resultRows(rows);
@@ -92,16 +93,17 @@ function ResearchObservations({ title, rows, empty }: {
       {observations.length ? (
         <ul>{observations.map((row, index) => {
           const source = researchSourceLabel(row);
+          const observation = label(row.reason ?? (discovery ? null : row.identity_status));
           return (
             <li key={index}>
               <strong>{resultText(row.company) ?? resultText(row.url) ?? resultText(row.website) ?? "Source observation"}</strong>
               {resultText(row.company) && (resultText(row.url) ?? resultText(row.website))
                 ? <div>{resultText(row.url) ?? resultText(row.website)}</div> : null}
               {source ? <div>{source}</div> : null}
-              {label(row.reason ?? row.identity_status) ? <div>{label(row.reason ?? row.identity_status)}</div> : null}
+              {observation ? <div>{observation}</div> : null}
               {label(row.source_reliability) ? <div>Source classification: {label(row.source_reliability)}</div> : null}
               <ResultList title="Identity gaps" items={row.identity_gaps} />
-              <ResultList title="Identity evidence URLs" items={row.identity_evidence_urls} />
+              <ResultList title={discovery ? "Candidate source URLs" : "Identity evidence URLs"} items={row.identity_evidence_urls} />
             </li>
           );
         })}</ul>
@@ -150,7 +152,8 @@ export function PublicResearchResult({ report, stages }: {
               <>
                 {stage.public_search_observed === false && !resultText(stage.research_gap)
                   ? <p>No public search provider response was recorded.</p> : null}
-                <ResearchObservations title="Candidates found" rows={stage.candidates} empty="No candidate observations were recorded." />
+                <p>Discovery records candidate sources. Public identity results appear in verification.</p>
+                <ResearchObservations discovery title="Candidates found" rows={stage.candidates} empty="No candidate observations were recorded." />
               </>
             ) : (
               <>

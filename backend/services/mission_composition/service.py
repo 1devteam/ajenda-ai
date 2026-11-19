@@ -29,6 +29,7 @@ from backend.services.mission_composition.deliverable_contract import (
     DeliverableFieldRequirement,
     DeliverableRequest,
 )
+from backend.services.mission_composition.deliverable_runtime_state import goal_evaluation_deliverable_request
 from backend.services.mission_composition.interpretation.outcome_proposer import CanonicalOutcomeProposer
 from backend.services.mission_composition.plan_compiler import compile_planned_steps
 from backend.services.mission_composition.proposal_phase import MissionCompositionProposalPhase
@@ -48,18 +49,13 @@ from backend.services.quota_enforcement import QuotaEnforcementService
 
 
 def _runtime_deliverable_request(intent: MissionIntent) -> DeliverableRequest | None:
-    """Return the explicit request or the server-declared research artifact contract.
-
-    Short operator requests often name the research outcome without spelling out
-    a report field list.  The compiler already owns that outcome and its
-    ``prospect_candidates`` artifact, so it can persist the minimal typed read
-    model needed to display that artifact.  No rows are invented here; runtime
-    completion still validates the materialized payload against this contract.
-    """
+    """Return the explicit request or a default contract from typed outcomes."""
 
     if intent.deliverable_request is not None:
         return intent.deliverable_request
     outcomes = set(intent.requested_outcomes)
+    if outcomes == {"evaluate_goal_progress"}:
+        return goal_evaluation_deliverable_request()
     if not outcomes.intersection(
         {
             "research_prospects",

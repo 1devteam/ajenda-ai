@@ -24,6 +24,8 @@ from backend.services.mission_composition.deliverable_runtime_artifacts import (
     declared_artifact_key,
 )
 from backend.services.mission_composition.deliverable_runtime_state import (
+    build_deliverable_runtime_state,
+    goal_evaluation_deliverable_request,
     load_deliverable_runtime_state,
 )
 from backend.services.mission_composition.revops_deliverable_approval import _approval_state
@@ -44,6 +46,7 @@ from backend.services.mission_composition.revops_deliverable_runtime import (
     _validate_ownership,
     _validated_artifacts,
 )
+from backend.services.mission_composition.vertical_know_how import REVOPS_V2_KNOW_HOW
 from backend.services.tools.mission_input_binding import handler_output_for_task
 
 _DRAFT_REVIEW_STATUSES = frozenset({"pending", "approved", "rejected", "sent"})
@@ -56,6 +59,20 @@ _TERMINAL_TASK_STATES = frozenset(
         ExecutionTaskState.BLOCKED.value,
     }
 )
+
+
+def _is_completed_standalone_goal_evaluation(tasks: Sequence[ExecutionTask]) -> bool:
+    if len(tasks) != 1:
+        return False
+    task = tasks[0]
+    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    invocation = metadata.get("tool_invocation")
+    return (
+        task.status == ExecutionTaskState.COMPLETED.value
+        and declared_artifact_key(task) == "goal_progress_evaluation"
+        and isinstance(invocation, dict)
+        and invocation.get("action") == "analysis.evaluate_goal_progress"
+    )
 
 
 def assemble_revops_mission_deliverable(
@@ -76,6 +93,12 @@ def assemble_revops_mission_deliverable(
         outcome_reviews=outcome_reviews,
     )
     state = load_deliverable_runtime_state(_runtime_state_from_metadata(mission.metadata_json))
+    if state is None and _is_completed_standalone_goal_evaluation(tasks):
+        # Older composed goals persisted the declared task result without a
+        # mission projection. Reuse the typed projection only for readback.
+        state = load_deliverable_runtime_state(
+            build_deliverable_runtime_state(goal_evaluation_deliverable_request(), know_how=REVOPS_V2_KNOW_HOW)
+        )
     if state is None:
         calendar_tasks = [
             task
