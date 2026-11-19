@@ -363,10 +363,11 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
         # envelope. Never promote that stale flag to accepted mission outcome.
         task_metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
         terminal_refresh_issue = task_metadata.get("deliverable_refresh_issue")
-        if isinstance(raw_runtime_state, dict) and terminal_refresh_issue in {
-            "invalid_completion_state",
-            "refresh_exception",
-        }:
+        if (
+            isinstance(raw_runtime_state, dict)
+            and isinstance(terminal_refresh_issue, str)
+            and terminal_refresh_issue in {"invalid_completion_state", "refresh_exception"}
+        ):
             acceptance_reasons.append(f"deliverable refresh issue: {terminal_refresh_issue}")
             acceptance_met = False
         if isinstance(raw_runtime_state, dict) and not (
