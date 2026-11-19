@@ -41,6 +41,8 @@ import {
 } from "../utils/missionBridge";
 import { failureText, pretty } from "../utils/errors";
 
+import { GoalEvaluationResult, PublicResearchResult, resultRecord, resultRows } from "./MissionResultDetails";
+
 import "./missionDispatch.css";
 
 type StepStatus = "pending" | "complete" | "blocked" | "partially admitted";
@@ -946,6 +948,10 @@ function MissionDispatch({ missionId }: { missionId: string }) {
       {deliverable ? (
         <section className="panel" aria-label="Mission deliverable">
           {(() => {
+            const goalEvaluation = resultRecord(deliverable.artifacts?.goal_progress_evaluation);
+            const researchReport = resultRecord(deliverable.artifacts?.research_report);
+            const researchStages = resultRows(deliverable.result_semantics?.public_research_stages);
+            const showResearch = researchReport !== null || researchStages.length > 0;
             const observation = deliverable.artifacts?.web_page_observation;
             const isWebObservation = Boolean(observation && typeof observation === "object");
             const identity = deliverable.artifacts?.public_identity_observation;
@@ -975,7 +981,7 @@ function MissionDispatch({ missionId }: { missionId: string }) {
             <div>
               <p className="cc-section-kicker">Durable output</p>
               <h2>
-                {emailReferences ? "Gmail message references" : calendarEvents ? "Calendar events" : isWebObservation ? "Web page observation" : isIdentityObservation ? "Public identity observation" : showInternalSearch ? "Internal CRM search" : "Prospect candidates"}
+                {goalEvaluation ? "Goal evaluation" : showResearch ? "Public research" : emailReferences ? "Gmail message references" : calendarEvents ? "Calendar events" : isWebObservation ? "Web page observation" : isIdentityObservation ? "Public identity observation" : showInternalSearch ? "Internal CRM search" : "Prospect candidates"}
               </h2>
             </div>
             <span
@@ -992,6 +998,8 @@ function MissionDispatch({ missionId }: { missionId: string }) {
               successful.
             </p>
           ) : null}
+          {goalEvaluation ? <GoalEvaluationResult evaluation={goalEvaluation} /> : null}
+          {showResearch ? <PublicResearchResult report={researchReport} stages={researchStages} /> : null}
           {emailReferences ? (
             <EmailReferences messages={emailReferences} sourceObservations={deliverable.result_semantics?.source_observations} />
           ) : calendarEvents ? (
@@ -1067,7 +1075,7 @@ function MissionDispatch({ missionId }: { missionId: string }) {
                 </tbody>
               </table>
             </div>
-          ) : (
+          ) : goalEvaluation || showResearch ? null : (
             <p className="muted">No prospect candidates were produced.</p>
           )}
           {deliverable.limitations?.length ? (

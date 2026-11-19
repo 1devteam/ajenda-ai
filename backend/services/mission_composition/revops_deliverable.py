@@ -39,6 +39,7 @@ from backend.services.mission_composition.revops_deliverable_effects import _eff
 from backend.services.mission_composition.revops_deliverable_prospects import _assemble_prospects
 from backend.services.mission_composition.revops_deliverable_runtime import (
     _completion_read,
+    _public_research_stages,
     _runtime_state_from_metadata,
     _validate_ownership,
     _validated_artifacts,
@@ -287,6 +288,7 @@ def assemble_revops_mission_deliverable(
         outcome_reviews=outcome_reviews,
         now=effective_now.astimezone(UTC),
     )
+    public_research_stages = _public_research_stages(tasks)
     limitations = _limitations(
         tasks=tasks,
         evidence_records=evidence_records,
@@ -310,6 +312,7 @@ def assemble_revops_mission_deliverable(
         ),
         result_semantics={
             "completion_scope": "requested_deliverable",
+            **({"public_research_stages": public_research_stages} if public_research_stages else {}),
             "mission_acceptance": (
                 mission.metadata_json.get("acceptance") if isinstance(mission.metadata_json, dict) else None
             ),
