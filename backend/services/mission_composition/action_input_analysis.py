@@ -34,22 +34,42 @@ _OPPORTUNITY_RECORD_READ = re.compile(
     r"\b(?:internal\s+crm\s+(?:opportunit(?:y|ies)|deals?)|(?:opportunity|deal)\s+records?)\b",
     re.IGNORECASE,
 )
+_CRM_RECORD_QUANTITY = re.compile(
+    r"\b(\d+)\s+(?:(?:internal\s+)?crm\s+)?(?:(?:account|opportunity|deal|contact)\s+)?"
+    r"(?:records?|accounts?|opportunit(?:y|ies)|deals?|contacts?)\b",
+    re.IGNORECASE,
+)
+_UNSUPPORTED_OPPORTUNITY_REQUIREMENTS = (
+    ("status or stage filtering", r"\b(?:open|closed|status|stages?|won\s+or\s+lost)\b"),
+    ("activity history", r"\b(?:activity\s+history|last\s+(?:recorded\s+)?(?:interaction|activity))\b"),
+    ("follow-up analysis", r"\b(?:follow[- ]up|recommendations?|need(?:s)?\s+attention)\b"),
+    ("evidence-gap assessment", r"\b(?:evidence\s+gaps?|insufficient\s+evidence|not\s+have\s+enough\s+evidence)\b"),
+)
 
 
 def _internal_crm_search_input(intent: MissionIntent, limit: int) -> dict[str, Any]:
     instruction = _source_instruction(intent)
-    opportunity_read = bool(_OPPORTUNITY_RECORD_READ.search(instruction))
-    if opportunity_read and re.search(
-        r"\b(?:open|closed|activity\s+history|follow[- ]up|recommendations?|stage)\b", instruction, re.IGNORECASE
-    ):
-        raise ValueError(
-            "Internal CRM opportunity search does not yet support requested status, activity history, "
-            "or follow-up analysis. Specify a plain opportunity-record read to continue."
-        )
-
     filters = list(_CRM_SEARCH_FILTER.finditer(instruction))
     if len(filters) > 1 or (not filters and _CRM_SEARCH_FILTER_CUE.search(instruction)):
         raise ValueError("Internal CRM search requires one non-empty quoted search phrase.")
+    # An explicit search phrase is data, even when it contains scope keywords.
+    search_scope = _CRM_SEARCH_FILTER.sub(" ", instruction)
+    opportunity_read = bool(_OPPORTUNITY_RECORD_READ.search(search_scope))
+    if opportunity_read:
+        unsupported = [
+            label for label, pattern in _UNSUPPORTED_OPPORTUNITY_REQUIREMENTS if re.search(pattern, search_scope, re.I)
+        ]
+        if unsupported:
+            raise ValueError(
+                f"Internal CRM opportunity search does not yet support {', '.join(unsupported)}. "
+                "Specify a plain opportunity-record read to continue."
+            )
+
+    # The shared interpreter discards numbers above 50. Catch explicit
+    # out-of-range CRM counts before they can become the default search limit.
+    quantity_match = _CRM_RECORD_QUANTITY.search(search_scope)
+    if quantity_match and int(quantity_match[1]) > 50:
+        raise ValueError("Internal CRM search can return at most 50 records per request.")
     result: dict[str, Any] = {
         "record_type": (
             "contact"
@@ -59,7 +79,7 @@ def _internal_crm_search_input(intent: MissionIntent, limit: int) -> dict[str, A
             else "account"
         ),
         "query": "",
-        "limit": limit,
+        "limit": intent.requested_quantity or limit,
     }
     if filters:
         match = filters[0]
