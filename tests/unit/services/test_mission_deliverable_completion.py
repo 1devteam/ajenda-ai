@@ -115,7 +115,7 @@ def test_company_name_is_satisfied_by_discovery_artifacts() -> None:
     assert completion.fields[0].status == "satisfied"
 
 
-def test_goal_progress_artifact_accepts_empty_evaluation_arrays() -> None:
+def test_goal_progress_artifact_accepts_zero_confidence_and_empty_evaluation_arrays() -> None:
     request = extract_deliverable_request(
         "Return the evaluation status, confidence, KPI evaluations, progress gaps, evidence gaps, and explanations."
     )
@@ -130,7 +130,7 @@ def test_goal_progress_artifact_accepts_empty_evaluation_arrays() -> None:
                     "status": "insufficient_data",
                     "goal_id": "g-1",
                     "algorithm": "goal_progress_evaluation_v1",
-                    "confidence": 0.3,
+                    "confidence": 0.0,
                     "evaluated_at": "2026-09-25T00:00:00Z",
                     "explanations": ["No KPIs were declared."],
                     "subject_refs": [],

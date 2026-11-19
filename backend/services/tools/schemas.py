@@ -512,6 +512,7 @@ class DocumentReadInput(BaseModel):
 class RetrievalHybridInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    mode: Literal["hybrid", "approved_profile_introduction"] = "hybrid"
     query: str = Field(min_length=1, max_length=500)
     mission_id: str | None = Field(default=None, max_length=160)
     filters: dict[str, Any] = Field(default_factory=dict)

@@ -96,6 +96,18 @@ from backend.services.mission_composition.interpretation.rule_engine import (
     _segment_clauses as _segment_clauses_impl,
 )
 
+_COMPANY_INTRODUCTION_DRAFT = re.compile(
+    r"\b(?:prepare|write|create|produce)\s+(?:an?\s+evidence[- ]backed\s+)?"
+    r"(?:an?\s+)?company\s+brief\s+and\s+"
+    r"(?P<draft>(?:a|one|1)\s+(?:draft\s+introduction|introduction\s+draft))"
+    r"(?=\s*(?:explaining\b|describing\b|about\b|for\s+review\s*$|$))",
+    re.IGNORECASE,
+)
+_RECIPIENT_DIRECTED_DRAFT = re.compile(
+    r"@|\b(?:outreach|personali[sz]ed|prospects?|recipients?|e-?mail)\b",
+    re.IGNORECASE,
+)
+
 _NAMED_REPORT_COMPANY = re.compile(
     r"\b(?:business\s+)?intelligence\s+report\s+on\s+"
     r"(?P<name>"
@@ -158,6 +170,15 @@ def _extract_recommendation_count(text: str) -> int | None:
     raw = match.group("count").lower()
     value = int(raw) if raw.isdigit() else _REPORT_COUNT_WORDS.get(raw)
     return value if value is not None and 1 <= value <= 50 else None
+
+
+def _company_introduction_request(clause: str) -> re.Match[str] | None:
+    if _RECIPIENT_DIRECTED_DRAFT.search(clause) or _COORDINATED_PROHIBITION_START.match(clause):
+        return None
+    match = _COMPANY_INTRODUCTION_DRAFT.search(clause)
+    if match is None or re.search(r"\b(?:not|don't|dont|never|without)\s+$", clause[: match.start()], re.IGNORECASE):
+        return None
+    return match
 
 
 def _segment_clauses(text: str, *, protected_spans: list[str] | None = None) -> list[str]:
@@ -276,7 +297,6 @@ def interpret_instruction(
     wants_business_profile = _contains_any(lower, _BUSINESS_PROFILE_READ_PATTERNS)
     uses_business_profile = _contains_any(lower, _BUSINESS_PROFILE_CONTEXT_PATTERNS)
     wants_social_draft = _contains_any(lower, _SOCIAL_DRAFT_PATTERNS)
-    wants_draft = _contains_any(lower, _DRAFT_PATTERNS) and not wants_social_draft
     recipient_lookup_forbidden = bool(_RECIPIENT_LOOKUP_PROHIBITION.search(text))
     clauses = _segment_clauses(text)
     action_clauses = [
@@ -284,6 +304,35 @@ def interpret_instruction(
         for clause in clauses
         if not _COORDINATED_PROHIBITION_START.match(clause)
     ]
+    company_introduction = None
+    if wants_business_profile and not wants_send and not wants_social_draft:
+        company_introduction = next(
+            (match for clause in action_clauses if (match := _company_introduction_request(clause)) is not None),
+            None,
+        )
+    draft_text = (
+        " ".join(
+            clause[: match.start("draft")] + clause[match.end("draft") :]
+            if (match := _company_introduction_request(clause)) is not None
+            else clause
+            for clause in action_clauses
+        )
+        if company_introduction
+        else lower
+    )
+    wants_draft = _contains_any(draft_text.lower(), _DRAFT_PATTERNS) and not wants_social_draft
+    if company_introduction:
+        context_requirements.append("approved_profile_introduction")
+        evidence.append(
+            _evidence(
+                field_path="context_requirements.approved_profile_introduction",
+                source="explicit",
+                source_text=company_introduction.group("draft"),
+                normalized_value="approved_profile_introduction",
+                confidence=0.98,
+                rule_id="profile.recipient_free_introduction",
+            )
+        )
     if recipient_lookup_forbidden:
         context_requirements.append("recipient_lookup_forbidden")
     wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
@@ -792,7 +841,7 @@ def interpret_instruction(
     # Explicit draft language is already handled by the deterministic draft
     # patterns; prevent fuzzy matching from misclassifying "prepare drafts" as
     # the unrelated accounting outcome "prepare invoice drafts".
-    if wants_draft or wants_social_draft:
+    if wants_draft or wants_social_draft or company_introduction:
         fuzzy_already.add("prepare_outreach")
         fuzzy_already.add("prepare_invoice_drafts")
     if calendar_write_requested and not calendar_read_intent:
@@ -1029,7 +1078,7 @@ def interpret_instruction(
     if not entities and wants_crm_read:
         entities = _extract_connector_company(text)
 
-    count = _extract_count(text)
+    count = 1 if company_introduction and set(outcomes) == {"read_business_profile"} else _extract_count(text)
     qualification_count = _extract_qualification_count(text)
     recommendation_count = _extract_recommendation_count(text) if wants_research_report else None
     prospect_count_explicit = bool(
@@ -1233,6 +1282,11 @@ def interpret_instruction(
             business_need_review=business_need_review_requested,
             goal_progress_evaluation="evaluate_goal_progress" in outcomes,
         )
+        if company_introduction and _company_introduction_request(clause_text):
+            mapped = [outcome for outcome in mapped if outcome != "prepare_outreach"]
+            if "read_business_profile" not in mapped:
+                mapped.append("read_business_profile")
+            material = recognized = True
         if (
             "read_crm" in outcomes
             and "internal_crm_source" in context_requirements
@@ -1398,6 +1452,14 @@ def interpret_instruction(
         quantity_source=quantity_provenance or "unresolved",
         label=label,
     )
+
+    if company_introduction:
+        success.append(
+            SuccessCriterion(
+                description="One recipient-free company introduction draft is available for review with approved profile evidence",
+                measurable=True,
+            )
+        )
 
     understood_bits = [o.replace("_", " ") for o in outcomes]
     if entities:

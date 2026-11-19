@@ -19,6 +19,8 @@ from backend.services.mission_composition.deliverable_runtime_state import (
 )
 from backend.services.mission_composition.revops_deliverable import assemble_revops_mission_deliverable
 from backend.services.mission_composition.service import MissionCompositionService, _runtime_deliverable_request
+from backend.services.mission_composition.vertical_know_how import select_vertical_know_how
+from backend.services.tools.analysis_actions import analysis_evaluate_goal_progress
 from backend.services.tools.local_records import build_local_record_provider
 from backend.services.tools.record_store import LocalRecordStoreAdapter
 from backend.services.tools.sales_action_records import record_search
@@ -843,6 +845,56 @@ def test_composed_internal_crm_search_materializes_the_requested_result(
         bare_output = {"record_type": "account", "count": 0, "records": [], "crm_records": []}
         with pytest.raises(ValueError, match="must attest"):
             _validate_declared_output_contract(task, {"output": bare_output})
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_composed_goal_evaluation_is_readable_after_execution(legacy: bool) -> None:
+    instruction = "Assess goal progress for launching Ajenda AI."
+    record = MissionCompositionService(db=None).compose(tenant_id=TENANT_ID, instruction=instruction)
+    assert record.ready_to_start, record.clarifications
+    assert record.allowed_actions == ["analysis.evaluate_goal_progress"]
+    step = record.planned_steps[0]
+    request = _runtime_deliverable_request(record.intent)
+    assert request is not None and request.scope == "mission"
+    know_how = select_vertical_know_how(record.intent.requested_outcomes)
+    assert know_how is not None
+    state = build_deliverable_runtime_state(request, know_how=know_how)
+    mission = _mission("Return company name.")
+    mission.objective = instruction
+    mission.status = "completed"
+    mission.metadata_json = (
+        {}
+        if legacy
+        else {"mission_intake": {"context": {"composition": {DELIVERABLE_RUNTIME_STATE_METADATA_KEY: state}}}}
+    )
+    invocation = ToolInvocation(action=step.action_name, input=step.tool_input)
+    result = analysis_evaluate_goal_progress(
+        invocation,
+        ActionRuntimeContext(
+            tenant_id=TENANT_ID, mission_id=MISSION_ID, task_id=uuid.UUID(int=1), worker_id="worker", lease_id="lease"
+        ),
+    )
+    evaluation = result.output["goal_progress_evaluation"]
+    task = _task(
+        task_id=1,
+        artifact="goal_progress_evaluation",
+        payload=evaluation,
+        metadata_fields={"tool_invocation": invocation.model_dump(mode="json")},
+    )
+    _validate_declared_output_contract(task, {"output": result.output})
+    if not legacy:
+        mission.metadata_json, completion = refresh_deliverable_completion_metadata(mission.metadata_json, [task])
+        assert completion is not None and completion.complete
+    report = assemble_revops_mission_deliverable(mission=mission, tasks=[task])
+    assert report.artifacts["goal_progress_evaluation"] == evaluation
+    assert report.completion.complete
+    assert report.result_semantics["business_outcome_status"] == "insufficient_data"
+    assert report.grants_execution_authority is False
+    if legacy:
+        assert mission.metadata_json == {}
+        task.metadata_json["tool_invocation"]["action"] = "analysis.unrelated"
+        with pytest.raises(ValueError, match="mission deliverable runtime state is absent"):
+            assemble_revops_mission_deliverable(mission=mission, tasks=[task])
 
 
 def test_public_research_readback_preserves_discovery_and_verification_without_promoting_rejections() -> None:

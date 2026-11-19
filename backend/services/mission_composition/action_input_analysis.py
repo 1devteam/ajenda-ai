@@ -430,6 +430,12 @@ def build_analysis_action_input(
         )
     if action_name == "record.read" and business_need_assessment_context is not None:
         return _assessment_source_observation_input(assessment_context=business_need_assessment_context)
+    if action_name == "retrieval.hybrid_search" and "approved_profile_introduction" in intent.context_requirements:
+        return {
+            "query": "Approved business profile and governed internal memory",
+            "limit": 5,
+            "mode": "approved_profile_introduction",
+        }
     if action_name == "retrieval.hybrid_search" and (
         "read_business_profile" in intent.requested_outcomes or "review_business_income" in intent.requested_outcomes
     ):

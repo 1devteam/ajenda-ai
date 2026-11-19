@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import Mission
+from backend.services.business_profile.company_introduction import CompanyIntroductionDraft
 from backend.services.mission_composition.deliverable_completion import validate_materialized_artifact
 from backend.services.mission_composition.deliverable_runtime_artifacts import (
     collect_materialized_artifacts,
@@ -36,6 +37,7 @@ class ProfileDeliverableRead(BaseModel):
     profile_id: uuid.UUID | None = None
     approved_facts: dict[str, Any] = Field(default_factory=dict)
     profile_brief: dict[str, Any] = Field(default_factory=dict)
+    company_introduction_draft: CompanyIntroductionDraft | None = None
     missing_fields: tuple[str, ...] = ()
     conflicting_fields: tuple[str, ...] = ()
     artifacts: dict[str, Any] = Field(default_factory=dict)
@@ -116,6 +118,7 @@ def assemble_profile_deliverable(
         profile_id=profile_id,
         approved_facts=approved_facts,
         profile_brief=profile_brief,
+        company_introduction_draft=payload.get("company_introduction_draft"),
         missing_fields=tuple(str(value) for value in profile_brief.get("missing_fields", ()) if value),
         conflicting_fields=tuple(str(value) for value in profile_brief.get("conflicting_fields", ()) if value),
         artifacts=artifacts,

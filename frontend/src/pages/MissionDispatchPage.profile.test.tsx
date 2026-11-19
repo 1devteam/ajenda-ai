@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { getProfileDeliverable } from "../api/client";
 import MissionDispatchPage from "./MissionDispatchPage";
 
 const auth = vi.hoisted(() => ({ session: { tenantId: "tenant-a" } }));
@@ -48,4 +49,27 @@ it("shows the existing profile artifact and evidence after the generic deliverab
   expect(container.textContent).toContain("evidence-1");
   expect(container.textContent).not.toContain("unrelated-evidence");
   expect(container.textContent).toContain("Missing fields: description");
+});
+
+
+it("renders one review draft and its internal source references after reopening", async () => {
+  const previous = await getProfileDeliverable(auth.session as never, "mission-1");
+  vi.mocked(getProfileDeliverable).mockResolvedValueOnce({
+    ...previous,
+    company_introduction_draft: {
+      schema_version: 1,
+      status: "draft",
+      body: "Ajenda AI\n\nGoverned AI operations.",
+      source_fields: ["business_name", "description"],
+      memory_reference_ids: ["memory-1"],
+    },
+  });
+  await act(async () => {
+    root.render(<MemoryRouter initialEntries={["/missions/mission-1"]}><Routes><Route path="/missions/:missionId" element={<MissionDispatchPage />} /></Routes></MemoryRouter>);
+  });
+  const draft = container.querySelector('[aria-label="Company introduction draft"]');
+  expect(container.querySelectorAll('[aria-label="Company introduction draft"]')).toHaveLength(1);
+  expect(draft?.textContent).toContain("For review.");
+  expect(draft?.textContent).toContain("Governed AI operations.");
+  expect(draft?.textContent).toContain("memory-1");
 });

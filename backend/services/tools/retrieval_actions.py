@@ -6,6 +6,7 @@ from typing import Any
 from backend.db.tenant_session import activate_tenant_session
 from backend.repositories.business_profile_repository import BusinessProfileRepository
 from backend.repositories.retrieval_contract_repository import RetrievalContractRepository
+from backend.services.business_profile.company_introduction import build_company_introduction
 from backend.services.business_profile.context_resolver import resolve_business_context
 from backend.services.business_profile.record_sync import build_profile_brief
 from backend.services.data_plane.memory_chunk_store import resolve_memory_chunk_store
@@ -106,8 +107,55 @@ def _approved_profile_hit(context: ActionRuntimeContext, query: str) -> list[dic
         session.close()
 
 
+def _approved_profile_introduction(payload: RetrievalHybridInput, context: ActionRuntimeContext) -> ActionResult:
+    profile_hits = _approved_profile_hit(context, payload.query)
+    if not profile_hits:
+        raise ValueError("An approved business profile is required for the company introduction.")
+    profile = profile_hits[0]["content"]
+    brief = profile["profile_brief"]
+    business_name = brief["facts"].get("business_name")
+    memory_ids: tuple[str, ...] = ()
+    if isinstance(business_name, str) and business_name.strip():
+        hits = resolve_memory_chunk_store(context).keyword_search(
+            tenant_id=context.tenant_id,
+            query=business_name,
+            limit=payload.limit,
+        )
+        memory_ids = tuple(
+            dict.fromkeys(str(hit["id"]) for hit in hits if hit.get("tenant_id") == context.tenant_id and hit.get("id"))
+        )
+    draft = build_company_introduction(brief, memory_reference_ids=memory_ids)
+    output = {
+        "business_profile_facts": {**profile, "company_introduction_draft": draft.model_dump(mode="json")},
+    }
+    summary = "Prepared one company introduction for review using approved profile facts."
+    return ActionResult(
+        action="retrieval.hybrid_search",
+        provider="local_retrieval",
+        side_effect_class=SideEffectClass.INTERNAL_READ,
+        output=output,
+        evidence=[
+            _evidence(
+                context=context,
+                action="retrieval.hybrid_search",
+                provider="local_retrieval",
+                summary=summary,
+                payload=output,
+                inspected=[profile["profile_id"], *memory_ids],
+                provenance={
+                    "source": "approved_business_profile",
+                    "memory_keyword_reference_count": len(memory_ids),
+                },
+            )
+        ],
+        summary=summary,
+    )
+
+
 def retrieval_hybrid_search(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
     payload_input = RetrievalHybridInput.model_validate(invocation.input)
+    if payload_input.mode == "approved_profile_introduction":
+        return _approved_profile_introduction(payload_input, context)
     record_store = resolve_record_store(context)
     memory_store = resolve_memory_chunk_store(context)
 

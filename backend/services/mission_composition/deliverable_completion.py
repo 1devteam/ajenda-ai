@@ -138,6 +138,9 @@ def _typed_field_has_value(*, artifact: MaterializedArtifact, field_key: Deliver
             # A verified identity has no gaps. Presence of an empty list is
             # therefore a satisfied observation; omission remains unproven.
             return "identity_gaps" in artifact.payload and isinstance(artifact.payload["identity_gaps"], list)
+        if artifact.artifact_key == "goal_progress_evaluation" and field_key in {"confidence", "goal_confidence"}:
+            confidence = artifact.payload.get("confidence")
+            return isinstance(confidence, (int, float)) and not isinstance(confidence, bool) and 0 <= confidence <= 1
         if field_key in {"kpi_evaluations", "progress_gaps", "evidence_gaps"}:
             # Empty typed arrays are affirmative observations for a goal
             # evaluation. Presence is the proof; truthiness would erase it.

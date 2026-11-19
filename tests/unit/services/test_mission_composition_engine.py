@@ -2107,7 +2107,7 @@ def test_short_goal_evaluation_can_start_after_typed_compilation() -> None:
     ]
 
 
-def test_internal_only_company_brief_cannot_start_with_external_research() -> None:
+def test_internal_only_company_brief_plans_one_recipient_free_draft() -> None:
     record = MissionCompositionService(db=None).compose(
         tenant_id="tenant-test",
         instruction=(
@@ -2118,13 +2118,16 @@ def test_internal_only_company_brief_cannot_start_with_external_research() -> No
         ),
     )
 
-    assert not record.ready_to_start
+    assert record.ready_to_start, record.clarifications
     assert "Do not browse the web" in record.intent.constraints
     assert "Do not perform external actions" in record.intent.constraints
-    research = next(step for step in record.planned_steps if step.action_name == "web.research")
-    assert research.compile_gap
-    assert "prohibits external actions" in research.compile_gap
-    assert not research.tool_input
+    assert record.intent.requested_outcomes == ["read_business_profile"]
+    assert record.intent.requested_quantity == 1
+    assert record.allowed_actions == ["retrieval.hybrid_search"]
+    assert len(record.planned_steps) == 1
+    assert record.planned_steps[0].tool_input["mode"] == "approved_profile_introduction"
+    assert record.planned_steps[0].output_contract == "business_profile_facts"
+    assert any("One recipient-free" in item.description for item in record.intent.success_criteria)
 
 
 def test_no_web_search_conflict_is_reported_without_blanket_external_action_language() -> None:
