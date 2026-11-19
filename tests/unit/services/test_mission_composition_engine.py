@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import uuid
 from types import SimpleNamespace
 
 import pytest
 
+from backend.services.llm.factory import TemplateFallbackLlm
 from backend.services.mission_composition.action_inputs import build_action_input
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.contracts import (
@@ -37,6 +39,8 @@ from backend.services.mission_composition.structured_planner import (
 )
 from backend.services.mission_composition.vertical_know_how import select_vertical_know_how
 from backend.services.operating_charter import default_operating_charter
+from backend.services.tools.action_registry import get_default_action_registry
+from backend.services.tools.schemas import ActionRuntimeContext, SideEffectClass, ToolInvocation
 
 ROOFING_INSTRUCTION = (
     "Research roofing companies in Austin, identify three strong prospects, "
@@ -1906,17 +1910,40 @@ def test_draft_without_recipient_lookup_asks_for_address_without_discovery() -> 
     assert record.intent.requested_quantity is None
 
 
-def test_draft_with_supplied_recipient_uses_one_action_and_no_lookup() -> None:
+def test_draft_with_supplied_recipient_uses_one_action_and_no_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("backend.services.draft_generation.generate_text", TemplateFallbackLlm().generate)
     record = MissionCompositionService(db=None).compose(
         tenant_id="tenant",
-        instruction="Draft an introduction email for review to test@example.com without looking up a recipient.",
+        instruction=(
+            "Draft one introduction email for fictional Cedar Supply to test@example.com for review. "
+            "Do not send anything or look up a recipient."
+        ),
     )
     assert record.ready_to_start
     assert record.allowed_actions == ["gtm.email_draft"]
+    assert {"gtm.email_send", "gtm.lead_enrich", "research.observe_contacts"} <= set(record.forbidden_actions)
+    assert record.intent.requested_quantity == 1
     assert len(record.planned_steps) == 1
     assert record.planned_steps[0].tool_input["recipient"] == "test@example.com"
     assert record.planned_steps[0].tool_input["context"]["binding_required"] is False
-    assert record.intent.requested_quantity is None
+    nodes = record.task_graph_preview["nodes"]
+    assert len(nodes) == 1
+    invocation = ToolInvocation.model_validate(nodes[0]["input_contract"]["tool_invocation"])
+    assert invocation.action == "gtm.email_draft"
+    assert nodes[0]["metadata"]["input_bindings"] == []
+    result = get_default_action_registry().invoke(
+        invocation,
+        ActionRuntimeContext(
+            tenant_id=str(uuid.uuid4()),
+            task_id=uuid.uuid4(),
+            mission_id=uuid.uuid4(),
+            worker_id="worker",
+            lease_id=str(uuid.uuid4()),
+        ),
+    )
+    assert result.side_effect_class == SideEffectClass.NONE
+    assert result.output["draft_count"] == 1
+    assert result.output["introduction_drafts"][0]["recipient"] == "test@example.com"
 
 
 def test_explicit_contact_observation_cannot_override_recipient_lookup_prohibition() -> None:
@@ -1987,6 +2014,59 @@ def test_plain_internal_crm_opportunity_read_uses_opportunity_record_type() -> N
     )
     assert record.ready_to_start
     assert record.planned_steps[0].tool_input["record_type"] == "opportunity"
+
+
+@pytest.mark.parametrize(
+    ("requirement", "clarification"),
+    [
+        (" that have not been won or lost", "status"),
+        (" and include the last recorded interaction for each", "activity history"),
+        (". Flag records with insufficient evidence", "evidence-gap"),
+        (" and identify which need attention next", "follow-up analysis"),
+    ],
+)
+def test_unsupported_internal_opportunity_scope_is_visible_before_launch(requirement: str, clarification: str) -> None:
+    instruction = f"List opportunity records from Ajenda internal CRM{requirement}."
+    record = MissionCompositionService(db=None).compose(tenant_id="tenant", instruction=instruction)
+    assert not record.ready_to_start
+    assert any(clarification in item.question for item in record.clarifications)
+    assert not record.planned_steps[0].tool_input
+
+
+@pytest.mark.parametrize("quantity", [25, 50])
+def test_internal_crm_quantity_survives_compilation(quantity: int) -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant", instruction=f"Read up to {quantity} opportunity records from Ajenda internal CRM."
+    )
+    assert record.ready_to_start
+    node = record.task_graph_preview["nodes"][0]
+    assert node["input_contract"]["tool_invocation"]["input"] == {
+        "record_type": "opportunity",
+        "query": "",
+        "limit": quantity,
+    }
+
+
+def test_internal_crm_quantity_over_runtime_limit_is_blocked() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant", instruction="Read up to 51 opportunity records from Ajenda internal CRM."
+    )
+    assert not record.ready_to_start
+    assert any("at most 50" in item.question for item in record.clarifications)
+
+
+def test_opportunity_search_treats_quoted_filter_as_data() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction='List opportunity records from Ajenda internal CRM where the name contains "Open Stage".',
+    )
+    assert record.ready_to_start
+    assert record.planned_steps[0].tool_input == {
+        "record_type": "opportunity",
+        "query": "Open Stage",
+        "query_field": "name",
+        "limit": 3,
+    }
 
 
 def test_internal_crm_text_query_is_preserved_instead_of_running_an_unfiltered_read() -> None:
