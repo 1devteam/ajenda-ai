@@ -249,10 +249,12 @@ def analysis_evaluate_goal_progress(invocation: ToolInvocation, context: ActionR
         missing_evidence_codes=list(payload.missing_evidence_codes),
     )
     evaluation = result.model_dump(mode="json")
-    durable_goal_resolved = "durable_goal_context_unavailable" not in payload.missing_evidence_codes
-    evaluation["evaluation_scope"] = "durable_goal" if durable_goal_resolved else "mission_instruction_only"
-    evaluation["goal_context_authority"] = "durable_goal_repository" if durable_goal_resolved else "mission_instruction"
-    evaluation["durable_goal_resolved"] = durable_goal_resolved
+    instruction_only = "durable_goal_context_unavailable" in payload.missing_evidence_codes
+    # This action evaluates its typed inputs. Only an actual repository
+    # resolution path can attest that they came from a durable goal.
+    evaluation["evaluation_scope"] = "mission_instruction_only" if instruction_only else "provided_goal_context"
+    evaluation["goal_context_authority"] = "mission_instruction" if instruction_only else "invocation_input"
+    evaluation["durable_goal_resolved"] = False
     # Runtime contracts name the artifact explicitly. Keep the evaluator's
     # typed payload under that key so WorkerRuntimeService can validate and
     # persist the exact declared output rather than accepting an untyped blob.

@@ -42,7 +42,8 @@ export function GoalEvaluationResult({ evaluation }: { evaluation: Record<string
     <div aria-label="Goal evaluation result">
       <p><strong>Assessment</strong> {label(evaluation.status) ?? "Unavailable"}</p>
       {scope === "mission_instruction_only" ? <p>Assessment based on the mission instructions. A stored goal was unavailable.</p> : null}
-      {scope === "durable_goal" ? <p>Assessment based on the stored goal.</p> : null}
+      {scope === "durable_goal" ? <p>Assessment based on the recorded goal context.</p> : null}
+      {scope === "provided_goal_context" ? <p>Assessment based on supplied goal data.</p> : null}
       {typeof confidence === "number" && confidence >= 0 && confidence <= 1
         ? <p><strong>Confidence</strong> {Math.round(confidence * 100)}%</p>
         : null}

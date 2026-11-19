@@ -21,6 +21,14 @@ export const BUSINESS_PROFILE_FIELDS: BusinessProfileField[] = [
     section: "identity",
   },
   {
+    category: "description",
+    label: "Company description",
+    description: "An approved overview Ajenda can use in company briefs and introductions.",
+    kind: "textarea",
+    fallbackKeys: ["company_description", "about"],
+    section: "identity",
+  },
+  {
     category: "primary_contact_name",
     label: "Primary contact",
     description: "Owner or operator name for outreach and mission context.",
@@ -76,6 +84,14 @@ export const BUSINESS_PROFILE_FIELDS: BusinessProfileField[] = [
     kind: "list",
     placeholder: "Governed mission runtime\nHybrid retrieval over internal records",
     fallbackKeys: ["services", "offerings"],
+    section: "market",
+  },
+  {
+    category: "differentiators",
+    label: "Differentiators",
+    description: "Approved facts about what sets the company apart. One per line.",
+    kind: "list",
+    fallbackKeys: ["key_differentiators", "advantages"],
     section: "market",
   },
   {

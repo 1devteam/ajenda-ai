@@ -388,7 +388,11 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             "domain": prospect.get("domain") or page_host(snapshot.url),
             "fetched_at": datetime.now(UTC).isoformat(),
         }
-        expected_host = str(prospect.get("domain") or "").lower().removeprefix("www.").split("/")[0]
+        domain = str(prospect.get("domain") or "").strip()
+        try:
+            expected_host = page_host(domain if "://" in domain else f"https://{domain}") if domain else page_host(url)
+        except ValueError:
+            expected_host = ""
         actual_host = page_host(snapshot.url)
         industry_markers = _industry_evidence_markers(
             payload.context.get("industry")

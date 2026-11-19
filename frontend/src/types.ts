@@ -456,6 +456,7 @@ export interface ProfileDeliverableResponse {
     body: string;
     source_fields: string[];
     memory_reference_ids: string[];
+    memory_lookup_status?: "matched" | "no_matches" | "unavailable" | null;
   } | null;
   missing_fields: string[];
   conflicting_fields: string[];

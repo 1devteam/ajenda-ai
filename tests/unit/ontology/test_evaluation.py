@@ -162,7 +162,9 @@ def test_analysis_evaluate_goal_progress_action() -> None:
     assert evaluation["status"] == "at_risk"
     assert evaluation["kpi_evaluations"][0]["gap"] == 19
     assert evaluation["state_changes"]["changes"]
-    assert evaluation["durable_goal_resolved"] is True
+    assert evaluation["durable_goal_resolved"] is False
+    assert evaluation["evaluation_scope"] == "provided_goal_context"
+    assert evaluation["goal_context_authority"] == "invocation_input"
     assert evaluation["goal_semantic_signature"]["objective_key"] == "increase_qualification_score"
     assert evaluation["goal_semantic_signature"]["kpis"] == [
         {"schema_version": 1, "metric": "qualification_score", "direction": "increase", "normalized_unit": None}

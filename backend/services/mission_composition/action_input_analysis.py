@@ -356,6 +356,12 @@ def build_analysis_action_input(
             }
         }
     if action_name == "analysis.evaluate_goal_progress":
+        if "goal_evaluation_time_window" in intent.context_requirements:
+            raise ValueError(
+                "This goal evaluation requires a time window. Mission planning cannot yet bind stored goal "
+                "measurements to that period. Use a goal assessment without a date range for the available "
+                "instruction-only result."
+            )
         goal_name = intent.objective[:240].strip()
         objective_key = hashlib.sha256(intent.objective.strip().encode("utf-8")).hexdigest()[:16]
         return {

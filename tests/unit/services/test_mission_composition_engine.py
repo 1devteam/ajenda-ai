@@ -1987,7 +1987,7 @@ def test_read_only_clause_stays_bound_to_web_observation() -> None:
 def test_goal_evaluation_report_does_not_compile_prospect_research() -> None:
     record = MissionCompositionService(db=None).compose(
         tenant_id="tenant",
-        instruction="Evaluate goal progress for Ajenda AI for the last 30 days. Return a goal evaluation report.",
+        instruction="Evaluate goal progress for Ajenda AI. Return a goal evaluation report.",
     )
     assert record.ready_to_start
     assert record.intent.requested_outcomes == ["evaluate_goal_progress"]
@@ -2170,3 +2170,14 @@ def test_no_external_actions_blocks_connected_provider_read_during_compilation()
     assert step.compile_gap
     assert "prohibits external actions" in step.compile_gap
     assert not step.tool_input
+
+
+def test_windowed_goal_assessment_surfaces_missing_evidence_binding_before_start() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant-test",
+        instruction="Evaluate goal progress for Ajenda AI for the last 30 days.",
+    )
+    assert record.intent.requested_outcomes == ["evaluate_goal_progress"]
+    assert record.intent.requested_quantity is None
+    assert not record.ready_to_start
+    assert any("cannot yet bind stored goal measurements" in item.question for item in record.clarifications)

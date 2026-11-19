@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.services.business_profile.categories import profile_category_for_field
 
+MemoryLookupStatus = Literal["matched", "no_matches", "unavailable"]
+
 
 class CompanyIntroductionDraft(BaseModel):
     """One durable text draft with a scope and an explicit evidence boundary."""
@@ -17,10 +19,14 @@ class CompanyIntroductionDraft(BaseModel):
     body: str = Field(min_length=1)
     source_fields: tuple[str, ...] = Field(min_length=1)
     memory_reference_ids: tuple[str, ...] = ()
+    memory_lookup_status: MemoryLookupStatus | None = None
 
 
 def build_company_introduction(
-    profile_brief: dict[str, object], *, memory_reference_ids: tuple[str, ...]
+    profile_brief: dict[str, object],
+    *,
+    memory_reference_ids: tuple[str, ...],
+    memory_lookup_status: MemoryLookupStatus | None = None,
 ) -> CompanyIntroductionDraft:
     """Format approved facts without adopting unreviewed memory as profile truth."""
 
@@ -54,4 +60,5 @@ def build_company_introduction(
         body="\n\n".join(sections),
         source_fields=tuple(fields),
         memory_reference_ids=memory_reference_ids,
+        memory_lookup_status=memory_lookup_status,
     )
