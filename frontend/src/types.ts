@@ -450,6 +450,13 @@ export interface ProfileDeliverableResponse {
   profile_id: string | null;
   approved_facts: Record<string, unknown>;
   profile_brief: Record<string, unknown>;
+  company_introduction_draft?: {
+    schema_version: 1;
+    status: "draft";
+    body: string;
+    source_fields: string[];
+    memory_reference_ids: string[];
+  } | null;
   missing_fields: string[];
   conflicting_fields: string[];
   evidence_ids: string[];

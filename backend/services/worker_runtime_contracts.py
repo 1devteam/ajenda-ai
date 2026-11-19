@@ -4,6 +4,7 @@ from backend.domain.enums import ExecutionTaskState
 from backend.domain.evidence import EVIDENCE_CONTRACT_SCHEMA_VERSION, EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.worker_lease import WorkerLease
+from backend.services.business_profile.company_introduction import CompanyIntroductionDraft
 from backend.services.mission_composition.artifact_schemas import (
     ARTIFACT_SCHEMAS_BY_KEY,
     is_proven_empty_local_crm_search,
@@ -138,6 +139,23 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
     if artifact_key not in raw_output or raw_output[artifact_key] is None:
         raise ValueError(f"completed task must emit declared artifact '{artifact_key}'")
 
+    invocation = metadata.get("tool_invocation")
+    if artifact_key == "business_profile_facts" and isinstance(invocation, dict):
+        inputs = invocation.get("input")
+        if (
+            invocation.get("action") == "retrieval.hybrid_search"
+            and isinstance(inputs, dict)
+            and inputs.get("mode") == "approved_profile_introduction"
+        ):
+            profile = raw_output[artifact_key]
+            if (
+                not isinstance(profile, dict)
+                or profile.get("source") != "approved_business_profile"
+                or not profile.get("profile_id")
+            ):
+                raise ValueError("Company introduction must be grounded in an approved profile.")
+            CompanyIntroductionDraft.model_validate(profile.get("company_introduction_draft"))
+
     schema = ARTIFACT_SCHEMAS_BY_KEY.get(artifact_key)
     if schema is None:
         return
@@ -146,7 +164,6 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
     # identities; the public verification action owns verification before any
     # terminal artifact is materialized. Never infer this from the action name.
     if raw_contract.get("materialization_role") == "intermediate":
-        invocation = metadata.get("tool_invocation")
         action = invocation.get("action") if isinstance(invocation, dict) else None
         invocation_input = invocation.get("input") if isinstance(invocation, dict) else None
         if (
@@ -157,7 +174,6 @@ def _validate_declared_output_contract(task: ExecutionTask, task_output: dict[st
         ):
             raise ValueError("intermediate output contract is only permitted for governed research discovery")
         return
-    invocation = metadata.get("tool_invocation")
     if (
         artifact_key == "crm_records"
         and raw_output[artifact_key] == []

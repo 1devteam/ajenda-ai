@@ -927,7 +927,44 @@ function MissionDispatch({ missionId }: { missionId: string }) {
         <section className="panel" aria-label="Business profile deliverable">
           <h2>Approved business profile</h2>
           <p>{profileDeliverable.complete ? "Profile artifact available" : "Profile artifact incomplete"}</p>
-          <pre className="code-block">{pretty(profileDeliverable.profile_brief)}</pre>
+          {profileDeliverable.company_introduction_draft ? (() => {
+            const facts = resultRecord(profileDeliverable.profile_brief.facts);
+            const headings = [
+              ["business_name", "Company"],
+              ["description", "Overview"],
+              ["products_services", "Products and services"],
+              ["target_customers", "Who it serves"],
+              ["differentiators", "Differentiators"],
+            ];
+            return <section aria-label="Company brief">
+              <h3>Company brief</h3>
+              <dl>
+                {headings.flatMap(([field, title]) => {
+                  const value = facts?.[field];
+                  const content = Array.isArray(value)
+                    ? value.filter((item): item is string => typeof item === "string").join(", ")
+                    : typeof value === "string" ? value : "";
+                  return content ? [<div key={field}><dt>{title}</dt><dd>{content}</dd></div>] : [];
+                })}
+              </dl>
+            </section>;
+          })() : null}
+          {profileDeliverable.company_introduction_draft ? (
+            <section aria-label="Company introduction draft">
+              <h3>Company introduction draft</h3>
+              <p>For review. Based on approved profile facts.</p>
+              {profileDeliverable.company_introduction_draft.body.split("\n\n").map((section, index) => (
+                <p key={index}>{section}</p>
+              ))}
+              {profileDeliverable.company_introduction_draft.memory_reference_ids.length ? (
+                <p>Internal memory references found: {profileDeliverable.company_introduction_draft.memory_reference_ids.join(", ")}</p>
+              ) : <p>No internal memory references were recorded.</p>}
+              <details>
+                <summary>Approved profile evidence</summary>
+                <pre className="code-block">{pretty(profileDeliverable.profile_brief)}</pre>
+              </details>
+            </section>
+          ) : <pre className="code-block">{pretty(profileDeliverable.profile_brief)}</pre>}
           <p>Missing fields: {profileDeliverable.missing_fields.length ? profileDeliverable.missing_fields.join(", ") : "none recorded"}</p>
           <p>Conflicting fields: {profileDeliverable.conflicting_fields.length ? profileDeliverable.conflicting_fields.join(", ") : "none recorded"}</p>
           <p>Source: approved business profile ({profileDeliverable.profile_id ?? "profile ID not recorded"})</p>

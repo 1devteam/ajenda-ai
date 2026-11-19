@@ -300,6 +300,13 @@ def test_counterfactual_plans_are_read_only_comparisons() -> None:
     [
         (ROOFING_INSTRUCTION, "web.research"),
         ("Assess goal progress for launching Ajenda AI.", "analysis.evaluate_goal_progress"),
+        (
+            "Search Ajenda's approved business profile and governed internal memory, then prepare an evidence-backed "
+            "company brief and a draft introduction explaining who Ajenda is, what it provides, who it serves, "
+            "and what makes it different. Do not browse the web, contact anyone, send email, modify CRM records, "
+            "or perform any external action.",
+            "retrieval.hybrid_search",
+        ),
     ],
 )
 def test_confirm_creates_mission_plan_graph_not_queue(instruction: str, required_action: str) -> None:
@@ -361,6 +368,10 @@ def test_confirm_creates_mission_plan_graph_not_queue(instruction: str, required
         next(step for step in body["next_steps"] if "runtime-admission" in step and "queue" not in step)
     ) < body["next_steps"].index(next(step for step in body["next_steps"] if "runtime-task-materialization" in step))
     assert required_action in body["allowed_actions"]
+    if required_action == "retrieval.hybrid_search":
+        assert body["allowed_actions"] == ["retrieval.hybrid_search"]
+        assert composition["intent"]["requested_quantity"] == 1
+        assert composition["planned_steps"][0]["tool_input"]["mode"] == "approved_profile_introduction"
     assert "gtm.email_send" not in body["allowed_actions"]
     assert MISSION_TASK_GRAPH_METADATA_KEY in body["task_graph"] or body["task_graph"].get("nodes") is not None
 
