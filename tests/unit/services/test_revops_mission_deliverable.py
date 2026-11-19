@@ -921,3 +921,25 @@ def test_failed_public_verification_is_not_reported_as_an_empty_success() -> Non
         {"stage": "verification", "status": "failed", "task_id": str(task.id)},
     ]
     assert not result.completion.artifact_complete
+
+
+def test_public_research_readback_keeps_mixed_discovery_source_provenance() -> None:
+    mission = _mission("Return company name.")
+    rows = [
+        {"company": "Internal Company", "source_scope": "tenant_internal", "real": True},
+        {"company": "Public Company", "source_scope": "public_search", "real": True},
+        {"company": "Fixture Company", "source_scope": "local_fixture", "real": False},
+    ]
+    discovery = _task(
+        task_id=1,
+        artifact="prospect_candidates",
+        payload=rows,
+        handler_fields={"output": {"prospect_candidates": rows, "public_search_real": True}},
+        metadata_fields={"tool_invocation": {"action": "web.research", "input": {"include_public_search": True}}},
+    )
+
+    result = assemble_revops_mission_deliverable(mission=mission, tasks=[discovery])
+
+    stage = result.result_semantics["public_research_stages"][0]
+    assert stage["candidates"] == rows
+    assert stage["public_search_observed"] is True

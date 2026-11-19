@@ -152,6 +152,7 @@ def _research_rows(value: object) -> list[dict[str, object]]:
                 "reason",
                 "identity_status",
                 "source",
+                "source_scope",
                 "source_reliability",
                 "evidence_class",
             )
@@ -197,6 +198,12 @@ def _public_research_stages(tasks: Sequence[ExecutionTask]) -> list[dict[str, An
         if output:
             if stage == "discovery":
                 read["candidates"] = _research_rows(output.get("prospect_candidates"))
+                if (
+                    isinstance(inputs, dict)
+                    and inputs.get("include_public_search") is True
+                    and isinstance(provider_observed := output.get("public_search_real"), bool)
+                ):
+                    read["public_search_observed"] = provider_observed
             else:
                 read["verified_candidates"] = _research_rows(output.get("verified_prospect_candidates"))
                 read["unverified_observations"] = _research_rows(output.get("unobserved"))
@@ -204,8 +211,8 @@ def _public_research_stages(tasks: Sequence[ExecutionTask]) -> list[dict[str, An
                     value = output.get(key)
                     if type(value) is int and value >= 0:
                         read[key] = value
-                gap = output.get("research_gap")
-                if isinstance(gap, str) and gap.strip():
-                    read["research_gap"] = gap
+            gap = output.get("research_gap")
+            if isinstance(gap, str) and gap.strip():
+                read["research_gap"] = gap
         stages.append(read)
     return stages

@@ -68,6 +68,17 @@ export function GoalEvaluationResult({ evaluation }: { evaluation: Record<string
   );
 }
 
+function researchSourceLabel(row: Record<string, unknown>): string | null {
+  if (row.source_scope === "local_fixture" || row.source === "local_fixture" || row.evidence_class === "fixture") {
+    return "Fixture evidence";
+  }
+  if (row.source_scope === "tenant_internal" || row.source === "internal_record" || row.evidence_class === "tenant_owned_record") {
+    return "Internal record";
+  }
+  if (row.source_scope === "public_search") return "Public search result";
+  return null;
+}
+
 function ResearchObservations({ title, rows, empty }: {
   title: string;
   rows: unknown;
@@ -79,18 +90,21 @@ function ResearchObservations({ title, rows, empty }: {
     <div>
       <h4>{title}</h4>
       {observations.length ? (
-        <ul>{observations.map((row, index) => (
-          <li key={index}>
-            <strong>{resultText(row.company) ?? resultText(row.url) ?? resultText(row.website) ?? "Source observation"}</strong>
-            {resultText(row.company) && (resultText(row.url) ?? resultText(row.website))
-              ? <div>{resultText(row.url) ?? resultText(row.website)}</div> : null}
-            {row.source === "local_fixture" || row.evidence_class === "fixture" ? <div>Fixture evidence</div> : null}
-            {label(row.reason ?? row.identity_status) ? <div>{label(row.reason ?? row.identity_status)}</div> : null}
-            {label(row.source_reliability) ? <div>Source classification: {label(row.source_reliability)}</div> : null}
-            <ResultList title="Identity gaps" items={row.identity_gaps} />
-            <ResultList title="Identity evidence URLs" items={row.identity_evidence_urls} />
-          </li>
-        ))}</ul>
+        <ul>{observations.map((row, index) => {
+          const source = researchSourceLabel(row);
+          return (
+            <li key={index}>
+              <strong>{resultText(row.company) ?? resultText(row.url) ?? resultText(row.website) ?? "Source observation"}</strong>
+              {resultText(row.company) && (resultText(row.url) ?? resultText(row.website))
+                ? <div>{resultText(row.url) ?? resultText(row.website)}</div> : null}
+              {source ? <div>{source}</div> : null}
+              {label(row.reason ?? row.identity_status) ? <div>{label(row.reason ?? row.identity_status)}</div> : null}
+              {label(row.source_reliability) ? <div>Source classification: {label(row.source_reliability)}</div> : null}
+              <ResultList title="Identity gaps" items={row.identity_gaps} />
+              <ResultList title="Identity evidence URLs" items={row.identity_evidence_urls} />
+            </li>
+          );
+        })}</ul>
       ) : <p>{empty}</p>}
     </div>
   );
@@ -133,7 +147,11 @@ export function PublicResearchResult({ report, stages }: {
             ) : null}
             {resultText(stage.research_gap) ? <p>{resultText(stage.research_gap)}</p> : null}
             {discovery ? (
-              <ResearchObservations title="Candidates found" rows={stage.candidates} empty="No candidate observations were recorded." />
+              <>
+                {stage.public_search_observed === false && !resultText(stage.research_gap)
+                  ? <p>No public search provider response was recorded.</p> : null}
+                <ResearchObservations title="Candidates found" rows={stage.candidates} empty="No candidate observations were recorded." />
+              </>
             ) : (
               <>
                 <ResearchObservations title="Verified candidates" rows={stage.verified_candidates} empty="No candidates were verified." />

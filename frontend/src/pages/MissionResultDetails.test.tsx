@@ -117,3 +117,20 @@ it("renders the report rows and their source evidence in the normal mission view
   expect(text).toContain("Observed from the company website.");
   expect(text).toContain("https://example.com/about");
 });
+
+it("labels sources in mixed discovery readback and exposes missing public provider evidence", async () => {
+  const text = await readReopenedResult({
+    result_semantics: { public_research_stages: [{
+      stage: "discovery",
+      status: "completed",
+      public_search_observed: false,
+      candidates: [
+        { company: "Internal Company", source_scope: "tenant_internal" },
+        { company: "Fixture Company", source_scope: "local_fixture" },
+      ],
+    }] },
+  });
+  expect(text).toContain("Internal CompanyInternal record");
+  expect(text).toContain("Fixture CompanyFixture evidence");
+  expect(text).toContain("No public search provider response was recorded.");
+});
