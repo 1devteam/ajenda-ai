@@ -102,6 +102,44 @@ def _is_generic_market_listing_label(value: str) -> bool:
     )
 
 
+def _brand_from_singular_market_title(*, title: str, host: str, page_text: str) -> str | None:
+    """Resolve a descriptive company homepage only when its own brand corroborates it."""
+
+    parts = re.split(r"\s+[-\u2013\u2014|]\s+", title.strip())
+    if len(parts) != 2:
+        return None
+    host_label = re.sub(r"[^a-z0-9]", "", host.casefold().removeprefix("www.").split(".", 1)[0])
+    if len(host_label) < 4:
+        return None
+    for brand, description in (parts, parts[::-1]):
+        if (
+            _GENERIC_MARKET_CATEGORY_WITH_LOCATION.match(description)
+            and not _GENERIC_MARKET_LISTING_LABEL.search(description)
+            and re.search(
+                r"\b(?:company|firm|agency|provider|contractor|developer)\s+(?:in|near|around|of|for)\b",
+                description,
+                re.IGNORECASE,
+            )
+            and re.sub(r"[^a-z0-9]", "", brand.casefold()) == host_label
+            and _contains_identity_marker(page_text, brand)
+        ):
+            return brand
+    return None
+
+
+def _operating_locations(page_text: str) -> set[str]:
+    """Read explicitly stated operating cities out of visible page text."""
+
+    return {
+        re.sub(r"\s+", " ", match.group(1)).casefold()
+        for match in re.finditer(
+            r"\b(?i:based in|headquartered in|located in|offices? (?:is |are )?in)\s+"
+            r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\b",
+            page_text,
+        )
+    }
+
+
 def _is_source_publisher_family_link(source_host: str, linked_host: str) -> bool:
     """Whether a purported external company link returns to the source publisher.
 

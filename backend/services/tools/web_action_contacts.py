@@ -26,6 +26,7 @@ from backend.services.tools.schemas import (
 )
 from backend.services.tools.web_action_identity_policy import (
     _DIRECTORY_HOST_MARKERS,
+    _brand_from_singular_market_title,
     _host_identity_tokens,
     _identity_tokens,
     _industry_evidence_markers,
@@ -33,6 +34,7 @@ from backend.services.tools.web_action_identity_policy import (
     _is_directory_or_third_party_page,
     _is_generic_market_listing_label,
     _is_source_publisher_family_link,
+    _operating_locations,
 )
 
 
@@ -53,9 +55,11 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     followed_directory_links = 0
     directory_link_attempts: list[dict[str, object]] = []
     followed_link_hosts: set[str] = set()
+    locality_gaps: set[str] = set()
     limit = payload.requested_quantity
     page_attempt_limit = min(max(limit * 3, limit), 50)
     location = str(payload.context.get("location") or "").casefold()
+    requested_city = " ".join(location.split(",", 1)[0].split())
     location_markers = tuple(
         token for token in re.findall(r"[a-z0-9]{3,}", location) if token not in {"the", "and", "area"}
     )
@@ -416,29 +420,63 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             and actual_host
             and (actual_host == expected_host or actual_host.endswith(f".{expected_host}"))
         )
-        directory_host = _is_directory_or_third_party_host(actual_host)
-        directory_page = (
-            directory_host
-            or _is_directory_or_third_party_page(page_text)
-            or _is_generic_market_listing_label(str(prospect.get("company") or ""))
-            or _is_generic_market_listing_label(str(snapshot.title or ""))
-        )
+        known_directory = _is_directory_or_third_party_host(actual_host) or _is_directory_or_third_party_page(page_text)
+        listed_company = str(prospect.get("company") or "")
+        listing_label = _is_generic_market_listing_label(listed_company)
+        listing_title = _is_generic_market_listing_label(str(snapshot.title or ""))
+        brand = None
+        visible_text = snapshot.text_preview or ""
+        meta_description = snapshot.extraction.get("meta_description")
+        if isinstance(meta_description, str) and meta_description.strip():
+            visible_text = visible_text.removeprefix(meta_description.strip()).lstrip()
+        if snapshot.real and host_matches and not known_directory and not payload.collect_contacts and listing_title:
+            brand = _brand_from_singular_market_title(
+                title=str(snapshot.title or ""), host=actual_host, page_text=visible_text
+            )
+            if brand and listing_label and listed_company not in (snapshot.title or ""):
+                # A different generic label provides no corroborating identity.
+                brand = None
+        directory_page = known_directory or ((listing_label or listing_title) and brand is None)
         page_tokens = _identity_tokens(page_text)
         company_matches = bool(company_tokens) and any(token in page_tokens for token in company_tokens)
         host_tokens = _host_identity_tokens(actual_host)
         host_identity_matches = bool(host_tokens) and any(token in page_tokens for token in host_tokens)
         industry_evidence = any(marker in page_text for marker in industry_markers)
         locality_evidence = any(marker in page_text for marker in location_markers)
+        identity_gaps: list[str] = []
+        if brand:
+            page_record["company"] = brand
+            page_record["discovered_company_label"] = listed_company
+            industry_evidence = any(marker in visible_text.casefold() for marker in industry_markers)
+            operating_locations = _operating_locations(visible_text)
+            locality_evidence = requested_city in operating_locations
+            if not locality_evidence:
+                gap = "operating_location_conflicts" if operating_locations else "operating_location_not_observed"
+                identity_gaps.append(gap)
+                locality_gaps.add(gap)
+        elif not locality_evidence:
+            identity_gaps.append("location_not_observed")
+        if directory_page:
+            identity_gaps.append("directory_or_third_party_page")
+        if not host_matches:
+            identity_gaps.append("source_host_not_matched")
+        if not industry_evidence:
+            identity_gaps.append("industry_not_observed")
+        identity_matches = bool(brand or company_matches or host_identity_matches)
+        if not identity_matches:
+            identity_gaps.append("company_identity_not_matched")
         identity_status = (
             "verified"
-            if host_matches
+            if snapshot.real
+            and host_matches
             and not directory_page
             and industry_evidence
             and locality_evidence
-            and (company_matches or host_identity_matches)
+            and identity_matches
             else "unverified"
         )
         page_record["identity_status"] = identity_status
+        page_record["identity_gaps"] = identity_gaps
         page_record["source_reliability"] = (
             "official" if host_matches and not directory_page else "directory_or_third_party"
         )
@@ -446,6 +484,9 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         pages.append(page_record)
         if not snapshot.real:
             unobserved.append({**page_record, "reason": snapshot.error or "page_fetch_failed"})
+            continue
+        if brand and identity_status != "verified":
+            unobserved.append({**page_record, "reason": identity_gaps[0]})
             continue
         if identity_status != "verified":
             # Directory pages may contain convincing contact data, but they do
@@ -630,6 +671,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             verified_prospect_candidates.append(
                 {
                     **prospect,
+                    "company": page_record["company"],
                     "website": str(prospect.get("website") or prospect.get("url") or snapshot.url or "")[:500],
                     "real": True,
                     "identity_status": "verified",
@@ -770,6 +812,15 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         and not verified_prospect_candidates
         and any(page.get("real") is True for page in pages)
     )
+    rejection_reason = "completed public identity verification rejected all candidate sources"
+    if locality_gaps and requested_city:
+        location_label = str(payload.context.get("location")).split(",", 1)[0].strip()
+        if "operating_location_conflicts" in locality_gaps:
+            rejection_reason += f". Requested operating location {location_label} conflicts with an operating location on a company page"
+        else:
+            rejection_reason += (
+                f". Requested operating location {location_label} could not be established from company page text"
+            )
     output = {
         "prospect_candidates": [
             {
@@ -778,7 +829,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     (
                         str(page.get("identity_status"))
                         for page in pages
-                        if page.get("company") == prospect.get("company") and page.get("identity_status")
+                        if page.get("discovered_company_label", page.get("company")) == prospect.get("company")
+                        and page.get("identity_status")
                     ),
                     prospect.get("identity_status", "unverified"),
                 ),
@@ -786,7 +838,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     (
                         page.get("identity_evidence_urls")
                         for page in pages
-                        if page.get("company") == prospect.get("company") and page.get("identity_evidence_urls")
+                        if page.get("discovered_company_label", page.get("company")) == prospect.get("company")
+                        and page.get("identity_evidence_urls")
                     ),
                     prospect.get("identity_evidence_urls", []),
                 ),
@@ -819,7 +872,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             {
                 "classification": "valid_empty",
                 "reason": (
-                    "completed public identity verification rejected all candidate sources"
+                    rejection_reason
                     if completed_identity_rejection
                     else "completed public discovery produced no verifiable company identities"
                 ),
