@@ -27,6 +27,7 @@ from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
     build_deliverable_runtime_state,
     deliverable_minimum_rows,
+    research_candidate_minimum,
 )
 from backend.services.mission_composition.plan_compiler import compile_plan_payload, compile_task_graph_preview
 from backend.services.mission_composition.proposal_store import get_proposal, put_proposal
@@ -313,11 +314,7 @@ class MissionCompositionConfirmationPhase:
                         # Public research must yield at least one usable
                         # candidate even when the operator omitted a count.
                         # An empty search is a visible failure, never success.
-                        "candidate_min": (
-                            record.intent.requested_quantity or 1
-                            if "research_prospects" in record.intent.requested_outcomes
-                            else 0
-                        ),
+                        "candidate_min": research_candidate_minimum(record.intent),
                         "qualified_min": record.intent.qualification_quantity or record.intent.requested_quantity
                         if "qualify_prospects" in record.intent.requested_outcomes
                         else 0,
