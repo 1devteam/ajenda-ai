@@ -4,19 +4,30 @@
 from __future__ import annotations
 
 import argparse
+import dis
 import json
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from types import FrameType
-from typing import Any
+from typing import Annotated, Any, Literal, Self
+
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, model_validator
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from backend.services.mission_composition import intent_interpreter
 from backend.services.mission_composition.ability_vocab import match_outcome_phrases
-from backend.services.mission_composition.contracts import InterpretationEvidence, MissionIntent, SendPolicy
+from backend.services.mission_composition.contracts import (
+    INTERPRETER_VERSION,
+    CanonicalOutcome,
+    ClauseStatus,
+    InterpretationEvidence,
+    MissionIntent,
+    ProvenanceSource,
+    SendPolicy,
+)
 from backend.services.mission_composition.interpretation import rule_engine
 from backend.services.mission_composition.interpretation.fuzzy import fuzzy_outcome_candidates
 from backend.services.mission_composition.interpretation.lexical import LexicalFrame, classify_lexical_frame
@@ -67,6 +78,91 @@ _QUANTITY_PROVENANCE = {"explicit", "inferred_deterministic", "system_default"}
 _EventCallback = Callable[[FrameType, str, Any], Any]
 
 
+class _ClauseSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    clause_id: str
+    material: bool
+    status: ClauseStatus
+    mapped_outcomes: list[CanonicalOutcome]
+
+
+class _IntentSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requested_outcomes: list[CanonicalOutcome]
+    requested_quantity: int | None
+    quantity_provenance: ProvenanceSource | None
+    context_requirements: list[str]
+    forbidden_actions: list[str]
+    interpretation_ready: bool
+    clauses: list[_ClauseSummary]
+
+
+class _Event(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sequence: int = Field(ge=1)
+    call: int = Field(ge=1)
+    parent_call: int | None = Field(ge=1)
+    function: str
+    source: str
+    line: int = Field(ge=1)
+
+
+class _CallEvent(_Event):
+    event: Literal["call"]
+
+
+class _FieldChangeEvent(_Event):
+    event: Literal["field_changed"]
+    field: str
+    before_present: bool
+    before: JsonValue
+    after: JsonValue
+
+
+class _ExceptionEvent(_Event):
+    event: Literal["exception", "unwind"]
+    error_type: str
+
+
+class _ReturnEvent(_Event):
+    event: Literal["return"]
+    result: dict[str, JsonValue]
+
+
+_TraceEvent = Annotated[_CallEvent | _FieldChangeEvent | _ExceptionEvent | _ReturnEvent, Field(discriminator="event")]
+_EventKind = Literal["call", "field_changed", "exception", "unwind", "return"]
+_EVENT_ADAPTER = TypeAdapter[_TraceEvent](_TraceEvent)
+
+
+class _ReplayReport(BaseModel):
+    """Versioned, read-only projection of one local interpreter replay."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[1] = 1
+    scope: Literal["interpreter_replay"] = "interpreter_replay"
+    authority_class: Literal["read_model"] = "read_model"
+    grants_execution_authority: Literal[False] = False
+    interpreter_version: str
+    status: Literal["completed", "failed"]
+    intent: _IntentSummary | None
+    events: list[_TraceEvent]
+    dropped_events: int = Field(ge=0)
+    capture_errors: int = Field(ge=0)
+    error_type: str | None
+
+    @model_validator(mode="after")
+    def _validate_outcome(self) -> Self:
+        if self.status == "completed" and self.intent is not None and self.error_type is None:
+            return self
+        if self.status == "failed" and self.intent is None and self.error_type is not None:
+            return self
+        raise ValueError("replay status, intent, and interpreter error disagree")
+
+
 def _keys(values: Sequence[str]) -> list[str]:
     return safe_decision_keys(list(values[:80]), limit=80)
 
@@ -90,24 +186,26 @@ def _decision_values(frame: FrameType) -> dict[str, object]:
     return snapshot
 
 
-def _intent_summary(intent: MissionIntent) -> dict[str, object]:
-    return {
-        "requested_outcomes": _keys(intent.requested_outcomes),
-        "requested_quantity": intent.requested_quantity,
-        "quantity_provenance": intent.quantity_provenance,
-        "context_requirements": _keys(intent.context_requirements),
-        "forbidden_actions": _keys(intent.forbidden_actions),
-        "interpretation_ready": intent.interpretation_ready,
-        "clauses": [
-            {
-                "clause_id": clause.clause_id,
-                "material": clause.material,
-                "status": clause.status,
-                "mapped_outcomes": _keys(clause.mapped_outcomes),
-            }
-            for clause in intent.interpreted_clauses
-        ],
-    }
+def _intent_summary(intent: MissionIntent) -> _IntentSummary:
+    return _IntentSummary.model_validate(
+        {
+            "requested_outcomes": intent.requested_outcomes,
+            "requested_quantity": intent.requested_quantity,
+            "quantity_provenance": intent.quantity_provenance,
+            "context_requirements": _keys(intent.context_requirements),
+            "forbidden_actions": _keys(intent.forbidden_actions),
+            "interpretation_ready": intent.interpretation_ready,
+            "clauses": [
+                {
+                    "clause_id": clause.clause_id,
+                    "material": clause.material,
+                    "status": clause.status,
+                    "mapped_outcomes": clause.mapped_outcomes,
+                }
+                for clause in intent.interpreted_clauses
+            ],
+        }
+    )
 
 
 def _result_summary(name: str, result: object) -> dict[str, object]:
@@ -124,7 +222,7 @@ def _result_summary(name: str, result: object) -> dict[str, object]:
         rule = _keys([result.rule_id])[0] if result.rule_id else None
         return {"field": fields[0], "source": result.source, "rule": rule, "confidence": result.confidence}
     if isinstance(result, MissionIntent):
-        return _intent_summary(result)
+        return _intent_summary(result).model_dump(mode="json")
     if name == "_classify_clause" and isinstance(result, tuple):
         outcomes, material, recognized = result
         return {"outcomes": _keys(outcomes), "material": material, "recognized": recognized}
@@ -141,32 +239,36 @@ class _Call:
     parent: int | None
     last_line: int
     values: dict[str, object] = field(default_factory=dict)
+    error_type: str | None = None
 
 
 @dataclass
 class _Trace:
     max_events: int
-    events: list[dict[str, object]] = field(default_factory=list)
+    events: list[_TraceEvent] = field(default_factory=list)
     dropped_events: int = 0
     capture_errors: int = 0
     _calls: dict[int, _Call] = field(default_factory=dict)
     _next_call: int = 0
+    active: bool = True
 
-    def _record(self, frame: FrameType, call: _Call, event: str, details: dict[str, object]) -> None:
+    def _record(self, frame: FrameType, call: _Call, event: _EventKind, details: dict[str, object]) -> None:
         if len(self.events) >= self.max_events:
             self.dropped_events += 1
             return
         self.events.append(
-            {
-                "sequence": len(self.events) + 1,
-                "event": event,
-                "call": call.number,
-                "parent_call": call.parent,
-                "function": frame.f_code.co_name,
-                "source": str(frame.f_globals["__name__"]).replace(".", "/") + ".py",
-                "line": call.last_line if event == "field_changed" else frame.f_lineno,
-                **details,
-            }
+            _EVENT_ADAPTER.validate_python(
+                {
+                    "sequence": len(self.events) + 1,
+                    "event": event,
+                    "call": call.number,
+                    "parent_call": call.parent,
+                    "function": frame.f_code.co_name,
+                    "source": str(frame.f_globals["__name__"]).replace(".", "/") + ".py",
+                    "line": call.last_line if event == "field_changed" else frame.f_lineno,
+                    **details,
+                }
+            )
         )
 
     def _trace(self, frame: FrameType, event: str, arg: Any) -> _EventCallback | None:
@@ -207,13 +309,24 @@ class _Trace:
             call.values = values
             call.last_line = frame.f_lineno
         if event == "exception":
-            self._record(frame, call, "exception", {"error_type": arg[0].__name__})
+            call.error_type = arg[0].__name__
+            self._record(frame, call, "exception", {"error_type": call.error_type})
         elif event == "return":
             self._calls.pop(frame_id)
-            self._record(frame, call, "return", {"result": _result_summary(frame.f_code.co_name, arg)})
+            # CPython also emits a "return" callback when an exception unwinds a frame.
+            if (
+                arg is None
+                and call.error_type is not None
+                and dis.opname[frame.f_code.co_code[frame.f_lasti]] not in {"RETURN_VALUE", "RETURN_CONST"}
+            ):
+                self._record(frame, call, "unwind", {"error_type": call.error_type})
+            else:
+                self._record(frame, call, "return", {"result": _result_summary(frame.f_code.co_name, arg)})
         return self.trace
 
     def trace(self, frame: FrameType, event: str, arg: Any) -> _EventCallback | None:
+        if not self.active:
+            return None
         try:
             return self._trace(frame, event, arg)
         except Exception:
@@ -226,22 +339,22 @@ class _Trace:
 @dataclass(frozen=True)
 class InterpreterReplay:
     intent: MissionIntent | None
-    events: list[dict[str, object]]
+    events: list[_TraceEvent]
     dropped_events: int
     capture_errors: int
     error_type: str | None
 
     def report(self) -> dict[str, object]:
-        return {
-            "scope": "interpreter_replay",
-            "interpreter_version": self.intent.interpreter_version if self.intent else None,
-            "status": "completed" if self.intent is not None else "failed",
-            "intent": _intent_summary(self.intent) if self.intent is not None else None,
-            "events": self.events,
-            "dropped_events": self.dropped_events,
-            "capture_errors": self.capture_errors,
-            "error_type": self.error_type,
-        }
+        """Serialize the replay without including private interpreter inputs."""
+        return _ReplayReport(
+            interpreter_version=self.intent.interpreter_version if self.intent else INTERPRETER_VERSION,
+            status="completed" if self.intent is not None else "failed",
+            intent=_intent_summary(self.intent) if self.intent is not None else None,
+            events=self.events,
+            dropped_events=self.dropped_events,
+            capture_errors=self.capture_errors,
+            error_type=self.error_type,
+        ).model_dump(mode="json")
 
 
 def replay_interpreter(
@@ -260,8 +373,13 @@ def replay_interpreter(
     previous = sys.gettrace()
     intent: MissionIntent | None = None
     error_type: str | None = None
+    trace_installed = False
     try:
         sys.settrace(trace.trace)
+        trace_installed = True
+    except Exception:
+        trace.capture_errors += 1
+    try:
         intent = intent_interpreter.interpret_instruction(
             instruction,
             profile_context=profile_context,
@@ -272,7 +390,12 @@ def replay_interpreter(
     except Exception as exc:
         error_type = type(exc).__name__
     finally:
-        sys.settrace(previous)
+        trace.active = False
+        if trace_installed:
+            try:
+                sys.settrace(previous)
+            except Exception:
+                trace.capture_errors += 1
     return InterpreterReplay(intent, trace.events, trace.dropped_events, trace.capture_errors, error_type)
 
 
