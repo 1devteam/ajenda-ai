@@ -207,7 +207,7 @@ def _public_research_stages(tasks: Sequence[ExecutionTask]) -> list[dict[str, An
             else:
                 read["verified_candidates"] = _research_rows(output.get("verified_prospect_candidates"))
                 read["unverified_observations"] = _research_rows(output.get("unobserved"))
-                for key in ("observed_count", "requested_quantity"):
+                for key in ("observed_count", "requested_quantity", "minimum_verified_quantity"):
                     value = output.get(key)
                     if type(value) is int and value >= 0:
                         read[key] = value

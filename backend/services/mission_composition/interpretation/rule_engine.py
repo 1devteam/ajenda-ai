@@ -8,6 +8,7 @@ mission execution, credential, queue, or side-effect authority.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 
 from backend.services.mission_composition.ability_vocab import phrase_maps_to_outcome
 from backend.services.mission_composition.contracts import (
@@ -1162,12 +1163,31 @@ def _evidence(
     )
 
 
+def research_quantity_is_upper_bound(outcomes: Sequence[str], instruction: str) -> bool:
+    """Identify an explicit upper bound on discovery without changing other outcomes."""
+
+    research_outcomes = set(outcomes)
+    return (
+        "research_prospects" in research_outcomes
+        and research_outcomes <= {"research_prospects", "synthesize_research_report"}
+        and re.search(
+            r"\b(?:research|find|identify|discover|list)\s+up\s+to\s+"
+            r"(?:[1-9]\d*|one|two|three|four|five|six|seven|eight|nine|ten)\b",
+            instruction,
+            re.IGNORECASE,
+        )
+        is not None
+        and not re.search(r"\b(?:at\s+least|minimum\s+of|exactly)\b", instruction, re.IGNORECASE)
+    )
+
+
 def _success_for_outcomes(
     *,
     outcomes: list[CanonicalOutcome],
     quantity: int | None,
     quantity_source: str,
     label: str,
+    instruction: str,
 ) -> list[SuccessCriterion]:
     """Display completion text from job contracts — not a data transport."""
 
@@ -1177,12 +1197,11 @@ def _success_for_outcomes(
         qty_note = f"{n}" if quantity is not None else f"{n} (system default)"
         if quantity_source == "system_default":
             qty_note = f"{n} (system default)"
-        success.append(
-            SuccessCriterion(
-                description=f"{qty_note} prospects contain company and qualification evidence for {label}",
-                measurable=True,
-            )
-        )
+        if quantity is not None and research_quantity_is_upper_bound(outcomes, instruction):
+            description = f"At least one company verified for {label}, with up to {n} verified companies returned"
+        else:
+            description = f"{qty_note} prospects contain company and qualification evidence for {label}"
+        success.append(SuccessCriterion(description=description, measurable=True))
     if "synthesize_research_report" in outcomes:
         success.append(
             SuccessCriterion(

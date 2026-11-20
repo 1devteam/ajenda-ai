@@ -27,6 +27,7 @@ from backend.services.tools.schemas import (
 from backend.services.tools.web_action_identity_policy import (
     _DIRECTORY_HOST_MARKERS,
     _brand_from_singular_market_title,
+    _contains_identity_marker,
     _host_identity_tokens,
     _identity_tokens,
     _industry_evidence_markers,
@@ -57,6 +58,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     followed_link_hosts: set[str] = set()
     locality_gaps: set[str] = set()
     limit = payload.requested_quantity
+    minimum = payload.minimum_verified_quantity or limit
     page_attempt_limit = min(max(limit * 3, limit), 50)
     location = str(payload.context.get("location") or "").casefold()
     requested_city = " ".join(location.split(",", 1)[0].split())
@@ -430,11 +432,12 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         if isinstance(meta_description, str) and meta_description.strip():
             visible_text = visible_text.removeprefix(meta_description.strip()).lstrip()
         if snapshot.real and host_matches and not known_directory and not payload.collect_contacts and listing_title:
-            brand = _brand_from_singular_market_title(
-                title=str(snapshot.title or ""), host=actual_host, page_text=visible_text
-            )
-            if brand and listing_label and listed_company not in (snapshot.title or ""):
-                # A different generic label provides no corroborating identity.
+            title = str(snapshot.title or "")
+            brand = _brand_from_singular_market_title(title=title, host=actual_host)
+            if brand and (
+                not _contains_identity_marker(visible_text, brand)
+                or (listing_label and listed_company.casefold() not in title.casefold())
+            ):
                 brand = None
         directory_page = known_directory or ((listing_label or listing_title) and brand is None)
         page_tokens = _identity_tokens(page_text)
@@ -787,7 +790,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     accept_met = (
         len(accepted_observation_urls) >= limit
         if payload.collect_contacts
-        else len(verified_prospect_candidates) >= limit
+        else len(verified_prospect_candidates) >= minimum
     )
     limitations = (
         [
@@ -862,6 +865,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             "attempts": directory_link_attempts,
         },
         "requested_quantity": limit,
+        **({"minimum_verified_quantity": minimum} if payload.minimum_verified_quantity is not None else {}),
         "accept_met": accept_met,
         "research_gap": (
             "no verified candidates produced; public identity observation rejected all candidate sources"
@@ -923,7 +927,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         f"Observed contacts on {len(accepted_observation_urls)}/{limit} source page(s); "
         f"{len(unobserved)} unobserved; accept_met={accept_met}."
         if payload.collect_contacts
-        else f"Verified public company identities for {len(verified_prospect_candidates)}/{limit} candidate(s); "
+        else f"Verified {len(verified_prospect_candidates)} company identities (minimum {minimum}, limit {limit}); "
         f"{len(unobserved)} unresolved; accept_met={accept_met}."
     )
     evidence = EvidenceItem(
@@ -938,6 +942,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         structured_payload={
             "observed_count": output["observed_count"],
             "requested_quantity": limit,
+            **({"minimum_verified_quantity": minimum} if payload.minimum_verified_quantity is not None else {}),
             "accept_met": accept_met,
             "unobserved_count": len(unobserved),
             "condition_observations": output["condition_observations"],

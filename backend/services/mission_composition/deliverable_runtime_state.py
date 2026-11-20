@@ -28,6 +28,7 @@ from backend.services.mission_composition.deliverable_projection import (
     DeliverableProjection,
     project_deliverable_request,
 )
+from backend.services.mission_composition.interpretation.rule_engine import research_quantity_is_upper_bound
 from backend.services.mission_composition.shadow_preview import RuntimeReconciliation, ShadowPreview
 from backend.services.mission_composition.vertical_know_how import (
     REVOPS_V1_KNOW_HOW,
@@ -132,20 +133,9 @@ def goal_evaluation_deliverable_request() -> DeliverableRequest:
 def research_candidate_minimum(intent: MissionIntent) -> int:
     """Treat a bounded discovery request as a cap while requiring evidence of a match."""
 
-    outcomes = set(intent.requested_outcomes)
-    if "research_prospects" not in outcomes:
+    if "research_prospects" not in intent.requested_outcomes:
         return 0
-    instruction = intent.raw_instruction or intent.objective
-    if (
-        outcomes <= {"research_prospects", "synthesize_research_report"}
-        and re.search(
-            r"\b(?:research|find|identify|discover|list)\s+up\s+to\s+"
-            r"(?:[1-9]\d*|one|two|three|four|five|six|seven|eight|nine|ten)\b",
-            instruction,
-            re.IGNORECASE,
-        )
-        and not re.search(r"\b(?:at\s+least|minimum\s+of|exactly)\b", instruction, re.IGNORECASE)
-    ):
+    if research_quantity_is_upper_bound(intent.requested_outcomes, intent.raw_instruction or intent.objective):
         return 1
     return intent.requested_quantity or 1
 

@@ -1471,6 +1471,7 @@ def interpret_instruction(
         quantity=quantity,
         quantity_source=quantity_provenance or "unresolved",
         label=label,
+        instruction=raw_instruction,
     )
 
     if company_introduction:

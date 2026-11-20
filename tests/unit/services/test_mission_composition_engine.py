@@ -1276,6 +1276,12 @@ def test_public_research_keeps_identifiability_out_of_industry_and_preserves_cou
     assert discovery.tool_input["query"] == "software development companies in Austin"
     assert discovery.tool_input["limit"] == 3
     assert deliverable_minimum_rows(record.intent) == minimum
+    verification = next(
+        step for step in record.planned_steps if step.action_name == "research.verify_public_candidates"
+    )
+    assert verification.tool_input["requested_quantity"] == 3
+    assert verification.tool_input.get("minimum_verified_quantity", 3) == minimum
+    assert ("with up to 3 verified companies" in record.intent.success_criteria[0].description) == (minimum == 1)
 
 
 def test_capability_resolver_selects_draft_not_send() -> None:
