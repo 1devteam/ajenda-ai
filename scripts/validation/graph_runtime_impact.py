@@ -24,22 +24,51 @@ def _node_key(item: dict[str, Any]) -> str | None:
     return str(value) if value else None
 
 
-def _nested_strings(value: Any) -> list[str]:
-    """Collect strings from a runtime snapshot without interpreting them."""
+_EXECUTION_EVENTS = (("execution_task", "started"), ("runtime_evidence", "worker_completion_recorded"))
 
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, dict):
-        result: list[str] = []
-        for item in value.values():
-            result.extend(_nested_strings(item))
-        return result
-    if isinstance(value, list):
-        result = []
-        for item in value:
-            result.extend(_nested_strings(item))
-        return result
-    return []
+
+def _started_task_ids(projection: dict[str, Any]) -> set[str]:
+    tenant_id = projection.get("tenant_id")
+    mission_id = projection.get("mission_id")
+    if not isinstance(tenant_id, str) or not isinstance(mission_id, str) or not tenant_id or not mission_id:
+        return set()
+    return {
+        task_id
+        for event in _dicts(projection.get("execution_events"))
+        if (event.get("category"), event.get("action")) in _EXECUTION_EVENTS
+        and event.get("runtime_evidence_integrity_verified") is True
+        and event.get("tenant_id") == tenant_id
+        and event.get("mission_id") == mission_id
+        and isinstance(task_id := event.get("task_id"), str)
+    }
+
+
+def _queue_receipt_task_ids(projection: dict[str, Any]) -> set[str]:
+    return {
+        source.removeprefix("task:")
+        for edge in _dicts(projection.get("edges"))
+        if edge.get("relationship") == "admitted_to_queue"
+        and edge.get("observed") is True
+        and isinstance(evidence := edge.get("evidence"), list)
+        and "runtime_queue_admission" in evidence
+        and isinstance(source := edge.get("from_id"), str)
+        and source.startswith("task:")
+        and edge.get("to_id") == f"queue:{source.removeprefix('task:')}"
+    }
+
+
+def _execution_observed(flow: dict[str, Any], started_task_ids: set[str]) -> bool:
+    task_id = flow.get("task_id")
+    if not isinstance(task_id, str) or not task_id:
+        return False
+    # Historical projections may lack verified start events. A lease and an
+    # execution state together are stronger evidence than either on its own.
+    lease_ids = flow.get("lease_ids")
+    return task_id in started_task_ids or (
+        flow.get("status") in ("running", "completed")
+        and isinstance(lease_ids, list)
+        and any(isinstance(lease_id, str) and lease_id for lease_id in lease_ids)
+    )
 
 
 def _runtime_consistency_facts(
@@ -72,15 +101,6 @@ def _runtime_consistency_facts(
             and not flow.get("artifact_ids")
         ):
             artifact_linkage_gaps.add(f"task:{task_id}:output_without_artifact_identity:{contract_key}")
-
-    queue_admitted = any(
-        isinstance(flow.get("queue_admitted"), bool) and flow.get("queue_admitted") for flow in task_flows
-    )
-    stale_admission_text = any(
-        "no runtime work was queued or dispatched" in text.lower() for text in _nested_strings(runtime_projection)
-    )
-    if queue_admitted and stale_admission_text:
-        contradictions.add("runtime_admission_summary_conflicts_with_observed_queue_execution")
 
     mission_status = str(runtime_projection.get("mission_status") or "").lower()
     acceptance = runtime_projection.get("acceptance")
@@ -132,7 +152,16 @@ def build_runtime_impact_artifact(
     task_flows = _dicts(runtime_projection.get("task_flows"))
     available_keys = {key for item in available if (key := _node_key(item))}
     selected_keys = {key for item in selected if (key := _node_key(item))}
-    observed_keys = {key for item in task_flows if (key := _node_key(item)) and item.get("status") is not None}
+    started_task_ids = _started_task_ids(runtime_projection)
+    queue_receipt_task_ids = _queue_receipt_task_ids(runtime_projection)
+    linked_flows = [flow for flow in task_flows if isinstance(flow.get("node_key"), str) and flow["node_key"]]
+    materialized_keys = {flow["node_key"] for flow in linked_flows}
+    queue_admitted_keys = {
+        flow["node_key"]
+        for flow in linked_flows
+        if isinstance(task_id := flow.get("task_id"), str) and task_id in queue_receipt_task_ids
+    }
+    observed_keys = {flow["node_key"] for flow in linked_flows if _execution_observed(flow, started_task_ids)}
     unobserved_selected = sorted(selected_keys - observed_keys)
     static_nodes = _static_nodes(impact_report)
     runtime_nodes = [
@@ -169,9 +198,10 @@ def build_runtime_impact_artifact(
         unknowns.append("available_runtime_nodes_without_selection_snapshot")
 
     payload = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "scope": "graft-static-runtime-impact",
         "read_only": True,
+        "authority_class": "read_model",
         "grants_execution_authority": False,
         "static": {
             "graph_sha256": impact_report.get("graph_sha256"),
@@ -186,6 +216,8 @@ def build_runtime_impact_artifact(
             "tenant_id": runtime_projection.get("tenant_id"),
             "mission_status": runtime_projection.get("mission_status"),
             "acceptance": runtime_projection.get("acceptance") or {},
+            "materialized_node_keys": sorted(materialized_keys),
+            "queue_admitted_node_keys": sorted(queue_admitted_keys),
             "observed_nodes": runtime_nodes,
             "selected_unobserved_nodes": runtime_unobserved,
             "task_flow_count": len(task_flows),
@@ -196,6 +228,8 @@ def build_runtime_impact_artifact(
         },
         "facts": {
             "static_affected_nodes": static_nodes,
+            "runtime_materialized_node_keys": sorted(materialized_keys),
+            "runtime_queue_admitted_node_keys": sorted(queue_admitted_keys),
             "runtime_observed_nodes": runtime_nodes,
             "runtime_unobserved_selected_nodes": runtime_unobserved,
             "contradictions": contradictions,
