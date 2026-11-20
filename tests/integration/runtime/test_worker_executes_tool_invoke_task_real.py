@@ -21,6 +21,7 @@ from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
 from backend.services.abilities.runtime_governance import AbilityAuthorizationV1, manifest_fingerprint
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.mission_bridge.queue_admission import build_runtime_queue_admission_metadata
+from backend.services.mission_runtime_evidence_projection import build_mission_runtime_evidence_projection
 from backend.services.operating_charter import OperatingCharter
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry
 from backend.services.tools.schemas import (
@@ -299,7 +300,23 @@ def test_worker_executes_tool_invoke_task_and_persists_evidence_shaped_output(
                 AuditEvent.action.in_(("input_binding", "provider_selection")),
             )
         ).all()
-        assert sorted(event.action for event in observations) == ["input_binding", "provider_selection"]
+        assert not observations
+        assert final_task.mission_id is not None
+        projection = build_mission_runtime_evidence_projection(
+            mission_id=final_task.mission_id,
+            tenant_id=tenant_id,
+            mission_metadata={},
+            tasks=[final_task],
+            leases=[final_lease],
+            lineage=list(lineage),
+            evidence=list(evidence_records),
+        )
+        completed_tool_stages = {
+            item["stage"]
+            for item in projection.information_flow
+            if item.get("source") == "task.metadata_json.handler_result"
+        }
+        assert {"input_binding", "provider_selection", "output_validation", "tool_output"} <= completed_tool_stages
         assert redis_client.hlen(f"ajenda:queue:{tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{tenant_id}:lease:{task_id}") is None
     finally:
