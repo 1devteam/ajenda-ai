@@ -814,6 +814,7 @@ def test_provider_failure_remains_distinct_from_valid_empty_research(pg_engine, 
         assert failure["code"] == "HANDLER_FAILED"
         assert "input binding failed" in failure["message"]
         assert "no upstream prospects" in failure["message"]
+        assert "public search provider did not return evidence" in failure["message"]
     finally:
         verify.close()
 
@@ -959,6 +960,112 @@ def test_completed_empty_public_search_materializes_insufficient_evidence_artifa
             foreign.close()
     finally:
         verify.close()
+
+
+@pytest.mark.parametrize("operating_city", ["Austin", "Houston"])
+def test_bounded_public_research_agrees_from_plan_to_saved_report(
+    pg_engine, queue_adapter, operating_city: str
+) -> None:
+    tenant_id = uuid.uuid4()
+    tenant_scope = str(tenant_id)
+    factory = sessionmaker(bind=pg_engine, expire_on_commit=False, autoflush=False)
+    homepage = "https://cedarsoftware.example/"
+    title = "Custom software development company in Austin - Cedar Software"
+
+    def search(*, query: str, **_kwargs):
+        listings = [
+            {"url": f"https://listings.example/{index}", "title": f"Top {index + 5} Software Development Companies"}
+            for index in range(9)
+        ]
+        if query.endswith("official website"):
+            listings[-1] = {"url": homepage, "title": title, "snippet": "Custom software development services."}
+        return {"provider": "controlled_governed_search", "real": True, "results": listings}
+
+    def fetch(*, url_or_domain: str, **_kwargs):
+        if url_or_domain == homepage:
+            return PageSnapshot(
+                url=homepage,
+                real=True,
+                status_code=200,
+                title=title,
+                text_preview=f"Cedar Software provides custom software development. We are based in {operating_city}, Texas.",
+            )
+        return PageSnapshot(
+            url=url_or_domain,
+            real=True,
+            status_code=200,
+            title="Top Software Development Companies",
+            text_preview="Browse contractors and compare software development companies.",
+        )
+
+    with factory() as session:
+        session.add(Tenant(id=tenant_id, name="Research proof", slug=f"research-{tenant_id.hex[:8]}", plan="free"))
+        session.flush()
+        activate_tenant_session(session, tenant_scope)
+        persist_test_operating_charter(session, tenant_id=tenant_scope)
+        session.commit()
+        app = _build_app(tenant_id=tenant_id, session=session, queue_adapter=queue_adapter)
+        with (
+            patch.object(composition_module, "require_route_permission", return_value=None),
+            patch.object(mission_module, "require_route_permission", return_value=None),
+            patch("backend.services.tools.standalone_actions._fetch_governed_public_search", side_effect=search),
+            patch("backend.services.tools.web_action_contacts.fetch_public_page", side_effect=fetch),
+            TestClient(app) as client,
+        ):
+            response = client.post(
+                "/v1/missions/compose",
+                json={
+                    "instruction": (
+                        "Research up to three publicly identifiable software development companies in Austin, Texas. "
+                        "Verify them using their official websites and produce a research report. "
+                        "Do not write to CRM or send messages."
+                    )
+                },
+            )
+            assert response.status_code == 200, response.text
+            proposal = response.json()
+            assert (
+                "with up to 3 verified companies"
+                in proposal["composition"]["intent"]["success_criteria"][0]["description"]
+            )
+            response = client.post(
+                f"/v1/missions/proposals/{proposal['proposal_id']}/confirm",
+                json={"composition": proposal["composition"], "idempotency_key": str(uuid.uuid4())},
+            )
+            assert response.status_code == 200, response.text
+            mission_id = uuid.UUID(response.json()["mission_id"])
+            response = client.post(f"/v1/missions/{mission_id}/launch")
+            assert response.status_code == 200, response.text
+            session.commit()
+            _drain_mission(
+                session=session,
+                factory=factory,
+                queue_adapter=queue_adapter,
+                tenant_id=tenant_scope,
+                mission_id=mission_id,
+            )
+
+    with factory() as readback:
+        activate_tenant_session(readback, tenant_scope)
+        app = _build_app(tenant_id=tenant_id, session=readback, queue_adapter=queue_adapter)
+        with TestClient(app) as client:
+            response = client.get(f"/v1/missions/{mission_id}/deliverable")
+        assert response.status_code == 200, response.text
+        result = response.json()
+        discovery, verification = result["result_semantics"]["public_research_stages"]
+        assert discovery["candidates"][0]["website"] == homepage
+        assert verification["minimum_verified_quantity"] == 1
+        assert verification["requested_quantity"] == 3
+        report = result["artifacts"]["research_report"]
+        if operating_city == "Austin":
+            assert result["completion"]["complete"] is True
+            assert result["completion"]["observed_row_count"] == 1
+            assert [row["company"] for row in report["comparison"]] == ["Cedar Software"]
+        else:
+            assert result["completion"]["complete"] is False
+            assert verification["verified_candidates"] == []
+            assert report["result_semantics"] == "valid_empty"
+            assert any("Requested operating location Austin conflicts" in gap for gap in report["evidence_gaps"])
 
 
 def test_directory_search_hit_is_rejected_as_unverified_identity_through_runtime(pg_engine, queue_adapter) -> None:

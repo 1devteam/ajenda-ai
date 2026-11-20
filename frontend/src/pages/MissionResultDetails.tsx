@@ -146,7 +146,9 @@ export function PublicResearchResult({ report, stages }: {
           <div key={resultText(stage.task_id) ?? index}>
             <h3>{discovery ? "Discovery" : "Public identity verification"}{label(stage.status) ? ` · ${label(stage.status)}` : null}</h3>
             {typeof stage.observed_count === "number" && typeof stage.requested_quantity === "number" ? (
-              <p>Verifier recorded {stage.observed_count} of {stage.requested_quantity} requested identities.</p>
+              typeof stage.minimum_verified_quantity === "number"
+                ? <p>Verified {stage.observed_count} {stage.observed_count === 1 ? "identity" : "identities"}. Minimum {stage.minimum_verified_quantity}, limit {stage.requested_quantity}.</p>
+                : <p>Verifier recorded {stage.observed_count} of {stage.requested_quantity} requested identities.</p>
             ) : null}
             {resultText(stage.research_gap) ? <p>{resultText(stage.research_gap)}</p> : null}
             {discovery ? (

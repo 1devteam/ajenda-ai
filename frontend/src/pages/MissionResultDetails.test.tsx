@@ -98,6 +98,19 @@ it("distinguishes a failed verification stage from a completed empty result", as
   expect(text).not.toContain("evidence-backed empty result");
 });
 
+it("shows the verification minimum separately from the requested cap", async () => {
+  const text = await readReopenedResult({
+    result_semantics: { public_research_stages: [{
+      stage: "verification",
+      status: "completed",
+      observed_count: 1,
+      requested_quantity: 3,
+      minimum_verified_quantity: 1,
+    }] },
+  });
+  expect(text).toContain("Verified 1 identity. Minimum 1, limit 3.");
+});
+
 it("renders the report rows and their source evidence in the normal mission view", async () => {
   const text = await readReopenedResult({
     artifacts: { research_report: {

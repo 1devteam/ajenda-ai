@@ -18,6 +18,7 @@ from backend.services.mission_composition.action_input_common import (
     has_usable_research_scope,
 )
 from backend.services.mission_composition.contracts import MissionIntent
+from backend.services.mission_composition.interpretation.rule_engine import research_quantity_is_upper_bound
 
 
 def explicit_public_identity_input(intent: MissionIntent) -> dict[str, Any] | None:
@@ -214,6 +215,11 @@ def build_research_action_input(*, action_name: str, intent: MissionIntent) -> d
         return {
             "prospects": [],
             "requested_quantity": limit,
+            **(
+                {"minimum_verified_quantity": 1}
+                if research_quantity_is_upper_bound(intent.requested_outcomes, _instruction_text(intent))
+                else {}
+            ),
             "timeout_seconds": 8.0,
             "binding_required": True,
             "local_fixture_only": local_fixture_only,

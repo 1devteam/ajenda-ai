@@ -618,7 +618,16 @@ class ResearchObserveContactsInput(BaseModel):
     # public-candidate verifier fixes this to False through its dedicated
     # schema and registry entry.
     collect_contacts: bool = True
+    minimum_verified_quantity: int | None = Field(default=None, ge=1, le=20)
     context: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_verification_minimum(self) -> ResearchObserveContactsInput:
+        if self.minimum_verified_quantity is not None and (
+            self.collect_contacts or self.minimum_verified_quantity > self.requested_quantity
+        ):
+            raise ValueError("minimum_verified_quantity requires identity-only verification and cannot exceed the cap")
+        return self
 
 
 class ResearchVerifyPublicCandidatesInput(ResearchObserveContactsInput):

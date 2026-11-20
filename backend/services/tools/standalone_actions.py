@@ -26,6 +26,11 @@ from backend.services.tools.schemas import (
     WebResearchInput,
     WebSearchInput,
 )
+from backend.services.tools.web_action_identity_policy import (
+    _brand_from_singular_market_title,
+    _is_directory_or_third_party_host,
+    _is_generic_market_listing_label,
+)
 
 
 def _evidence(
@@ -298,6 +303,20 @@ def _derive_business_type_relation(*, reference_company: str, page: dict[str, An
     return None
 
 
+def _directory_like_search_hit(item: dict[str, Any]) -> bool:
+    """Recognize listing signals for ordering without resolving identity."""
+
+    url = str(item.get("url") or item.get("FirstURL") or "")
+    try:
+        host = urlparse(url).hostname or ""
+    except ValueError:
+        host = ""
+    title = str(item.get("title") or item.get("Text") or "")
+    return _is_directory_or_third_party_host(host) or (
+        _is_generic_market_listing_label(title) and _brand_from_singular_market_title(title=title, host=host) is None
+    )
+
+
 def _run_public_search_phase(
     *, queries: tuple[str, ...], limit: int, timeout_seconds: float, phase: str
 ) -> tuple[list[dict[str, Any]], bool, list[str], list[dict[str, Any]], list[str]]:
@@ -335,9 +354,11 @@ def _run_public_search_phase(
             if url:
                 seen_urls.add(url)
             results.append(item)
-            if len(results) == limit:
-                return results, real, errors, attempts, providers
-    return results, real, errors, attempts, providers
+    if phase in {"prospect_discovery", "peer_discovery"}:
+        # Preserve relative provider rank within each group. Listings remain
+        # available for bounded link resolution after likely company sites.
+        results.sort(key=_directory_like_search_hit)
+    return results[:limit], real, errors, attempts, providers
 
 
 def _first_text(*values: Any) -> str:

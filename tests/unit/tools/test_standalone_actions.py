@@ -827,3 +827,37 @@ def test_search_phase_shares_candidate_budget_across_query_variants(monkeypatch)
     assert queries == ["market", "market official website"]
     assert len(results) == 9
     assert results[1]["url"] == "https://official.example/0"
+
+
+def test_likely_company_page_survives_directory_heavy_search_budget(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    company = {
+        "title": "Custom software development company in Austin - Cedar Software",
+        "url": "https://cedarsoftware.example/",
+    }
+
+    def search(*, query: str, **_kwargs):  # type: ignore[no-untyped-def]
+        listings = [
+            {
+                "title": f"Top {index + 5} Software Development Companies",
+                "url": f"https://listings.example/{query.replace(' ', '-')}/{index}",
+            }
+            for index in range(9)
+        ]
+        return {
+            "provider": "fixture",
+            "real": True,
+            "results": [*listings[:-1], company] if query.endswith("official website") else listings,
+        }
+
+    monkeypatch.setattr(standalone_actions, "_fetch_governed_public_search", search)
+    results, observed, *_ = standalone_actions._run_public_search_phase(
+        queries=("software development companies", "software development companies official website"),
+        limit=9,
+        timeout_seconds=8,
+        phase="prospect_discovery",
+    )
+    assert observed
+    assert len(results) == 9
+    assert results[0] == company

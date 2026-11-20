@@ -102,8 +102,8 @@ def _is_generic_market_listing_label(value: str) -> bool:
     )
 
 
-def _brand_from_singular_market_title(*, title: str, host: str, page_text: str) -> str | None:
-    """Resolve a descriptive company homepage only when its own brand corroborates it."""
+def _brand_from_singular_market_title(*, title: str, host: str) -> str | None:
+    """Find a title brand matching the host label for independent verification."""
 
     parts = re.split(r"\s+[-\u2013\u2014|]\s+", title.strip())
     if len(parts) != 2:
@@ -121,7 +121,6 @@ def _brand_from_singular_market_title(*, title: str, host: str, page_text: str) 
                 re.IGNORECASE,
             )
             and re.sub(r"[^a-z0-9]", "", brand.casefold()) == host_label
-            and _contains_identity_marker(page_text, brand)
         ):
             return brand
     return None

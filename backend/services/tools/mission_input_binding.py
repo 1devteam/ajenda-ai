@@ -619,6 +619,7 @@ def apply_input_bindings(
     by_key = index_mission_tasks_by_node_key(mission_tasks)
     applied: list[dict[str, Any]] = []
     valid_empty_sources: list[dict[str, str]] = []
+    public_search_failed = False
 
     for spec in specs:
         from_step = str(spec.get("from_step") or "").strip()
@@ -640,6 +641,13 @@ def apply_input_bindings(
             valid_empty = _valid_empty_research_result(upstream=upstream, output=upstream_output)
             if valid_empty is not None:
                 valid_empty_sources.append(valid_empty)
+            elif (
+                _action_name_from_metadata(upstream.metadata_json) == "web.research"
+                and output_path == "$.prospect_candidates"
+                and upstream_output.get("include_public_search") is True
+                and upstream_output.get("public_search_real") is False
+            ):
+                public_search_failed = True
         existing = _get_input_path(bound, input_path)
         # When multiple deps target the same list path (e.g. enrich + qualify → prospects),
         # merge by prospect identity and prefer records that carry contacts.
@@ -715,9 +723,10 @@ def apply_input_bindings(
                 # A draft is still a product artifact and must identify the
                 # upstream prospect it represents. Industry/location seeds are
                 # planning context, not permission to emit a placeholder row.
-                raise InputBindingError(
-                    f"binding_required but no upstream prospects were available for {action_name or 'ability'}"
-                )
+                reason = f"binding_required but no upstream prospects were available for {action_name or 'ability'}"
+                if action_name == "research.verify_public_candidates" and public_search_failed:
+                    reason += "; public search provider did not return evidence"
+                raise InputBindingError(reason)
             audit["primary_prospect"] = _primary_prospect(bound)
 
     return bound, audit
