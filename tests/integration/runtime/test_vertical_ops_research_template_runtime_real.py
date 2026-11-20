@@ -332,22 +332,30 @@ def test_vertical_public_research_resolves_external_authority_and_persists_runti
         assert task.status == ExecutionTaskState.COMPLETED.value
         assert task.metadata_json["handler_result"]["side_effect_class"] == "external_read"
         output = task.metadata_json["handler_result"]["output"]
-        assert output["provider_attempts"]
-        attempts = output["provider_attempts"]
-        assert len(attempts) == 4  # primary/fallback for each deterministic query variant
-        assert [attempt["provider"] for attempt in attempts] == [
-            "controlled_primary",
-            "controlled_fallback",
-            "controlled_primary",
-            "controlled_fallback",
+        expected_queries = [
+            "HVAC companies in Dallas Texas",
+            "HVAC companies in Dallas Texas official website",
+            'HVAC "based in Dallas Texas" about contact',
         ]
-        assert [attempt["outcome"] for attempt in attempts] == ["failure", "results", "failure", "results"]
-        assert [attempt["status_code"] for attempt in attempts] == [429, 200, 429, 200]
-        assert [attempt["error"] for attempt in attempts] == [
-            "controlled rate limit",
-            None,
-            "controlled rate limit",
-            None,
+        assert output["search_queries"] == expected_queries
+        assert [
+            (
+                attempt["query"],
+                attempt["phase"],
+                attempt["provider"],
+                attempt["outcome"],
+                attempt["status_code"],
+                attempt["result_count"],
+                attempt["error"],
+            )
+            for attempt in output["provider_attempts"]
+        ] == [
+            (query, "prospect_discovery", provider, outcome, status_code, result_count, error)
+            for query in expected_queries
+            for provider, outcome, status_code, result_count, error in (
+                ("controlled_primary", "failure", 429, 0, "controlled rate limit"),
+                ("controlled_fallback", "results", 200, 1, None),
+            )
         ]
         assert output["search_providers"] == ["controlled_fallback"]
         assert output["web_results"]
