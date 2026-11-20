@@ -139,6 +139,76 @@ def _operating_locations(page_text: str) -> set[str]:
     }
 
 
+def _is_plural_market_listing(value: str) -> bool:
+    """A category title cannot establish identity even when it names its publisher."""
+    title = re.split(r"\s+[-\u2013\u2014|]\s+", value, maxsplit=1)[0]
+    return bool(
+        _GENERIC_MARKET_LISTING_LABEL.search(title)
+        or (
+            _GENERIC_MARKET_CATEGORY_WITH_LOCATION.match(title)
+            and re.search(
+                r"\b(?:companies|firms|agencies|providers|contractors|developers)\s+(?:in|near|around|of|for)\b",
+                title,
+                re.I,
+            )
+        )
+    )
+
+
+def _observed_company_brand(*, host: str, label: str, title: str, visible_text: str) -> str | None:
+    """Corroborate a company name with the page and its site label."""
+    host_label = re.sub(r"[^a-z0-9]", "", host.split(".", 1)[0].casefold())
+    for name in (label, *re.split(r"\s+[-\u2013\u2014|]\s+", title)):
+        name = name.strip()
+        compact = re.sub(r"[^a-z0-9]", "", name.casefold())
+        if (
+            len(compact) >= 4
+            and not _is_generic_market_listing_label(name)
+            and _contains_identity_marker(visible_text, name)
+            and (compact == host_label or (name == title and _contains_identity_marker(host.replace("-", " "), name)))
+        ):
+            return name[:160]
+
+    # Search and page titles can omit a brand, or abbreviate it as "BHW".
+    # Require a word-delimited name on the observed page whose compact form
+    # corroborates the actual host, e.g. "The BHW Group" / thebhwgroup.com.
+    if len(host_label) < 4 or len(host_label) > 63:
+        return None
+    spelling = r"[ -]?".join(re.escape(char) for char in host_label)
+    match = re.search(rf"(?<![\w.]){spelling}(?![\w.])", visible_text, flags=re.IGNORECASE)
+    return match.group() if match else None
+
+
+def _operating_location_excerpt(page_text: str, city: str, company: str) -> str | None:
+    """Recognize a company-attributed operating location in visible text."""
+    city_pattern = r"\s+".join(re.escape(word) for word in city.split())
+    brand = re.escape(company)
+    subject = rf"(?:{brand}(?:\s+is)?|we are|we(?:'|\u2019)re|our (?:corporate )?(?:office|headquarters) (?:is|are))"
+    description = r"(?:\s+(?:a|an|the)\s+[^.!?;]{1,100}?\s+(?:company|team|firm|agency|studio|business))?"
+    location = r"(?:based in|headquartered in|located in)"
+    match = re.search(
+        rf"(?<![\w])(?:{subject}{description}\s+{location}|(?:our )?(?:offices?|headquarters)\s+(?:(?:is|are)\s+)?in)"
+        rf"\s+{city_pattern}(?![\w-])",
+        page_text,
+        flags=re.IGNORECASE,
+    )
+    return match.group() if match else None
+
+
+def _market_industry_markers(industry: str) -> tuple[str, ...]:
+    if "software development" in industry.casefold():
+        return (
+            "software development",
+            "develops software",
+            "builds custom software",
+            "app development",
+            "application development",
+            "web development",
+            "mobile development",
+        )
+    return _industry_evidence_markers(industry)
+
+
 def _is_source_publisher_family_link(source_host: str, linked_host: str) -> bool:
     """Whether a purported external company link returns to the source publisher.
 

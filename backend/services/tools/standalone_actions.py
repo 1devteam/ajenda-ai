@@ -704,6 +704,14 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             query_variants = tuple(
                 dict.fromkeys(query for query in (public_query, f"{public_query} official website") if query.strip())
             )
+            market = re.fullmatch(
+                r"(.+?) (?:companies|firms|agencies|providers|contractors|developers|businesses) in (.+)",
+                public_query,
+                flags=re.IGNORECASE,
+            )
+            if market and not explicit_company and not explicit_domain:
+                industry, location = market.groups()
+                query_variants += (f'{industry} "based in {location}" about contact',)
             executed_search_queries.extend(query_variants)
             web_results, public_search_real, errors, provider_attempts, search_providers = _run_public_search_phase(
                 queries=query_variants,
@@ -793,6 +801,8 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         if len(prospect_candidates) >= public_search_limit:
             break
         prospect = _prospect_from_web_result(item, index=index)
+        if not prospect["url"]:
+            continue
         if not _public_candidate_is_verified(prospect):
             rejected_public_candidates += 1
             # Preserve the raw hit for the explicitly planned observation
@@ -804,10 +814,8 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             verified_public_candidate_count += 1
             prospect["evidence_class"] = "public_observed"
         prospect["source_scope"] = "public_search"
-        key = prospect["company"].lower()
-        if key in seen_companies:
-            continue
-        seen_companies.add(key)
+        # Search phases deduplicate observed URLs. Titles and internal labels
+        # cannot establish that two public observations describe the same site.
         prospect_candidates.append(prospect)
         public_prospect_candidates.append(prospect)
 

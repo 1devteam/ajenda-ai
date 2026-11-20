@@ -322,7 +322,7 @@ def test_verify_public_candidates_does_not_extract_contacts_and_uses_phoenix_loc
         real=True,
         status_code=200,
         title="Acme HVAC | Heating and cooling",
-        text_preview="Acme HVAC provides HVAC repair services in Phoenix, Arizona. service@acmehvac.example",
+        text_preview="Acme HVAC provides HVAC repair services. We are based in Phoenix, Arizona. service@acmehvac.example",
         body_preview="",
         access_mode=InternetAccessMode.PAGE_READ,
     )
@@ -416,15 +416,15 @@ def test_directory_follow_explains_missing_location_without_copying_page_content
         title="Software development companies in Austin",
         text_preview="A directory of software providers",
         body_preview="",
-        extraction={"links": [{"url": "https://acmesoft.example/?tracking=private", "text": "Acme Software"}]},
+        extraction={"links": [{"url": "https://acmesoftware.example/?tracking=private", "text": "Acme Software"}]},
         access_mode=InternetAccessMode.PAGE_READ,
     )
     official = PageSnapshot(
-        url="https://acmesoft.example/",
+        url="https://acmesoftware.example/",
         real=True,
         status_code=200,
         title="Acme Software",
-        text_preview="Custom software development services",
+        text_preview="Acme Software offers custom software development services.",
         body_preview="",
         access_mode=InternetAccessMode.PAGE_READ,
     )
@@ -441,7 +441,7 @@ def test_directory_follow_explains_missing_location_without_copying_page_content
         result = research_verify_public_candidates(invocation, _context())
     attempt = result.output["directory_link_resolution"]["attempts"][0]
     assert attempt["accepted"] is False
-    assert "location_not_observed" in attempt["reasons"]
+    assert "operating_location_not_observed" in attempt["reasons"]
     assert "tracking" not in str(attempt)
     assert result.output["verified_prospect_candidates"] == []
 
@@ -887,3 +887,120 @@ def test_observe_contacts_uses_declared_industry_for_non_hvac_research() -> None
         result = research_observe_contacts(invocation, _context())
 
     assert result.output["verified_prospect_candidates"][0]["identity_status"] == "verified"
+
+
+@pytest.mark.parametrize("via_directory", [False, True])
+@pytest.mark.parametrize("operating_city", ["Austin", "Houston"])
+def test_market_report_uses_the_same_company_evidence_for_each_discovery_path(
+    via_directory: bool, operating_city: str
+) -> None:
+    from backend.services.tools.standalone_actions import research_synthesize_report
+    from backend.services.tools.web_action_contacts import research_verify_public_candidates
+
+    homepage = "https://thebhwgroup.example/"
+    about = f"{homepage}company/about"
+    directory = "https://directory.example/austin"
+    title = "Austin Software Consulting & Custom Software Development"
+    pages = {
+        directory: PageSnapshot(
+            url=directory,
+            real=True,
+            title="Top Software Development Companies",
+            extraction={"links": [{"url": homepage, "text": "Visit website"}]},
+        ),
+        homepage: PageSnapshot(
+            url=homepage,
+            real=True,
+            title=title,
+            text_preview="The BHW Group offers custom web and mobile app development for clients based in Austin, Texas.",
+            extraction={
+                "links": [
+                    {"url": "https://elsewhere.example/about", "text": "External About"},
+                    {"url": about, "text": "About"},
+                ]
+            },
+        ),
+        about: PageSnapshot(
+            url=about,
+            real=True,
+            title="About Us | BHW",
+            text_preview=f"The BHW Group is a custom web and mobile app development company based in {operating_city}, Texas.",
+        ),
+    }
+    prospective_url = directory if via_directory else homepage
+    with patch(
+        "backend.services.tools.web_action_contacts.fetch_public_page",
+        side_effect=lambda *, url_or_domain, **_: pages[url_or_domain],
+    ) as fetch:
+        result = research_verify_public_candidates(
+            ToolInvocation(
+                action="research.verify_public_candidates",
+                input={
+                    "prospects": [
+                        {
+                            "company": pages[prospective_url].title,
+                            "url": prospective_url,
+                            "research_summary": "Unverified: 500 staff",
+                            "product_description": "Unverified product",
+                            "sources": [prospective_url],
+                        }
+                    ],
+                    "requested_quantity": 3,
+                    "minimum_verified_quantity": 1,
+                    "context": {"industry": "software development", "location": "Austin, Texas"},
+                },
+            ),
+            _context(),
+        )
+
+    assert [call.kwargs["url_or_domain"] for call in fetch.call_args_list] == (
+        [directory, homepage, about] if via_directory else [homepage, about]
+    )
+    candidates = result.output["verified_prospect_candidates"]
+    if operating_city == "Houston":
+        assert not result.output["accept_met"]
+        assert candidates == []
+        assert "operating location Austin conflicts" in result.output["valid_empty_result"]["reason"]
+        return
+
+    assert result.output["accept_met"]
+    report = research_synthesize_report(
+        ToolInvocation(
+            action="research.synthesize_report", input={"objective": "Austin research", "prospects": candidates}
+        ),
+        _context(),
+    ).output["research_report"]
+    assert report["candidate_count"] == 1
+    row = report["comparison"][0]
+    assert row["company"] == "The BHW Group"
+    assert row["sources"] == [homepage, about]
+    assert "mobile app development" in row["summary"]
+    assert "500 staff" not in row["summary"]
+    assert row["product_description"] == ""
+
+
+def test_market_verification_counts_a_company_only_once_across_its_pages() -> None:
+    from backend.services.tools.web_action_contacts import research_verify_public_candidates
+
+    urls = ["https://cedarsoftware.example/", "https://cedarsoftware.example/about"]
+    snapshot = PageSnapshot(
+        url=urls[0],
+        real=True,
+        title="Cedar Software",
+        text_preview="Cedar Software provides software development. We are based in Austin, Texas.",
+    )
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=snapshot) as fetch:
+        result = research_verify_public_candidates(
+            ToolInvocation(
+                action="research.verify_public_candidates",
+                input={
+                    "prospects": [{"company": "Cedar Software", "url": url} for url in urls],
+                    "requested_quantity": 2,
+                    "context": {"industry": "software development", "location": "Austin"},
+                },
+            ),
+            _context(),
+        )
+    assert result.output["observed_count"] == 1
+    assert not result.output["accept_met"]
+    fetch.assert_called_once()
