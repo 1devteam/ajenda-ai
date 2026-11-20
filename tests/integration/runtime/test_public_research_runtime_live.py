@@ -970,15 +970,20 @@ def test_bounded_public_research_agrees_from_plan_to_saved_report(
     tenant_scope = str(tenant_id)
     factory = sessionmaker(bind=pg_engine, expire_on_commit=False, autoflush=False)
     homepage = "https://cedarsoftware.example/"
-    title = "Custom software development company in Austin - Cedar Software"
+    title = "Austin Software Consulting & Custom Software Development"
 
     def search(*, query: str, **_kwargs):
         listings = [
             {"url": f"https://listings.example/{index}", "title": f"Top {index + 5} Software Development Companies"}
             for index in range(9)
         ]
-        if query.endswith("official website"):
-            listings[-1] = {"url": homepage, "title": title, "snippet": "Custom software development services."}
+        if '"based in Austin"' in query:
+            listings[-1] = {
+                "url": homepage,
+                "title": title,
+                "snippet": "Cedar Software employs 500 people.",
+                "product_description": "Unobserved product.",
+            }
         return {"provider": "controlled_governed_search", "real": True, "results": listings}
 
     def fetch(*, url_or_domain: str, **_kwargs):
@@ -988,7 +993,10 @@ def test_bounded_public_research_agrees_from_plan_to_saved_report(
                 real=True,
                 status_code=200,
                 title=title,
-                text_preview=f"Cedar Software provides custom software development. We are based in {operating_city}, Texas.",
+                text_preview=(
+                    "Cedar Software provides custom software development for clients in Austin, Texas. "
+                    f"We are based in {operating_city}, Texas."
+                ),
             )
         return PageSnapshot(
             url=url_or_domain,
@@ -1061,6 +1069,11 @@ def test_bounded_public_research_agrees_from_plan_to_saved_report(
             assert result["completion"]["complete"] is True
             assert result["completion"]["observed_row_count"] == 1
             assert [row["company"] for row in report["comparison"]] == ["Cedar Software"]
+            row = report["comparison"][0]
+            assert row["sources"] == [homepage]
+            assert "provides custom software development" in row["summary"]
+            assert "500 people" not in row["summary"]
+            assert not row["product_description"]
         else:
             assert result["completion"]["complete"] is False
             assert verification["verified_candidates"] == []

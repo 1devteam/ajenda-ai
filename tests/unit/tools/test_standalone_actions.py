@@ -861,3 +861,36 @@ def test_likely_company_page_survives_directory_heavy_search_budget(monkeypatch)
     assert observed
     assert len(results) == 9
     assert results[0] == company
+
+
+def test_market_research_keeps_equal_titles_across_distinct_sites(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    title = "Custom Software Development in Austin"
+    urls = ["https://cedarsoftware.example/", "https://oaksoftware.example/"]
+
+    def search(*, query: str, **_kwargs):
+        results = (
+            [{"title": title, "url": url} for url in urls]
+            if '"based in Austin"' in query
+            else [{"title": "Top Software Companies in Austin", "url": "https://directory.example/sw"}]
+        )
+        return {"provider": "fixture", "real": True, "results": results}
+
+    monkeypatch.setattr(standalone_actions, "_fetch_governed_public_search", search)
+    result = get_default_action_registry(rebuild=True).invoke(
+        ToolInvocation(
+            action="web.research",
+            input={
+                "query": "software development companies in Austin",
+                "limit": 1,
+                "include_public_search": True,
+                "exclude_internal_records": True,
+            },
+        ),
+        _context(),
+    )
+    candidates = result.output["public_prospect_candidates"]
+    assert [row["website"] for row in candidates[:2]] == urls
+    assert all(row["identity_status"] == "unverified" for row in candidates)
+    assert len(result.output["search_queries"]) == 3

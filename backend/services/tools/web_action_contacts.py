@@ -2,8 +2,11 @@
 
 import re
 from datetime import UTC, datetime
+from typing import Any
+from urllib.parse import urlsplit
 
 from backend.services.internet import fetch_public_page
+from backend.services.internet.contracts import PageSnapshot
 from backend.services.ontology.evidence_lineage import (
     EvidenceLineage,
     EvidenceLineageResolution,
@@ -26,17 +29,128 @@ from backend.services.tools.schemas import (
 )
 from backend.services.tools.web_action_identity_policy import (
     _DIRECTORY_HOST_MARKERS,
-    _brand_from_singular_market_title,
-    _contains_identity_marker,
     _host_identity_tokens,
+    _identity_evidence_excerpt,
     _identity_tokens,
     _industry_evidence_markers,
     _is_directory_or_third_party_host,
     _is_directory_or_third_party_page,
     _is_generic_market_listing_label,
+    _is_plural_market_listing,
     _is_source_publisher_family_link,
+    _market_industry_markers,
+    _observed_company_brand,
+    _operating_location_excerpt,
     _operating_locations,
 )
+
+
+def _visible_text(snapshot: PageSnapshot) -> str:
+    text = snapshot.text_preview or ""
+    metadata = snapshot.extraction.get("meta_description")
+    if isinstance(metadata, str) and metadata.strip():
+        text = text.removeprefix(metadata.strip()).lstrip()
+    return text
+
+
+def _company_support_links(snapshot: PageSnapshot) -> list[str]:
+    """Select only observed same-host company information links."""
+    links = snapshot.extraction.get("links", [])
+    host = page_host(snapshot.url)
+    urls: list[str] = []
+    for link in links if isinstance(links, list) else []:
+        if not isinstance(link, dict) or not isinstance(url := link.get("url"), str):
+            continue
+        try:
+            parsed = urlsplit(url)
+            if parsed.scheme != "https" or not host or page_host(url) != host:
+                continue
+        except ValueError:
+            continue
+        if re.search(r"(?:^|[/_-])(?:about|contact|locations?|offices?)(?:$|[/_-])", parsed.path, re.I):
+            urls.append(url)
+    return urls
+
+
+def _market_company_evidence(
+    snapshot: PageSnapshot,
+    *,
+    host: str,
+    label: str,
+    industry: str,
+    city: str,
+    supporting_pages: list[PageSnapshot],
+) -> tuple[str | None, list[str], list[str], str]:
+    """Apply the same identity, industry and locality rules to every market source."""
+    text = _visible_text(snapshot)
+    title = snapshot.title or ""
+    name = _observed_company_brand(host=host, label=label, title=title, visible_text=text)
+    directory = (
+        _is_directory_or_third_party_host(host)
+        or _is_directory_or_third_party_page(f"{title} {text}")
+        or _is_plural_market_listing(title)
+        or _is_plural_market_listing(label)
+        or (name is None and (_is_generic_market_listing_label(label) or _is_generic_market_listing_label(title)))
+    )
+    if directory:
+        return None, ["directory_or_third_party_page"], [], ""
+    if not name:
+        return None, ["company_identity_not_matched"], [], ""
+
+    markers = _market_industry_markers(industry)
+    industry_claim = ""
+    locality_claim = ""
+    other_location = False
+    sources = [snapshot.url]
+    for page in (snapshot, *supporting_pages):
+        if not page.real or page_host(page.url) != host:
+            continue
+        visible = _visible_text(page)
+        if _is_directory_or_third_party_page(f"{page.title or ''} {visible}"):
+            continue
+        industry_excerpt = _identity_evidence_excerpt(visible, markers) if not industry_claim else None
+        locality_excerpt = _operating_location_excerpt(visible, city, name) if not locality_claim else None
+        other_location = other_location or bool(_operating_locations(visible))
+        if industry_excerpt or locality_excerpt:
+            if page.url not in sources:
+                sources.append(page.url)
+            industry_claim = industry_claim or industry_excerpt or ""
+            locality_claim = locality_claim or locality_excerpt or ""
+    gaps = []
+    if not industry_claim:
+        gaps.append("industry_not_observed")
+    if not locality_claim:
+        gaps.append("operating_location_conflicts" if other_location else "operating_location_not_observed")
+    summary = industry_claim
+    if locality_claim and locality_claim.casefold() not in industry_claim.casefold():
+        summary = f"{industry_claim.rstrip('. ')}. {locality_claim}" if industry_claim else locality_claim
+    return name, gaps, sources, summary
+
+
+def _observed_research_candidate(
+    prospect: dict[str, Any],
+    *,
+    company: str,
+    url: str,
+    sources: list[str],
+    summary: str,
+) -> dict[str, Any]:
+    """Publish report fields from the observed company pages."""
+    return {
+        **prospect,
+        "company": company,
+        "domain": page_host(url),
+        "url": url,
+        "website": url,
+        "real": True,
+        "identity_status": "verified",
+        "identity_evidence_urls": sources,
+        "sources": sources,
+        "research_summary": summary[:1000],
+        "product_description": "",
+        "signals": [],
+        "observed_contacts": [],
+    }
 
 
 def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntimeContext) -> ActionResult:
@@ -62,6 +176,58 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     page_attempt_limit = min(max(limit * 3, limit), 50)
     location = str(payload.context.get("location") or "").casefold()
     requested_city = " ".join(location.split(",", 1)[0].split())
+    market_verification = not payload.collect_contacts and bool(requested_city)
+    verified_site_hosts: set[str] = set()
+    support_snapshots: dict[str, PageSnapshot] = {}
+    followup_page_limit = limit * 3
+
+    def observe_market_company(
+        snapshot: PageSnapshot, *, host: str, label: str, prospect: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, list[str]]:
+        if not snapshot.real:
+            return None, ["page_fetch_failed"]
+        if not host or page_host(snapshot.url) != host:
+            return None, ["source_host_not_matched"]
+        industry = str(payload.context.get("industry") or prospect.get("industry") or "")
+        supporting_pages: list[PageSnapshot] = []
+        name, gaps, sources, summary = _market_company_evidence(
+            snapshot, host=host, label=label, industry=industry, city=requested_city, supporting_pages=supporting_pages
+        )
+        if name and gaps:
+            for support_url in dict.fromkeys(_company_support_links(snapshot)):
+                if support_url.rstrip("/") == snapshot.url.rstrip("/"):
+                    continue
+                if support_url not in support_snapshots:
+                    if len(support_snapshots) + followed_directory_links >= followup_page_limit:
+                        break
+                    support_snapshots[support_url] = fetch_public_page(
+                        url_or_domain=support_url,
+                        timeout_seconds=payload.timeout_seconds,
+                        action_name=action_name,
+                        text_preview_chars=8000,
+                    )
+                supporting_pages.append(support_snapshots[support_url])
+                if len(supporting_pages) >= 2:
+                    break
+            name, gaps, sources, summary = _market_company_evidence(
+                snapshot,
+                host=host,
+                label=label,
+                industry=industry,
+                city=requested_city,
+                supporting_pages=supporting_pages,
+            )
+        locality_gaps.update(gap for gap in gaps if gap.startswith("operating_location_"))
+        if name is None or gaps:
+            return None, gaps
+        return _observed_research_candidate(
+            prospect,
+            company=name,
+            url=snapshot.url,
+            sources=sources,
+            summary=summary,
+        ), []
+
     location_markers = tuple(
         token for token in re.findall(r"[a-z0-9]{3,}", location) if token not in {"the", "and", "area"}
     )
@@ -374,6 +540,13 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                 }
             )
             continue
+        if market_verification:
+            try:
+                if page_host(url) in verified_site_hosts:
+                    continue
+            except ValueError:
+                unobserved.append({"company": prospect.get("company"), "reason": "invalid_source_url"})
+                continue
         if url in seen_urls:
             duplicate_url_count += 1
             continue
@@ -400,97 +573,102 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         except ValueError:
             expected_host = ""
         actual_host = page_host(snapshot.url)
-        industry_markers = _industry_evidence_markers(
-            payload.context.get("industry")
-            or prospect.get("industry")
-            or prospect.get("research_summary")
-            or prospect.get("company")
-        )
-        industry_identity_tokens = {
-            token for marker in industry_markers for token in re.findall(r"[a-z0-9]{3,}", marker.lower())
-        }
-        company_tokens = [
-            token.lower()
-            for token in re.findall(r"[a-z0-9]{3,}", str(prospect.get("company") or ""))
-            if token.lower() not in {"the", "and", "inc", "llc", "company", "companies", *industry_identity_tokens}
-        ]
-        page_text = " ".join(
-            part for part in (snapshot.title, snapshot.text_preview, snapshot.body_preview) if isinstance(part, str)
-        ).lower()
+        listed_company = str(prospect.get("company") or "")
+        actual_host = page_host(snapshot.url)
         host_matches = bool(
             expected_host
             and actual_host
             and (actual_host == expected_host or actual_host.endswith(f".{expected_host}"))
         )
-        known_directory = _is_directory_or_third_party_host(actual_host) or _is_directory_or_third_party_page(page_text)
-        listed_company = str(prospect.get("company") or "")
-        listing_label = _is_generic_market_listing_label(listed_company)
-        listing_title = _is_generic_market_listing_label(str(snapshot.title or ""))
-        brand = None
-        visible_text = snapshot.text_preview or ""
-        meta_description = snapshot.extraction.get("meta_description")
-        if isinstance(meta_description, str) and meta_description.strip():
-            visible_text = visible_text.removeprefix(meta_description.strip()).lstrip()
-        if snapshot.real and host_matches and not known_directory and not payload.collect_contacts and listing_title:
-            title = str(snapshot.title or "")
-            brand = _brand_from_singular_market_title(title=title, host=actual_host)
-            if brand and (
-                not _contains_identity_marker(visible_text, brand)
-                or (listing_label and listed_company.casefold() not in title.casefold())
-            ):
-                brand = None
-        directory_page = known_directory or ((listing_label or listing_title) and brand is None)
-        page_tokens = _identity_tokens(page_text)
-        company_matches = bool(company_tokens) and any(token in page_tokens for token in company_tokens)
-        host_tokens = _host_identity_tokens(actual_host)
-        host_identity_matches = bool(host_tokens) and any(token in page_tokens for token in host_tokens)
-        industry_evidence = any(marker in page_text for marker in industry_markers)
-        locality_evidence = any(marker in page_text for marker in location_markers)
-        identity_gaps: list[str] = []
-        if brand:
-            page_record["company"] = brand
-            page_record["discovered_company_label"] = listed_company
-            industry_evidence = any(marker in visible_text.casefold() for marker in industry_markers)
-            operating_locations = _operating_locations(visible_text)
-            locality_evidence = requested_city in operating_locations
+        market_candidate = None
+        if market_verification:
+            market_candidate, identity_gaps = observe_market_company(
+                snapshot, host=expected_host, label=listed_company, prospect=prospect
+            )
+            directory_page = (
+                _is_directory_or_third_party_host(actual_host) or "directory_or_third_party_page" in identity_gaps
+            )
+            identity_status = "verified" if market_candidate else "unverified"
+            if market_candidate:
+                page_record["company"] = market_candidate["company"]
+                page_record["discovered_company_label"] = listed_company
+        else:
+            industry_markers = _industry_evidence_markers(
+                payload.context.get("industry")
+                or prospect.get("industry")
+                or prospect.get("research_summary")
+                or prospect.get("company")
+            )
+            industry_identity_tokens = {
+                token for marker in industry_markers for token in re.findall(r"[a-z0-9]{3,}", marker.lower())
+            }
+            company_tokens = [
+                token.lower()
+                for token in re.findall(r"[a-z0-9]{3,}", str(prospect.get("company") or ""))
+                if token.lower() not in {"the", "and", "inc", "llc", "company", "companies", *industry_identity_tokens}
+            ]
+            page_text = " ".join(
+                part for part in (snapshot.title, snapshot.text_preview, snapshot.body_preview) if isinstance(part, str)
+            ).lower()
+            known_directory = _is_directory_or_third_party_host(actual_host) or _is_directory_or_third_party_page(
+                page_text
+            )
+            listing_label = _is_generic_market_listing_label(listed_company)
+            listing_title = _is_generic_market_listing_label(str(snapshot.title or ""))
+            directory_page = known_directory or listing_label or listing_title
+            page_tokens = _identity_tokens(page_text)
+            company_matches = bool(company_tokens) and any(token in page_tokens for token in company_tokens)
+            host_tokens = _host_identity_tokens(actual_host)
+            host_identity_matches = bool(host_tokens) and any(token in page_tokens for token in host_tokens)
+            industry_evidence = any(marker in page_text for marker in industry_markers)
+            locality_evidence = any(marker in page_text for marker in location_markers)
+            identity_gaps = []
             if not locality_evidence:
-                gap = "operating_location_conflicts" if operating_locations else "operating_location_not_observed"
-                identity_gaps.append(gap)
-                locality_gaps.add(gap)
-        elif not locality_evidence:
-            identity_gaps.append("location_not_observed")
-        if directory_page:
-            identity_gaps.append("directory_or_third_party_page")
-        if not host_matches:
-            identity_gaps.append("source_host_not_matched")
-        if not industry_evidence:
-            identity_gaps.append("industry_not_observed")
-        identity_matches = bool(brand or company_matches or host_identity_matches)
-        if not identity_matches:
-            identity_gaps.append("company_identity_not_matched")
-        identity_status = (
-            "verified"
-            if snapshot.real
-            and host_matches
-            and not directory_page
-            and industry_evidence
-            and locality_evidence
-            and identity_matches
-            else "unverified"
-        )
+                identity_gaps.append("location_not_observed")
+            if directory_page:
+                identity_gaps.append("directory_or_third_party_page")
+            if not host_matches:
+                identity_gaps.append("source_host_not_matched")
+            if not industry_evidence:
+                identity_gaps.append("industry_not_observed")
+            identity_matches = company_matches or host_identity_matches
+            if not identity_matches:
+                identity_gaps.append("company_identity_not_matched")
+            identity_status = (
+                "verified"
+                if snapshot.real
+                and host_matches
+                and not directory_page
+                and industry_evidence
+                and locality_evidence
+                and identity_matches
+                else "unverified"
+            )
         page_record["identity_status"] = identity_status
         page_record["identity_gaps"] = identity_gaps
         page_record["source_reliability"] = (
             "official" if host_matches and not directory_page else "directory_or_third_party"
         )
-        page_record["identity_evidence_urls"] = [snapshot.url] if identity_status == "verified" else []
+        page_record["identity_evidence_urls"] = (
+            market_candidate["identity_evidence_urls"]
+            if market_candidate
+            else [snapshot.url]
+            if identity_status == "verified"
+            else []
+        )
         pages.append(page_record)
         if not snapshot.real:
             unobserved.append({**page_record, "reason": snapshot.error or "page_fetch_failed"})
             continue
-        if brand and identity_status != "verified":
-            unobserved.append({**page_record, "reason": identity_gaps[0]})
-            continue
+        if market_verification:
+            if market_candidate:
+                if actual_host not in verified_site_hosts:
+                    verified_site_hosts.add(actual_host)
+                    verified_prospect_candidates.append(market_candidate)
+                continue
+            if not directory_page:
+                unobserved.append({**page_record, "reason": identity_gaps[0]})
+                continue
         if identity_status != "verified":
             # Directory pages may contain convincing contact data, but they do
             # not establish which individual company that data belongs to.
@@ -505,7 +683,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             # work and prevents an untrusted page from turning this into a
             # crawler.
             for link in links[:50] if isinstance(links, list) else []:
-                if followed_directory_links >= limit * 3:
+                if followed_directory_links + len(support_snapshots) >= followup_page_limit:
                     break
                 if not isinstance(link, dict):
                     continue
@@ -521,7 +699,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     or any(marker in linked_host for marker in _DIRECTORY_HOST_MARKERS)
                 ):
                     continue
-                if linked_host in followed_link_hosts:
+                if linked_host in followed_link_hosts or linked_host in verified_site_hosts:
                     continue
                 followed_link_hosts.add(linked_host)
                 followed_directory_links += 1
@@ -548,28 +726,34 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     "read more",
                 }
                 identity_label = linked_title if generic_link_label and linked_title else label
-                tokens = [
-                    token.lower()
-                    for token in re.findall(r"[a-z0-9]{3,}", identity_label)
-                    if token.lower() not in {"the", "and", "inc", "llc", "company", "companies", "website", "home"}
-                ]
-                host_tokens = _host_identity_tokens(linked_actual_host)
-                identity_text_match = bool(tokens) and any(token in linked_text for token in tokens)
-                host_text_match = bool(host_tokens) and any(token in linked_text for token in host_tokens)
-                industry_text_match = any(marker in linked_text for marker in industry_markers)
-                locality_text_match = any(marker in linked_text for marker in location_markers)
-                reasons: list[str] = []
-                if not linked_snapshot.real:
-                    reasons.append("page_fetch_failed")
+                linked_candidate = None
+                if market_verification:
+                    linked_candidate, reasons = observe_market_company(
+                        linked_snapshot, host=linked_host, label=identity_label, prospect=prospect
+                    )
                 else:
-                    if linked_actual_host != linked_host:
-                        reasons.append("redirected_host_mismatch")
-                    if not industry_text_match:
-                        reasons.append("industry_not_observed")
-                    if not locality_text_match:
-                        reasons.append("location_not_observed")
-                    if not (identity_text_match or host_text_match):
-                        reasons.append("identity_not_observed")
+                    tokens = [
+                        token.lower()
+                        for token in re.findall(r"[a-z0-9]{3,}", identity_label)
+                        if token.lower() not in {"the", "and", "inc", "llc", "company", "companies", "website", "home"}
+                    ]
+                    host_tokens = _host_identity_tokens(linked_actual_host)
+                    identity_text_match = bool(tokens) and any(token in linked_text for token in tokens)
+                    host_text_match = bool(host_tokens) and any(token in linked_text for token in host_tokens)
+                    industry_text_match = any(marker in linked_text for marker in industry_markers)
+                    locality_text_match = any(marker in linked_text for marker in location_markers)
+                    reasons = []
+                    if not linked_snapshot.real:
+                        reasons.append("page_fetch_failed")
+                    else:
+                        if linked_actual_host != linked_host:
+                            reasons.append("redirected_host_mismatch")
+                        if not industry_text_match:
+                            reasons.append("industry_not_observed")
+                        if not locality_text_match:
+                            reasons.append("location_not_observed")
+                        if not (identity_text_match or host_text_match):
+                            reasons.append("identity_not_observed")
                 # Record bounded, host-level decisions without copying link
                 # query strings or untrusted page content into the audit.
                 directory_link_attempts.append(
@@ -582,13 +766,21 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                         "reasons": reasons,
                     }
                 )
-                if (
-                    not linked_snapshot.real
-                    or linked_actual_host != linked_host
-                    or not industry_text_match
-                    or not locality_text_match
-                    or not (identity_text_match or host_text_match)
-                ):
+                if market_verification:
+                    if linked_candidate and linked_host not in verified_site_hosts:
+                        verified_site_hosts.add(linked_host)
+                        verified_prospect_candidates.append(
+                            {
+                                **linked_candidate,
+                                "prospect_id": f"web:resolved:{linked_host}",
+                                "source": "public_search",
+                                "discovery_source_url": snapshot.url,
+                            }
+                        )
+                    if len(verified_prospect_candidates) >= limit:
+                        break
+                    continue
+                if reasons:
                     continue
                 company_label = identity_label[:240] or linked_host
                 candidate = {
@@ -608,6 +800,14 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     )[:1000],
                     "observed_contacts": [],
                 }
+                if not payload.collect_contacts:
+                    candidate = _observed_research_candidate(
+                        candidate,
+                        company=company_label,
+                        url=linked_snapshot.url,
+                        sources=[linked_snapshot.url],
+                        summary=_visible_text(linked_snapshot),
+                    )
                 verified_prospect_candidates.append(candidate)
                 extracted = (
                     extract_observed_contacts(
@@ -658,35 +858,17 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         if snapshot.url and snapshot.url not in sources:
             sources.append(snapshot.url[:500])
         if not payload.collect_contacts:
-            raw_research_summary = prospect.get("research_summary")
-            research_summary = raw_research_summary if isinstance(raw_research_summary, str) else ""
-            if not research_summary.strip():
-                raw_signals = prospect.get("signals")
-                research_summary = (
-                    " ".join(
-                        str(signal).strip() for signal in raw_signals if isinstance(signal, str) and signal.strip()
+            if actual_host not in verified_site_hosts:
+                verified_site_hosts.add(actual_host)
+                verified_prospect_candidates.append(
+                    _observed_research_candidate(
+                        prospect,
+                        company=listed_company,
+                        url=snapshot.url,
+                        sources=[snapshot.url],
+                        summary=_visible_text(snapshot),
                     )
-                    if isinstance(raw_signals, list)
-                    else ""
                 )
-            raw_product_description = prospect.get("product_description")
-            product_description = raw_product_description if isinstance(raw_product_description, str) else ""
-            verified_prospect_candidates.append(
-                {
-                    **prospect,
-                    "company": page_record["company"],
-                    "website": str(prospect.get("website") or prospect.get("url") or snapshot.url or "")[:500],
-                    "real": True,
-                    "identity_status": "verified",
-                    "identity_evidence_urls": page_record["identity_evidence_urls"],
-                    "sources": sources,
-                    "research_summary": research_summary.strip()[:1000],
-                    "product_description": product_description.strip()[:1000],
-                    "observed_contacts": [],
-                }
-            )
-            if len(verified_prospect_candidates) >= limit:
-                break
             continue
 
         extracted = extract_observed_contacts(text=haystack, source_url=snapshot.url)
@@ -857,10 +1039,13 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         "contact_value_count": len(observed_contacts),
         "unobserved": unobserved,
         "pages": pages,
+        "supporting_page_observations": [
+            {"url": page.url, "real": page.real, "status_code": page.status_code} for page in support_snapshots.values()
+        ],
         "directory_link_resolution": {
             "followed_count": followed_directory_links,
             "unique_hosts": len(followed_link_hosts),
-            "max_followed": limit * 3,
+            "max_followed": followup_page_limit,
             "page_attempt_limit": page_attempt_limit,
             "attempts": directory_link_attempts,
         },
@@ -930,6 +1115,22 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         else f"Verified {len(verified_prospect_candidates)} company identities (minimum {minimum}, limit {limit}); "
         f"{len(unobserved)} unresolved; accept_met={accept_met}."
     )
+    inspected_urls = [str(page["url"]) for page in pages if page.get("url")]
+    identity_urls = (
+        [
+            url
+            for candidate in verified_prospect_candidates
+            if candidate.get("real") is True and isinstance(urls := candidate.get("identity_evidence_urls"), list)
+            for url in urls
+            if isinstance(url, str) and url.startswith("https://")
+        ]
+        if not payload.collect_contacts
+        else []
+    )
+    inspected_urls = list(
+        dict.fromkeys([*inspected_urls, *(page.url for page in support_snapshots.values()), *identity_urls])
+    )
+    evidence_url = next(iter(identity_urls or sorted(accepted_observation_urls)), None)
     evidence = EvidenceItem(
         evidence_type="action_result",
         evidence_source=f"tool.invoke.{action_name}",
@@ -947,7 +1148,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             "unobserved_count": len(unobserved),
             "condition_observations": output["condition_observations"],
         },
-        records_inspected=[str(page.get("url")) for page in pages if page.get("url")],
+        records_inspected=inspected_urls,
         records_changed=[],
         confidence=0.85 if accept_met else 0.55,
         limitations=list(limitations),
@@ -962,14 +1163,12 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             source_identity=(
                 EvidenceSourceIdentity(
                     source_system="fixture_data" if payload.local_fixture_only else "public_page",
-                    source_record_id=next(iter(accepted_observation_urls)),
+                    source_record_id=evidence_url,
                 )
-                if accepted_observation_urls
+                if evidence_url
                 else None
             ),
-            resolution=(
-                EvidenceLineageResolution.KNOWN if accepted_observation_urls else EvidenceLineageResolution.UNKNOWN
-            ),
+            resolution=EvidenceLineageResolution.KNOWN if evidence_url else EvidenceLineageResolution.UNKNOWN,
         ),
         side_effect_class=SideEffectClass.EXTERNAL_READ,
     )
@@ -979,7 +1178,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         side_effect_class=SideEffectClass.EXTERNAL_READ,
         output=output,
         evidence=[evidence],
-        records_inspected=[str(page.get("url")) for page in pages if page.get("url")],
+        records_inspected=inspected_urls,
         summary=summary,
         confidence=0.85 if accept_met else 0.55,
     )
