@@ -14,7 +14,10 @@ from backend.services.mission_composition.contracts import (
     MissionCompositionRecord,
     compare_reviewed_semantic_state,
 )
-from backend.services.mission_composition.deliverable_runtime_state import build_deliverable_runtime_state
+from backend.services.mission_composition.deliverable_runtime_state import (
+    build_deliverable_runtime_state,
+    deliverable_minimum_rows,
+)
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
 from backend.services.mission_composition.interpretation.outcome_proposer import OutcomeProposal
@@ -1248,6 +1251,31 @@ def test_phoenix_public_research_does_not_insert_contact_collection() -> None:
     assert "research.observe_contacts" not in actions
     assert "gtm.email_send" not in actions
     assert "gtm.crm_upsert" not in actions
+
+
+@pytest.mark.parametrize(
+    ("quantity_phrase", "minimum"),
+    [("up to three", 1), ("three", 3), ("at least three", 3)],
+)
+def test_public_research_keeps_identifiability_out_of_industry_and_preserves_count(
+    quantity_phrase: str, minimum: int
+) -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        instruction=(
+            f"Research {quantity_phrase} publicly identifiable software development companies in Austin, Texas. "
+            "Verify them using their official websites and produce a research report. "
+            "Do not write to CRM or send messages."
+        ),
+    )
+
+    assert record.ready_to_start
+    assert record.intent.target_entities[0].industry == "software development"
+    assert record.intent.requested_quantity == 3
+    discovery = next(step for step in record.planned_steps if step.action_name == "web.research")
+    assert discovery.tool_input["query"] == "software development companies in Austin"
+    assert discovery.tool_input["limit"] == 3
+    assert deliverable_minimum_rows(record.intent) == minimum
 
 
 def test_capability_resolver_selects_draft_not_send() -> None:

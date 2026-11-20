@@ -896,6 +896,7 @@ def _extract_industry_location_entities(text: str) -> list[TargetEntity]:
         ):
             industry_tokens.pop(0)
         industry = " ".join(industry_tokens).strip(" ,.;:")
+        industry = re.sub(r"^publicly\s+(?:identifiable|verifiable)(?:\s+|$)", "", industry, flags=re.IGNORECASE)
         location = _trim_location(match.group("location"))
         # Drop trailing source qualifiers ("from HubSpot CRM records").
         location = re.sub(r"\s+\bfrom\b\s+.*$", "", location, flags=re.IGNORECASE).strip(" ,.;:")

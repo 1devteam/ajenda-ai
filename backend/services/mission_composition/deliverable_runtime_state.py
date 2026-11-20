@@ -129,8 +129,29 @@ def goal_evaluation_deliverable_request() -> DeliverableRequest:
     )
 
 
+def research_candidate_minimum(intent: MissionIntent) -> int:
+    """Treat a bounded discovery request as a cap while requiring evidence of a match."""
+
+    outcomes = set(intent.requested_outcomes)
+    if "research_prospects" not in outcomes:
+        return 0
+    instruction = intent.raw_instruction or intent.objective
+    if (
+        outcomes <= {"research_prospects", "synthesize_research_report"}
+        and re.search(
+            r"\b(?:research|find|identify|discover|list)\s+up\s+to\s+"
+            r"(?:[1-9]\d*|one|two|three|four|five|six|seven|eight|nine|ten)\b",
+            instruction,
+            re.IGNORECASE,
+        )
+        and not re.search(r"\b(?:at\s+least|minimum\s+of|exactly)\b", instruction, re.IGNORECASE)
+    ):
+        return 1
+    return intent.requested_quantity or 1
+
+
 def deliverable_minimum_rows(intent: MissionIntent) -> int:
-    """Keep an internal CRM read's explicit upper bound out of its row minimum."""
+    """Resolve row requirements separately from the requested retrieval limit."""
 
     instruction = intent.raw_instruction or intent.objective
     if (
@@ -140,6 +161,8 @@ def deliverable_minimum_rows(intent: MissionIntent) -> int:
         and not re.search(r"\b(?:at\s+least|minimum\s+of|exactly)\b", instruction, re.I)
     ):
         return 0
+    if "research_prospects" in intent.requested_outcomes and intent.requested_quantity is not None:
+        return research_candidate_minimum(intent)
     return intent.requested_quantity or 0
 
 
