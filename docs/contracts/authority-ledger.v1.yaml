@@ -1468,29 +1468,6 @@ authority_entries:
       - tests/unit/architecture/test_authority_ledger_contract.py
       - docs/planning/pr-430-knowledge-decision-support-acceptance.md
 
-  - id: graft_runtime_integrity_contract
-    area: GRAFT runtime admission integrity precondition
-    owner: runtime-admission-governance
-    source_of_truth:
-      - backend/services/mission_graph_integrity.py
-      - backend/api/routes/mission.py
-    route_scope:
-      - POST /v1/missions/{mission_id}/runtime-admission
-    authority_class: read_model
-    side_effect_class: tenant_scoped_admission_precondition_read
-    allowed_side_effects:
-      - inspect normalized mission instruction and materialized graph
-      - inspect tenant-scoped credential metadata and decryptability
-      - return a deterministic clear-or-blocked integrity report
-    forbidden_side_effects:
-      - create execution tasks
-      - provision runtime authority
-      - enqueue, dispatch, or execute handlers
-      - mutate credentials, mission, queue, lease, evidence, or tenant records
-    required_proofs:
-      - tests/unit/services/test_mission_graph_integrity.py
-      - tests/unit/api/test_mission_intake_route.py
-
   - id: graft_runtime_evidence_projection_contract
     area: read-only GRAFT runtime evidence projection
     owner: evidence-observability-governance

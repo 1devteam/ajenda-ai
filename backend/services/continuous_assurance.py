@@ -135,7 +135,7 @@ class ContinuousAssuranceService:
         runtime_state_error: str | None = None
         try:
             runtime_state = deliverable_runtime_observability.build_deliverable_runtime_state_read(
-                mission.metadata_json
+                mission.metadata_json, tasks=tasks, mission_created_at=mission.created_at
             )
         except ValueError as exc:
             runtime_state = None

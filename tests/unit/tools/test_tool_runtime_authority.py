@@ -119,7 +119,7 @@ def _context(tenant_id: str = "tenant") -> dict[str, object]:
     }
 
 
-def test_checkpoint_failure_prevents_provider_invocation(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_observer_failure_cannot_prevent_authorized_provider_invocation(monkeypatch: pytest.MonkeyPatch) -> None:
     from backend.services.tools import runtime_authority
 
     registry = MagicMock()
@@ -131,16 +131,30 @@ def test_checkpoint_failure_prevents_provider_invocation(monkeypatch: pytest.Mon
     monkeypatch.setattr(
         authority,
         "authorize",
-        lambda **_: (invocation, SimpleNamespace(name="record.search", provider="local"), SideEffectClass.NONE),
+        lambda **_: (
+            invocation,
+            SimpleNamespace(name="record.search", provider="local", credential_requirement=None),
+            SideEffectClass.NONE,
+        ),
     )
 
     def fail_checkpoint(_observations: object) -> None:
         raise RuntimeError("checkpoint unavailable")
 
     context = {**_context(), "persist_runtime_observations": fail_checkpoint}
-    with pytest.raises(RuntimeError, match="checkpoint unavailable"):
-        authority.execute(task=_task(), context=context)
-    registry.invoke.assert_not_called()
+    registry.invoke.return_value = SimpleNamespace(
+        provider="local",
+        side_effect_class=SideEffectClass.NONE,
+        summary="observed",
+        confidence=1.0,
+        limitations=[],
+        model_dump=lambda **_: {"output": {}, "evidence": [], "records_inspected": [], "records_changed": []},
+    )
+
+    result = authority.execute(task=_task(), context=context)
+
+    registry.invoke.assert_called_once()
+    assert result["status"] == "completed"
 
 
 def test_runtime_enriches_invocation_credential_reference_from_task_metadata() -> None:
@@ -229,9 +243,7 @@ def test_runtime_authority_requires_current_grant_for_custom_approval_required_r
     with pytest.raises(ToolRuntimeAuthorityError, match="requires a current task-bound human approval"):
         ToolRuntimeAuthority().authorize(task=task, context=_context())
 
-    denied_observations = task.metadata_json["runtime_causal_observations"]
-    assert denied_observations[-1]["stage"] == "ability_governance"
-    assert denied_observations[-1]["reason_code"] == "human_approval_missing_or_invalid"
+    assert task.metadata_json["ability_governance"]["ability_approval_revalidated"] is False
 
     approved_at = datetime.now(UTC)
     task.metadata_json["execution_constraints"] = {
@@ -251,10 +263,8 @@ def test_runtime_authority_requires_current_grant_for_custom_approval_required_r
     }
 
     ToolRuntimeAuthority().authorize(task=task, context=_context())
-    observations = task.metadata_json["runtime_causal_observations"]
-    assert observations[-1]["stage"] == "ability_governance"
-    assert observations[-1]["safe_metadata"]["ability_id"] == manifest.ability_id
-    assert observations[-1]["safe_metadata"]["ability_approval_revalidated"] is True
+    assert task.metadata_json["ability_governance"]["ability_id"] == manifest.ability_id
+    assert task.metadata_json["ability_governance"]["ability_approval_revalidated"] is True
 
 
 def test_runtime_authority_fails_closed_when_ability_denial_audit_is_unavailable(

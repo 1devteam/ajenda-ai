@@ -28,10 +28,10 @@ def test_control_token_outside_entry_function_does_not_satisfy_coverage(tmp_path
     target = tmp_path / "backend/api/routes/mission.py"
     original = target.read_text(encoding="utf-8")
     entry_start = original.index("def admit_mission_graph_to_runtime(")
-    invocation = original.index("graft_report = evaluate_admission_integrity(", entry_start)
+    invocation = original.index("provisioned = provision_bridge_runtime_authority(", entry_start)
     altered = original[:invocation] + original[invocation:].replace(
-        "graft_report = evaluate_admission_integrity(",
-        "graft_report = fake_admission_check(",
+        "provisioned = provision_bridge_runtime_authority(",
+        "provisioned = fake_admission_check(",
         1,
     )
     # The import still preserves the token elsewhere in the file, but the

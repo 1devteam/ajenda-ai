@@ -20,7 +20,6 @@ from backend.services.runtime_admission_coverage import validate_runtime_admissi
 GRAPH_COMPONENTS = (
     REPO_ROOT / "backend/services/graft_artifact_lifecycle.py",
     REPO_ROOT / "backend/services/runtime_admission_coverage.py",
-    REPO_ROOT / "backend/services/mission_graph_integrity.py",
     REPO_ROOT / "backend/services/mission_runtime_evidence_projection.py",
     REPO_ROOT / "backend/services/vertical_ops/graft1st_contracts.py",
     *sorted((REPO_ROOT / "scripts/validation").glob("graph_*.py")),

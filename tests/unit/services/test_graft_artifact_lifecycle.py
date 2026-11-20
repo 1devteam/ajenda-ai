@@ -16,7 +16,6 @@ def test_graft_artifact_lifecycle_registry_is_unique_and_non_authoritative() -> 
     assert set(GRAFT_ARTIFACT_LIFECYCLE_BY_TYPE) == {
         "canonical_dependency_graph",
         "graft_impact_report",
-        "graft_runtime_admission_report",
         "graft_runtime_evidence",
         "graft_ui_runtime_interaction_evidence",
         "graft1st_revops_contract_package",

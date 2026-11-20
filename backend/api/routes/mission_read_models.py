@@ -57,9 +57,11 @@ def _runtime_admission_to_read(mission: Mission) -> RuntimeAdmissionRead:
     )
 
 
-def _mission_to_read(mission: Mission) -> MissionRead:
+def _mission_to_read(mission: Mission, *, tasks: list[ExecutionTask] | None = None) -> MissionRead:
     try:
-        deliverable_runtime_state = build_deliverable_runtime_state_read(mission.metadata_json)
+        deliverable_runtime_state = build_deliverable_runtime_state_read(
+            mission.metadata_json, tasks=tasks, mission_created_at=mission.created_at
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail="mission deliverable runtime state is invalid") from exc
     return MissionRead(

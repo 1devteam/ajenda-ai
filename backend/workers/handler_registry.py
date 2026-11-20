@@ -17,7 +17,6 @@ class TaskHandlerContext(TypedDict, total=False):
     lease_id: str
     session_factory: Any
     vector_session_factory: Any
-    persist_runtime_observations: Callable[[list[dict[str, Any]]], None]
 
 
 TaskHandler = Callable[[ExecutionTask, TaskHandlerContext], dict[str, Any]]

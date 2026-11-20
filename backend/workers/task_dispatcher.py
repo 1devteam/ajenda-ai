@@ -141,13 +141,6 @@ def _validate_handler_result(
     return cast("dict[str, Any]", result)
 
 
-def _runtime_observation_args(task: ExecutionTask) -> dict[str, Any]:
-    """Carry only bounded causal observations into lease-owned terminal transactions."""
-    metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
-    observations = metadata.get("runtime_causal_observations")
-    return {"runtime_observations": observations} if isinstance(observations, list) else {}
-
-
 @dataclass(slots=True)
 class TaskDispatcher:
     """Dispatches claimed tasks to registered handlers with heartbeat maintenance."""
@@ -207,10 +200,6 @@ class TaskDispatcher:
                 "lease_id": str(lease_id),
                 "session_factory": self.session_factory,
             }
-            if task_type == _TOOL_INVOKE_TASK_TYPE:
-                context["persist_runtime_observations"] = lambda observations: self._checkpoint_observations(
-                    task_id=task_id, lease_id=lease_id, observations=observations
-                )
             if self.vector_session_factory is not None:
                 context["vector_session_factory"] = self.vector_session_factory
             output_reason = _OUTPUT_REASON_BY_TASK_TYPE.get(task_type)
@@ -232,7 +221,7 @@ class TaskDispatcher:
                     runtime_metadata=(
                         {
                             key: task.metadata_json[key]
-                            for key in ("runtime_causal_observations", "input_binding_audit", "tool_invocation")
+                            for key in ("input_binding_audit", "tool_invocation")
                             if isinstance(task.metadata_json, dict) and key in task.metadata_json
                         }
                         or None
@@ -259,7 +248,6 @@ class TaskDispatcher:
                     task_type=task_type,
                     side_effect_class=side_effect_class,
                     reason=str(exc),
-                    **_runtime_observation_args(task),
                 )
 
         except Exception as exc:
@@ -267,29 +255,11 @@ class TaskDispatcher:
                 "task_dispatch_handler_failed",
                 extra={"task_id": str(task_id), "error": str(exc)},
             )
-            self._fail(lease_id=lease_id, reason=str(exc), **_runtime_observation_args(task))
+            self._fail(lease_id=lease_id, reason=str(exc))
 
         finally:
             stop_event.set()
             heartbeat_thread.join(timeout=5.0)
-
-    def _checkpoint_observations(
-        self, *, task_id: uuid.UUID, lease_id: uuid.UUID, observations: list[dict[str, Any]]
-    ) -> None:
-        session = self._open_tenant_session()
-        try:
-            WorkerRuntimeService(session, self.queue).checkpoint_causal_observations(
-                tenant_id=self.tenant_id,
-                lease_id=lease_id,
-                worker_id=self.worker_id,
-                task_id=task_id,
-                observations=observations,
-            )
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
 
     def _heartbeat_loop(self, lease_id: uuid.UUID, stop: threading.Event) -> None:
         """Background thread: sends an immediate and periodic lease heartbeat."""
@@ -352,7 +322,6 @@ class TaskDispatcher:
         task_type: str,
         side_effect_class: str,
         reason: str,
-        runtime_observations: list[Any] | None = None,
     ) -> None:
         session = self._open_tenant_session()
         try:
@@ -364,7 +333,6 @@ class TaskDispatcher:
                 task_type=task_type,
                 side_effect_class=side_effect_class,
                 reason=reason,
-                runtime_observations=runtime_observations,
             )
         except Exception as exc:
             session.rollback()
@@ -382,7 +350,7 @@ class TaskDispatcher:
         finally:
             session.close()
 
-    def _fail(self, *, lease_id: uuid.UUID, reason: str, runtime_observations: list[Any] | None = None) -> None:
+    def _fail(self, *, lease_id: uuid.UUID, reason: str) -> None:
         session = self._open_tenant_session()
         try:
             runtime = WorkerRuntimeService(session, self.queue)
@@ -391,7 +359,6 @@ class TaskDispatcher:
                 lease_id=lease_id,
                 worker_id=self.worker_id,
                 reason=reason,
-                **({"runtime_observations": runtime_observations} if runtime_observations is not None else {}),
             )
             session.commit()
         except Exception as exc:
@@ -413,7 +380,6 @@ class TaskDispatcher:
                     lease_id=lease_id,
                     worker_id=self.worker_id,
                     reason=reason,
-                    **({"runtime_observations": runtime_observations} if runtime_observations is not None else {}),
                 )
                 retry_session.commit()
                 logger.warning(

@@ -95,7 +95,7 @@ def test_refresh_marks_bound_fields_complete_only_after_required_artifacts_mater
     assert complete_state["grants_execution_authority"] is False
 
 
-def test_refresh_reconciles_durable_shadow_preview_with_runtime_artifacts() -> None:
+def test_shadow_compares_committed_artifacts_only_on_read() -> None:
     instruction = "Return drafts."
     request = extract_deliverable_request(instruction)
     assert request is not None
@@ -121,8 +121,51 @@ def test_refresh_reconciles_durable_shadow_preview_with_runtime_artifacts() -> N
     assert completion is not None and completion.complete is True
     refreshed = updated["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
     assert refreshed["shadow_preview"]["preview_id"] == "preview-shadow"
-    assert refreshed["runtime_reconciliation"]["status"] == "aligned"
-    assert refreshed["runtime_reconciliation"]["grants_execution_authority"] is False
+    assert refreshed["runtime_reconciliation"] is None
+    observed = build_deliverable_runtime_state_read(updated, tasks=[task])
+    assert observed is not None and observed.runtime_reconciliation is not None
+    assert observed.runtime_reconciliation.status == "aligned"
+    assert observed.runtime_reconciliation.grants_execution_authority is False
+    assert refreshed["runtime_reconciliation"] is None
+
+
+def test_shadow_reads_plan_from_committed_graph_without_a_worker_preview(monkeypatch) -> None:
+    metadata = _metadata("Return drafts.")
+    composition = metadata["mission_intake"]["context"]["composition"]
+    composition["proposal_id"] = "proposal"
+    metadata["mission_task_graph"] = {
+        "nodes": [
+            {
+                "key": "draft",
+                "output_contract": {"artifact": "introduction_drafts"},
+            },
+        ],
+    }
+    task = _task(
+        artifact="introduction_drafts",
+        payload=[{"company": "Acme", "subject": "Hello"}],
+        task_id="00000000-0000-0000-0000-000000000099",
+    )
+
+    updated, completion = refresh_deliverable_completion_metadata(metadata, [task])
+
+    assert completion is not None and completion.complete
+    observed = build_deliverable_runtime_state_read(updated, tasks=[task])
+    assert observed is not None and observed.shadow_preview is not None
+    assert observed.shadow_preview.planned_artifact_keys == ("introduction_drafts",)
+    assert observed.runtime_reconciliation is not None
+    assert observed.runtime_reconciliation.status == "aligned"
+
+    def observer_unavailable(**_kwargs):
+        raise RuntimeError("observer unavailable")
+
+    monkeypatch.setattr(
+        "backend.services.mission_composition.deliverable_runtime_observability.build_shadow_preview",
+        observer_unavailable,
+    )
+    observed = build_deliverable_runtime_state_read(updated, tasks=[task])
+    assert observed is not None and observed.complete
+    assert observed.runtime_reconciliation is None
 
 
 def test_refresh_preserves_epistemic_reconciliation_metadata() -> None:
@@ -235,7 +278,7 @@ def test_refresh_marks_runtime_work_for_blocked_coverage_contradictory() -> None
     assert lifecycle["contradiction_codes"] == ["runtime_work_created_for_blocked_coverage"]
 
 
-def test_refresh_marks_shadow_reconciliation_contradictory_for_conflicting_artifacts() -> None:
+def test_shadow_read_identifies_conflicting_artifacts() -> None:
     request = extract_deliverable_request("Return drafts.")
     assert request is not None
     preview = build_shadow_preview(
@@ -263,8 +306,11 @@ def test_refresh_marks_shadow_reconciliation_contradictory_for_conflicting_artif
     updated, _ = refresh_deliverable_completion_metadata(metadata, [first, second])
 
     refreshed = updated["mission_intake"]["context"]["composition"][DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
-    assert refreshed["runtime_reconciliation"]["status"] == "contradictory"
-    assert refreshed["runtime_reconciliation"]["contradiction_codes"] == ["conflicting_artifact:introduction_drafts"]
+    assert refreshed["runtime_reconciliation"] is None
+    observed = build_deliverable_runtime_state_read(updated, tasks=[first, second])
+    assert observed is not None and observed.runtime_reconciliation is not None
+    assert observed.runtime_reconciliation.status == "contradictory"
+    assert observed.runtime_reconciliation.contradiction_codes == ("conflicting_artifact:introduction_drafts",)
 
 
 def test_refresh_keeps_bound_field_missing_until_its_artifact_exists() -> None:

@@ -35,9 +35,12 @@ RUNTIME_ADMISSION_COVERAGE: tuple[RuntimeAdmissionCoverage, ...] = (
         boundary_id="mission.graph_runtime_admission",
         kind="route",
         source_path="backend/api/routes/mission.py",
-        source_tokens=("def admit_mission_graph_to_runtime", "evaluate_admission_integrity"),
+        source_tokens=("def admit_mission_graph_to_runtime", "provision_bridge_runtime_authority"),
         authority_owner="runtime-admission-governance",
-        integrity_controls=("GRAFT admission integrity", "tenant-scoped capability/adapter visibility"),
+        integrity_controls=(
+            "current materialization and graph reference",
+            "tenant-scoped capability/adapter visibility",
+        ),
         mutation_scope="persist graph-to-runtime admission metadata only",
     ),
     RuntimeAdmissionCoverage(
@@ -128,7 +131,7 @@ RUNTIME_ADMISSION_COVERAGE: tuple[RuntimeAdmissionCoverage, ...] = (
 # merely appearing somewhere in the same file. This remains static coverage
 # and must be paired with behavioral authorization/rejection tests.
 INVOCATION_ANCHORS: dict[str, tuple[str, str]] = {
-    "mission.graph_runtime_admission": ("admit_mission_graph_to_runtime", "evaluate_admission_integrity"),
+    "mission.graph_runtime_admission": ("admit_mission_graph_to_runtime", "provision_bridge_runtime_authority"),
     "mission.runtime_task_materialization": ("materialize", "build_mission_runtime_readiness"),
     "mission.runtime_queue_admission": ("admit", "self._execution_coordinator_cls"),
     "mission.legacy_queue_wrapper": ("queue_mission", "_admit_mission_runtime_queue"),

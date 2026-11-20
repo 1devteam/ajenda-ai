@@ -80,7 +80,6 @@ for shared_name in (
     "worker_runtime_service.py",
     "network_egress.py",
     "operating_charter.py",
-    "mission_graph_integrity.py",
     "http_idempotency_authority.py",
 ):
     AUTHORITY_AWARE[shared_name] = "shared_authority"

@@ -31,29 +31,9 @@ JSON reports, CI artifacts, PR review evidence
 **Authority:** diagnostic and proof selection only. These outputs do not dispatch tasks, mutate tenant state, grant credentials, or approve side effects.  
 **Unknown:** artifact retention, freshness guarantees, and which reports are retained as durable historical provenance after CI completion.
 
-## Trace B — GRAFT runtime admission
+## Trace B — Mission runtime admission
 
-```text
-mission runtime-admission route
-        ↓
-server-normalized mission objective + materialized task graph
-        ↓
-backend.services.mission_graph_integrity.evaluate_admission_integrity
-        ↓
-credential visibility / eligibility / metadata match / decryptability checks
-        + report-materialization check
-        + explicit Google Contacts selection check
-        + leaked-markdown-input check
-        ↓
-clear → continue existing authority admission
-blocked → HTTP 400 with GRAFT findings
-```
-
-**Code evidence:** `backend/api/routes/mission.py:2403-2425`; `backend/services/mission_graph_integrity.py:38-117`.  
-**Proven links:** the route invokes the check before continuing to authority provisioning/admission; the check reads tenant-scoped credentials and does not mutate runtime state; a non-clear report blocks admission.  
-**Authority:** bounded fail-closed gate. It can block admission, but it cannot dispatch work, create credentials, or authorize a side effect.  
-**Potential entanglement:** runtime admission now depends on GRAFT semantics and credential repository behavior. Changes to graph interpretation can change which missions are admitted.  
-**Unknown:** complete inventory of all mission paths that can reach admission outside this route and whether every such path invokes the same integrity check.
+Ajenda validates its current graph and materialization references, review state, and tenant-visible capability and adapter references before admission. GRAFT analyzes the graph separately and reports diagnostic findings.
 
 ## Trace C — persisted runtime facts to human-readable GRAFT artifact
 
@@ -120,7 +100,7 @@ PR review / release decisions
 |---|---|---|
 | Builder → overlay/inventories | Intentional structural dependency | Proven by imports and graph output |
 | Builder → impact/proof/completeness | Intentional report pipeline | Proven by CLI/report contracts and tests |
-| Mission admission → GRAFT integrity | Intentional runtime gate | Proven by route call and blocking behavior |
+| Mission admission → Ajenda governance | Runtime policy | Proven by route and behavioral tests |
 | Runtime evidence → persisted metadata schema | Intentional but schema-coupled | Proven; migration/freshness behavior open |
 | GRAFT1st → RevOps know-how | Intentional compatibility coupling | Proven by imports and provenance fields |
 | GRAFT1st → CRM action path | Declarative contract coupling | Partially proven; full runtime trace open |
@@ -138,7 +118,7 @@ PR review / release decisions
 
 ## Remaining proof obligations
 
-1. Enumerate every runtime admission entry point and prove GRAFT integrity coverage.
+1. Enumerate every runtime admission entry point and prove Ajenda's admission controls.
 2. Trace every runtime metadata key consumed by the evidence projection to its writer and migration history.
 3. Trace GRAFT1st package versions through composition records and historical reads.
 4. Inventory artifact creation, storage, retention, freshness, and user-visible exposure.

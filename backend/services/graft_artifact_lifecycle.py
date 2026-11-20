@@ -98,17 +98,6 @@ GRAFT_ARTIFACT_LIFECYCLE_CONTRACTS: tuple[GraftArtifactLifecycleContract, ...] =
         consumers=("graph_proof_selection", "pull_request_review", "graph_runtime_impact"),
     ),
     GraftArtifactLifecycleContract(
-        artifact_type="graft_runtime_admission_report",
-        artifact_schema_version="1.0.0",
-        owner="runtime-admission-governance",
-        producer="backend/services/mission_graph_integrity.py",
-        authority_class="read_only_observation",
-        tenant_scope="tenant_scoped",
-        retention_class="mission_runtime_evidence",
-        freshness_window_seconds=0,
-        consumers=("runtime_admission_route", "mission_runtime_evidence_review"),
-    ),
-    GraftArtifactLifecycleContract(
         artifact_type="graft_runtime_evidence",
         artifact_schema_version="1.0.0",
         owner="evidence-observability-governance",

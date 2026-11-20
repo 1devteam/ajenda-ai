@@ -120,7 +120,6 @@ def test_knowledge_applicability_has_one_declared_owner() -> None:
 
 def test_graft_surfaces_have_explicit_owners_and_non_authority_boundaries() -> None:
     expected = {
-        "graft_runtime_integrity_contract": "runtime-admission-governance",
         "graft_runtime_evidence_projection_contract": "evidence-observability-governance",
         "graft_ui_runtime_interaction_evidence_projection_contract": "evidence-observability-governance",
         "graft_plus_workflow_control": "architecture-runtime-governance",
@@ -140,7 +139,6 @@ def test_graft_runtime_read_models_are_not_runtime_authoritative() -> None:
     blocks = {block.splitlines()[0].removeprefix("id: "): block for block in _ledger_blocks()}
 
     for entry_id in (
-        "graft_runtime_integrity_contract",
         "graft_runtime_evidence_projection_contract",
         "graft_ui_runtime_interaction_evidence_projection_contract",
     ):

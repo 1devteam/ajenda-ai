@@ -39,7 +39,7 @@ from backend.services.knowledge.tenant_knowledge_application import (
     TenantKnowledgeApplicationService,
 )
 from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
-from backend.services.mission_composition.deliverable_runtime_state import load_deliverable_runtime_state
+from backend.services.mission_composition.deliverable_runtime_observability import build_deliverable_runtime_state_read
 from backend.services.mission_composition.profile_deliverable import (
     ProfileDeliverableRead,
     assemble_profile_deliverable,
@@ -81,21 +81,6 @@ class TenantKnowledgeApplyRequest(BaseModel):
     note: str = Field(min_length=1, max_length=2_000)
 
 
-def _runtime_state_from_metadata(metadata: object) -> object | None:
-    if not isinstance(metadata, dict):
-        return None
-    intake = metadata.get("mission_intake")
-    if not isinstance(intake, dict):
-        return None
-    context = intake.get("context")
-    if not isinstance(context, dict):
-        return None
-    composition = context.get("composition")
-    if not isinstance(composition, dict):
-        return None
-    return composition.get("deliverable_runtime_state")
-
-
 @router.get("/{mission_id}/knowledge-change-proposals", response_model=KnowledgeChangeProposalSet)
 def read_knowledge_change_proposals(
     mission_id: uuid.UUID,
@@ -111,9 +96,11 @@ def read_knowledge_change_proposals(
     if mission is None:
         raise HTTPException(status_code=404, detail="mission not found for tenant")
     reviews = OutcomeReviewRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_scope)
-    metadata = mission.metadata_json if isinstance(mission.metadata_json, dict) else {}
+    tasks = ExecutionTaskRepository(db).list_for_mission_for_tenant(mission_id=mission_id, tenant_id=tenant_scope)
     try:
-        runtime_state = load_deliverable_runtime_state(_runtime_state_from_metadata(metadata))
+        runtime_state = build_deliverable_runtime_state_read(
+            mission.metadata_json, tasks=tasks, mission_created_at=mission.created_at
+        )
     except ValidationError as exc:
         raise HTTPException(status_code=409, detail="mission deliverable runtime state is invalid") from exc
     return build_knowledge_change_proposals(
@@ -143,9 +130,11 @@ def materialize_knowledge_change_proposals(
     if mission is None:
         raise HTTPException(status_code=404, detail="mission not found for tenant")
     reviews = OutcomeReviewRepository(db).list_for_mission(mission_id=mission_id, tenant_id=tenant_scope)
-    metadata = mission.metadata_json if isinstance(mission.metadata_json, dict) else {}
+    tasks = ExecutionTaskRepository(db).list_for_mission_for_tenant(mission_id=mission_id, tenant_id=tenant_scope)
     try:
-        runtime_state = load_deliverable_runtime_state(_runtime_state_from_metadata(metadata))
+        runtime_state = build_deliverable_runtime_state_read(
+            mission.metadata_json, tasks=tasks, mission_created_at=mission.created_at
+        )
     except ValidationError as exc:
         raise HTTPException(status_code=409, detail="mission deliverable runtime state is invalid") from exc
     projected = build_knowledge_change_proposals(
