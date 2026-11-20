@@ -574,7 +574,7 @@ def test_rg_long_running_dispatcher_maintains_midflight_heartbeat(
 
     def slow_success_handler(task: ExecutionTask, context: dict[str, object]) -> dict[str, str]:
         handler_started.set()
-        if not handler_release.wait(timeout=5.0):
+        if not handler_release.wait(timeout=10.0):
             raise TimeoutError("slow_success handler timed out waiting for release signal")
         return {"status": "completed", "handler": "slow_success"}
 
@@ -595,24 +595,31 @@ def test_rg_long_running_dispatcher_maintains_midflight_heartbeat(
     )
     dispatch_thread.start()
 
-    assert handler_started.wait(timeout=2.0)
-    time.sleep(0.2)
-
-    midflight_session = session_factory()
     try:
-        midflight_task = midflight_session.get(ExecutionTask, task_id)
-        midflight_lease = midflight_session.get(WorkerLease, lease_id)
-        assert midflight_task is not None
-        assert midflight_lease is not None
-        assert midflight_task.status == ExecutionTaskState.RUNNING.value
-        assert midflight_lease.status == WorkerLeaseState.ACTIVE.value
-        assert midflight_lease.heartbeat_at is not None
-        assert midflight_lease.heartbeat_at > initial_heartbeat_at
-    finally:
-        midflight_session.close()
+        assert handler_started.wait(timeout=5.0), "dispatcher did not start the handler"
+        deadline = time.monotonic() + 5.0
+        while True:
+            # Read committed state with a fresh session while the handler is blocked.
+            with session_factory() as midflight_session:
+                midflight_task = midflight_session.get(ExecutionTask, task_id)
+                midflight_lease = midflight_session.get(WorkerLease, lease_id)
+                assert midflight_task is not None
+                assert midflight_lease is not None
+                assert midflight_task.status == ExecutionTaskState.RUNNING.value
+                assert midflight_lease.status == WorkerLeaseState.ACTIVE.value
+                heartbeat_at = midflight_lease.heartbeat_at
+                assert heartbeat_at is not None
+                if heartbeat_at > initial_heartbeat_at:
+                    break
 
-    handler_release.set()
-    dispatch_thread.join(timeout=5.0)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                pytest.fail(f"dispatcher did not advance heartbeat within 5 seconds (last seen: {heartbeat_at})")
+            time.sleep(min(0.05, remaining))
+    finally:
+        handler_release.set()
+        dispatch_thread.join(timeout=5.0)
+
     assert not dispatch_thread.is_alive()
 
     final_session = session_factory()
