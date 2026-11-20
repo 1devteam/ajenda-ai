@@ -687,6 +687,75 @@ def test_verify_public_candidates_rejects_unknown_directory_and_article_category
     assert all(page["source_reliability"] == "directory_or_third_party" for page in result.output["pages"])
 
 
+@pytest.mark.parametrize(
+    ("title", "page_text", "expected_source", "expected_company", "expected_gap"),
+    [
+        (
+            "Custom software development company in Austin - Cedar Software",
+            "Cedar Software builds custom software. We are based in Austin, Texas.",
+            "official",
+            "Cedar Software",
+            None,
+        ),
+        (
+            "Custom software development company in Austin - Cedar Software",
+            "Cedar Software builds custom software. We are based in Houston, Texas.",
+            "official",
+            None,
+            "operating_location_conflicts",
+        ),
+        (
+            "Custom software development company in Austin - Cedar Software",
+            "Cedar Software builds custom software for clients in Austin.",
+            "official",
+            None,
+            "operating_location_not_observed",
+        ),
+        (
+            "Software Development Companies in Austin - Cedar Software",
+            "Cedar Software builds custom software. We are based in Austin, Texas.",
+            "directory_or_third_party",
+            None,
+            "directory_or_third_party_page",
+        ),
+    ],
+)
+def test_batch_verification_separates_branded_source_and_locality(
+    title: str, page_text: str, expected_source: str, expected_company: str | None, expected_gap: str | None
+) -> None:
+    from backend.services.tools.web_actions import research_verify_public_candidates
+
+    page = PageSnapshot(
+        url="https://cedarsoftware.example/",
+        real=True,
+        status_code=200,
+        title=title,
+        text_preview=page_text,
+    )
+    invocation = ToolInvocation(
+        action="research.verify_public_candidates",
+        input={
+            "prospects": [{"company": title.split(" - ")[0], "url": page.url}],
+            "requested_quantity": 1,
+            "binding_required": True,
+            "collect_contacts": False,
+            "context": {"industry": "software development", "location": "Austin"},
+        },
+    )
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=page):
+        result = research_verify_public_candidates(invocation, _context())
+
+    output = result.output
+    assert output["pages"][0]["source_reliability"] == expected_source
+    if expected_company:
+        assert [candidate["company"] for candidate in output["verified_prospect_candidates"]] == [expected_company]
+    else:
+        assert output["verified_prospect_candidates"] == []
+        assert expected_gap in output["unobserved"][0]["identity_gaps"]
+        if expected_source == "official":
+            assert "Requested operating location Austin" in output["valid_empty_result"]["reason"]
+
+
 def test_public_identity_rejection_is_a_valid_empty_verification_outcome() -> None:
     from backend.services.tools.web_action_contacts import research_verify_public_candidates
 
