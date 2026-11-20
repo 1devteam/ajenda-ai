@@ -50,3 +50,21 @@ File-level analysis remains authoritative for ordinary PR change impact and proo
 ## Scope discipline
 
 Function-level expansion should remain selective. A subsystem should receive this treatment only when function-level decision ownership materially improves correctness, diagnosis, or proof selection. The default remains module-level graphing to avoid global graph noise and misleading pseudo-precision.
+
+## Shadow interpreter replay
+
+Run the production interpreter in a separate local process to observe function
+calls, decision field changes, and returns in execution order.
+
+```bash
+printf '%s\n' 'Read up to three accounts from internal CRM. Do not use HubSpot.' |
+  python scripts/validation/shadow_interpreter_trace.py
+```
+
+Use `--instruction-file` and `--profile-context` to supply a request and its
+interpreter context. Capture is bounded by `--max-events`. The report labels
+the run as a replay and includes function names, source lines, call links, and
+dropped-event counts. It omits raw prompt and clause contents. The replay uses
+the deterministic interpreter entry point and makes no planner, provider, or
+mission API calls. An original mission's execution history is available only
+from evidence recorded on that mission.
