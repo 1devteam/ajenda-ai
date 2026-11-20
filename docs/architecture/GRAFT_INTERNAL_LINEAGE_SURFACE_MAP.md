@@ -20,7 +20,7 @@ canonical dependency graph
         |       +--> completeness / CI gates
         |       +--> runtime-artifact reconciliation
         |
-        +--> bounded runtime admission integrity
+        +--> Ajenda-owned runtime admission
         |       +--> mission admission check
         |       +--> read-only runtime evidence projection
         |
@@ -83,7 +83,7 @@ These values are a discovery snapshot, not a persisted product claim. Re-run the
 
 | Call path | Role | Boundary |
 |---|---|---|
-| `backend/api/routes/mission.py` → `backend/services/mission_graph_integrity.py` | Fail-closed mission admission integrity check | Does not dispatch, grant credentials, or bypass `TaskDispatcher` |
+| `backend/api/routes/mission.py` | Ajenda-owned runtime admission and graph references | GRAFT observes resulting records through the evidence API. |
 | `backend/services/mission_runtime_evidence_projection.py` | Read-only projection of persisted mission/runtime facts for GRAFT review | Does not adjudicate or execute |
 | `backend/api/routes/mission_deliverable.py` | Exposes runtime facts for review | Tenant/auth/evidence boundaries remain authoritative |
 | Runtime graph-contract validators | Compare selected jobs/actions/artifacts with declared contracts | Diagnostic/admission evidence only |
@@ -117,7 +117,6 @@ These are Ajenda intelligence/composition layers. They are inventoried by the gr
 |---|---:|---:|---:|
 | Canonical graph | Yes | Indirectly, through proof selection and diagnostics | No |
 | GRAFT+ workflow | Yes | Yes, as change/proof guidance | No |
-| Runtime integrity check | Yes | Yes, by fail-closed admission result | No |
 | Runtime evidence projection | Yes | Review only | No |
 | GRAFT1st RevOps contracts | Yes | Yes, as declarative composition constraints | No |
 | Existing runtime authority | N/A | N/A | Yes, through existing governed paths only |
@@ -136,7 +135,7 @@ These are Ajenda intelligence/composition layers. They are inventoried by the gr
 Before integrating new onboarding or Contacts behavior, produce a second artifact with exact call chains for:
 
 1. graph build → overlay → impact/proof;
-2. graph/runtime integrity → mission admission;
+2. mission admission → committed runtime evidence;
 3. runtime evidence projection → human-readable artifact;
 4. GRAFT1st contract → RevOps composition → CRM action validation;
 5. graph findings → selected tests and CI workflows.

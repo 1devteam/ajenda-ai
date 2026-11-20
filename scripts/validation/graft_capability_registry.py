@@ -159,13 +159,6 @@ _SURFACES: tuple[tuple[str, str, str, tuple[str, ...], tuple[str, ...]], ...] = 
         ("drift_findings", "graph_freshness"),
     ),
     (
-        "runtime_admission_integrity",
-        "backend/services/mission_graph_integrity.py",
-        "read_only_admission",
-        ("mission_instruction", "task_graph", "credential_metadata"),
-        ("admission_integrity_findings",),
-    ),
-    (
         "runtime_evidence_projection",
         "backend/services/mission_runtime_evidence_projection.py",
         "read_only_observation",

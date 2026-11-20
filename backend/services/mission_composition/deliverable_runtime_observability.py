@@ -7,11 +7,14 @@ state, or grants execution authority.
 
 from __future__ import annotations
 
-from datetime import datetime
+import logging
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from backend.domain.execution_task import ExecutionTask
+from backend.domain.mission import MISSION_TASK_GRAPH_METADATA_KEY
 from backend.services.mission_composition.contracts import (
     CoverageAssessment,
     EpistemicBudgetStatus,
@@ -20,13 +23,21 @@ from backend.services.mission_composition.contracts import (
 )
 from backend.services.mission_composition.deliverable_completion import DeliverableCompletion
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
+from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
 from backend.services.mission_composition.deliverable_runtime_state import (
     DELIVERABLE_RUNTIME_STATE_METADATA_KEY,
     DeliverableLifecycleState,
     load_deliverable_runtime_state,
 )
 from backend.services.mission_composition.semantic_vocabulary import SemanticSelection
-from backend.services.mission_composition.shadow_preview import RuntimeReconciliation, ShadowPreview
+from backend.services.mission_composition.shadow_preview import (
+    RuntimeReconciliation,
+    ShadowPreview,
+    build_shadow_preview,
+    reconcile_shadow_preview,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class DeliverableRuntimeStateRead(BaseModel):
@@ -95,11 +106,16 @@ def _raw_composition(metadata: object) -> dict[str, object] | None:
     return composition if isinstance(composition, dict) else None
 
 
-def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntimeStateRead | None:
+def build_deliverable_runtime_state_read(
+    metadata: object,
+    *,
+    tasks: list[ExecutionTask] | None = None,
+    mission_created_at: datetime | None = None,
+) -> DeliverableRuntimeStateRead | None:
     """Build a validated read model from mission metadata, failing closed on drift."""
 
     raw_state = _raw_runtime_state(metadata)
-    state = load_deliverable_runtime_state(raw_state)
+    state = load_deliverable_runtime_state(raw_state, include_shadow=False)
     if state is None:
         return None
 
@@ -166,6 +182,7 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
     invalid_fields: list[DeliverableFieldKey] = []
     unproven_fields: list[DeliverableFieldKey] = []
     complete = False
+    completion: DeliverableCompletion | None = None
 
     if state.completion is None:
         for binding in state.projection.bindings:
@@ -194,6 +211,53 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
                 unproven_fields.append(field.field_key)
         complete = completion.complete
 
+    preview: ShadowPreview | None = None
+    reconciliation: RuntimeReconciliation | None = None
+    try:
+        if isinstance(raw_state, dict):
+            raw_preview = raw_state.get("shadow_preview")
+            raw_reconciliation = raw_state.get("runtime_reconciliation")
+            if raw_preview is not None:
+                preview = ShadowPreview.model_validate(raw_preview)
+            if raw_reconciliation is not None:
+                reconciliation = RuntimeReconciliation.model_validate(raw_reconciliation)
+        if tasks is not None and preview is None and composition is not None and isinstance(metadata, dict):
+            graph = metadata.get(MISSION_TASK_GRAPH_METADATA_KEY)
+            proposal_id = composition.get("proposal_id")
+            nodes = graph.get("nodes") if isinstance(graph, dict) else None
+            if isinstance(graph, dict) and isinstance(nodes, list) and isinstance(proposal_id, str) and proposal_id:
+                artifact_keys = tuple(
+                    contract["artifact"]
+                    for node in nodes
+                    if isinstance(node, dict)
+                    and isinstance(contract := node.get("output_contract"), dict)
+                    and isinstance(contract.get("artifact"), str)
+                    and contract["artifact"]
+                )
+                preview = build_shadow_preview(
+                    proposal_id=proposal_id,
+                    preview_id=f"{proposal_id}:shadow",
+                    task_graph=graph,
+                    planned_artifact_keys=artifact_keys,
+                    coverage_assessment=coverage,
+                    epistemic_context=epistemic,
+                    created_at=mission_created_at,
+                )
+        if tasks is not None and preview is not None and completion is not None:
+            reconciliation = reconcile_shadow_preview(
+                preview,
+                tasks=tasks,
+                artifacts=collect_materialized_artifacts(tasks),
+                completion=completion,
+                contradiction_codes=state.lifecycle.contradiction_codes,
+                now=state.lifecycle.reconciled_at or datetime.now(UTC),
+            )
+    except Exception as exc:
+        # Shadow is optional to the mission read. A corrupt historical
+        # observation or a failed comparison cannot hide the committed result.
+        logger.warning("shadow_reconciliation_unavailable", extra={"error_type": type(exc).__name__})
+        reconciliation = None
+
     return DeliverableRuntimeStateRead(
         requested_fields=requested_fields,
         satisfied_fields=tuple(satisfied_fields),
@@ -220,6 +284,6 @@ def build_deliverable_runtime_state_read(metadata: object) -> DeliverableRuntime
         coverage_assessment=coverage,
         graph_lineage=state.lifecycle.graph_lineage,
         epistemic_context=epistemic,
-        shadow_preview=state.shadow_preview,
-        runtime_reconciliation=state.runtime_reconciliation,
+        shadow_preview=preview,
+        runtime_reconciliation=reconciliation,
     )

@@ -32,6 +32,7 @@ def test_reconcile_mission_persists_assurance_only_without_mutating_mission(monk
     mission_id = uuid.uuid4()
     mission = SimpleNamespace(
         id=mission_id,
+        created_at=datetime.now(UTC),
         tenant_id="tenant-a",
         status="completed",
         metadata_json={"sentinel": "unchanged"},
@@ -67,7 +68,7 @@ def test_reconcile_mission_persists_assurance_only_without_mutating_mission(monk
     )
     monkeypatch.setattr(
         "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
-        lambda _: runtime_state,
+        lambda _, **_context: runtime_state,
     )
 
     service = ContinuousAssuranceService(session)
@@ -91,6 +92,7 @@ def test_reconcile_mission_persists_assurance_only_without_mutating_mission(monk
 def test_reconcile_mission_records_first_divergence_and_semantic_drift(monkeypatch) -> None:
     mission = SimpleNamespace(
         id=uuid.uuid4(),
+        created_at=datetime.now(UTC),
         tenant_id="tenant-a",
         status="completed",
         metadata_json={},
@@ -125,7 +127,7 @@ def test_reconcile_mission_records_first_divergence_and_semantic_drift(monkeypat
     )
     monkeypatch.setattr(
         "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
-        lambda _: runtime_state,
+        lambda _, **_context: runtime_state,
     )
     service = ContinuousAssuranceService(session)
     service._snapshots = MagicMock()
@@ -143,6 +145,7 @@ def test_reconcile_mission_records_first_divergence_and_semantic_drift(monkeypat
 def test_unchanged_observation_reuses_latest_snapshot(monkeypatch) -> None:
     mission = SimpleNamespace(
         id=uuid.uuid4(),
+        created_at=datetime.now(UTC),
         tenant_id="tenant-a",
         status="completed",
         metadata_json={},
@@ -177,7 +180,7 @@ def test_unchanged_observation_reuses_latest_snapshot(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
-        lambda _: runtime_state,
+        lambda _, **_context: runtime_state,
     )
     service = ContinuousAssuranceService(session)
     service._snapshots = MagicMock()
@@ -195,6 +198,7 @@ def test_unchanged_observation_reuses_latest_snapshot(monkeypatch) -> None:
 def test_artifact_and_semantic_errors_never_report_aligned(monkeypatch) -> None:
     mission = SimpleNamespace(
         id=uuid.uuid4(),
+        created_at=datetime.now(UTC),
         tenant_id="tenant-a",
         status="completed",
         metadata_json={},
@@ -232,7 +236,7 @@ def test_artifact_and_semantic_errors_never_report_aligned(monkeypatch) -> None:
         )
         monkeypatch.setattr(
             "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
-            lambda _, state=runtime_state: state,
+            lambda _, state=runtime_state, **_context: state,
         )
         session = MagicMock()
         session.scalars.side_effect = [[], [], [], [], []]
@@ -247,7 +251,9 @@ def test_artifact_and_semantic_errors_never_report_aligned(monkeypatch) -> None:
 
 
 def test_historical_unknown_is_not_misreported_as_current_violation(monkeypatch) -> None:
-    mission = SimpleNamespace(id=uuid.uuid4(), tenant_id="tenant-a", status="completed", metadata_json={})
+    mission = SimpleNamespace(
+        id=uuid.uuid4(), created_at=datetime.now(UTC), tenant_id="tenant-a", status="completed", metadata_json={}
+    )
     runtime = SimpleNamespace(
         contradictions=[],
         missing_evidence=["task:old:evidence"],
@@ -271,7 +277,7 @@ def test_historical_unknown_is_not_misreported_as_current_violation(monkeypatch)
     )
     monkeypatch.setattr(
         "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
-        lambda _: runtime_state,
+        lambda _, **_context: runtime_state,
     )
     session = MagicMock()
     session.scalars.side_effect = [[], [], [], [], []]
@@ -292,6 +298,7 @@ def test_actual_runtime_projection_drives_assurance_from_independent_fixture(mon
     lease_id = uuid.uuid4()
     mission = SimpleNamespace(
         id=mission_id,
+        created_at=datetime.now(UTC),
         tenant_id="tenant-a",
         status="completed",
         metadata_json={
@@ -321,7 +328,7 @@ def test_actual_runtime_projection_drives_assurance_from_independent_fixture(mon
     )
     monkeypatch.setattr(
         "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
-        lambda _: runtime_state,
+        lambda _, **_context: runtime_state,
     )
     session = MagicMock()
     start_event = SimpleNamespace(
@@ -367,6 +374,7 @@ def test_assurance_security_verdict_is_independent_of_operational_alignment(monk
     mission_id = uuid.uuid4()
     mission = SimpleNamespace(
         id=mission_id,
+        created_at=datetime.now(UTC),
         tenant_id="tenant-a",
         status="planned",
         metadata_json={},
@@ -401,7 +409,7 @@ def test_assurance_security_verdict_is_independent_of_operational_alignment(monk
     )
     monkeypatch.setattr(
         "backend.services.continuous_assurance.deliverable_runtime_observability.build_deliverable_runtime_state_read",
-        lambda _: runtime_state,
+        lambda _, **_context: runtime_state,
     )
     session = MagicMock()
     session.scalars.side_effect = [[foreign_task], [], [], [], []]

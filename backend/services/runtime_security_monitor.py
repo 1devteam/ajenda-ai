@@ -54,7 +54,7 @@ def inspect_runtime_security(
         if (
             task.tenant_id == tenant_id
             and task.mission_id == mission_id
-            and metadata.get("runtime_evidence_contract_version") == "1"
+            and metadata.get("runtime_evidence_contract_version") in {"1", "2"}
             and task.status in {"claimed", "running", "completed", "failed", "dead_lettered"}
             and str(task.id) not in leases_by_task
         ):
@@ -68,7 +68,7 @@ def inspect_runtime_security(
         if (
             task.tenant_id == tenant_id
             and task.mission_id == mission_id
-            and metadata.get("runtime_evidence_contract_version") == "1"
+            and metadata.get("runtime_evidence_contract_version") in {"1", "2"}
             and task.status in {"running", "completed", "failed", "dead_lettered"}
             and not any(
                 (str(task.id), lease_id) in observed_starts for lease_id in lease_ids_by_task.get(str(task.id), set())

@@ -211,9 +211,11 @@ def build_deliverable_runtime_state(
     return state.model_dump(mode="json")
 
 
-def load_deliverable_runtime_state(raw: object) -> DeliverableRuntimeState | None:
+def load_deliverable_runtime_state(raw: object, *, include_shadow: bool = True) -> DeliverableRuntimeState | None:
     """Load durable state fail closed; callers decide how to surface invalid metadata."""
 
     if raw is None:
         return None
+    if not include_shadow and isinstance(raw, dict):
+        raw = {key: value for key, value in raw.items() if key not in {"shadow_preview", "runtime_reconciliation"}}
     return DeliverableRuntimeState.model_validate(raw)

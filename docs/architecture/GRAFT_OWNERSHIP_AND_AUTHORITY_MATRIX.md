@@ -21,7 +21,6 @@ It is not itself an authority grant.
 | Impact/proof/completeness tooling | `scripts/validation/graph_impact_analysis.py`, `graph_proof_selection.py`, `graph_completeness_audit.py` | `architecture-runtime-governance` | Select impact, proof, and review obligations | Writes reports/CI artifacts; can fail gates | Ledger-owned as diagnostic tooling; no runtime authority |
 | GRAFT+ workflow | `docs/development/GRAFT_PLUS_WORKFLOW.md`, `scripts/validation/graft_plus_gate.py` | `architecture-runtime-governance` | Coordinates UPG/LAP, graph, proof, runtime review | Changes review/build behavior and CI outcomes | Explicit ledger owner; cannot dispatch product work |
 | Mission graph contract | `backend/api/routes/mission.py`, authority ledger entry `mission_task_graph_contract` | Mission platform owner | Validate/persist normalized graph metadata | Tenant-scoped graph metadata mutation only | Explicitly ledger-owned |
-| Runtime GRAFT integrity check | `backend/services/mission_graph_integrity.py`, called by `backend/api/routes/mission.py` | `runtime-admission-governance` | Read task graph and tenant credential metadata; return clear/blocked | No database mutation in implementation/tests | Ledger-owned read model; it can block admission but cannot provision authority |
 | Runtime evidence projection | `backend/services/mission_runtime_evidence_projection.py`, `mission_deliverable.py` | `evidence-observability-governance` | Read tenant-scoped runtime facts and emit diagnostic projection | No runtime mutation | Ledger-owned read model; cannot queue, authorize, or mutate |
 | GRAFT1st RevOps package | `backend/services/vertical_ops/graft1st_contracts.py` | `revops-composition-governance` | Validate declarative nodes, edges, artifacts, and simulations | In-memory validation only | Ledger-owned declarative contract; execution authority remains elsewhere |
 | RevOps know-how | `backend/services/mission_composition/vertical_know_how.py` | `revops-composition-governance` | Select bounded jobs, outputs, budgets, connectors, and review boundaries | Composition/provenance effects through normal composition | Declarative authority is explicit; owner is ledger-declared |
@@ -37,7 +36,7 @@ The implementation evidence supports correct placement for the **rights** of mos
 
 - graph tooling maps and reports;
 - GRAFT+ coordinates build/proof work;
-- runtime integrity checks preconditions;
+- Ajenda runtime admission checks preconditions;
 - evidence projection observes;
 - GRAFT1st and know-how constrain composition;
 - ActionRegistry/TaskDispatcher own execution;
@@ -47,9 +46,9 @@ It does **not** mean ownership is fully formalized. The main current weakness is
 
 ## Confirmed authority boundaries
 
-### Runtime integrity
+### Runtime admission
 
-`evaluate_admission_integrity` is a precondition check. Its unit tests prove credential preflight does not call `commit` or `flush`. The mission admission contract test proves a blocked result prevents authority provisioning and leaves mission/task mutation untouched.
+Ajenda owns graph reference checks, capability and adapter visibility, and authority provisioning. GRAFT reports graph and runtime findings for review.
 
 ### Runtime evidence
 
@@ -65,7 +64,7 @@ It does **not** mean ownership is fully formalized. The main current weakness is
 
 ## Current governance gap
 
-The authority ledger now contains dedicated entries for the runtime integrity check, runtime evidence projection, GRAFT+ workflow, GRAFT1st RevOps package, and artifact lifecycle contract. This closes the explicit-owner gap. The remaining lifecycle limitation is operational: the typed lifecycle registry currently governs artifact metadata and validation, while durable storage/expiration/reconciliation for every generated artifact still requires a separate persistence implementation.
+The authority ledger now contains dedicated entries for runtime evidence projection, GRAFT+ workflow, GRAFT1st RevOps package, and artifact lifecycle contract. This closes the explicit-owner gap. The remaining lifecycle limitation is operational: the typed lifecycle registry currently governs artifact metadata and validation, while durable storage/expiration/reconciliation for every generated artifact still requires a separate persistence implementation.
 
 ## Required owner declaration for future GRAFT+ authority
 
@@ -110,7 +109,7 @@ unresolved contradictions remain visible and produce a blocked result.
 
 ## Drift controls required before authority expansion
 
-- Keep the explicit authority-ledger entries for runtime GRAFT integrity and runtime evidence projection synchronized with their source paths.
+- Keep the explicit authority-ledger entries for runtime evidence projection synchronized with their source paths.
 - Keep the named owner and change-control policy for the semantic overlay enforced in review.
 - Add a versioned graph manifest containing source commit, overlay version, schema, findings, and authority class.
 - Prove every runtime admission entry point invokes the required integrity controls.

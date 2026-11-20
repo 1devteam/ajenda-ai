@@ -47,7 +47,6 @@ from backend.auth.permissions import Permission
 from backend.domain.enums import MissionPlanStatus, MissionState
 from backend.domain.mission import (
     MISSION_GRAPH_MATERIALIZATION_METADATA_KEY,
-    MISSION_INTAKE_METADATA_KEY,
     MISSION_PLAN_METADATA_KEY,
     MISSION_RUNTIME_ADMISSION_METADATA_KEY,
     MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY,
@@ -81,7 +80,6 @@ from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.mission_bridge.quota import quota_exceeded_response as _quota_exceeded_response
 from backend.services.mission_bridge_runtime_authority import provision_bridge_runtime_authority
 from backend.services.mission_executor import MissionExecutor  # noqa: F401 - legacy test/patch compatibility
-from backend.services.mission_graph_integrity import evaluate_admission_integrity
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
     contains_composition_clarification,
@@ -336,7 +334,8 @@ def read_mission(
     mission = MissionRepository(db).get_for_tenant(mission_id=mission_id, tenant_id=str(tenant_id))
     if mission is None:
         raise HTTPException(status_code=404, detail="mission not found for tenant")
-    return _mission_to_read(mission)
+    tasks = ExecutionTaskRepository(db).list_for_mission_for_tenant(mission_id=mission.id, tenant_id=str(tenant_id))
+    return _mission_to_read(mission, tasks=tasks)
 
 
 @router.get("/{mission_id}/lifecycle", response_model=MissionLifecycleRead)
@@ -1032,31 +1031,6 @@ def admit_mission_graph_to_runtime(
     ]
     if rejected_reviews:
         raise HTTPException(status_code=400, detail="rejected outcome review blocks runtime admission")
-
-    intake_for_graft = metadata.get(MISSION_INTAKE_METADATA_KEY)
-    intake_context = intake_for_graft.get("context") if isinstance(intake_for_graft, dict) else None
-    composition_for_graft = intake_context.get("composition") if isinstance(intake_context, dict) else None
-    compiled_instruction = (
-        composition_for_graft.get("instruction")
-        if isinstance(composition_for_graft, dict) and isinstance(composition_for_graft.get("instruction"), str)
-        else None
-    )
-    # Mission objective is the server-normalized instruction.  The stored
-    # composition instruction preserves the raw operator text for provenance
-    # and may still contain harmless Markdown quote prefixes; feeding that raw
-    # copy to GRAFT would reject a mission that already compiled successfully.
-    graft_instruction = (mission.objective or compiled_instruction or "").strip()
-    graft_report = evaluate_admission_integrity(
-        session=db,
-        tenant_id=tenant_id_str,
-        instruction=graft_instruction,
-        task_graph=task_graph,
-    )
-    if graft_report["status"] != "clear":
-        raise HTTPException(
-            status_code=400,
-            detail={"message": "GRAFT runtime admission blocked", "graft": graft_report},
-        )
 
     admitted_by = _server_admitted_by(request=request, body_admitted_by=body.admitted_by)
     node_selections = list(body.selected_nodes)

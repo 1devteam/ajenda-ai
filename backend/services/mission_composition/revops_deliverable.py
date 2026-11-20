@@ -92,7 +92,7 @@ def assemble_revops_mission_deliverable(
         evidence_records=evidence_records,
         outcome_reviews=outcome_reviews,
     )
-    state = load_deliverable_runtime_state(_runtime_state_from_metadata(mission.metadata_json))
+    state = load_deliverable_runtime_state(_runtime_state_from_metadata(mission.metadata_json), include_shadow=False)
     if state is None and _is_completed_standalone_goal_evaluation(tasks):
         # Older composed goals persisted the declared task result without a
         # mission projection. Reuse the typed projection only for readback.

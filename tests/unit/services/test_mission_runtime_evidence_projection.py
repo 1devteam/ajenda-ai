@@ -983,3 +983,44 @@ def test_legacy_causal_observation_is_read_only_and_not_admission(monkeypatch) -
     assert flows[0]["integrity_trust_class"] == "legacy_verified"
 
     assert "mission:queue_admission" in projection.missing_evidence
+
+
+def test_current_projection_reads_completed_tool_facts_without_diagnostic_events() -> None:
+    mission_id = uuid4()
+    tenant_id = str(uuid4())
+    task = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status="completed",
+        metadata={
+            "task_type": "tool.invoke",
+            "runtime_evidence_contract_version": "2",
+            "handler_result": {
+                "handler": "tool.invoke",
+                "status": "completed",
+                "provider": "internal_records",
+                "input_binding_audit": {},
+                "output": {"source_partitions": {"internal": {"candidate_count": 1}}},
+            },
+        },
+    )
+    projection = build_mission_runtime_evidence_projection(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        tasks=[task],
+        mission_metadata={},
+        leases=[],
+        lineage=[],
+        evidence=[],
+    )
+
+    assert not projection.causal_observations
+    assert {item["stage"] for item in projection.information_flow} == {
+        "input_binding",
+        "provider_selection",
+        "output_validation",
+        "tool_output",
+        "source_partition",
+    }
+    assert all(item["source"] == "task.metadata_json.handler_result" for item in projection.information_flow)
+    assert not any(":information:" in value for value in projection.missing_evidence)

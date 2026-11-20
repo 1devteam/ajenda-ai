@@ -45,7 +45,7 @@ def _disable_heartbeat(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(TaskDispatcher, "_heartbeat_loop", heartbeat_loop)
 
 
-def test_handler_failure_passes_only_causal_observations_to_terminal_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_handler_failure_ignores_diagnostic_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     dispatcher = _dispatcher()
     task = _task(task_type="test_failure")
     observed: list[dict[str, Any]] = []
@@ -61,8 +61,8 @@ def test_handler_failure_passes_only_causal_observations_to_terminal_owner(monke
     monkeypatch.setattr(task_dispatcher, "_HANDLER_REGISTRY", {"test_failure": cast(TaskHandler, handler)})
     dispatcher.execute(task_id=uuid.uuid4(), lease_id=uuid.uuid4())
 
-    assert observed[0]["runtime_observations"] == causal
-    assert "secret" not in observed[0]
+    assert set(observed[0]) == {"lease_id", "reason"}
+    assert observed[0]["reason"] == "provider failed"
 
 
 def test_execute_fails_invalid_task_type_without_starting_handler(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -223,7 +223,6 @@ def test_dispatcher_executes_tool_invoke_and_persists_structured_result(monkeypa
     monkeypatch.setattr(TaskDispatcher, "_heartbeat_loop", lambda self, lease_id, stop: None)
     monkeypatch.setattr(TaskDispatcher, "_load_task", lambda self, task_id: task)
     monkeypatch.setattr(TaskDispatcher, "_complete", complete)
-    monkeypatch.setattr(TaskDispatcher, "_checkpoint_observations", lambda self, **kwargs: None)
     monkeypatch.setattr(TaskDispatcher, "_fail", lambda self, **kwargs: pytest.fail(f"unexpected fail: {kwargs}"))
 
     dispatcher = TaskDispatcher(

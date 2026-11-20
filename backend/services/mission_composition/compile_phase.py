@@ -31,7 +31,6 @@ from backend.services.mission_composition.service_contracts import (
     COMPILER_VERSION,
     MissionCompositionError,
 )
-from backend.services.mission_composition.shadow_preview import build_shadow_preview
 from backend.services.mission_composition.vertical_know_how import REVOPS_V1_KNOW_HOW, select_vertical_know_how
 from backend.services.mission_runtime_projection import supersede_runtime_task_materialization
 
@@ -274,14 +273,6 @@ class MissionCompositionCompilePhase:
                     or 0,
                     "social_drafts": record.intent.requested_quantity or 0,
                 },
-                shadow_preview=build_shadow_preview(
-                    proposal_id=record.proposal_id,
-                    preview_id=f"{record.proposal_id}:shadow",
-                    task_graph=graph_preview,
-                    planned_artifact_keys=tuple(step.output_contract for step in record.planned_steps),
-                    coverage_assessment=record.coverage_assessment,
-                    epistemic_context=record.epistemic_context,
-                ),
                 graph_lineage=record.composition_provenance.graph_lineage,
             )
             context["composition"] = {

@@ -449,7 +449,7 @@ def build_mission_runtime_evidence_projection(
         )
         if task.status in {"completed", "failed", "dead_lettered"} and not task_evidence:
             missing.append(f"task:{task_id}:evidence")
-            if evidence_contract_version == "1":
+            if evidence_contract_version in {"1", "2"}:
                 contradictions.append(f"task:{task_id}:{task.status}_without_evidence")
             else:
                 # The historical contract cannot be reconstructed from absence.
@@ -466,7 +466,7 @@ def build_mission_runtime_evidence_projection(
         if task.status == "completed" and expected_artifact and not has_declared_output:
             marker = f"task:{task_id}:artifact:{expected_artifact}"
             missing.append(marker)
-            if evidence_contract_version == "1":
+            if evidence_contract_version in {"1", "2"}:
                 contradictions.append(f"task:{task_id}:completed_without_artifact:{expected_artifact}")
             else:
                 historical_unknown.append(marker)
@@ -792,8 +792,8 @@ def build_mission_runtime_evidence_projection(
         metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
         task_id = str(task.id)
         contract_version = metadata.get("runtime_evidence_contract_version")
-        applicable = contract_version == "1"
-        stages = observed_stages_by_task.get(task_id, set())
+        applicable = contract_version in {"1", "2"}
+        stages = set(observed_stages_by_task.get(task_id, ()))
         task_output = handler_output_for_task(task)
         tool_invocation = metadata.get("tool_invocation")
         action = tool_invocation.get("action") if isinstance(tool_invocation, dict) else metadata.get("action")
@@ -809,7 +809,10 @@ def build_mission_runtime_evidence_projection(
         required_causal_stages: list[str] = []
         # Legacy tasks without an active evidence contract cannot be treated
         # as missing a contract that was never attached to their execution.
-        if applicable and is_tool_path and terminal_or_started:
+        if is_tool_path and (
+            (contract_version == "1" and terminal_or_started)
+            or (contract_version == "2" and task.status == "completed")
+        ):
             required_causal_stages.extend(("input_binding", "provider_selection"))
         if task.status == "completed" and is_tool_path:
             required_causal_stages.append("output_validation")
@@ -817,6 +820,44 @@ def build_mission_runtime_evidence_projection(
                 required_causal_stages.append("tool_output")
             if isinstance(task_output.get("source_partitions"), dict):
                 required_causal_stages.append("source_partition")
+        # Version 2 projects completed handler facts in the reader. A
+        # provider or binding result is only visible once completion commits.
+        # Historical ledger observations remain attached to their original events.
+        projected_stages: set[str] = set()
+        handler_result = metadata.get("handler_result")
+        if (
+            contract_version == "2"
+            and task.status == "completed"
+            and isinstance(handler_result, dict)
+            and handler_result.get("handler") == "tool.invoke"
+            and handler_result.get("status") == "completed"
+        ):
+            projected_stages.add("output_validation")
+            if isinstance(handler_result.get("input_binding_audit"), dict):
+                projected_stages.add("input_binding")
+            provider = handler_result.get("provider")
+            if isinstance(provider, str) and provider:
+                projected_stages.add("provider_selection")
+            if task_output:
+                projected_stages.add("tool_output")
+            if isinstance(task_output.get("source_partitions"), dict):
+                projected_stages.add("source_partition")
+            projected_stages -= stages
+            for stage in sorted(projected_stages):
+                information_flow.append(
+                    {
+                        "stage": stage,
+                        "reason_code": "committed_handler_result",
+                        "source": "task.metadata_json.handler_result",
+                        "selected_path": provider if stage == "provider_selection" else None,
+                        "tenant_id": tenant_id,
+                        "mission_id": str(mission_id),
+                        "task_id": task_id,
+                        "execution_path": path_name,
+                        "contract_version": contract_version,
+                    }
+                )
+            stages.update(projected_stages)
         for required_stage, relevant in (
             ("execution_started", task.status in {"running", "completed", "failed", "blocked", "dead_lettered"}),
             ("execution_completed", task.status == "completed"),
@@ -863,13 +904,19 @@ def build_mission_runtime_evidence_projection(
                     "stage": required_stage,
                     "status": "observed" if observed else "not_observed",
                     "observation": (
-                        "recorded"
+                        "derived_from_committed_result"
+                        if required_stage in projected_stages
+                        else "recorded"
                         if observed
                         else "missing_under_active_contract"
                         if applicable
                         else "not_recorded_or_legacy"
                     ),
-                    "source": "runtime_decision.audit_events",
+                    "source": (
+                        "task.metadata_json.handler_result"
+                        if required_stage in projected_stages
+                        else "runtime_decision.audit_events"
+                    ),
                 }
             )
             if not observed:

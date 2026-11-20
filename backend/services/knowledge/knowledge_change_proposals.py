@@ -12,13 +12,16 @@ import hashlib
 import json
 import uuid
 from datetime import UTC, datetime
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.domain.knowledge_change_proposal import KnowledgeChangeProposalRecord
 from backend.domain.outcome_review import OutcomeReview
 from backend.services.mission_composition.deliverable_runtime_state import DeliverableRuntimeState
+
+if TYPE_CHECKING:
+    from backend.services.mission_composition.deliverable_runtime_observability import DeliverableRuntimeStateRead
 
 
 class KnowledgeChangeProposal(BaseModel):
@@ -154,7 +157,7 @@ def build_knowledge_change_proposals(
     tenant_id: str,
     mission_id: uuid.UUID,
     reviews: list[OutcomeReview],
-    runtime_state: DeliverableRuntimeState | None,
+    runtime_state: DeliverableRuntimeState | DeliverableRuntimeStateRead | None,
     generated_at: datetime | None = None,
 ) -> KnowledgeChangeProposalSet:
     """Project completed, evidence-backed reviews into review-only proposals.

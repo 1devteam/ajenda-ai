@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
@@ -1898,7 +1899,8 @@ def _valid_runtime_admission_payload(
     }
 
 
-def test_runtime_admission_persists_metadata_without_queueing_or_runtime_calls() -> None:
+@pytest.mark.parametrize("objective", ["List CRM accounts.", "List CRM accounts. Do not create a report."])
+def test_runtime_admission_persists_metadata_without_queueing_or_runtime_calls(objective: str) -> None:
     tenant_id = uuid.uuid4()
     mission_id = uuid.uuid4()
     capability_id = uuid.uuid4()
@@ -1906,6 +1908,7 @@ def test_runtime_admission_persists_metadata_without_queueing_or_runtime_calls()
     app = _build_app(tenant_id)
     client = TestClient(app, raise_server_exceptions=False)
     mission = _mission_with_runtime_admission_layers(tenant_id=tenant_id, mission_id=mission_id)
+    mission.objective = objective
     mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["preserved"] = True
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = mission
@@ -2278,41 +2281,6 @@ def test_runtime_admission_rejects_rejected_outcome_review() -> None:
 
     assert response.status_code == 400
     assert response.json() == {"detail": "rejected outcome review blocks runtime admission"}
-    mission_repo.update_metadata.assert_not_called()
-
-
-def test_runtime_admission_runs_graft_before_auto_provisioning_authority() -> None:
-    tenant_id = uuid.uuid4()
-    mission_id = uuid.uuid4()
-    app = _build_app(tenant_id)
-    client = TestClient(app, raise_server_exceptions=False)
-    mission = _mission_with_runtime_admission_layers(tenant_id=tenant_id, mission_id=mission_id)
-    mission_repo = MagicMock()
-    mission_repo.get_for_tenant.return_value = mission
-    outcome_repo = MagicMock()
-    outcome_repo.list_for_mission.return_value = []
-
-    with (
-        patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
-        patch("backend.api.routes.mission.OutcomeReviewRepository", return_value=outcome_repo),
-        patch(
-            "backend.api.routes.mission.evaluate_admission_integrity",
-            return_value={
-                "schema_version": "1.0",
-                "status": "blocked",
-                "findings": [{"code": "mission_credential.not_decryptable", "severity": "blocking"}],
-            },
-        ),
-        patch("backend.api.routes.mission.provision_bridge_runtime_authority") as provision,
-    ):
-        response = client.post(
-            f"/v1/missions/{mission_id}/runtime-admission",
-            json={"admission_status": "validated", "selected_nodes": [], "auto_provision_authority": True},
-        )
-
-    assert response.status_code == 400
-    assert response.json()["detail"]["message"] == "GRAFT runtime admission blocked"
-    provision.assert_not_called()
     mission_repo.update_metadata.assert_not_called()
 
 

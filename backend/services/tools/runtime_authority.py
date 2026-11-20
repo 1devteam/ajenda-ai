@@ -21,7 +21,7 @@ from backend.services.abilities.runtime_governance import (
 )
 from backend.services.credentials.runtime_authority import CredentialRuntimeAuthority, CredentialRuntimeAuthorityError
 from backend.services.operating_charter import OperatingCharterViolation, assert_action_allowed, load_operating_charter
-from backend.services.runtime_evidence_ledger import RuntimeCausalObservation, RuntimeEvidenceLedger
+from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
 from backend.services.tools.action_registry import ActionDefinition, ActionRegistry, get_default_action_registry
 from backend.services.tools.capability_validation import (
     CapabilityActionValidationError,
@@ -87,48 +87,6 @@ class ToolRuntimeAuthority:
             raise ToolRuntimeAuthorityError(f"tool.invoke input binding failed: {exc}") from exc
 
         invocation, action, effective_side_effect_class = self.authorize(task=task, context=context)
-        if isinstance(task.metadata_json, dict):
-            existing_observations = task.metadata_json.get("runtime_causal_observations")
-            observations = list(existing_observations) if isinstance(existing_observations, list) else []
-            observations.extend(
-                [
-                    RuntimeCausalObservation(
-                        stage="input_binding",
-                        decision="invocation_bound",
-                        reason_code="dependency_binding"
-                        if binding_audit and not binding_audit.get("skipped")
-                        else "no_dependencies",
-                        transformation_id="mission-input-binding:v1",
-                        selected_path=action.name,
-                        field_lineage={
-                            "task.input": "upstream.artifact"
-                            if not binding_audit.get("skipped")
-                            else "task.declared_input",
-                        },
-                        safe_metadata={
-                            "binding_skipped": bool(binding_audit.get("skipped")),
-                            "binding_key_count": len(binding_audit.get("bindings_applied") or []),
-                        },
-                    ).model_dump(mode="json"),
-                    RuntimeCausalObservation(
-                        stage="provider_selection",
-                        decision="provider_selected",
-                        reason_code="registered_action_provider",
-                        transformation_id="action-registry:provider-selection:v1",
-                        selected_path=action.provider,
-                        safe_metadata={"action": action.name, "side_effect_class": effective_side_effect_class.value},
-                    ).model_dump(mode="json"),
-                ]
-            )
-            task.metadata_json = {
-                **task.metadata_json,
-                "runtime_causal_observations": observations,
-            }
-            checkpoint = context.get("persist_runtime_observations")
-            if callable(checkpoint):
-                checkpoint(observations)
-                # The terminal transaction must not emit these facts a second time.
-                task.metadata_json = {**task.metadata_json, "runtime_causal_observations": []}
         runtime_credentials = {}
         resolved_credential = self._resolve_runtime_credential(
             task=task,
@@ -256,7 +214,7 @@ class ToolRuntimeAuthority:
                     if manifest.approval_required
                     else None
                 )
-                self._record_ability_governance_observation(
+                self._update_ability_governance_snapshot(
                     task=task,
                     manifest=manifest,
                     approval_revalidated=approval_revalidated,
@@ -383,38 +341,19 @@ class ToolRuntimeAuthority:
         return manifest
 
     @staticmethod
-    def _record_ability_governance_observation(
+    def _update_ability_governance_snapshot(
         *, task: ExecutionTask, manifest: AbilityManifest, approval_revalidated: bool | None
     ) -> None:
-        """Carry safe policy facts into the existing worker-owned audit ledger."""
+        """Update the in-memory task with the policy facts already checked."""
 
         metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
-        observations = metadata.get("runtime_causal_observations")
-        items = list(observations) if isinstance(observations, list) else []
         capability_reference = metadata.get("capability_reference")
         adapter_reference = metadata.get("adapter_reference")
         snapshot = manifest_governance_snapshot(manifest)
         snapshot["capability_reference_present"] = isinstance(capability_reference, Mapping)
         snapshot["adapter_reference_present"] = isinstance(adapter_reference, Mapping)
         snapshot["ability_approval_revalidated"] = approval_revalidated
-        items.append(
-            RuntimeCausalObservation(
-                stage="ability_governance",
-                decision="ability_manifest_revalidated",
-                reason_code=(
-                    "human_approval_current"
-                    if approval_revalidated
-                    else "approval_not_required"
-                    if approval_revalidated is None
-                    else "human_approval_missing_or_invalid"
-                ),
-                transformation_id="ability-manifest-governance:v1",
-                selected_path=manifest.ability_id,
-                constraints=("manifest_alignment", "tenant_capability_adapter_authority"),
-                safe_metadata=snapshot,
-            ).model_dump(mode="json")
-        )
-        task.metadata_json = {**metadata, "ability_governance": snapshot, "runtime_causal_observations": items}
+        task.metadata_json = {**metadata, "ability_governance": snapshot}
 
     @staticmethod
     def _record_ability_governance_denial(*, session: Any, task: ExecutionTask, manifest: AbilityManifest) -> None:

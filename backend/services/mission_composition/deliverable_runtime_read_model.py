@@ -26,7 +26,6 @@ from backend.services.mission_composition.deliverable_runtime_state import (
     DeliverableLifecycleState,
     load_deliverable_runtime_state,
 )
-from backend.services.mission_composition.shadow_preview import reconcile_shadow_preview
 
 
 def refresh_deliverable_completion_metadata(
@@ -51,7 +50,7 @@ def refresh_deliverable_completion_metadata(
 
     raw_state = composition.get(DELIVERABLE_RUNTIME_STATE_METADATA_KEY)
     try:
-        state = load_deliverable_runtime_state(raw_state)
+        state = load_deliverable_runtime_state(raw_state, include_shadow=False)
     except ValidationError:
         return updated, None
     if state is None:
@@ -111,26 +110,20 @@ def refresh_deliverable_completion_metadata(
         **completion.model_dump(mode="json"),
         "complete": completion.complete,
     }
-    runtime_reconciliation = (
-        reconcile_shadow_preview(
-            state.shadow_preview,
-            tasks=tasks,
-            artifacts=artifacts,
-            completion=completion,
-            contradiction_codes=contradiction_codes,
-        )
-        if state.shadow_preview is not None
-        else state.runtime_reconciliation
-    )
     refreshed_state = state.model_copy(
         update={
             "completion": completion_payload,
             "lifecycle": lifecycle,
-            "runtime_reconciliation": runtime_reconciliation,
         }
     )
 
-    composition[DELIVERABLE_RUNTIME_STATE_METADATA_KEY] = refreshed_state.model_dump(mode="json")
+    payload = refreshed_state.model_dump(mode="json")
+    if isinstance(raw_state, dict):
+        # Preserve historical observer data without evaluating it in the worker.
+        for key in ("shadow_preview", "runtime_reconciliation"):
+            if key in raw_state:
+                payload[key] = raw_state[key]
+    composition[DELIVERABLE_RUNTIME_STATE_METADATA_KEY] = payload
     context["composition"] = composition
     intake["context"] = context
     updated["mission_intake"] = intake

@@ -59,6 +59,13 @@ exposes these as ordered `information_flow` entries. The existing
 governed information context. New audit records never copy raw prompts,
 provider responses, credentials, or full record values.
 
+For version 2 task evidence, the mission evidence reader projects tool binding,
+provider, validation, and source stages from committed handler results. Older
+ledger observations retain their event identity and provenance. Shadow compares
+the compiled graph and committed deliverables in mission readback and Assurance.
+The worker persists its operational state, audit facts, and action evidence
+without a Shadow checkpoint or comparison.
+
 A representation digest fingerprints *shape*, not private content. It is
 not source authentication, semantic equivalence, or a replacement for
 canonical artifact evidence.
