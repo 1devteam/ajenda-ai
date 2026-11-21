@@ -221,6 +221,19 @@ def test_saved_semantics_preserve_comparison_when_confirmation_receipt_is_unobse
     assert result["first_supported_mismatch"]["field"] == "requested_outcomes"
 
 
+def test_proposal_difference_keeps_saved_and_receipt_references_visible() -> None:
+    snapshot = _snapshot()
+    mission = _record(snapshot)
+    mission["intake"]["context"]["composition"]["proposal_id"] = "saved-p"
+    result = build_information_flow(snapshot, mission_record=mission, expectations=_expectations(with_scope=True))
+    assert result["interpretation"]["proposal_link_status"] == "different_proposals"
+    assert result["interpretation"]["confirmation_proposal_id"] == "p"
+    assert result["interpretation"]["saved_mission_proposal_id"] == "saved-p"
+    assert result["first_supported_mismatch"]["sources"] == [
+        "mission.intake.context.composition.semantic_snapshot.target_entities"
+    ]
+
+
 def test_prior_success_provides_comparisons_for_the_same_instruction() -> None:
     snapshot = _snapshot()
     baseline = _snapshot(working=True)

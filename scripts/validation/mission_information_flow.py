@@ -142,7 +142,6 @@ def _saved_semantics(
     mission_record: dict[str, Any] | None,
     *,
     runtime: MissionRuntimeEvidenceProjection,
-    proposal_id: str | None,
     fingerprint: str | None,
 ) -> tuple[SemanticSnapshot, str] | None:
     if mission_record is None:
@@ -167,8 +166,6 @@ def _saved_semantics(
         or _digest(saved_instruction.encode("utf-8")) != semantic.instruction_sha256
     ):
         raise ValueError("saved semantic snapshot disagrees with its stored instruction")
-    if proposal_id is not None and saved_proposal != proposal_id:
-        raise ValueError("saved semantic snapshot disagrees with the confirmation proposal")
     if fingerprint is not None and semantic.instruction_sha256 != fingerprint:
         raise ValueError("saved semantic snapshot disagrees with the confirmation instruction")
     return semantic, saved_proposal
@@ -285,11 +282,11 @@ def build_information_flow(
     runtime = _runtime(snapshot)
     events = _scoped_events(runtime)
     fingerprint, proposal_id, confirmation_ids = _confirmed_instruction(events)
-    saved = _saved_semantics(mission_record, runtime=runtime, proposal_id=proposal_id, fingerprint=fingerprint)
+    saved = _saved_semantics(mission_record, runtime=runtime, fingerprint=fingerprint)
     semantic = saved[0] if saved else None
+    saved_proposal = saved[1] if saved else None
     instruction_source = "confirmation_receipt" if fingerprint is not None else None
     if saved is not None:
-        proposal_id = proposal_id or saved[1]
         if fingerprint is None:
             fingerprint = saved[0].instruction_sha256
             instruction_source = "saved_mission_semantic_snapshot"
@@ -307,7 +304,7 @@ def build_information_flow(
         if _digest(instruction.encode("utf-8")) != fingerprint:
             raise ValueError("replay instruction does not match the confirmed instruction")
         shadow = replay_interpreter(instruction).report()
-    observed_outcomes, interpretation_ids = _interpretation(events, proposal_id)
+    observed_outcomes, interpretation_ids = _interpretation(events, proposal_id or saved_proposal)
     outcomes = sorted(set(semantic.requested_outcomes)) if semantic is not None else observed_outcomes
     semantic_path = "mission.intake.context.composition.semantic_snapshot"
     target_scope = (
@@ -424,6 +421,11 @@ def build_information_flow(
         "interpretation": {
             "requested_outcomes": outcomes,
             "semantic_snapshot_id": semantic.snapshot_id if semantic is not None else None,
+            "confirmation_proposal_id": proposal_id,
+            "saved_mission_proposal_id": saved_proposal,
+            "proposal_link_status": ("matched" if proposal_id == saved_proposal else "different_proposals")
+            if proposal_id is not None and saved_proposal is not None
+            else "unobserved",
             "observation_disagrees_with_snapshot": (
                 outcomes != observed_outcomes if semantic is not None and observed_outcomes is not None else None
             ),
