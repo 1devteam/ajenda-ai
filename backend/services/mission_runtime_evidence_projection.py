@@ -603,7 +603,7 @@ def build_mission_runtime_evidence_projection(
 
     first_divergence = None
     acceptance_status = str(_metadata(mission_metadata, "acceptance").get("status") or "").strip().lower()
-    if mission_status in {"failed", "blocked"} and acceptance_status in {"failed", "partially_met"}:
+    if mission_status in {"failed", "blocked"} and acceptance_status in {"failed", "partially_met", "evaluation_error"}:
         # A mission may have every task reach a terminal state and still fail
         # its declared minimum-row/schema acceptance. Preserve that boundary
         # as a fact when no earlier task execution failure explains it.
@@ -783,6 +783,33 @@ def build_mission_runtime_evidence_projection(
         task_ref = observation.get("task_id") if isinstance(observation, dict) else None
         if isinstance(task_ref, str) and task_ref in task_by_id:
             observed_stages_by_task.setdefault(task_ref, set()).add(str(item.get("stage")))
+
+    lifecycle_receipts = {
+        ("execution_task", "started"): "execution_started",
+        ("worker", "task_completed"): "execution_completed",
+        ("worker", "task_failed"): "execution_failed",
+        ("worker", "task_completion_failed_after_side_effect"): "execution_completion_blocked",
+    }
+    for receipt_event in execution_events:
+        stage = lifecycle_receipts.get((receipt_event["category"], receipt_event["action"]))
+        payload = receipt_event["payload"]
+        task_ref = payload.get("task_id") if isinstance(payload, dict) else None
+        if stage is None or not isinstance(task_ref, str) or task_ref not in task_by_id:
+            continue
+        stages = observed_stages_by_task.setdefault(task_ref, set())
+        if stage in stages:
+            continue
+        stages.add(stage)
+        information_flow.append(
+            {
+                "event_id": receipt_event["event_id"],
+                "created_at": receipt_event["created_at"],
+                "stage": stage,
+                "task_id": task_ref,
+                "source": "canonical_worker_receipt",
+                "grants_execution_authority": False,
+            }
+        )
 
     information_coverage: list[dict[str, Any]] = []
     causal_gap_markers: list[str] = []

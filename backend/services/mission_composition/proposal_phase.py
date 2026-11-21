@@ -57,6 +57,7 @@ from backend.services.mission_intake_quality import (
     validate_composed_mission_intake,
 )
 from backend.services.runtime_evidence_ledger import RuntimeCausalObservation, RuntimeEvidenceLedger
+from backend.services.runtime_observation_delivery import observe_after_commit
 
 logger = logging.getLogger("ajenda.mission_composition.proposal_phase")
 
@@ -567,12 +568,17 @@ class MissionCompositionProposalPhase:
                 db=self._db,
                 commit=self._db is None,
             )
-        if persist:
-            self._record_decision_observations(
+        if persist and self._db is not None:
+            observe_after_commit(
+                self._db,
                 tenant_id=tenant_id,
-                actor_id=actor_id or "mission_composition",
-                record=record,
-                planner_provenance=planner_provenance,
+                write=lambda session: self._record_decision_observations(
+                    tenant_id=tenant_id,
+                    actor_id=actor_id or "mission_composition",
+                    record=record,
+                    planner_provenance=planner_provenance,
+                    observation_session=session,
+                ),
             )
         return record
 
@@ -583,10 +589,11 @@ class MissionCompositionProposalPhase:
         actor_id: str,
         record: MissionCompositionRecord,
         planner_provenance: dict[str, Any] | None,
+        observation_session: Any = None,
     ) -> None:
         """Persist bounded decisions at the composition owners' boundary."""
 
-        db = getattr(self, "_db", None)
+        db = observation_session if observation_session is not None else getattr(self, "_db", None)
         if db is None or not hasattr(db, "add"):
             return
         ledger = RuntimeEvidenceLedger(db, flush=False)

@@ -226,6 +226,9 @@ def create_evidence(
     )
     _validate_references(body=body, tenant_id=tenant_scope, db=db)
 
+    if (body.materialization_reference or {}).get("source") == "tool.invoke.task_output":
+        raise HTTPException(status_code=422, detail="runtime task-output provenance is worker-owned")
+
     evidence = EvidenceRepository(db).add(
         EvidenceRecord(
             tenant_id=tenant_scope,
@@ -294,6 +297,9 @@ def update_evidence(
     evidence = repo.get_for_tenant(evidence_id=evidence_id, tenant_id=str(tenant_id))
     if evidence is None:
         raise HTTPException(status_code=404, detail="evidence not found for tenant")
+
+    if (evidence.materialization_reference or {}).get("source") == "tool.invoke.task_output":
+        raise HTTPException(status_code=409, detail="worker-owned evidence cannot be edited")
 
     updates = body.model_dump(exclude_unset=True)
     for field_name, value in updates.items():

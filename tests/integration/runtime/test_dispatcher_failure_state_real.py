@@ -23,24 +23,36 @@ from backend.workers.task_dispatcher import TaskDispatcher, TaskHandler, TaskHan
 pytestmark = pytest.mark.integration
 
 
-def test_started_observation_is_durable_before_any_terminal_callback(pg_engine, queue_adapter) -> None:
+def test_canonical_start_receipt_is_durable_before_any_terminal_callback(pg_engine, queue_adapter) -> None:
     factory = _session_factory(pg_engine)
+    worker_id = "worker-interrupted"
     tenant_id, task_id, lease_id = _create_running_task(
         session_factory=factory,
         queue_adapter=queue_adapter,
-        worker_id="worker-interrupted",
+        worker_id=worker_id,
         metadata_json={"task_type": "unstarted_handler"},
     )
     with factory() as session:
         task = session.get(ExecutionTask, task_id)
         assert task is not None and task.status == ExecutionTaskState.RUNNING.value
         events = session.scalars(
-            select(AuditEvent).where(AuditEvent.tenant_id == tenant_id, AuditEvent.action == "execution_started")
+            select(AuditEvent).where(
+                AuditEvent.tenant_id == tenant_id,
+                AuditEvent.category == "execution_task",
+                AuditEvent.action == "started",
+            )
         ).all()
-        assert any(event.payload_json.get("lease_id") == str(lease_id) for event in events)
+        assert any(
+            (receipt := RuntimeEvidenceLedger.read_envelope(event)) is not None
+            and receipt.facts.get("lease_id") == str(lease_id)
+            for event in events
+        )
         assert not session.scalars(
             select(AuditEvent).where(AuditEvent.tenant_id == tenant_id, AuditEvent.action == "execution_completed")
         ).first()
+        WorkerRuntimeService(session, queue_adapter).fail(
+            tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id, reason="start receipt proof ended"
+        )
 
 
 @pytest.mark.parametrize("failure_mode", ["handler", "output_contract"])

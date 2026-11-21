@@ -54,3 +54,43 @@ class OutcomeReview(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
+
+
+def blocks_current_runtime(
+    review: OutcomeReview,
+    *,
+    task_graph: dict[str, Any] | None,
+    materialization: dict[str, Any] | None,
+) -> bool:
+    """Apply a finalized rejection only within its reviewed graph or materialization."""
+    status = review.review_status
+    if status not in {"completed", "approved", "rejected"}:
+        return False
+    if status != "rejected" and review.review_decision != "rejected":
+        return False
+    if review.human_approval_required and review.human_approval_status != "approved":
+        return False
+
+    graph_ref = review.task_graph_reference
+    materialization_ref = review.materialization_reference
+    if not graph_ref and not materialization_ref:
+        return False
+    if graph_ref:
+        if not task_graph:
+            return False
+        version = graph_ref.get("graph_version", graph_ref.get("version"))
+        fingerprint = graph_ref.get("graph_fingerprint", graph_ref.get("fingerprint"))
+        if (
+            version is None
+            or not fingerprint
+            or version != task_graph.get("graph_version")
+            or fingerprint != task_graph.get("graph_fingerprint")
+        ):
+            return False
+    if materialization_ref:
+        if not materialization or materialization.get("materialization_status") == "superseded":
+            return False
+        version = materialization_ref.get("materialization_version", materialization_ref.get("version"))
+        if version is None or version != materialization.get("materialization_version"):
+            return False
+    return True

@@ -15,7 +15,12 @@ from sqlalchemy.orm import Session
 
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.evidence import EvidenceRecord
-from backend.domain.execution_task import ExecutionTask
+from backend.domain.execution_task import (
+    LEARNING_CONSOLIDATION_ACTION,
+    LEARNING_CONSOLIDATION_SCOPE,
+    ExecutionTask,
+    is_learning_consolidation_follow_up,
+)
 from backend.queue.base import QueueAdapter
 from backend.repositories.tenant_repository import TenantRepository
 from backend.services.abilities.catalog import ABILITY_MANIFESTS_BY_ACTION
@@ -23,8 +28,6 @@ from backend.services.abilities.runtime_governance import manifest_governance_sn
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.mission_bridge_runtime_authority import ensure_bridge_runtime_authority
 
-CONSOLIDATION_ACTION = "knowledge.consolidate_learning_history"
-CONSOLIDATION_SCOPE = "tenant_eligible_learning_history_v1"
 _LEARNING_SIGNAL_ACTION = "analysis.materialize_decision_learning_signal"
 _LEARNING_SIGNAL_ROLE = "decision_learning_signal"
 # Only unapproved reviews can absorb new evidence. Admission/approval freezes
@@ -80,8 +83,7 @@ def maybe_activate_learning_consolidation(
         if (
             candidate.status in _COALESCIBLE_REVIEW_STATES
             and activation is not None
-            and activation.get("consolidation_scope") == CONSOLIDATION_SCOPE
-            and (candidate.metadata_json or {}).get("tool_invocation", {}).get("action") == CONSOLIDATION_ACTION
+            and is_learning_consolidation_follow_up(candidate)
         ):
             existing = activation.get("source_evidence_ids")
             existing_ids = {str(item) for item in existing} if isinstance(existing, list) else set()
@@ -97,11 +99,11 @@ def maybe_activate_learning_consolidation(
     capability, adapter = ensure_bridge_runtime_authority(
         db=session,
         tenant_id=completed_task.tenant_id,
-        action_name=CONSOLIDATION_ACTION,
+        action_name=LEARNING_CONSOLIDATION_ACTION,
         admitted_by="runtime_learning_signal_activation",
         tool_input={},
     )
-    manifest = ABILITY_MANIFESTS_BY_ACTION[CONSOLIDATION_ACTION]
+    manifest = ABILITY_MANIFESTS_BY_ACTION[LEARNING_CONSOLIDATION_ACTION]
     task = ExecutionTask(
         tenant_id=completed_task.tenant_id,
         mission_id=completed_task.mission_id,
@@ -113,14 +115,15 @@ def maybe_activate_learning_consolidation(
         jurisdiction=completed_task.jurisdiction,
         metadata_json={
             "task_type": "tool.invoke",
-            "tool_invocation": {"schema_version": 1, "action": CONSOLIDATION_ACTION, "input": {}},
+            "tool_invocation": {"schema_version": 1, "action": LEARNING_CONSOLIDATION_ACTION, "input": {}},
             "capability_reference": {"capability_id": str(capability.id)},
             "adapter_reference": {"adapter_id": str(adapter.id)},
             "ability_governance": manifest_governance_snapshot(manifest),
             "learning_consolidation_activation": {
                 "schema_version": 1,
-                "consolidation_scope": CONSOLIDATION_SCOPE,
+                "consolidation_scope": LEARNING_CONSOLIDATION_SCOPE,
                 "source_evidence_ids": list(sources),
+                "trigger_mission_id": str(completed_task.mission_id),
                 "recognition_only": True,
                 "grants_execution_authority": False,
             },

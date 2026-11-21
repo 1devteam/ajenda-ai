@@ -67,6 +67,83 @@ def test_rollup_marks_mission_completed_when_all_tasks_done() -> None:
     assert mission.status == MissionState.COMPLETED.value
 
 
+def test_legacy_linked_learning_review_does_not_hold_producing_mission() -> None:
+    tenant_id = "tenant-learning-review"
+    mission_id = uuid.uuid4()
+    mission = Mission(
+        id=mission_id, tenant_id=tenant_id, objective="Research", status=MissionState.RUNNING.value, metadata_json={}
+    )
+    task = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    follow_up = _task(
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status=ExecutionTaskState.PENDING_REVIEW.value,
+        action="knowledge.consolidate_learning_history",
+    )
+    follow_up.metadata_json["learning_consolidation_activation"] = {
+        "recognition_only": True,
+        "consolidation_scope": "tenant_eligible_learning_history_v1",
+    }
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task, follow_up])  # type: ignore[method-assign]
+    service._audit.append = MagicMock()  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
+    assert mission.status == MissionState.COMPLETED.value
+    assert follow_up.status == ExecutionTaskState.PENDING_REVIEW.value
+    assert mission.metadata_json["acceptance"]["task_count"] == 1
+
+
+def test_worker_rollup_ignores_that_other_materializations_are_failed() -> None:
+    tenant_id = "tenant-current-work"
+    mission_id = uuid.uuid4()
+    task = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    task.metadata_json.update({"preview_task_key": "current", "graph_node_key": "source", "materialization_version": 2})
+    old = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.FAILED.value)
+    old.metadata_json.update({"preview_task_key": "old", "graph_node_key": "source", "materialization_version": 1})
+    mission = Mission(
+        id=mission_id,
+        tenant_id=tenant_id,
+        objective="Current graph",
+        status="running",
+        metadata_json={
+            "runtime_task_materialization": {
+                "materialization_status": "materialized",
+                "created_execution_task_ids": [str(task.id)],
+            }
+        },
+    )
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task, old])  # type: ignore[method-assign]
+    service._audit.append = MagicMock()  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._maybe_rollup_mission_status(task=old, worker_id="worker-1")
+        assert mission.status == "running"
+        service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
+    assert mission.status == "completed"
+    assert mission.metadata_json["acceptance"]["task_count"] == 1
+
+
+def test_worker_completion_pauses_when_only_review_held_work_remains() -> None:
+    tenant_id = "tenant-review-hold"
+    mission_id = uuid.uuid4()
+    mission = Mission(id=mission_id, tenant_id=tenant_id, objective="Review", status="running", metadata_json={})
+    task = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    held = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.PENDING_REVIEW.value)
+    service = WorkerRuntimeService(MagicMock(), MagicMock())
+    service._tasks.list_for_mission = MagicMock(return_value=[task, held])  # type: ignore[method-assign]
+    repo = MagicMock()
+    repo.get_for_tenant.return_value = mission
+    with patch("backend.services.worker_runtime_rollup.MissionRepository", return_value=repo):
+        service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
+    assert mission.status == "paused"
+    assert mission.metadata_json["runtime_reconciliation"]["pending_review_task_count"] == 1
+
+
 def test_rollup_resumes_review_hold_before_completing_mission() -> None:
     tenant_id = "tenant-review-hold"
     mission_id = uuid.uuid4()
@@ -517,7 +594,7 @@ def test_rollup_marks_paged_upcoming_calendar_incomplete() -> None:
     assert "additional calendar events were not retrieved" in mission.metadata_json["acceptance"]["reasons"]
 
 
-def test_refresh_exception_is_durable_and_does_not_claim_mission_success() -> None:
+def test_projection_failure_does_not_override_valid_current_artifact() -> None:
     tenant_id = "tenant-refresh-error"
     mission_id = uuid.uuid4()
     request = extract_deliverable_request("Return company name.")
@@ -532,6 +609,12 @@ def test_refresh_exception_is_durable_and_does_not_claim_mission_success() -> No
     )
     mission.id = mission_id
     task = _task(mission_id=mission_id, tenant_id=tenant_id, status=ExecutionTaskState.COMPLETED.value)
+    task.metadata_json = {
+        "expected_output_contract": {"artifact": "crm_records"},
+        "handler_result": {
+            "output": {"crm_records": [{"id": "account-1", "company": "Fixture", "source": "internal_record"}]}
+        },
+    }
     service = WorkerRuntimeService(MagicMock(), MagicMock())
     service._tasks.list_for_mission = MagicMock(return_value=[task])  # type: ignore[method-assign]
     service._audit.append = MagicMock()  # type: ignore[method-assign]
@@ -549,10 +632,8 @@ def test_refresh_exception_is_durable_and_does_not_claim_mission_success() -> No
         assert task.metadata_json["deliverable_refresh_issue"] == "refresh_exception"
         service._maybe_rollup_mission_status(task=task, worker_id="worker-1")
 
-    assert mission.status == MissionState.FAILED.value
-    reasons = mission.metadata_json["acceptance"]["reasons"]
-    assert "deliverable refresh issue: refresh_exception" in reasons
-    assert all("sensitive" not in reason for reason in reasons)
+    assert mission.status == MissionState.COMPLETED.value
+    assert mission.metadata_json["acceptance"]["status"] == "met"
 
 
 def test_invalid_refresh_state_is_recorded_without_fabricating_completion() -> None:
@@ -721,4 +802,5 @@ def test_terminal_rollup_rejects_invalid_envelope_even_with_cached_success_flag(
 
     assert task.metadata_json["deliverable_refresh_issue"] == "invalid_completion_state"
     assert mission.status == MissionState.FAILED.value
-    assert "deliverable refresh issue: invalid_completion_state" in mission.metadata_json["acceptance"]["reasons"]
+    assert mission.metadata_json["acceptance"]["status"] == "evaluation_error"
+    assert "current deliverable could not be evaluated" in mission.metadata_json["acceptance"]["reasons"]

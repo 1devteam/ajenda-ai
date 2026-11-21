@@ -20,6 +20,7 @@ from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.services.knowledge.knowledge_applicability import SourceConditionObservation
+from backend.services.mission_bridge.queue_admission import tasks_in_execution_scope
 from backend.services.tools.evidence_bridge import require_canonical_source_observation_evidence
 
 _CANONICAL_SOURCE_OBSERVATION_OUTPUT_PATH = "$.__canonical_source_observation_evidence__"
@@ -112,7 +113,7 @@ def pending_dependency_keys(*, task: ExecutionTask, mission_tasks: list[Executio
     deps = dependency_keys_for_task(task)
     if not deps:
         return []
-    by_key = index_mission_tasks_by_node_key(mission_tasks)
+    by_key = index_mission_tasks_by_node_key(tasks_in_execution_scope(task, mission_tasks))
     pending: list[str] = []
     for key in deps:
         upstream = by_key.get(key)
@@ -612,6 +613,7 @@ def apply_input_bindings(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return (bound_input, binding_audit). Fail closed when binding_required and empty."""
     metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+    mission_tasks = tasks_in_execution_scope(task, mission_tasks)
     assert_dependencies_ready(task=task, mission_tasks=mission_tasks)
 
     bound = deepcopy(tool_input) if isinstance(tool_input, dict) else {}
@@ -1109,7 +1111,7 @@ def _bind_canonical_source_observation_evidence(
     if not isinstance(applicability, dict):
         raise InputBindingError("knowledge source-observation binding requires applicability context")
 
-    by_key = index_mission_tasks_by_node_key(mission_tasks)
+    by_key = index_mission_tasks_by_node_key(tasks_in_execution_scope(task, mission_tasks))
     assertions: list[dict[str, Any]] = []
     applied = audit.setdefault("bindings_applied", [])
     if not isinstance(applied, list):

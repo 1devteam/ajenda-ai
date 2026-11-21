@@ -64,6 +64,7 @@ from backend.domain.mission import (
     normalize_mission_task_graph_contract_metadata,
     validate_mission_plan_status_transition,
 )
+from backend.domain.outcome_review import blocks_current_runtime
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueAdapter
 from backend.repositories.capability_adapter_repository import CapabilityAdapterRepository
@@ -82,7 +83,7 @@ from backend.services.mission_bridge_runtime_authority import provision_bridge_r
 from backend.services.mission_executor import MissionExecutor  # noqa: F401 - legacy test/patch compatibility
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
-    contains_composition_clarification,
+    mission_requires_clarification,
     validate_mission_intake_prompt,
 )
 from backend.services.mission_runtime_projection import (
@@ -90,6 +91,7 @@ from backend.services.mission_runtime_projection import (
 )
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaEnforcementService, QuotaExceededError
 from backend.services.runtime_evidence_ledger import RuntimeCausalObservation, RuntimeEvidenceLedger
+from backend.services.runtime_observation_delivery import observe_after_commit
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
 RuntimeReadinessStatus = _mission_runtime.RuntimeReadinessStatus
@@ -245,7 +247,7 @@ def create_mission(
 ) -> MissionRead:
     """Create a tenant-owned mission intake record without queueing runtime work."""
     require_route_permission(request=request, db=db, permission=Permission.MISSION_CREATE, tenant_id=tenant_id)
-    if contains_composition_clarification(body.context):
+    if mission_requires_clarification(objective=body.objective, context=body.context):
         raise HTTPException(
             status_code=422,
             detail={
@@ -1027,7 +1029,7 @@ def admit_mission_graph_to_runtime(
     rejected_reviews = [
         review
         for review in outcome_reviews
-        if review.review_status == "rejected" or review.review_decision == "rejected"
+        if blocks_current_runtime(review, task_graph=task_graph, materialization=materialization)
     ]
     if rejected_reviews:
         raise HTTPException(status_code=400, detail="rejected outcome review blocks runtime admission")
@@ -1291,13 +1293,11 @@ def admit_mission_graph_to_runtime(
         },
     )
     mission = repo.update_metadata(mission=mission, metadata_json=metadata)
-    # Record the admission decision at its authority boundary. This fact is
-    # diagnostic only: it neither grants queue authority nor changes the
-    # admission result when evidence persistence is unavailable.
-    try:
+
+    def record_admission_observation(observer: Session) -> None:
         all_node_keys = tuple(str(node.get("key")) for node in graph_nodes if isinstance(node.get("key"), str))
         selected_node_keys = tuple(str(item["node_key"]) for item in selected_nodes)
-        RuntimeEvidenceLedger(db, flush=False).append_causal_observation(
+        RuntimeEvidenceLedger(observer, flush=False).append_causal_observation(
             tenant_id=tenant_id_str,
             mission_id=mission_id,
             producer="mission.runtime_admission",
@@ -1326,8 +1326,8 @@ def admit_mission_graph_to_runtime(
             causation_id=str(mission_id),
             correlation_id=str(mission_id),
         )
-    except Exception:
-        logger.exception("causal observation write failed for runtime admission", extra={"mission_id": str(mission_id)})
+
+    observe_after_commit(db, tenant_id=tenant_id_str, write=record_admission_observation)
     return _runtime_admission_to_read(mission)
 
 

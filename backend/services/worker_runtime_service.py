@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, MissionState, WorkerLeaseState
-from backend.domain.execution_task import ExecutionTask
+from backend.domain.execution_task import ExecutionTask, is_learning_consolidation_follow_up
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueAdapter
@@ -20,9 +20,11 @@ from backend.repositories.lineage_record_repository import LineageRecordReposito
 from backend.repositories.mission_repository import MissionRepository
 from backend.repositories.worker_lease_repository import WorkerLeaseRepository
 from backend.runtime.transitions import transition_lease, transition_mission, transition_task
-from backend.services.mission_intake_quality import contains_composition_clarification
+from backend.services.mission_bridge.queue_admission import current_materialized_execution_task_ids
+from backend.services.mission_intake_quality import mission_requires_clarification
 from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
 from backend.services.runtime_information_observation import describe_information
+from backend.services.runtime_observation_delivery import observe_after_commit
 from backend.services.runtime_queue_dispatcher import RuntimeQueueDispatchService
 from backend.services.tools.evidence_bridge import build_tool_action_evidence_records
 from backend.services.tools.mission_input_binding import pending_dependency_keys
@@ -35,7 +37,7 @@ from backend.services.worker_runtime_contracts import (
 )
 from backend.services.worker_runtime_learning_activation import maybe_activate_learning_consolidation
 from backend.services.worker_runtime_outcome_review import (
-    create_draft_outcome_review as _create_draft_outcome_review_impl,
+    create_draft_outcome_review,
 )
 from backend.services.worker_runtime_outcome_review import (
     gtm_side_effect_was_real as _gtm_side_effect_was_real_impl,
@@ -159,14 +161,31 @@ class WorkerRuntimeService:
             )
             return None
 
-        mission = (
-            MissionRepository(self._session).get_for_tenant(mission_id=task.mission_id, tenant_id=tenant_id)
-            if task.mission_id is not None
-            else None
+        # Persisted graph tasks carry the materializer's preview identity.
+        graph_task = isinstance((task.metadata_json or {}).get("preview_task_key"), str)
+        mission = None
+        if task.mission_id is not None:
+            repository = MissionRepository(self._session)
+            lookup = repository.lock_for_tenant if graph_task else repository.get_reference_for_tenant
+            mission = lookup(mission_id=task.mission_id, tenant_id=tenant_id)
+        mission_metadata = (
+            mission.metadata_json if mission is not None and isinstance(mission.metadata_json, dict) else {}
         )
-        if mission is not None and contains_composition_clarification(mission.metadata_json):
-            # Stale UI clarification graphs must not execute. Cancel the queued
-            # task through the normal task transition and leave an audit trail.
+        intake = mission_metadata.get("mission_intake")
+        superseded = graph_task and task.id not in current_materialized_execution_task_ids(mission_metadata)
+        clarification_required = (
+            mission is not None
+            and not is_learning_consolidation_follow_up(task)
+            and mission_requires_clarification(
+                objective=mission.objective, context=intake.get("context") if isinstance(intake, dict) else None
+            )
+        )
+        if superseded or clarification_required:
+            reason = (
+                "Queued graph task is outside the current runtime task materialization."
+                if superseded
+                else "Queued task requires clarification of the mission instruction."
+            )
             transition_task(task, ExecutionTaskState.CANCELLED)
             self._session.add(task)
             self._audit.append(
@@ -176,11 +195,12 @@ class WorkerRuntimeService:
                     category="worker",
                     action="stale_task_cancelled",
                     actor=worker_id,
-                    details="Queued task cancelled because mission intake contains planner clarification text.",
+                    details=reason,
                     payload_json={"task_id": str(task.id)},
                 )
             )
-            self._maybe_rollup_mission_status(task=task, worker_id=worker_id)
+            if not superseded:
+                self._maybe_rollup_mission_status(task=task, worker_id=worker_id)
             self._dispatches.cancel(task=task)
             self._session.commit()
             completed = self._queue.complete_task(
@@ -338,7 +358,8 @@ class WorkerRuntimeService:
                 **(task.metadata_json if isinstance(task.metadata_json, dict) else {}),
                 "runtime_evidence_contract_version": "2",
             }
-            self._audit.append(
+            metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
+            self._observe(
                 AuditEvent(
                     tenant_id=tenant_id,
                     mission_id=task.mission_id,
@@ -350,17 +371,16 @@ class WorkerRuntimeService:
                         "schema_version": 1,
                         "task_id": str(task.id),
                         "lease_id": str(lease.id),
-                        "input": describe_information((task.metadata_json or {}).get("input_bindings")),
-                        "declared_output": describe_information(
-                            (task.metadata_json or {}).get("expected_output_contract")
-                        ),
-                        "resolved_input": describe_information((task.metadata_json or {}).get("input")),
-                        "tool_invocation": describe_information((task.metadata_json or {}).get("tool_invocation")),
                         "grants_execution_authority": False,
                     },
-                )
+                ),
+                information={
+                    "input": metadata.get("input_bindings"),
+                    "declared_output": metadata.get("expected_output_contract"),
+                    "resolved_input": metadata.get("input"),
+                    "tool_invocation": metadata.get("tool_invocation"),
+                },
             )
-            metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
             invocation = metadata.get("tool_invocation")
             action = invocation.get("action") if isinstance(invocation, dict) else None
             self._evidence_ledger.append_fact(
@@ -521,13 +541,19 @@ class WorkerRuntimeService:
             # Creation is internal (no permission gate) and respects OutcomeReview contract
             # (no runtime mutation).
             if self._is_high_risk_gtm_side_effect(task, task_output):
-                self._create_draft_outcome_review(
-                    task=task,
-                    task_output=task_output,
-                    evidence_ids=evidence_ids_for_review,
-                )
+                task_id = task.id
+                review_evidence = list(evidence_ids_for_review)
 
-        self._audit.append(
+                def record_review(observer: Session) -> None:
+                    completed = observer.get(ExecutionTask, task_id)
+                    if completed is not None and completed.status == ExecutionTaskState.COMPLETED.value:
+                        create_draft_outcome_review(
+                            observer, task=completed, task_output=task_output, evidence_ids=review_evidence
+                        )
+
+                observe_after_commit(self._session, tenant_id=tenant_id, write=record_review)
+
+        self._observe(
             AuditEvent(
                 tenant_id=tenant_id,
                 mission_id=task.mission_id,
@@ -539,12 +565,12 @@ class WorkerRuntimeService:
                     "schema_version": 1,
                     "task_id": str(task.id),
                     "lease_id": str(lease.id),
-                    "output": describe_information(task_output),
                     "evidence_record_ids": evidence_ids_for_review[:100],
                     "evidence_ids_truncated": len(evidence_ids_for_review) > 100,
                     "grants_execution_authority": False,
                 },
-            )
+            ),
+            information={"output": task_output},
         )
         self._audit.append(
             AuditEvent(
@@ -691,7 +717,7 @@ class WorkerRuntimeService:
         tasks = self._tasks.list_for_mission_for_tenant(mission_id=mission_id, tenant_id=tenant_id)
         cancelled = requested = 0
         for task in tasks:
-            if task.status in _TERMINAL_TASK_STATES:
+            if task.status in _TERMINAL_TASK_STATES or is_learning_consolidation_follow_up(task):
                 continue
             self.cancel_task(tenant_id=tenant_id, task_id=task.id, actor=actor, reason=reason)
             if task.status == ExecutionTaskState.CANCELLED.value:
@@ -749,7 +775,7 @@ class WorkerRuntimeService:
         transition_task(task, ExecutionTaskState.BLOCKED)
         self._transition_lease_to_released(lease)
         lease.heartbeat_at = datetime.now(UTC)
-        self._audit.append(
+        self._observe(
             AuditEvent(
                 tenant_id=tenant_id,
                 mission_id=task.mission_id,
@@ -833,7 +859,7 @@ class WorkerRuntimeService:
         )
         self._transition_lease_to_released(lease)
         lease.heartbeat_at = datetime.now(UTC)
-        self._audit.append(
+        self._observe(
             AuditEvent(
                 tenant_id=tenant_id,
                 mission_id=task.mission_id,
@@ -981,11 +1007,13 @@ class WorkerRuntimeService:
     def _is_high_risk_gtm_side_effect(self, task: ExecutionTask, task_output: dict[str, Any] | None) -> bool:
         return _is_high_risk_gtm_side_effect_impl(self, task, task_output)
 
-    def _create_draft_outcome_review(
-        self,
-        *,
-        task: ExecutionTask,
-        task_output: dict[str, Any],
-        evidence_ids: list[str],
-    ) -> None:
-        _create_draft_outcome_review_impl(self, task=task, task_output=task_output, evidence_ids=evidence_ids)
+    def _observe(self, event: AuditEvent, *, information: dict[str, Any] | None = None) -> None:
+        def write(session: Session) -> None:
+            if information:
+                event.payload_json = {
+                    **event.payload_json,
+                    **{key: describe_information(value) for key, value in information.items()},
+                }
+            session.add(event)
+
+        observe_after_commit(self._session, tenant_id=event.tenant_id, write=write)

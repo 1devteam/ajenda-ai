@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from backend.domain.execution_task import ExecutionTask
 from backend.domain.mission import (
     MISSION_RUNTIME_QUEUE_ADMISSION_SCHEMA_VERSION,
     MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY,
@@ -34,6 +35,24 @@ def current_materialized_execution_task_ids(metadata: dict[str, Any]) -> list[UU
         seen_task_ids.add(task_id)
         task_ids.append(task_id)
     return task_ids
+
+
+def tasks_in_execution_scope(task: ExecutionTask, siblings: list[ExecutionTask]) -> list[ExecutionTask]:
+    """Keep only siblings from the same persisted graph execution or legacy scope."""
+
+    def identity(candidate: ExecutionTask) -> tuple[object, ...]:
+        metadata = candidate.metadata_json or {}
+        return (
+            candidate.tenant_id,
+            candidate.mission_id,
+            metadata.get("graph_version"),
+            metadata.get("graph_fingerprint"),
+            metadata.get("materialization_version"),
+            metadata.get("admission_version"),
+        )
+
+    scope = identity(task)
+    return [sibling for sibling in siblings if identity(sibling) == scope]
 
 
 def runtime_queue_admission_blocker(

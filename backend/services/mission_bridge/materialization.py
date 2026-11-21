@@ -18,6 +18,7 @@ from backend.domain.mission import (
     MISSION_TASK_GRAPH_METADATA_KEY,
     Mission,
 )
+from backend.domain.outcome_review import blocks_current_runtime
 from backend.repositories.capability_adapter_repository import CapabilityAdapterRepository
 from backend.repositories.capability_repository import CapabilityRepository
 from backend.repositories.mission_repository import MissionRepository
@@ -572,8 +573,7 @@ def build_mission_runtime_readiness(
     rejected_reviews = [
         review
         for review in outcome_reviews
-        if getattr(review, "review_status", None) == "rejected"
-        or getattr(review, "review_decision", None) == "rejected"
+        if blocks_current_runtime(review, task_graph=task_graph, materialization=materialization)
     ]
     if rejected_reviews:
         blockers.append(
