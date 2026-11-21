@@ -51,7 +51,7 @@ _GENERIC_INDUSTRY_WORDS = {"company", "companies", "contractor", "contractors", 
 # this structural check independent of the host denylist: unknown directory
 # hosts are common in public search results.
 _GENERIC_MARKET_LISTING_LABEL = re.compile(
-    r"\b(?:\d+\s+)?(?:top|best|leading)\s+(?:\d+\s+)?(?:[a-z0-9&+/'-]+\s+){0,8}"
+    r"\b(?:\d+\s+)?(?:top|best|leading)\s+(?:\d+\s+)?(?:\.?[a-z0-9&+/'-]+\s+){0,8}"
     r"(?:companies|firms|agencies|providers|contractors|developers)\b",
     flags=re.IGNORECASE,
 )
@@ -62,7 +62,7 @@ _GENERIC_MARKET_LISTING_LABEL = re.compile(
 # host-specific: newly encountered directories and editorial roundups must not
 # become verified companies merely because they are not on a denylist.
 _GENERIC_MARKET_CATEGORY_WITH_LOCATION = re.compile(
-    r"^\s*(?:\d+\s+)?(?:[a-z0-9&+/'-]+\s+){0,8}"
+    r"^\s*(?:\d+\s+)?(?:\.?[a-z0-9&+/'-]+\s+){0,8}"
     r"(?:company|companies|firm|firms|agency|agencies|provider|providers|"
     r"contractor|contractors|developer|developers)\s+"
     r"(?:in|near|around|of|for)\s+[a-z0-9][a-z0-9 .,'&+/'-]{1,80}",
@@ -85,7 +85,11 @@ def _industry_evidence_markers(industry: object) -> tuple[str, ...]:
 
 def _is_directory_or_third_party_host(host: str) -> bool:
     normalized = host.lower().removeprefix("www.").rstrip(".")
-    return any(marker in normalized for marker in _DIRECTORY_HOST_MARKERS)
+    return (
+        normalized == "goodfirms.co"
+        or normalized.endswith(".goodfirms.co")
+        or any(marker in normalized for marker in _DIRECTORY_HOST_MARKERS)
+    )
 
 
 def _is_directory_or_third_party_page(text: str) -> bool:
