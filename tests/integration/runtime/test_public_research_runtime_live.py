@@ -12,6 +12,7 @@ valid, evidence-backed insufficient-information outcome.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -41,8 +42,10 @@ from backend.services.internet.contracts import PageSnapshot
 from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
 from backend.services.mission_composition.proposal_store import clear_proposals_for_tests
 from backend.services.quota_enforcement import QuotaEnforcementService
+from backend.services.runtime_reconciliation_contract import RuntimeReconciliationSnapshot
 from backend.services.worker_runtime_service import WorkerRuntimeService
 from backend.workers.task_dispatcher import TaskDispatcher
+from scripts.validation.mission_information_flow import ReviewedExpectations, build_information_flow
 from tests.integration.operating_charter_support import persist_test_operating_charter
 
 pytestmark = pytest.mark.integration
@@ -1069,10 +1072,30 @@ def test_bounded_public_research_agrees_from_plan_to_saved_report(
     with factory() as readback:
         activate_tenant_session(readback, tenant_scope)
         app = _build_app(tenant_id=tenant_id, session=readback, queue_adapter=queue_adapter)
-        with TestClient(app) as client:
+        with patch.object(deliverable_module, "require_route_permission", return_value=None), TestClient(app) as client:
             response = client.get(f"/v1/missions/{mission_id}/deliverable")
+            export = client.get(f"/v1/missions/{mission_id}/runtime-reconciliation-export")
+            mission_record = client.get(f"/v1/missions/{mission_id}")
         assert response.status_code == 200, response.text
+        assert export.status_code == 200, export.text
+        assert mission_record.status_code == 200, mission_record.text
         result = response.json()
+        flow = build_information_flow(
+            RuntimeReconciliationSnapshot.model_validate(export.json()),
+            mission_record=mission_record.json(),
+            deliverable=result,
+            expectations=ReviewedExpectations(
+                instruction_sha256="sha256:" + hashlib.sha256(instruction.encode()).hexdigest(),
+                requested_outcomes=["research_prospects", "synthesize_research_report"],
+                target_scope=[{"type": "company", "industry": "software development", "location": "Austin"}],
+                planned_inputs={
+                    "ability-web-research": {"query": "software development companies in Austin", "limit": 3}
+                },
+                required_artifacts=["research_report"],
+            ),
+        )
+        assert {check["status"] for check in flow["checks"]} == {"matched"}
+        assert flow["deliverable"]["complete"] == (operating_city == "Austin")
         discovery, verification = result["result_semantics"]["public_research_stages"]
         assert discovery["candidates"][0]["website"] == homepage
         assert verification["minimum_verified_quantity"] == 1
