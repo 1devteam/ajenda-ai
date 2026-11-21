@@ -1095,6 +1095,8 @@ def test_bounded_public_research_agrees_from_plan_to_saved_report(
             ),
         )
         assert {check["status"] for check in flow["checks"]} == {"matched"}, flow["checks"]
+        assert flow["interpretation"]["proposal_link_status"] == "compile_revalidation"
+        assert any(row["stage"] == "tool_output" and row.get("task_id") for row in flow["recorded_information_flow"])
         assert flow["deliverable"]["complete"] == (operating_city == "Austin")
         discovery, verification = result["result_semantics"]["public_research_stages"]
         assert discovery["candidates"][0]["website"] == homepage

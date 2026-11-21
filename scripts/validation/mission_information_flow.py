@@ -143,7 +143,7 @@ def _saved_semantics(
     *,
     runtime: MissionRuntimeEvidenceProjection,
     fingerprint: str | None,
-) -> tuple[SemanticSnapshot, str] | None:
+) -> tuple[SemanticSnapshot, str, str | None] | None:
     if mission_record is None:
         return None
     if (
@@ -168,7 +168,15 @@ def _saved_semantics(
         raise ValueError("saved semantic snapshot disagrees with its stored instruction")
     if fingerprint is not None and semantic.instruction_sha256 != fingerprint:
         raise ValueError("saved semantic snapshot disagrees with the confirmation instruction")
-    return semantic, saved_proposal
+    prior = composition.get("revalidated_from_proposal_id")
+    compile_parent = (
+        prior
+        if isinstance(prior, str)
+        and prior == composition.get("reviewed_proposal_id")
+        and composition.get("revision_reason") == "compile_revalidation"
+        else None
+    )
+    return semantic, saved_proposal, compile_parent
 
 
 def _baseline_expectations(
@@ -205,20 +213,6 @@ def _baseline_expectations(
 
 
 def _task_map(runtime: MissionRuntimeEvidenceProjection, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    decisions: dict[str, list[dict[str, Any]]] = {}
-    for item in runtime.causal_observations:
-        task_id = item.get("task_id")
-        if (
-            isinstance(task_id, str)
-            and item.get("tenant_id") == runtime.tenant_id
-            and item.get("mission_id") == str(runtime.mission_id)
-        ):
-            decisions.setdefault(task_id, []).append(
-                {
-                    key: item.get(key)
-                    for key in ("stage", "decision", "reason_code", "event_id", "integrity_trust_class")
-                }
-            )
     by_task: dict[str, list[dict[str, Any]]] = {}
     for event in events:
         payload = _object(event.get("payload"))
@@ -261,10 +255,55 @@ def _task_map(runtime: MissionRuntimeEvidenceProjection, events: list[dict[str, 
                 "artifact_ids": _strings(task.get("artifact_ids")),
                 "evidence_ids": _strings(task.get("evidence_ids")),
                 "events": observations,
-                "decisions": decisions.get(task_id, []) if isinstance(task_id, str) else [],
             }
         )
     return flows
+
+
+def _recorded_flow(runtime: MissionRuntimeEvidenceProjection, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Preserve attributed decisions and committed result projections without raw payloads."""
+    by_event = {event["event_id"]: event for event in events if isinstance(event.get("event_id"), str)}
+    fields = (
+        "stage",
+        "decision",
+        "reason_code",
+        "transformation_id",
+        "selected_path",
+        "rejected_paths",
+        "field_lineage",
+        "source_provenance",
+        "event_id",
+        "proposal_id",
+        "task_id",
+        "lease_id",
+        "execution_path",
+        "contract_version",
+        "source",
+        "producer",
+        "integrity_trust_class",
+    )
+    flow = []
+    for item in runtime.information_flow:
+        if item.get("tenant_id", runtime.tenant_id) != runtime.tenant_id or item.get(
+            "mission_id", str(runtime.mission_id)
+        ) != str(runtime.mission_id):
+            continue
+        event_id = item.get("event_id")
+        event = by_event.get(event_id) if isinstance(event_id, str) else None
+        if event is None and (
+            item.get("tenant_id") != runtime.tenant_id or item.get("mission_id") != str(runtime.mission_id)
+        ):
+            continue
+        row = {key: item[key] for key in fields if key in item}
+        if event is not None:
+            payload = _object(event.get("payload"))
+            for field in ("task_id", "proposal_id"):
+                if field not in row:
+                    reference = event.get(field) or payload.get(field)
+                    if isinstance(reference, str):
+                        row[field] = reference
+        flow.append(row)
+    return flow
 
 
 def build_information_flow(
@@ -285,6 +324,15 @@ def build_information_flow(
     saved = _saved_semantics(mission_record, runtime=runtime, fingerprint=fingerprint)
     semantic = saved[0] if saved else None
     saved_proposal = saved[1] if saved else None
+    compile_parent = saved[2] if saved else None
+    proposal_link_status = "unobserved"
+    if proposal_id is not None and saved_proposal is not None:
+        if proposal_id == saved_proposal:
+            proposal_link_status = "matched"
+        elif proposal_id == compile_parent:
+            proposal_link_status = "compile_revalidation"
+        else:
+            proposal_link_status = "different_proposals"
     instruction_source = "confirmation_receipt" if fingerprint is not None else None
     if saved is not None:
         if fingerprint is None:
@@ -423,9 +471,8 @@ def build_information_flow(
             "semantic_snapshot_id": semantic.snapshot_id if semantic is not None else None,
             "confirmation_proposal_id": proposal_id,
             "saved_mission_proposal_id": saved_proposal,
-            "proposal_link_status": ("matched" if proposal_id == saved_proposal else "different_proposals")
-            if proposal_id is not None and saved_proposal is not None
-            else "unobserved",
+            "saved_compile_parent_proposal_id": compile_parent,
+            "proposal_link_status": proposal_link_status,
             "observation_disagrees_with_snapshot": (
                 outcomes != observed_outcomes if semantic is not None and observed_outcomes is not None else None
             ),
@@ -436,6 +483,8 @@ def build_information_flow(
         },
         "compiled_plan": nodes,
         "tasks": _task_map(runtime, events),
+        "recorded_information_flow": _recorded_flow(runtime, events),
+        "information_coverage": runtime.information_coverage,
         "deliverable": {
             "artifact_keys": artifact_keys,
             "complete": _object(_object(deliverable).get("completion")).get("complete"),

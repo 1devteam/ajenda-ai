@@ -114,6 +114,11 @@ def _snapshot(
             }
         ],
         execution_events=events,
+        information_flow=[
+            {**scope, "stage": "tool_output", "task_id": "task-1", "source": "task.metadata_json.handler_result"},
+            {**scope, "tenant_id": "foreign", "stage": "foreign-stage", "event_id": "start"},
+            {"stage": "execution_started", "event_id": "start", "observation": {"private": "value"}},
+        ],
         first_divergence=None if working else "mission:acceptance",
     )
     return seal_snapshot(
@@ -221,16 +226,32 @@ def test_saved_semantics_preserve_comparison_when_confirmation_receipt_is_unobse
     assert result["first_supported_mismatch"]["field"] == "requested_outcomes"
 
 
-def test_proposal_difference_keeps_saved_and_receipt_references_visible() -> None:
+@pytest.mark.parametrize("linked", [False, True])
+def test_proposal_difference_keeps_saved_and_receipt_references_visible(linked: bool) -> None:
     snapshot = _snapshot()
     mission = _record(snapshot)
-    mission["intake"]["context"]["composition"]["proposal_id"] = "saved-p"
+    composition = mission["intake"]["context"]["composition"]
+    composition["proposal_id"] = "saved-p"
+    if linked:
+        composition.update(
+            reviewed_proposal_id="p", revalidated_from_proposal_id="p", revision_reason="compile_revalidation"
+        )
     result = build_information_flow(snapshot, mission_record=mission, expectations=_expectations(with_scope=True))
-    assert result["interpretation"]["proposal_link_status"] == "different_proposals"
+    assert result["interpretation"]["proposal_link_status"] == (
+        "compile_revalidation" if linked else "different_proposals"
+    )
     assert result["interpretation"]["confirmation_proposal_id"] == "p"
     assert result["interpretation"]["saved_mission_proposal_id"] == "saved-p"
     assert result["first_supported_mismatch"]["sources"] == [
         "mission.intake.context.composition.semantic_snapshot.target_entities"
+    ]
+
+
+def test_recorded_flow_retains_scoped_projections_and_receipts_without_payloads() -> None:
+    result = build_information_flow(_snapshot())
+    assert result["recorded_information_flow"] == [
+        {"stage": "tool_output", "task_id": "task-1", "source": "task.metadata_json.handler_result"},
+        {"stage": "execution_started", "event_id": "start", "task_id": "task-1"},
     ]
 
 

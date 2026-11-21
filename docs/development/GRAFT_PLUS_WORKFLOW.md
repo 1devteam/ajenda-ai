@@ -173,9 +173,17 @@ The mission record, deliverable, reference and Shadow input are optional. The
 instruction file must contain the saved request byte for byte, including
 its whitespace. Before running Shadow, the tool checks its SHA-256 against the
 committed confirmation receipt or the same mission's validated semantic snapshot.
-The report identifies which source supplied the fingerprint. Shadow replays the local interpreter
-with its current settings. It cannot stand in for a historical event or recover
-missing historical context.
+The report names the source that supplied the fingerprint and identifies the
+confirmed proposal and the saved proposal separately. Launch can persist a
+new compile revision. The report recognizes the direct parent link recorded by
+compile and labels unexplained proposal differences explicitly. Shadow replays
+the local interpreter with its current settings. Historical decision records
+remain the evidence for how the original run interpreted the request.
+
+`recorded_information_flow` includes available decision reasons, transformation
+IDs, selected paths, and field lineage. `information_coverage` shows where GRAFT
+found a recorded event, derived a fact from a committed handler result, or
+could not observe a required stage.
 
 `reviewed-expectations.json` can cover the outcomes, market scope, action set, exact
 top-level input fields for named graph nodes, and expected deliverable artifact keys.
