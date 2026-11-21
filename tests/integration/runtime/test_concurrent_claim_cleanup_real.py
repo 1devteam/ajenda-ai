@@ -137,6 +137,9 @@ def test_rg_concurrent_claim_race_leaves_no_duplicate_processing_residue(
         assert len(leases) == 1
         assert leases[0].status == WorkerLeaseState.CLAIMED.value
         assert verified_task.metadata_json["worker_lease_id"] == str(leases[0].id)
+        WorkerRuntimeService(verify_session, queue_adapter).release(
+            tenant_id=tenant_id, lease_id=leases[0].id, worker_id=leases[0].holder_identity
+        )
     finally:
         verify_session.close()
 

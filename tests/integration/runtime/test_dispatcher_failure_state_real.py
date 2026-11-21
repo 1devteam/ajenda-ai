@@ -25,10 +25,11 @@ pytestmark = pytest.mark.integration
 
 def test_canonical_start_receipt_is_durable_before_any_terminal_callback(pg_engine, queue_adapter) -> None:
     factory = _session_factory(pg_engine)
+    worker_id = "worker-interrupted"
     tenant_id, task_id, lease_id = _create_running_task(
         session_factory=factory,
         queue_adapter=queue_adapter,
-        worker_id="worker-interrupted",
+        worker_id=worker_id,
         metadata_json={"task_type": "unstarted_handler"},
     )
     with factory() as session:
@@ -49,6 +50,9 @@ def test_canonical_start_receipt_is_durable_before_any_terminal_callback(pg_engi
         assert not session.scalars(
             select(AuditEvent).where(AuditEvent.tenant_id == tenant_id, AuditEvent.action == "execution_completed")
         ).first()
+        WorkerRuntimeService(session, queue_adapter).fail(
+            tenant_id=tenant_id, lease_id=lease_id, worker_id=worker_id, reason="start receipt proof ended"
+        )
 
 
 @pytest.mark.parametrize("failure_mode", ["handler", "output_contract"])

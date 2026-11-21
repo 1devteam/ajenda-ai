@@ -517,6 +517,10 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
 
     after_declarative_intake = registry.invoke(invocation, tenant_context)
     assert after_declarative_intake.output["support"] == supported_decision.output["support"]
-    assert after_declarative_intake.output["decision_result"] == supported_decision.output["decision_result"]
-    assert str(forged_id) not in after_declarative_intake.output["decision_result"]["supporting_evidence_ids"]
+    decision_after = dict(after_declarative_intake.output["decision_result"])
+    decision_before = dict(supported_decision.output["decision_result"])
+    decision_after.pop("decided_at")
+    decision_before.pop("decided_at")
+    assert decision_after == decision_before
+    assert f"evidence:{forged_id}" not in after_declarative_intake.records_inspected
     assert _tenant_counts(factory, tenant) == before

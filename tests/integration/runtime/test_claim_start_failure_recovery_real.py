@@ -151,7 +151,8 @@ def _assert_recoverable_and_reclaim_once(
             <= 1
         )
 
-        reclaimed = WorkerRuntimeService(reclaim_session, queue_adapter).claim_next_task(
+        runtime = WorkerRuntimeService(reclaim_session, queue_adapter)
+        reclaimed = runtime.claim_next_task(
             tenant_id=queued.tenant_id,
             worker_id=recovery_worker_id,
         )
@@ -165,6 +166,11 @@ def _assert_recoverable_and_reclaim_once(
                 task_id=queued.task_id,
             )
             <= 1
+        )
+        runtime.release(
+            tenant_id=queued.tenant_id,
+            lease_id=uuid.UUID(reclaimed.metadata_json["worker_lease_id"]),
+            worker_id=recovery_worker_id,
         )
     finally:
         reclaim_session.close()
@@ -213,12 +219,19 @@ def test_claim_start_heartbeat_failure_remains_recoverable(
         assert redis_client.hlen(f"ajenda:queue:{queued.tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{queued.tenant_id}:lease:{queued.task_id}") is None
 
-        reclaimed = WorkerRuntimeService(verify_claim_session, queue_adapter).claim_next_task(
+        runtime = WorkerRuntimeService(verify_claim_session, queue_adapter)
+        recovery_worker_id = "claim-start-recovery-worker"
+        reclaimed = runtime.claim_next_task(
             tenant_id=queued.tenant_id,
-            worker_id="claim-start-recovery-worker",
+            worker_id=recovery_worker_id,
         )
         assert reclaimed is not None
         assert reclaimed.id == queued.task_id
+        runtime.release(
+            tenant_id=queued.tenant_id,
+            lease_id=uuid.UUID(reclaimed.metadata_json["worker_lease_id"]),
+            worker_id=recovery_worker_id,
+        )
     finally:
         verify_claim_session.close()
 
@@ -389,11 +402,18 @@ def test_worker_loop_releases_claim_when_heartbeat_fails_before_start(
         assert redis_client.hlen(f"ajenda:queue:{queued.tenant_id}:v2:processing-payloads") == 0
         assert redis_client.get(f"ajenda:queue:{queued.tenant_id}:lease:{queued.task_id}") is None
 
-        reclaimed = WorkerRuntimeService(verify_session, queue_adapter).claim_next_task(
+        runtime = WorkerRuntimeService(verify_session, queue_adapter)
+        recovery_worker_id = "claim-start-immediate-reclaim-worker"
+        reclaimed = runtime.claim_next_task(
             tenant_id=queued.tenant_id,
-            worker_id="claim-start-immediate-reclaim-worker",
+            worker_id=recovery_worker_id,
         )
         assert reclaimed is not None
         assert reclaimed.id == queued.task_id
+        runtime.release(
+            tenant_id=queued.tenant_id,
+            lease_id=uuid.UUID(reclaimed.metadata_json["worker_lease_id"]),
+            worker_id=recovery_worker_id,
+        )
     finally:
         verify_session.close()
