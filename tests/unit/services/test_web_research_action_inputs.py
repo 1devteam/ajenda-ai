@@ -69,6 +69,45 @@ def test_market_research_does_not_extract_deliverable_words_as_company_identity(
     assert payload["domain"] is None
 
 
+@pytest.mark.parametrize(
+    ("directive", "minimum"),
+    [
+        ("Find up to three", 1),
+        ("Find up to 3", 1),
+        ("Find at least three", 3),
+        ("Find exactly three", 3),
+        ("Please find up to three", 1),
+    ],
+)
+def test_public_research_quantity_modifier_stays_out_of_the_compiled_query(directive: str, minimum: int) -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction=(
+            f"{directive} software development companies in Austin, Texas. "
+            "Verify each one using its official website and give me a short report with source links."
+        ),
+    )
+
+    assert record.ready_to_start is True
+    assert record.intent.requested_quantity == 3
+    assert record.intent.target_entities[0].industry == "software development"
+    assert record.intent.target_entities[0].location == "Austin"
+    discovery = next(step for step in record.planned_steps if step.action_name == "web.research")
+    assert discovery.tool_input["query"] == "software development companies in Austin"
+    assert discovery.tool_input["limit"] == 3
+    discovery_node = next(
+        node
+        for node in record.task_graph_preview["nodes"]
+        if node["input_contract"]["tool_invocation"]["action"] == "web.research"
+    )
+    assert discovery_node["input_contract"]["tool_invocation"]["input"] == discovery.tool_input
+    verification = next(
+        step for step in record.planned_steps if step.action_name == "research.verify_public_candidates"
+    )
+    assert verification.tool_input["requested_quantity"] == 3
+    assert verification.tool_input.get("minimum_verified_quantity", 3) == minimum
+
+
 def test_local_fixture_constraint_disables_public_search() -> None:
     intent = interpret_instruction(
         "Find five software companies in Austin and collect contacts using local fixture data only."
@@ -76,6 +115,43 @@ def test_local_fixture_constraint_disables_public_search() -> None:
     payload = build_action_input(action_name="web.research", intent=intent)
     assert payload["local_fixture_only"] is True
     assert payload["include_public_search"] is False
+
+
+def test_give_me_a_short_report_plans_synthesis_after_public_identity_verification() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction=(
+            "Find up to three software development companies in Austin, Texas. "
+            "Verify each one using its official website and give me a short report with source links."
+        ),
+    )
+
+    assert record.ready_to_start is True
+    assert record.intent.requested_outcomes == ["research_prospects", "synthesize_research_report"]
+    assert [step.action_name for step in record.planned_steps] == [
+        "web.research",
+        "research.verify_public_candidates",
+        "research.synthesize_report",
+    ]
+    report = record.planned_steps[-1]
+    verification = record.planned_steps[-2]
+    assert report.output_contract == "research_report"
+    assert verification.step_key in report.depends_on
+    assert any(
+        binding["from_step"] == verification.step_key and binding["output_path"] == "$.verified_prospect_candidates"
+        for binding in report.input_bindings
+    )
+
+
+def test_give_me_a_goal_evaluation_report_uses_goal_evaluation() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction="Evaluate goal progress for Ajenda AI. Give me a short goal evaluation report.",
+    )
+
+    assert record.ready_to_start is True
+    assert record.intent.requested_outcomes == ["evaluate_goal_progress"]
+    assert record.allowed_actions == ["analysis.evaluate_goal_progress"]
 
 
 def test_public_web_only_constraint_excludes_internal_records_at_input_boundary() -> None:
