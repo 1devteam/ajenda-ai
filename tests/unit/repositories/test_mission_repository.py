@@ -27,7 +27,7 @@ def test_get_for_tenant_uses_tenant_scoped_query() -> None:
     assert tenant_id in compiled
 
 
-def test_get_for_tenant_pauses_review_hold_without_active_tasks() -> None:
+def test_get_for_tenant_does_not_change_review_held_mission() -> None:
     tenant_id = str(uuid.uuid4())
     mission = Mission(
         tenant_id=tenant_id,
@@ -44,9 +44,9 @@ def test_get_for_tenant_pauses_review_hold_without_active_tasks() -> None:
     result = MissionRepository(session).get_for_tenant(mission_id=mission.id, tenant_id=tenant_id)
 
     assert result is mission
-    assert mission.status == "paused"
-    assert mission.metadata_json["runtime_reconciliation"]["reason"] == "review_hold_without_active_tasks"
-    session.flush.assert_called_once_with()
+    assert mission.status == "running"
+    assert mission.metadata_json == {}
+    session.flush.assert_not_called()
 
 
 def test_lock_for_tenant_uses_tenant_scoped_for_update_query() -> None:
@@ -83,7 +83,7 @@ def test_update_metadata_flushes_and_refreshes_existing_mission() -> None:
     session.refresh.assert_called_once_with(mission)
 
 
-def test_list_by_tenant_pauses_review_hold_without_active_tasks() -> None:
+def test_list_by_tenant_does_not_change_review_held_mission() -> None:
     tenant_id = str(uuid.uuid4())
     mission = Mission(
         tenant_id=tenant_id,
@@ -100,9 +100,9 @@ def test_list_by_tenant_pauses_review_hold_without_active_tasks() -> None:
     result = MissionRepository(session).list_by_tenant(tenant_id)
 
     assert result == [mission]
-    assert mission.status == "paused"
-    assert mission.metadata_json["runtime_reconciliation"]["reason"] == "review_hold_without_active_tasks"
-    session.flush.assert_called_once_with()
+    assert mission.status == "running"
+    assert mission.metadata_json == {}
+    session.flush.assert_not_called()
 
 
 def test_mission_aggregate_counts_are_tenant_scoped_and_status_specific() -> None:

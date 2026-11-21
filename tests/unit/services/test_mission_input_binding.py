@@ -75,6 +75,42 @@ def test_pending_dependencies_when_upstream_incomplete() -> None:
     assert pending_dependency_keys(task=draft, mission_tasks=[research, draft]) == ["ability-web-research"]
 
 
+def test_superseded_producer_does_not_satisfy_active_dependency_or_input_binding() -> None:
+    mission_id = uuid.uuid4()
+    tenant_id = str(uuid.uuid4())
+    old = _task(
+        node_key="source",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        output={"result": "old"},
+    )
+    current = _task(
+        node_key="source",
+        status=ExecutionTaskState.FAILED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+    )
+    consumer = _task(
+        node_key="consumer",
+        status=ExecutionTaskState.QUEUED.value,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        dependency_keys=["source"],
+        input_bindings=[{"from_step": "source", "output_path": "$.result", "input_path": "$.input.value"}],
+    )
+    for task, version in ((old, 1), (current, 2), (consumer, 2)):
+        task.metadata_json["materialization_version"] = version
+
+    assert pending_dependency_keys(task=consumer, mission_tasks=[old, current, consumer]) == ["source"]
+    with pytest.raises(DependencyNotReadyError):
+        apply_input_bindings(tool_input={}, task=consumer, mission_tasks=[old, current, consumer])
+    current.status = ExecutionTaskState.COMPLETED.value
+    current.metadata_json["handler_result"] = {"output": {"result": "current"}}
+    bound, _ = apply_input_bindings(tool_input={}, task=consumer, mission_tasks=[old, current, consumer])
+    assert bound["value"] == "current"
+
+
 def test_duplicate_node_prefers_completed_projection_with_structured_output() -> None:
     mission_id = uuid.uuid4()
     tenant_id = str(uuid.uuid4())

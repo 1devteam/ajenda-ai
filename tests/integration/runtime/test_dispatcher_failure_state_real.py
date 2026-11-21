@@ -23,7 +23,7 @@ from backend.workers.task_dispatcher import TaskDispatcher, TaskHandler, TaskHan
 pytestmark = pytest.mark.integration
 
 
-def test_started_observation_is_durable_before_any_terminal_callback(pg_engine, queue_adapter) -> None:
+def test_canonical_start_receipt_is_durable_before_any_terminal_callback(pg_engine, queue_adapter) -> None:
     factory = _session_factory(pg_engine)
     tenant_id, task_id, lease_id = _create_running_task(
         session_factory=factory,
@@ -35,9 +35,17 @@ def test_started_observation_is_durable_before_any_terminal_callback(pg_engine, 
         task = session.get(ExecutionTask, task_id)
         assert task is not None and task.status == ExecutionTaskState.RUNNING.value
         events = session.scalars(
-            select(AuditEvent).where(AuditEvent.tenant_id == tenant_id, AuditEvent.action == "execution_started")
+            select(AuditEvent).where(
+                AuditEvent.tenant_id == tenant_id,
+                AuditEvent.category == "execution_task",
+                AuditEvent.action == "started",
+            )
         ).all()
-        assert any(event.payload_json.get("lease_id") == str(lease_id) for event in events)
+        assert any(
+            (receipt := RuntimeEvidenceLedger.read_envelope(event)) is not None
+            and receipt.facts.get("lease_id") == str(lease_id)
+            for event in events
+        )
         assert not session.scalars(
             select(AuditEvent).where(AuditEvent.tenant_id == tenant_id, AuditEvent.action == "execution_completed")
         ).first()

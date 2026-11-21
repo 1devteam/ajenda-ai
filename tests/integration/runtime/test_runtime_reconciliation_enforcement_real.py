@@ -157,7 +157,7 @@ def test_terminal_task_with_expired_active_lease_expires_ownership_without_reque
         session.close()
 
 
-def test_periodic_maintenance_refreshes_deliverable_read_model(
+def test_periodic_maintenance_preserves_worker_owned_acceptance_metadata(
     pg_engine,
     queue_adapter,
 ) -> None:
@@ -173,13 +173,14 @@ def test_periodic_maintenance_refreshes_deliverable_read_model(
         runtime_state = build_deliverable_runtime_state(request)
         assert runtime_state is not None
         mission.metadata_json = {
+            "acceptance": {"status": "met", "task_count": 1},
             "mission_intake": {
                 "context": {
                     "composition": {
                         DELIVERABLE_RUNTIME_STATE_METADATA_KEY: runtime_state,
                     }
                 }
-            }
+            },
         }
         task = _create_task(
             session,
@@ -197,10 +198,9 @@ def test_periodic_maintenance_refreshes_deliverable_read_model(
 
         session.refresh(mission)
         composition = mission.metadata_json["mission_intake"]["context"]["composition"]
-        refreshed = composition[DELIVERABLE_RUNTIME_STATE_METADATA_KEY]
-        assert summary.deliverable_reconciled_count >= 1
-        assert refreshed["lifecycle"]["state"] == "current"
-        assert refreshed["lifecycle"]["materialized_artifact_count"] == 1
+        assert summary.deliverable_reconciled_count == 0
+        assert mission.metadata_json["acceptance"] == {"status": "met", "task_count": 1}
+        assert composition[DELIVERABLE_RUNTIME_STATE_METADATA_KEY] == runtime_state
     finally:
         session.close()
 

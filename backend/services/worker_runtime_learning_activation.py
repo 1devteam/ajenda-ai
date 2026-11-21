@@ -56,6 +56,20 @@ def _activation_metadata(task: ExecutionTask) -> dict[str, object] | None:
     return dict(raw) if isinstance(raw, dict) else None
 
 
+def is_learning_consolidation_follow_up(task: ExecutionTask) -> bool:
+    """Recognize stored and current approval-held consolidation follow-up tasks."""
+    metadata = task.metadata_json or {}
+    invocation = metadata.get("tool_invocation")
+    activation = _activation_metadata(task)
+    return (
+        isinstance(invocation, dict)
+        and invocation.get("action") == CONSOLIDATION_ACTION
+        and activation is not None
+        and activation.get("recognition_only") is True
+        and activation.get("consolidation_scope") == CONSOLIDATION_SCOPE
+    )
+
+
 def maybe_activate_learning_consolidation(
     *,
     session: Session,
@@ -104,7 +118,7 @@ def maybe_activate_learning_consolidation(
     manifest = ABILITY_MANIFESTS_BY_ACTION[CONSOLIDATION_ACTION]
     task = ExecutionTask(
         tenant_id=completed_task.tenant_id,
-        mission_id=completed_task.mission_id,
+        mission_id=None,
         title="Review durable learning-history consolidation",
         description="Eligible decision-learning evidence is available for governed consolidation.",
         status=ExecutionTaskState.PLANNED.value,
@@ -121,6 +135,7 @@ def maybe_activate_learning_consolidation(
                 "schema_version": 1,
                 "consolidation_scope": CONSOLIDATION_SCOPE,
                 "source_evidence_ids": list(sources),
+                "trigger_mission_id": str(completed_task.mission_id) if completed_task.mission_id else None,
                 "recognition_only": True,
                 "grants_execution_authority": False,
             },

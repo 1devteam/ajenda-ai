@@ -13,7 +13,7 @@ from backend.queue.base import QueueAdapter
 from backend.repositories.execution_task_repository import ExecutionTaskRepository
 from backend.repositories.mission_repository import MissionRepository
 from backend.services.execution_coordinator import ExecutionCoordinator
-from backend.services.mission_intake_quality import contains_composition_clarification
+from backend.services.mission_intake_quality import mission_requires_clarification
 from backend.services.quota_enforcement import QuotaEnforcementService, QuotaExceededError
 
 
@@ -66,7 +66,10 @@ class MissionRuntimeQueueAdmissionService:
         tasks_to_queue: list[Any] = []
         already_queued_task_ids: list[str] = []
         blockers: list[dict[str, Any]] = []
-        clarification_context = contains_composition_clarification(metadata.get("mission_intake"))
+        intake = metadata.get("mission_intake")
+        clarification_context = mission_requires_clarification(
+            objective=mission.objective, context=intake.get("context") if isinstance(intake, dict) else None
+        )
         if clarification_context:
             blockers.append(
                 runtime_queue_admission_blocker(

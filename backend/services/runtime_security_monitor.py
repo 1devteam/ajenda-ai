@@ -9,6 +9,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger
+
 
 def inspect_runtime_security(
     *,
@@ -45,6 +47,18 @@ def inspect_runtime_security(
         and isinstance(event.payload_json.get("task_id"), str)
         and isinstance(event.payload_json.get("lease_id"), str)
     }
+    for event in audits:
+        if (
+            event.tenant_id == tenant_id
+            and event.mission_id == mission_id
+            and getattr(event, "category", None) == "execution_task"
+            and getattr(event, "action", None) == "started"
+            and (receipt := RuntimeEvidenceLedger.read_envelope(event)) is not None
+            and receipt.producer == "worker_runtime"
+            and isinstance(receipt.facts.get("task_id"), str)
+            and isinstance(receipt.facts.get("lease_id"), str)
+        ):
+            observed_starts.add((receipt.facts["task_id"], receipt.facts["lease_id"]))
     lease_ids_by_task: dict[str, set[str]] = {}
     for lease in leases:
         if lease.tenant_id == tenant_id:

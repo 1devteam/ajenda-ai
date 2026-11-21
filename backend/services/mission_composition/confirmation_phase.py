@@ -32,7 +32,6 @@ from backend.services.mission_composition.deliverable_runtime_state import (
 from backend.services.mission_composition.plan_compiler import compile_plan_payload, compile_task_graph_preview
 from backend.services.mission_composition.proposal_store import get_proposal, put_proposal
 from backend.services.mission_composition.service_contracts import MissionCompositionError
-from backend.services.mission_composition.shadow_preview import build_shadow_preview
 from backend.services.mission_composition.vertical_know_how import REVOPS_V1_KNOW_HOW, select_vertical_know_how
 from backend.services.mission_intake_quality import (
     MissionIntakeQualityDeniedError,
@@ -42,6 +41,7 @@ from backend.services.mission_intake_quality import (
 from backend.services.quota_enforcement import BudgetGateDeniedError, QuotaExceededError
 from backend.services.runtime_evidence_ledger import RuntimeEvidenceLedger, semantic_lineage_from_mission_metadata
 from backend.services.runtime_information_observation import describe_information, safe_decision_keys
+from backend.services.runtime_observation_delivery import observe_after_commit
 
 
 class MissionCompositionConfirmationPhase:
@@ -251,14 +251,6 @@ class MissionCompositionConfirmationPhase:
                 "introduction_drafts": record.intent.qualification_quantity or record.intent.requested_quantity or 0,
                 "social_drafts": record.intent.requested_quantity or 0,
             },
-            shadow_preview=build_shadow_preview(
-                proposal_id=record.proposal_id,
-                preview_id=f"{record.proposal_id}:shadow",
-                task_graph=record.task_graph_preview,
-                planned_artifact_keys=tuple(step.output_contract for step in record.planned_steps),
-                coverage_assessment=record.coverage_assessment,
-                epistemic_context=record.epistemic_context,
-            ),
             graph_lineage=record.composition_provenance.graph_lineage,
         )
         intake = build_mission_intake_metadata(
@@ -273,6 +265,7 @@ class MissionCompositionConfirmationPhase:
                     "revision_reason": record.revision_reason,
                     "schema_version": record.schema_version,
                     "instruction": record.instruction,
+                    "interpretation_ready": record.intent.interpretation_ready,
                     "semantic_snapshot": (
                         record.semantic_snapshot.model_dump(mode="json")
                         if record.semantic_snapshot is not None
@@ -423,53 +416,56 @@ class MissionCompositionConfirmationPhase:
         if MISSION_INTAKE_METADATA_KEY not in mission_metadata and MISSION_INTAKE_METADATA_KEY in intake:
             mission_metadata[MISSION_INTAKE_METADATA_KEY] = intake[MISSION_INTAKE_METADATA_KEY]
         mission.metadata_json = mission_metadata
-        # Persist a structural intake-to-graph observation alongside the mission
-        # transaction. No raw prompts, interpreted values, or credentials are
-        # duplicated into the audit ledger.
-        self._db.add(
-            AuditEvent(
-                tenant_id=str(tenant_id),
-                mission_id=mission.id,
-                category="mission_information",
-                action="composition_confirmed",
-                actor=actor_id or "mission_composition",
-                details="Observed confirmed mission intake and task graph representations",
-                payload_json={
-                    "schema_version": 1,
-                    "proposal_id": record.proposal_id,
-                    "intake": describe_information(intake),
-                    "graph": describe_information(normalized_graph),
-                    "planned_steps": describe_information(record.planned_steps),
-                    "semantic_decisions": {
-                        "requested_outcomes": safe_decision_keys(list(record.intent.requested_outcomes), limit=30),
-                        "allowed_action_keys": safe_decision_keys(list(record.allowed_actions), limit=50),
-                        "forbidden_action_keys": safe_decision_keys(list(record.forbidden_actions), limit=40),
-                        "interpretation_ready": bool(record.intent.interpretation_ready),
-                        "interpreter_version": record.intent.interpreter_version,
-                        "field_provenance": [
-                            {
-                                "field_path": safe_decision_keys([item.field_path], limit=1)[0],
-                                "source": item.source,
-                                "confidence": item.confidence,
-                                "rule_id": (safe_decision_keys([item.rule_id], limit=1)[0] if item.rule_id else None),
-                            }
-                            for item in record.intent.interpretation_evidence[:50]
-                        ],
-                        "interpreted_clauses": [
-                            {
-                                "clause_id": safe_decision_keys([item.clause_id], limit=1)[0],
-                                "status": item.status,
-                                "material": item.material,
-                                "mapped_outcomes": safe_decision_keys(item.mapped_outcomes, limit=10),
-                            }
-                            for item in record.intent.interpreted_clauses[:40]
-                        ],
+        mission_id = mission.id
+        observe_after_commit(
+            self._db,
+            tenant_id=str(tenant_id),
+            write=lambda session: session.add(
+                AuditEvent(
+                    tenant_id=str(tenant_id),
+                    mission_id=mission_id,
+                    category="mission_information",
+                    action="composition_confirmed",
+                    actor=actor_id or "mission_composition",
+                    details="Observed confirmed mission intake and task graph representations",
+                    payload_json={
+                        "schema_version": 1,
+                        "proposal_id": record.proposal_id,
+                        "intake": describe_information(intake),
+                        "graph": describe_information(normalized_graph),
+                        "planned_steps": describe_information(record.planned_steps),
+                        "semantic_decisions": {
+                            "requested_outcomes": safe_decision_keys(list(record.intent.requested_outcomes), limit=30),
+                            "allowed_action_keys": safe_decision_keys(list(record.allowed_actions), limit=50),
+                            "forbidden_action_keys": safe_decision_keys(list(record.forbidden_actions), limit=40),
+                            "interpretation_ready": bool(record.intent.interpretation_ready),
+                            "interpreter_version": record.intent.interpreter_version,
+                            "field_provenance": [
+                                {
+                                    "field_path": safe_decision_keys([item.field_path], limit=1)[0],
+                                    "source": item.source,
+                                    "confidence": item.confidence,
+                                    "rule_id": (
+                                        safe_decision_keys([item.rule_id], limit=1)[0] if item.rule_id else None
+                                    ),
+                                }
+                                for item in record.intent.interpretation_evidence[:50]
+                            ],
+                            "interpreted_clauses": [
+                                {
+                                    "clause_id": safe_decision_keys([item.clause_id], limit=1)[0],
+                                    "status": item.status,
+                                    "material": item.material,
+                                    "mapped_outcomes": safe_decision_keys(item.mapped_outcomes, limit=10),
+                                }
+                                for item in record.intent.interpreted_clauses[:40]
+                            ],
+                        },
+                        "grants_execution_authority": False,
                     },
-                    "grants_execution_authority": False,
-                },
-            )
+                )
+            ),
         )
-        self._db.flush()
 
         result = {
             "mission_id": str(mission.id),

@@ -216,6 +216,7 @@ class TestRuntimeQueueAdmissionQuotaEnforcement:
 
     def _make_mission(self, tenant_id: str, mission_id: uuid.UUID, task_ids: list[uuid.UUID]) -> SimpleNamespace:
         return SimpleNamespace(
+            objective="Produce the requested research deliverable",
             id=mission_id,
             tenant_id=tenant_id,
             metadata_json={

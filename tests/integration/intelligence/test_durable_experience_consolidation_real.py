@@ -15,7 +15,6 @@ from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.knowledge import KnowledgeArtifactRecord, KnowledgeQualificationRecord
 from backend.domain.tenant import Tenant
-from backend.services.durable_experience_consolidation import DurableLearningHistoryError
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.runtime_queue_dispatcher import RuntimeQueueDispatchService
 from backend.services.tools.action_registry import get_default_action_registry
@@ -141,8 +140,9 @@ def test_real_cross_mission_history_is_canonical_tenant_isolated_and_replayable(
         )
         setup.commit()
 
-    with pytest.raises(DurableLearningHistoryError, match=str(forged_id)):
-        registry.invoke(invocation, context)
+    after_declarative_intake = registry.invoke(invocation, context)
+    assert f"evidence:{forged_id}" not in after_declarative_intake.records_inspected
+    assert after_declarative_intake.output["qualifications"][0]["ledger_write"]["status"] == "already_recorded"
     assert _ledger_counts(factory, tenant_a) == (1, 1)
 
 
@@ -176,6 +176,10 @@ def test_recognition_requires_human_approval_before_runtime_consolidation(
             == "knowledge.consolidate_learning_history"
         )
         assert activation.status == ExecutionTaskState.PENDING_REVIEW.value
+        assert activation.mission_id is None
+        assert activation.metadata_json["learning_consolidation_activation"]["trigger_mission_id"] in {
+            str(episode.mission_id) for episode in episodes
+        }
         assert _ledger_counts(factory, tenant) == (0, 0)
         admitted = ExecutionCoordinator(setup, queue_adapter).approve_review_and_queue(
             tenant_id=tenant,

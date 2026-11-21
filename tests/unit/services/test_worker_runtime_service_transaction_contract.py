@@ -15,11 +15,12 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
+from backend.domain.mission import MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY
 from backend.queue.base import QueueMessage, QueueOperationResult
 from backend.services.worker_runtime_service import WorkerRuntimeService
 
@@ -1131,3 +1132,72 @@ def test_start_execution_binds_evidence_contract_before_commit() -> None:
     assert task.metadata_json["runtime_evidence_contract_version"] == "2"
     session.flush.assert_called_once()
     session.commit.assert_called_once()
+
+
+@pytest.mark.parametrize("scenario", ["current_graph", "old_graph", "superseded_graph", "direct", "clarification"])
+def test_claim_uses_current_graph_and_explicit_clarification(scenario: str) -> None:
+    tenant_id = str(uuid.uuid4())
+    task_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    session = MagicMock()
+    queue = MagicMock()
+    queue.claim_task.return_value = QueueMessage(
+        tenant_id=tenant_id,
+        task_id=task_id,
+        mission_id=mission_id,
+        fleet_id=None,
+        branch_id=None,
+        payload={},
+        enqueued_at=datetime.now(UTC),
+    )
+    queue.complete_task.return_value = QueueOperationResult(ok=True)
+    graph_task = scenario in {"current_graph", "old_graph", "superseded_graph"}
+    task = SimpleNamespace(
+        id=task_id,
+        mission_id=mission_id,
+        tenant_id=tenant_id,
+        status="queued",
+        metadata_json={"preview_task_key": "materialized-graph-task"} if graph_task else {},
+    )
+    mission = SimpleNamespace(
+        objective="Research current accounts",
+        metadata_json={
+            "mission_intake": {
+                "context": {
+                    "composition": {"interpretation_ready": scenario != "clarification"},
+                    "diagnostic": {"note": "The revised mission still does not include"},
+                }
+            },
+            MISSION_RUNTIME_TASK_MATERIALIZATION_METADATA_KEY: {
+                "materialization_status": "superseded" if scenario == "superseded_graph" else "materialized",
+                "created_execution_task_ids": [str(task_id if scenario == "current_graph" else uuid.uuid4())],
+            },
+        },
+    )
+    service = WorkerRuntimeService(session, queue)
+    service._tasks = MagicMock()
+    service._tasks.get.return_value = task
+    service._tasks.list_for_mission.return_value = [task]
+    service._leases = MagicMock()
+    service._leases.add.return_value = SimpleNamespace(id=uuid.uuid4())
+    service._audit = MagicMock()
+    service._dispatches = MagicMock()
+    repo = MagicMock()
+    repo.lock_for_tenant.return_value = mission
+    repo.get_reference_for_tenant.return_value = mission
+    with (
+        patch("backend.services.worker_runtime_service.MissionRepository", return_value=repo),
+        patch.object(service, "_assert_no_active_lease"),
+        patch.object(service, "_maybe_rollup_mission_status") as rollup,
+    ):
+        claimed = service.claim_next_task(tenant_id=tenant_id, worker_id="worker")
+    if scenario in {"current_graph", "direct"}:
+        assert claimed is task
+        assert task.status == "claimed"
+        queue.complete_task.assert_not_called()
+    else:
+        assert claimed is None
+        assert task.status == "cancelled"
+        queue.complete_task.assert_called_once()
+        if scenario != "clarification":
+            rollup.assert_not_called()

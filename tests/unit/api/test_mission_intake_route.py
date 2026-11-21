@@ -2271,7 +2271,15 @@ def test_runtime_admission_rejects_rejected_outcome_review() -> None:
     mission_repo = MagicMock()
     mission_repo.get_for_tenant.return_value = mission
     outcome_repo = MagicMock()
-    outcome_repo.list_for_mission.return_value = [SimpleNamespace(review_status="approved", review_decision="rejected")]
+    outcome_repo.list_for_mission.return_value = [
+        SimpleNamespace(
+            review_status="completed",
+            review_decision="rejected",
+            human_approval_required=False,
+            task_graph_reference=mission.metadata_json["mission_task_graph"],
+            materialization_reference=None,
+        )
+    ]
 
     with (
         patch("backend.api.routes.mission.MissionRepository", return_value=mission_repo),
@@ -2597,11 +2605,49 @@ def test_runtime_readiness_false_for_rejected_outcome_review() -> None:
         mission,
         tenant_id=tenant_id,
         mission_id=mission_id,
-        outcome_reviews=[SimpleNamespace(review_status="approved", review_decision="rejected")],
+        outcome_reviews=[
+            SimpleNamespace(
+                review_status="completed",
+                review_decision="rejected",
+                human_approval_required=False,
+                task_graph_reference=mission.metadata_json["mission_task_graph"],
+                materialization_reference=None,
+            )
+        ],
     )
 
     assert response.status_code == 200
     assert "rejected_outcome_review" in _blocker_codes(response.json())
+
+
+@pytest.mark.parametrize("inactive_reason", ["old_graph", "draft", "pending_approval", "unbound"])
+def test_readiness_does_not_apply_inactive_rejection(inactive_reason: str) -> None:
+    tenant_id, mission_id, capability_id, adapter_id = (uuid.uuid4() for _ in range(4))
+    mission = _mission_with_admitted_runtime_admission(
+        tenant_id=tenant_id, mission_id=mission_id, capability_id=capability_id, adapter_id=adapter_id
+    )
+    reference = dict(mission.metadata_json["mission_task_graph"])
+    if inactive_reason == "old_graph":
+        reference["graph_version"] -= 1
+    response, *_ = _readiness_response(
+        mission,
+        tenant_id=tenant_id,
+        mission_id=mission_id,
+        capability=SimpleNamespace(id=capability_id, name="crm_read", version="1.0.0"),
+        adapter=SimpleNamespace(id=adapter_id, capability_id=capability_id),
+        outcome_reviews=[
+            SimpleNamespace(
+                review_status="draft" if inactive_reason == "draft" else "completed",
+                review_decision="rejected",
+                human_approval_required=inactive_reason == "pending_approval",
+                human_approval_status="pending" if inactive_reason == "pending_approval" else None,
+                task_graph_reference=None if inactive_reason == "unbound" else reference,
+                materialization_reference=None,
+            ),
+        ],
+    )
+    assert response.status_code == 200
+    assert response.json()["ready"] is True
 
 
 def test_runtime_readiness_is_tenant_scoped() -> None:
@@ -2667,7 +2713,15 @@ def test_runtime_readiness_false_for_rejected_outcome_review_status() -> None:
         mission,
         tenant_id=tenant_id,
         mission_id=mission_id,
-        outcome_reviews=[SimpleNamespace(review_status="rejected", review_decision="inconclusive")],
+        outcome_reviews=[
+            SimpleNamespace(
+                review_status="rejected",
+                review_decision="inconclusive",
+                human_approval_required=False,
+                task_graph_reference=mission.metadata_json["mission_task_graph"],
+                materialization_reference=None,
+            )
+        ],
     )
 
     assert response.status_code == 200

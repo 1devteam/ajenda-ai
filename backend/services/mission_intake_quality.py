@@ -36,6 +36,19 @@ def contains_composition_clarification(value: Any) -> bool:
     return False
 
 
+def mission_requires_clarification(*, objective: str, context: object) -> bool:
+    """Use composition readiness, with legacy text limited to instruction fields."""
+    composition = context.get("composition") if isinstance(context, dict) else None
+    if isinstance(composition, dict):
+        ready = composition.get("interpretation_ready")
+        if isinstance(ready, bool):
+            return not ready or contains_composition_clarification(objective)
+        instruction = composition.get("instruction")
+        if isinstance(instruction, str) and contains_composition_clarification(instruction):
+            return True
+    return contains_composition_clarification(objective)
+
+
 MissionIntakeQualitySeverity = Literal["required"]
 
 _OBJECTIVE_MIN_CHARS = 24

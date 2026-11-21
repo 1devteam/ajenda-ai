@@ -37,15 +37,11 @@ from backend.db.tenant_session import activate_tenant_session
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, WorkerLeaseState
 from backend.domain.execution_task import ExecutionTask
-from backend.domain.mission import Mission
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueAdapter
 from backend.repositories.audit_event_repository import AuditEventRepository
 from backend.runtime.transitions import transition_lease, transition_task
 from backend.services.billing_meter_dispatcher import BillingMeterDispatchService, BillingMeterPublishSummary
-from backend.services.mission_composition.deliverable_runtime_read_model import (
-    refresh_deliverable_completion_metadata,
-)
 from backend.services.runtime_queue_dispatcher import DispatchPublishSummary, RuntimeQueueDispatchService
 
 logger = logging.getLogger("ajenda.runtime_maintainer")
@@ -378,7 +374,6 @@ class RuntimeMaintainer:
         requeued_count += queue_reconciliation.requeued_task_count
         dead_lettered_count += queue_reconciliation.dead_lettered_count
         mismatched_state_count += queue_reconciliation.mismatched_state_count
-        deliverable_reconciled_count = self.reconcile_deliverable_read_models()
 
         logger.info(
             "runtime_maintainer_recovery_complete",
@@ -387,7 +382,6 @@ class RuntimeMaintainer:
                 "requeued_tasks": requeued_count,
                 "dead_lettered_tasks": dead_lettered_count,
                 "mismatched_states": mismatched_state_count,
-                "deliverable_reconciled": deliverable_reconciled_count,
                 "dispatch_published": dispatch_summary.published_count,
                 "dispatch_retry_scheduled": dispatch_summary.retry_scheduled_count,
                 "cancelled_dispatch_cleanup": dispatch_summary.cancelled_cleanup_count,
@@ -403,7 +397,6 @@ class RuntimeMaintainer:
             requeued_task_count=requeued_count,
             dead_lettered_count=dead_lettered_count,
             mismatched_state_count=mismatched_state_count,
-            deliverable_reconciled_count=deliverable_reconciled_count,
             dispatch_published_count=dispatch_summary.published_count,
             dispatch_retry_scheduled_count=dispatch_summary.retry_scheduled_count,
             cancelled_dispatch_cleanup_count=dispatch_summary.cancelled_cleanup_count,
@@ -424,42 +417,6 @@ class RuntimeMaintainer:
 
         self._activate_tenant_scope()
         return self._billing_meters.publish_due(limit=limit)
-
-    def reconcile_deliverable_read_models(self) -> int:
-        """Refresh tenant-owned deliverable read models during maintenance.
-
-        This reuses the canonical completion/lifecycle transformer and only
-        updates mission metadata. It never changes task state, leases, queue
-        messages, credentials, approvals, or provider authority.
-        """
-
-        self._activate_tenant_scope()
-        tenant_ids = set(self._session.scalars(select(ExecutionTask.tenant_id).distinct()).all())
-        if not tenant_ids:
-            return 0
-        # Batch the read side of reconciliation once per maintenance pass.
-        # This preserves tenant filtering while avoiding tenant → mission →
-        # task N+1 queries as mission volume grows.
-        missions = list(self._session.scalars(select(Mission).where(Mission.tenant_id.in_(tenant_ids))).all())
-        tasks_by_mission: dict[object, list[ExecutionTask]] = {}
-        for task in self._session.scalars(select(ExecutionTask).where(ExecutionTask.tenant_id.in_(tenant_ids))).all():
-            tasks_by_mission.setdefault(task.mission_id, []).append(task)
-        reconciled = 0
-        for mission in missions:
-            metadata = dict(mission.metadata_json or {})
-            refreshed, _completion = refresh_deliverable_completion_metadata(
-                metadata,
-                tasks_by_mission.get(mission.id, []),
-            )
-            if refreshed == mission.metadata_json:
-                continue
-            mission.metadata_json = refreshed
-            self._session.add(mission)
-            reconciled += 1
-        if reconciled:
-            self._session.flush()
-            self._session.commit()
-        return reconciled
 
     def _reconcile_queue_processing_payloads(self) -> RecoverySummary:
         self._activate_tenant_scope()

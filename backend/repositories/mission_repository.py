@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.domain.enums import ExecutionTaskState, MissionState
-from backend.domain.execution_task import ExecutionTask
+from backend.domain.enums import MissionState
 from backend.domain.mission import Mission
 
 
@@ -36,20 +34,11 @@ class MissionRepository:
 
     def get_for_tenant(self, *, mission_id: uuid.UUID, tenant_id: str) -> Mission | None:
         stmt = select(Mission).where(Mission.id == mission_id, Mission.tenant_id == tenant_id)
-        mission = self._session.scalar(stmt)
-        if mission is not None:
-            self._reconcile_review_holds(missions=[mission], tenant_id=tenant_id)
-        return mission
+        return self._session.scalar(stmt)
 
     def get_reference_for_tenant(self, *, mission_id: uuid.UUID, tenant_id: str) -> Mission | None:
-        """Read a mission identity for attribution without reconciling lifecycle state.
-
-        Business-understanding provenance needs to establish tenant ownership of
-        a mission reference.  It must not turn that read into a mission-state
-        mutation (for example, review-hold reconciliation).
-        """
-
-        return self._session.scalar(select(Mission).where(Mission.id == mission_id, Mission.tenant_id == tenant_id))
+        """Read mission attribution through the tenant-scoped lookup."""
+        return self.get_for_tenant(mission_id=mission_id, tenant_id=tenant_id)
 
     def lock_for_tenant(self, *, mission_id: uuid.UUID, tenant_id: str) -> Mission | None:
         """Return a tenant-owned mission while holding a row lock for mutation serialization."""
@@ -63,9 +52,7 @@ class MissionRepository:
             .order_by(Mission.created_at.desc())
             .limit(max(1, min(limit, 200)))
         )
-        missions = list(self._session.scalars(stmt))
-        self._reconcile_review_holds(missions=missions, tenant_id=tenant_id)
-        return missions
+        return list(self._session.scalars(stmt))
 
     def count_by_tenant(self, tenant_id: str) -> int:
         """Return the complete tenant-scoped mission count, independent of page size."""
@@ -80,55 +67,3 @@ class MissionRepository:
             .where(Mission.tenant_id == tenant_id, Mission.status == MissionState.COMPLETED.value)
         )
         return int(self._session.scalar(stmt) or 0)
-
-    def _reconcile_review_holds(self, *, missions: list[Mission], tenant_id: str) -> None:
-        """Pause running missions that have no executable tasks left.
-
-        A mission waiting only on human review is not actively running. Keep the
-        mission and task history intact, but make that state explicit so active
-        work stays readable and operators can find the review queue separately.
-        """
-
-        running = [mission for mission in missions if mission.status == MissionState.RUNNING.value]
-        if not running:
-            return
-        counts = self._session.execute(
-            select(
-                ExecutionTask.mission_id,
-                ExecutionTask.status,
-                func.count().label("count"),
-            )
-            .where(
-                ExecutionTask.tenant_id == tenant_id,
-                ExecutionTask.mission_id.in_([mission.id for mission in running]),
-            )
-            .group_by(ExecutionTask.mission_id, ExecutionTask.status)
-        ).all()
-        by_mission: dict[uuid.UUID, dict[str, int]] = {}
-        for mission_id, status, count in counts:
-            by_mission.setdefault(mission_id, {})[str(status)] = int(count)
-        active_states = {
-            ExecutionTaskState.PLANNED.value,
-            ExecutionTaskState.QUEUED.value,
-            ExecutionTaskState.CLAIMED.value,
-            ExecutionTaskState.RUNNING.value,
-            ExecutionTaskState.RECOVERING.value,
-        }
-        for mission in running:
-            state_counts = by_mission.get(mission.id, {})
-            pending_review = state_counts.get(ExecutionTaskState.PENDING_REVIEW.value, 0)
-            active = sum(state_counts.get(state, 0) for state in active_states)
-            if pending_review <= 0 or active > 0:
-                continue
-            metadata = dict(mission.metadata_json or {})
-            metadata["runtime_reconciliation"] = {
-                "schema_version": 1,
-                "reason": "review_hold_without_active_tasks",
-                "previous_status": MissionState.RUNNING.value,
-                "pending_review_task_count": pending_review,
-                "reconciled_at": datetime.now(UTC).isoformat(),
-            }
-            mission.status = MissionState.PAUSED.value
-            mission.metadata_json = metadata
-            self._session.add(mission)
-        self._session.flush()

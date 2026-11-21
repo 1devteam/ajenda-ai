@@ -11,18 +11,26 @@ from backend.repositories.mission_repository import MissionRepository
 from backend.runtime.state_machine import InvalidTransitionError
 from backend.runtime.transitions import transition_mission, transition_task
 from backend.services.mission_acceptance import evaluate_mission_acceptance
+from backend.services.mission_bridge.queue_admission import (
+    current_materialized_execution_task_ids,
+    tasks_in_execution_scope,
+)
+from backend.services.mission_composition.deliverable_completion import evaluate_deliverable_completion
 from backend.services.mission_composition.deliverable_contract import DeliverableFieldKey
+from backend.services.mission_composition.deliverable_runtime_artifacts import collect_materialized_artifacts
 from backend.services.mission_composition.deliverable_runtime_read_model import (
     refresh_deliverable_completion_metadata,
 )
+from backend.services.mission_composition.deliverable_runtime_state import load_deliverable_runtime_state
 from backend.services.ontology.algorithms import evaluate_runtime_artifact_completeness
-from backend.services.tools.mission_input_binding import handler_output_for_task
+from backend.services.tools.mission_input_binding import handler_output_for_task, index_mission_tasks_by_node_key
 from backend.services.worker_runtime_contracts import (
     _TERMINAL_TASK_STATES,
     WorkerRuntimeCollaborator,
     _mission_acceptance_contract,
     _observe_acceptance_reasons,
 )
+from backend.services.worker_runtime_learning_activation import is_learning_consolidation_follow_up
 
 logger = logging.getLogger("ajenda.worker_runtime_rollup")
 
@@ -74,10 +82,25 @@ def _record_deliverable_refresh_issue(
     service._session.add(task)
 
 
+def _rollup_tasks(
+    service: WorkerRuntimeCollaborator, *, task: ExecutionTask, mission_metadata: dict[str, object]
+) -> list[ExecutionTask]:
+    mission_id = task.mission_id
+    if mission_id is None:
+        return []
+    siblings = tasks_in_execution_scope(task, service._tasks.list_for_mission(mission_id))
+    if isinstance((task.metadata_json or {}).get("preview_task_key"), str):
+        current_ids = set(current_materialized_execution_task_ids(mission_metadata))
+        if task.id not in current_ids:
+            return []
+        siblings = [sibling for sibling in siblings if sibling.id in current_ids]
+    return [sibling for sibling in siblings if not is_learning_consolidation_follow_up(sibling)]
+
+
 def refresh_deliverable_completion_read_model(service: WorkerRuntimeCollaborator, *, task: ExecutionTask) -> None:
     """Refresh non-authoritative completion; retain a durable failure code if unavailable."""
 
-    if task.mission_id is None:
+    if task.mission_id is None or is_learning_consolidation_follow_up(task):
         return
     try:
         mission = MissionRepository(service._session).get_for_tenant(
@@ -91,7 +114,9 @@ def refresh_deliverable_completion_read_model(service: WorkerRuntimeCollaborator
         context = intake.get("context") if isinstance(intake, dict) else None
         composition = context.get("composition") if isinstance(context, dict) else None
         has_deliverable_state = isinstance(composition, dict) and "deliverable_runtime_state" in composition
-        siblings = service._tasks.list_for_mission(task.mission_id)
+        siblings = _rollup_tasks(service, task=task, mission_metadata=metadata)
+        if not siblings:
+            return
         updated_metadata, completion = refresh_deliverable_completion_metadata(metadata, siblings)
         if completion is None:
             if has_deliverable_state:
@@ -121,7 +146,7 @@ def refresh_deliverable_completion_read_model(service: WorkerRuntimeCollaborator
 def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: ExecutionTask, worker_id: str) -> None:
     """Advance mission status when graph tasks finish (composition path stays planned today)."""
 
-    if task.mission_id is None:
+    if task.mission_id is None or is_learning_consolidation_follow_up(task):
         return
     mission = MissionRepository(service._session).get_for_tenant(
         mission_id=task.mission_id,
@@ -138,7 +163,7 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
     }:
         return
 
-    siblings = service._tasks.list_for_mission(task.mission_id)
+    siblings = _rollup_tasks(service, task=task, mission_metadata=dict(mission.metadata_json or {}))
     if not siblings:
         return
     failedish = {
@@ -150,11 +175,7 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
     # impossible. Re-admit only descendants which this rollup itself blocked
     # for dependency failure and whose full dependency set is now complete.
     # This does not replay successful work or bypass the durable dispatcher.
-    node_tasks = {
-        str((item.metadata_json or {}).get("graph_node_key")): item
-        for item in siblings
-        if isinstance(item.metadata_json, dict) and isinstance(item.metadata_json.get("graph_node_key"), str)
-    }
+    node_tasks = index_mission_tasks_by_node_key(siblings)
     recovered_dependents: list[ExecutionTask] = []
     for item in siblings:
         if item.status != ExecutionTaskState.BLOCKED.value:
@@ -260,13 +281,7 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
     # A failed graph node makes every still-open dependent node impossible.
     # Terminalize those descendants now so missions cannot remain running
     # forever behind queued dependency deferrals.
-    failed_node_keys = {
-        str((item.metadata_json or {}).get("graph_node_key"))
-        for item in siblings
-        if item.status in failedish
-        and isinstance(item.metadata_json, dict)
-        and isinstance(item.metadata_json.get("graph_node_key"), str)
-    }
+    failed_node_keys = {key for key, producer in node_tasks.items() if producer.status in failedish}
     if failed_node_keys:
         changed = False
         for item in siblings:
@@ -296,6 +311,23 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
 
     try:
         if open_tasks:
+            # A review hold is a lifecycle transition owned by rollup, not a read.
+            if mission.status == MissionState.RUNNING.value and all(
+                sibling.status == ExecutionTaskState.PENDING_REVIEW.value for sibling in open_tasks
+            ):
+                transition_mission(mission, MissionState.PAUSED)
+                mission.metadata_json = {
+                    **(mission.metadata_json or {}),
+                    "runtime_reconciliation": {
+                        "schema_version": 1,
+                        "reason": "review_hold_without_active_tasks",
+                        "previous_status": MissionState.RUNNING.value,
+                        "pending_review_task_count": len(open_tasks),
+                        "reconciled_at": datetime.now(UTC).isoformat(),
+                    },
+                }
+                service._session.add(mission)
+                return
             # First successful completion while others remain → running.
             if mission.status in {
                 MissionState.PLANNED.value,
@@ -345,45 +377,34 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
         if any_failed:
             acceptance_reasons.append("one or more runtime tasks failed")
         acceptance_met = contract_met and not acceptance_reasons
-        # A terminal task graph is not a successful product result when a
-        # mission declared a durable deliverable whose read model is still
-        # incomplete.  The refresh above records this independently of task
-        # acceptance; fold that persisted fact into the mission outcome so
-        # callers cannot mistake raw terminal output for a usable artifact.
+        # Evaluate the current artifact contract independently of the cached
+        # deliverable projection and any diagnostic from refreshing that projection.
         raw_intake = mission.metadata_json.get("mission_intake") if isinstance(mission.metadata_json, dict) else None
         raw_context = raw_intake.get("context") if isinstance(raw_intake, dict) else None
         raw_composition = raw_context.get("composition") if isinstance(raw_context, dict) else None
         raw_runtime_state = (
             raw_composition.get("deliverable_runtime_state") if isinstance(raw_composition, dict) else None
         )
-        raw_completion = raw_runtime_state.get("completion") if isinstance(raw_runtime_state, dict) else None
-        # A malformed durable envelope can carry an old complete=True value.
-        # The refresh owner records a typed issue when it cannot validate that
-        # envelope. Never promote that stale flag to accepted mission outcome.
-        task_metadata = task.metadata_json if isinstance(task.metadata_json, dict) else {}
-        terminal_refresh_issue = task_metadata.get("deliverable_refresh_issue")
-        if (
-            isinstance(raw_runtime_state, dict)
-            and isinstance(terminal_refresh_issue, str)
-            and terminal_refresh_issue in {"invalid_completion_state", "refresh_exception"}
-        ):
-            acceptance_reasons.append(f"deliverable refresh issue: {terminal_refresh_issue}")
-            acceptance_met = False
-        if isinstance(raw_runtime_state, dict) and not (
-            isinstance(raw_completion, dict) and raw_completion.get("complete") is True
-        ):
-            acceptance_reasons.append("durable deliverable is incomplete")
-            acceptance_reasons.extend(_deliverable_incomplete_diagnostics(raw_completion))
-            refresh_issues: set[str] = set()
-            for sibling in siblings:
-                sibling_metadata = sibling.metadata_json
-                if not isinstance(sibling_metadata, dict):
-                    continue
-                issue = sibling_metadata.get("deliverable_refresh_issue")
-                if isinstance(issue, str) and issue in {"invalid_completion_state", "refresh_exception"}:
-                    refresh_issues.add(issue)
-            acceptance_reasons.extend(f"deliverable refresh issue: {issue}" for issue in sorted(refresh_issues))
-            acceptance_met = False
+        evaluation_error = False
+        if isinstance(raw_composition, dict) and "deliverable_runtime_state" in raw_composition:
+            try:
+                state = load_deliverable_runtime_state(raw_runtime_state, include_shadow=False)
+                if state is None:
+                    raise ValueError("missing deliverable contract")
+                completion = evaluate_deliverable_completion(state.projection, collect_materialized_artifacts(siblings))
+            except Exception as exc:
+                logger.warning(
+                    "mission_deliverable_acceptance_evaluation_failed",
+                    extra={"mission_id": str(mission.id), "error_type": type(exc).__name__},
+                )
+                acceptance_reasons.append("current deliverable could not be evaluated")
+                evaluation_error = True
+                acceptance_met = False
+            else:
+                if not completion.complete:
+                    acceptance_reasons.append("durable deliverable is incomplete")
+                    acceptance_reasons.extend(_deliverable_incomplete_diagnostics(completion.model_dump(mode="json")))
+                    acceptance_met = False
         # The existing Gmail deliverable explicitly marks a references-only
         # response incomplete. Keep mission acceptance aligned even when this
         # simple read has no deliverable_runtime_state.
@@ -419,6 +440,8 @@ def maybe_rollup_mission_status(service: WorkerRuntimeCollaborator, *, task: Exe
                 acceptance_met = False
                 break
         acceptance_status = "met" if acceptance_met else "partially_met"
+        if evaluation_error:
+            acceptance_status = "evaluation_error"
         runtime_artifacts: list[str] = []
         for sibling in siblings:
             sibling_metadata = sibling.metadata_json if isinstance(sibling.metadata_json, dict) else {}

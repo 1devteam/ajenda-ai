@@ -358,7 +358,9 @@ function MissionDispatch({ missionId }: { missionId: string }) {
     ? runtimeEvidence.acceptance : deliverable?.result_semantics?.mission_acceptance;
   const acceptanceRecord = acceptance && typeof acceptance === "object"
     ? acceptance as Record<string, unknown> : null;
-  const acceptanceIncomplete = acceptanceRecord?.status === "partially_met" || acceptanceRecord?.status === "failed";
+  const acceptanceEvaluationError = acceptanceRecord?.status === "evaluation_error";
+  const acceptanceIncomplete = acceptanceEvaluationError
+    || acceptanceRecord?.status === "partially_met" || acceptanceRecord?.status === "failed";
   const acceptanceReasons = Array.isArray(acceptanceRecord?.reasons)
     ? [...new Set(acceptanceRecord.reasons.filter(
       (reason): reason is string => typeof reason === "string" && reason.trim().length > 0,
@@ -979,7 +981,9 @@ function MissionDispatch({ missionId }: { missionId: string }) {
       {closed && acceptanceIncomplete ? (
         <section className="panel" aria-label="Outcome acceptance">
           <h2>Outcome acceptance</h2>
-          <p>{acceptanceRecord?.status === "partially_met" ? "Requirements partially met." : "Requirements unmet."}</p>
+          <p>{acceptanceEvaluationError
+            ? "Ajenda could not evaluate the deliverable."
+            : acceptanceRecord?.status === "partially_met" ? "Requirements partially met." : "Requirements unmet."}</p>
           {acceptanceReasons.length > 0 ? (
             <ul>{acceptanceReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
           ) : null}
