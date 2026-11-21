@@ -78,6 +78,43 @@ def test_local_fixture_constraint_disables_public_search() -> None:
     assert payload["include_public_search"] is False
 
 
+def test_give_me_a_short_report_plans_synthesis_after_public_identity_verification() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction=(
+            "Find up to three software development companies in Austin, Texas. "
+            "Verify each one using its official website and give me a short report with source links."
+        ),
+    )
+
+    assert record.ready_to_start is True
+    assert record.intent.requested_outcomes == ["research_prospects", "synthesize_research_report"]
+    assert [step.action_name for step in record.planned_steps] == [
+        "web.research",
+        "research.verify_public_candidates",
+        "research.synthesize_report",
+    ]
+    report = record.planned_steps[-1]
+    verification = record.planned_steps[-2]
+    assert report.output_contract == "research_report"
+    assert verification.step_key in report.depends_on
+    assert any(
+        binding["from_step"] == verification.step_key and binding["output_path"] == "$.verified_prospect_candidates"
+        for binding in report.input_bindings
+    )
+
+
+def test_give_me_a_goal_evaluation_report_uses_goal_evaluation() -> None:
+    record = MissionCompositionService(db=None).compose(
+        tenant_id="tenant",
+        instruction="Evaluate goal progress for Ajenda AI. Give me a short goal evaluation report.",
+    )
+
+    assert record.ready_to_start is True
+    assert record.intent.requested_outcomes == ["evaluate_goal_progress"]
+    assert record.allowed_actions == ["analysis.evaluate_goal_progress"]
+
+
 def test_public_web_only_constraint_excludes_internal_records_at_input_boundary() -> None:
     intent = interpret_instruction(
         "Find three early-stage SaaS companies in Austin using public web research only. "
