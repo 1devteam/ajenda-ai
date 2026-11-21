@@ -61,6 +61,7 @@ def _make_runtime_materialized_mission(
     return SimpleNamespace(
         id=mission_id,
         tenant_id=str(tenant_id),
+        objective="Review recent customer activity for the account team.",
         metadata_json={
             "runtime_task_materialization": {
                 "schema_version": 1,

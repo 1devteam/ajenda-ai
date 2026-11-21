@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, MissionState
-from backend.domain.execution_task import ExecutionTask
+from backend.domain.execution_task import ExecutionTask, is_learning_consolidation_follow_up
 from backend.domain.governance_event import GovernanceEvent
 from backend.domain.mission import MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY, Mission
 from backend.queue.base import QueueAdapter
@@ -400,7 +400,7 @@ class ExecutionCoordinator:
     def _record_reviewed_queue_admission(self, *, task: ExecutionTask, tenant_id: str) -> None:
         """Persist the canonical receipt after the coordinator enqueues a review."""
 
-        if task.mission_id is None:
+        if task.mission_id is None or is_learning_consolidation_follow_up(task):
             return
         mission = MissionRepository(self._session).lock_for_tenant(
             mission_id=task.mission_id,
@@ -644,7 +644,7 @@ class ExecutionCoordinator:
         worker's existing rollup determine the new result after terminal work.
         """
 
-        if task.mission_id is None:
+        if task.mission_id is None or is_learning_consolidation_follow_up(task):
             return
         mission = MissionRepository(self._session).lock_for_tenant(
             mission_id=task.mission_id,

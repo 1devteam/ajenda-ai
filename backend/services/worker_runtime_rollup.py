@@ -6,7 +6,7 @@ from typing import get_args
 
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, MissionState
-from backend.domain.execution_task import ExecutionTask
+from backend.domain.execution_task import ExecutionTask, is_learning_consolidation_follow_up
 from backend.repositories.mission_repository import MissionRepository
 from backend.runtime.state_machine import InvalidTransitionError
 from backend.runtime.transitions import transition_mission, transition_task
@@ -30,7 +30,6 @@ from backend.services.worker_runtime_contracts import (
     _mission_acceptance_contract,
     _observe_acceptance_reasons,
 )
-from backend.services.worker_runtime_learning_activation import is_learning_consolidation_follow_up
 
 logger = logging.getLogger("ajenda.worker_runtime_rollup")
 

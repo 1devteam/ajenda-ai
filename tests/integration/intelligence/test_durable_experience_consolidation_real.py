@@ -14,6 +14,7 @@ from backend.domain.enums import ExecutionTaskState
 from backend.domain.evidence import EvidenceRecord
 from backend.domain.execution_task import ExecutionTask
 from backend.domain.knowledge import KnowledgeArtifactRecord, KnowledgeQualificationRecord
+from backend.domain.mission import MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY, Mission
 from backend.domain.tenant import Tenant
 from backend.services.execution_coordinator import ExecutionCoordinator
 from backend.services.runtime_queue_dispatcher import RuntimeQueueDispatchService
@@ -176,10 +177,14 @@ def test_recognition_requires_human_approval_before_runtime_consolidation(
             == "knowledge.consolidate_learning_history"
         )
         assert activation.status == ExecutionTaskState.PENDING_REVIEW.value
-        assert activation.mission_id is None
-        assert activation.metadata_json["learning_consolidation_activation"]["trigger_mission_id"] in {
-            str(episode.mission_id) for episode in episodes
-        }
+        assert activation.mission_id == episodes[0].mission_id
+        assert activation.metadata_json["learning_consolidation_activation"]["trigger_mission_id"] == str(
+            activation.mission_id
+        )
+        source_mission = setup.get(Mission, activation.mission_id)
+        assert source_mission is not None
+        source_receipt = source_mission.metadata_json.get(MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY)
+        source_status = source_mission.status
         assert _ledger_counts(factory, tenant) == (0, 0)
         admitted = ExecutionCoordinator(setup, queue_adapter).approve_review_and_queue(
             tenant_id=tenant,
@@ -188,6 +193,7 @@ def test_recognition_requires_human_approval_before_runtime_consolidation(
             approval_expires_at=datetime.now(UTC) + timedelta(hours=1),
         )
         assert admitted.ok is True
+        assert source_mission.metadata_json.get(MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY) == source_receipt
         setup.commit()
         RuntimeQueueDispatchService(setup, queue_adapter).publish_due()
         runtime = WorkerRuntimeService(setup, queue_adapter)
@@ -214,6 +220,10 @@ def test_recognition_requires_human_approval_before_runtime_consolidation(
         assert set(completed.metadata_json["handler_result"]["output"]["records_inspected"]) == {
             str(item.learning_signal_evidence_id) for item in episodes
         }
+        source_mission = verify.get(Mission, activation.mission_id)
+        assert source_mission is not None
+        assert source_mission.status == source_status
+        assert source_mission.metadata_json.get(MISSION_RUNTIME_QUEUE_ADMISSION_METADATA_KEY) == source_receipt
 
 
 @pytest.mark.parametrize(

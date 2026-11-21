@@ -613,6 +613,30 @@ def test_retry_reopens_failed_mission_and_preserves_prior_failure_as_history() -
     assert "mission_reopened_for_retry" in actions
 
 
+def test_learning_follow_up_cannot_reopen_its_failed_source_mission() -> None:
+    tenant_id = str(uuid.uuid4())
+    task = _task(tenant_id=tenant_id, status=ExecutionTaskState.FAILED.value)
+    task.metadata_json = {
+        "tool_invocation": {"action": "knowledge.consolidate_learning_history"},
+        "learning_consolidation_activation": {
+            "recognition_only": True,
+            "consolidation_scope": "tenant_eligible_learning_history_v1",
+        },
+    }
+    coordinator = _coordinator_with_task(task=task)
+    mission = coordinator._session.scalar.return_value
+    mission.status = MissionState.FAILED.value
+    acceptance = {"status": "partially_met", "reasons": ["provider failed"]}
+    mission.metadata_json["acceptance"] = acceptance
+
+    coordinator._reopen_failed_mission_for_retry(task=task, tenant_id=tenant_id)
+
+    assert mission.status == MissionState.FAILED.value
+    assert mission.metadata_json["acceptance"] == acceptance
+    coordinator._session.scalar.assert_not_called()
+    coordinator._audit.append.assert_not_called()
+
+
 def test_retry_side_effect_without_current_grant_returns_to_review() -> None:
     tenant_id = str(uuid.uuid4())
     task = _task(tenant_id=tenant_id, status=ExecutionTaskState.DEAD_LETTERED.value)

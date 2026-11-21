@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.domain.audit_event import AuditEvent
 from backend.domain.enums import ExecutionTaskState, MissionState, WorkerLeaseState
-from backend.domain.execution_task import ExecutionTask
+from backend.domain.execution_task import ExecutionTask, is_learning_consolidation_follow_up
 from backend.domain.lineage_record import LineageRecord
 from backend.domain.worker_lease import WorkerLease
 from backend.queue.base import QueueAdapter
@@ -173,8 +173,12 @@ class WorkerRuntimeService:
         )
         intake = mission_metadata.get("mission_intake")
         superseded = graph_task and task.id not in current_materialized_execution_task_ids(mission_metadata)
-        clarification_required = mission is not None and mission_requires_clarification(
-            objective=mission.objective, context=intake.get("context") if isinstance(intake, dict) else None
+        clarification_required = (
+            mission is not None
+            and not is_learning_consolidation_follow_up(task)
+            and mission_requires_clarification(
+                objective=mission.objective, context=intake.get("context") if isinstance(intake, dict) else None
+            )
         )
         if superseded or clarification_required:
             reason = (
@@ -713,7 +717,7 @@ class WorkerRuntimeService:
         tasks = self._tasks.list_for_mission_for_tenant(mission_id=mission_id, tenant_id=tenant_id)
         cancelled = requested = 0
         for task in tasks:
-            if task.status in _TERMINAL_TASK_STATES:
+            if task.status in _TERMINAL_TASK_STATES or is_learning_consolidation_follow_up(task):
                 continue
             self.cancel_task(tenant_id=tenant_id, task_id=task.id, actor=actor, reason=reason)
             if task.status == ExecutionTaskState.CANCELLED.value:

@@ -12,6 +12,9 @@ from backend.db.base import Base
 from backend.domain.enums import ExecutionTaskState
 from backend.domain.mission import utcnow
 
+LEARNING_CONSOLIDATION_ACTION = "knowledge.consolidate_learning_history"
+LEARNING_CONSOLIDATION_SCOPE = "tenant_eligible_learning_history_v1"
+
 
 class ExecutionTask(Base):
     __tablename__ = "execution_tasks"
@@ -90,4 +93,18 @@ class ExecutionTask(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+
+def is_learning_consolidation_follow_up(task: ExecutionTask) -> bool:
+    """Identify recognition work whose mission foreign key records its source."""
+    metadata = task.metadata_json or {}
+    invocation = metadata.get("tool_invocation")
+    activation = metadata.get("learning_consolidation_activation")
+    return (
+        isinstance(invocation, dict)
+        and invocation.get("action") == LEARNING_CONSOLIDATION_ACTION
+        and isinstance(activation, dict)
+        and activation.get("recognition_only") is True
+        and activation.get("consolidation_scope") == LEARNING_CONSOLIDATION_SCOPE
     )
