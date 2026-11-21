@@ -209,17 +209,30 @@ them for review with:
 The joined artifact exposes, with source provenance:
 
 - static affected nodes and impacted tests;
-- runtime-observed task nodes;
-- selected runtime nodes with no observed task flow;
-- runtime contradictions and missing evidence;
-- artifact-linkage gaps and contradictions between admission summaries and
-  observed queue/task execution;
+- materialized task node keys and nodes with recorded queue admission;
+- runtime-observed nodes with a verified task start or completion event, or
+  a running or completed state corroborated by a lease;
+- selected nodes for which execution has not been observed;
+- structured runtime contradictions, missing evidence, and artifact-linkage gaps;
 - unknowns caused by an absent snapshot.
 
 It is read-only and grants no execution authority. It does not produce
 applicability, repair, or safety decisions; those remain evaluator work. A
 runtime evidence snapshot can be obtained from the tenant-scoped
 `GET /v1/missions/{id}/runtime-evidence` endpoint.
+
+The report's version 1.1 distinguishes a queue admission receipt from a task
+status and carries structured admission findings from the projection. An
+observed execution node establishes that Ajenda reached task execution.
+Provider calls and business outcomes require their own evidence.
+
+GRAFT and Assurance consume the existing runtime evidence projection. Assurance
+also reads the deliverable view, which reconciles Shadow's expectation against
+persisted task and artifact state. Keep these connections on the read side.
+Review tools can relate the tenant, mission, and task identifiers and preserve
+each observation's provenance. Shadow replay describes a separate invocation
+and stays identified as replay evidence. Ajenda's governance owns runtime
+decisions independently of these reports.
 
 Migrations, database tables, egress sinks, and state resources participate in the same traversal as runtime/security/external nodes. A migration that changes a tenant table can therefore reach the tenant DB boundary and select the tenant-isolation invariant instead of remaining an unmapped file.
 
