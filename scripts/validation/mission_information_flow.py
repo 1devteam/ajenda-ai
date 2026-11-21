@@ -144,7 +144,7 @@ def _saved_semantics(
     runtime: MissionRuntimeEvidenceProjection,
     proposal_id: str | None,
     fingerprint: str | None,
-) -> SemanticSnapshot | None:
+) -> tuple[SemanticSnapshot, str] | None:
     if mission_record is None:
         return None
     if (
@@ -158,14 +158,20 @@ def _saved_semantics(
     if raw_semantic is None:
         return None
     semantic = SemanticSnapshot.model_validate(raw_semantic)
+    saved_proposal = composition.get("proposal_id")
+    saved_instruction = composition.get("instruction")
+    if not isinstance(saved_proposal, str) or not saved_proposal or semantic.tenant_id != runtime.tenant_id:
+        raise ValueError("saved semantic snapshot has invalid proposal or tenant scope")
     if (
-        proposal_id is None
-        or composition.get("proposal_id") != proposal_id
-        or semantic.tenant_id != runtime.tenant_id
-        or semantic.instruction_sha256 != fingerprint
+        not isinstance(saved_instruction, str)
+        or _digest(saved_instruction.encode("utf-8")) != semantic.instruction_sha256
     ):
-        raise ValueError("saved semantic snapshot does not match the confirmed proposal")
-    return semantic
+        raise ValueError("saved semantic snapshot disagrees with its stored instruction")
+    if proposal_id is not None and saved_proposal != proposal_id:
+        raise ValueError("saved semantic snapshot disagrees with the confirmation proposal")
+    if fingerprint is not None and semantic.instruction_sha256 != fingerprint:
+        raise ValueError("saved semantic snapshot disagrees with the confirmation instruction")
+    return semantic, saved_proposal
 
 
 def _baseline_expectations(
@@ -279,6 +285,14 @@ def build_information_flow(
     runtime = _runtime(snapshot)
     events = _scoped_events(runtime)
     fingerprint, proposal_id, confirmation_ids = _confirmed_instruction(events)
+    saved = _saved_semantics(mission_record, runtime=runtime, proposal_id=proposal_id, fingerprint=fingerprint)
+    semantic = saved[0] if saved else None
+    instruction_source = "confirmation_receipt" if fingerprint is not None else None
+    if saved is not None:
+        proposal_id = proposal_id or saved[1]
+        if fingerprint is None:
+            fingerprint = saved[0].instruction_sha256
+            instruction_source = "saved_mission_semantic_snapshot"
     if expectations is not None and baseline is not None:
         raise ValueError("use either reviewed expectations or a baseline export")
     if baseline is not None:
@@ -294,7 +308,6 @@ def build_information_flow(
             raise ValueError("replay instruction does not match the confirmed instruction")
         shadow = replay_interpreter(instruction).report()
     observed_outcomes, interpretation_ids = _interpretation(events, proposal_id)
-    semantic = _saved_semantics(mission_record, runtime=runtime, proposal_id=proposal_id, fingerprint=fingerprint)
     outcomes = sorted(set(semantic.requested_outcomes)) if semantic is not None else observed_outcomes
     semantic_path = "mission.intake.context.composition.semantic_snapshot"
     target_scope = (
@@ -406,6 +419,7 @@ def build_information_flow(
             else None
         ),
         "instruction_sha256": fingerprint,
+        "instruction_source": instruction_source,
         "confirmation_event_ids": confirmation_ids,
         "interpretation": {
             "requested_outcomes": outcomes,

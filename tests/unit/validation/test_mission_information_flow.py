@@ -27,6 +27,7 @@ def _snapshot(
     *,
     working: bool = False,
     include_interpretation: bool = True,
+    include_confirmation: bool = True,
     status: str | None = None,
     tenant: str = "tenant-a",
     instruction: str = _REQUEST,
@@ -61,6 +62,8 @@ def _snapshot(
             "task_id": "task-1",
         },
     ]
+    if not include_confirmation:
+        events.pop(0)
     if include_interpretation:
         events.append(
             {
@@ -156,7 +159,11 @@ def _record(snapshot: RuntimeReconciliationSnapshot) -> dict:
         "tenant_id": snapshot.tenant_id,
         "intake": {
             "context": {
-                "composition": {"proposal_id": "p", "semantic_snapshot": semantic_snapshot.model_dump(mode="json")}
+                "composition": {
+                    "proposal_id": "p",
+                    "instruction": _REQUEST,
+                    "semantic_snapshot": semantic_snapshot.model_dump(mode="json"),
+                }
             }
         },
     }
@@ -203,6 +210,15 @@ def test_unknown_observation_stays_unknown_and_report_redacts_query_by_default()
     assert result["earlier_unobserved_checks"] == ["target_scope", "requested_outcomes"]
     assert result["checks"][-1]["status"] == "unobserved"
     assert _QUERY not in json.dumps(result)
+
+
+def test_saved_semantics_preserve_comparison_when_confirmation_receipt_is_unobserved() -> None:
+    snapshot = _snapshot(include_confirmation=False, include_interpretation=False)
+    result = build_information_flow(snapshot, mission_record=_record(snapshot), expectations=_expectations())
+
+    assert result["instruction_source"] == "saved_mission_semantic_snapshot"
+    assert result["confirmation_event_ids"] == []
+    assert result["first_supported_mismatch"]["field"] == "requested_outcomes"
 
 
 def test_prior_success_provides_comparisons_for_the_same_instruction() -> None:

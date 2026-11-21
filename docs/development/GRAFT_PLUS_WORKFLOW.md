@@ -170,9 +170,10 @@ python scripts/validation/mission_information_flow.py runtime-export.json \
 ```
 
 The mission record, deliverable, reference and Shadow input are optional. The
-instruction file must contain the original request byte for byte, including
-its original whitespace. The tool checks its SHA-256 against the committed
-confirmation receipt before running Shadow. Shadow replays the local interpreter
+instruction file must contain the saved request byte for byte, including
+its whitespace. Before running Shadow, the tool checks its SHA-256 against the
+committed confirmation receipt or the same mission's validated semantic snapshot.
+The report identifies which source supplied the fingerprint. Shadow replays the local interpreter
 with its current settings. It cannot stand in for a historical event or recover
 missing historical context.
 
