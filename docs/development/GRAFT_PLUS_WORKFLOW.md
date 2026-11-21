@@ -147,6 +147,79 @@ The snapshot validator compares graph expectation → selected nodes → materia
 execution → evidence → final deliverable. It does not synthesize missing stages. Any unexplained
 contradiction remains unresolved and blocks the report until repaired or explicitly explained.
 
+#### Locate information-flow differences
+
+Save the JSON returned by the following tenant-authorized GETs for a single
+mission. Use the same authenticated session and capture the records together.
+
+- `/v1/missions/{id}/runtime-reconciliation-export` supplies the sealed GRAFT export.
+- `/v1/missions/{id}` supplies the saved semantic snapshot when available.
+- `/v1/missions/{id}/deliverable` supplies the actual user-facing artifact readback.
+
+The flow report runs offline. Give it the export alone for a map of saved plan nodes,
+task bindings, queue admission, lease IDs, worker receipts, output shapes, evidence
+references and mission acceptance. Add a reviewed reference to locate the first
+supported mismatch:
+
+```bash
+python scripts/validation/mission_information_flow.py runtime-export.json \
+  --mission-record mission.json \
+  --deliverable deliverable.json \
+  --expectations reviewed-expectations.json \
+  --instruction-file original-request.txt > information-flow.json
+```
+
+The mission record, deliverable, reference and Shadow input are optional. The
+instruction file must contain the saved request byte for byte, including
+its whitespace. Before running Shadow, the tool checks its SHA-256 against the
+committed confirmation receipt or the same mission's validated semantic snapshot.
+The report names the source that supplied the fingerprint and identifies the
+confirmed proposal and the saved proposal separately. Launch can persist a
+new compile revision. The report recognizes the direct parent link recorded by
+compile and labels unexplained proposal differences explicitly. Shadow replays
+the local interpreter with its current settings. Historical decision records
+remain the evidence for how the original run interpreted the request.
+
+`recorded_information_flow` includes available decision reasons, transformation
+IDs, selected paths, and field lineage. `information_coverage` shows where GRAFT
+found a recorded event, derived a fact from a committed handler result, or
+could not observe a required stage.
+
+`reviewed-expectations.json` can cover the outcomes, market scope, action set, exact
+top-level input fields for named graph nodes, and expected deliverable artifact keys.
+Include only fields the operator or a reviewed proof establishes. For example:
+
+```json
+{
+  "schema_version": 1,
+  "instruction_sha256": "sha256:<64 hex digits from the confirmation receipt>",
+  "requested_outcomes": ["research_prospects", "synthesize_research_report"],
+  "target_scope": [{"type": "company", "industry": "software development", "location": "Austin"}],
+  "planned_actions": ["web.research", "research.verify_public_candidates", "research.synthesize_report"],
+  "planned_inputs": {
+    "ability-web-research": {"query": "software development companies in Austin", "limit": 3}
+  },
+  "required_artifacts": ["research_report"]
+}
+```
+
+Use `--baseline prior-passing-export.json` in place of `--expectations` to compare
+recorded outcomes, planned action sets and search queries from a completed mission
+with satisfied acceptance. The baseline must match the observed tenant and
+confirmation fingerprint. Provider results and transient runtime identifiers do
+not participate in baseline comparison. Supply a reviewed reference and the
+mission's deliverable for artifact-presence checks.
+
+Read `first_supported_mismatch` alongside `earlier_unobserved_checks` and GRAFT's
+`first_recorded_divergence`. The first reports a specific difference backed by the
+supplied reference. The others show uncertainty earlier in the path and the
+structural failure recorded at runtime. The report exits successfully when it can
+render the diagnostic, including for failed missions. Input validation failures
+exit with status 2. Export digests verify content consistency. Source authenticity
+still depends on obtaining the export from the authorized Ajenda endpoint. Query
+and scope values are summarized by default. Use `--include-values` only in a local
+report intended to contain the reviewed field values.
+
 ### 9. Authority promotion boundary
 
 GRAFT+ cannot promote itself. Any future self-management capability requires an independently

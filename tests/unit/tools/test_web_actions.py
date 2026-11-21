@@ -406,6 +406,48 @@ def test_observe_contacts_promotes_external_directory_links_after_verification()
     ]
 
 
+@pytest.mark.parametrize("directory_host", ["goodfirms.co", "reviews.example"])
+def test_dotted_industry_ranking_follows_company_site_for_identity_verification(directory_host: str) -> None:
+    from backend.services.tools.standalone_actions import _directory_like_search_hit
+    from backend.services.tools.web_actions import research_verify_public_candidates
+
+    directory = PageSnapshot(
+        url=f"https://www.{directory_host}/directory/city/top-software-development-companies/net/austin",
+        real=True,
+        status_code=200,
+        title="Top .Net Developers in Austin",
+        text_preview="Software development listings.",
+        extraction={"links": [{"url": "https://cedarsoftware.example/", "text": "Cedar Software"}]},
+    )
+    company = PageSnapshot(
+        url="https://cedarsoftware.example/",
+        real=True,
+        status_code=200,
+        title="Cedar Software",
+        text_preview="Cedar Software is a software development company based in Austin, Texas.",
+    )
+    invocation = ToolInvocation(
+        action="research.verify_public_candidates",
+        input={
+            "prospects": [{"company": directory.title, "domain": directory_host, "url": directory.url}],
+            "requested_quantity": 3,
+            "minimum_verified_quantity": 1,
+            "binding_required": True,
+            "context": {"industry": "software development", "location": "Austin"},
+        },
+    )
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", side_effect=[directory, company]):
+        result = research_verify_public_candidates(invocation, _context())
+
+    assert result.output["pages"][0]["source_reliability"] == "directory_or_third_party"
+    assert _directory_like_search_hit({"url": directory.url, "title": directory.title})
+    assert result.output["directory_link_resolution"]["followed_count"] == 1
+    verified = result.output["verified_prospect_candidates"]
+    assert [(row["company"], row["website"]) for row in verified] == [("Cedar Software", company.url)]
+    assert verified[0]["discovery_source_url"] == directory.url
+    assert result.output["accept_met"] is True
+
+
 def test_directory_follow_explains_missing_location_without_copying_page_content() -> None:
     from backend.services.tools.web_actions import research_verify_public_candidates
 
