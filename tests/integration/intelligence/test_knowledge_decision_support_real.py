@@ -492,7 +492,8 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
     # Canonical episode replay is now prevented at the database write boundary;
     # the historical resolver remains the defense for legacy rows without a
     # logical identity.
-    assert registry.invoke(invocation, tenant_context).output["support"]["influences"]
+    supported_decision = registry.invoke(invocation, tenant_context)
+    assert supported_decision.output["support"]["influences"]
 
     forged_id = uuid.uuid4()
     with factory() as setup:
@@ -514,5 +515,8 @@ def test_real_ledger_to_knowledge_informed_decision_is_deterministic_and_tenant_
         )
         setup.commit()
 
-    with pytest.raises(ValueError, match="requires execution-task provenance"):
-        registry.invoke(invocation, tenant_context)
+    after_declarative_intake = registry.invoke(invocation, tenant_context)
+    assert after_declarative_intake.output["support"] == supported_decision.output["support"]
+    assert after_declarative_intake.output["decision_result"] == supported_decision.output["decision_result"]
+    assert str(forged_id) not in after_declarative_intake.output["decision_result"]["supporting_evidence_ids"]
+    assert _tenant_counts(factory, tenant) == before
