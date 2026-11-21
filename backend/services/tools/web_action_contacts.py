@@ -28,7 +28,6 @@ from backend.services.tools.schemas import (
     ToolInvocation,
 )
 from backend.services.tools.web_action_identity_policy import (
-    _DIRECTORY_HOST_MARKERS,
     _host_identity_tokens,
     _identity_evidence_excerpt,
     _identity_tokens,
@@ -696,7 +695,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     not linked_host
                     or linked_host == source_host
                     or _is_source_publisher_family_link(source_host, linked_host)
-                    or any(marker in linked_host for marker in _DIRECTORY_HOST_MARKERS)
+                    or _is_directory_or_third_party_host(linked_host)
                 ):
                     continue
                 if linked_host in followed_link_hosts or linked_host in verified_site_hosts:

@@ -448,6 +448,14 @@ _DATE_SPAN = re.compile(
     r"|\b\d{1,2}/\d{1,2}/\d{2,4}\b",
     re.IGNORECASE,
 )
+# Remove a discovery directive's explicit count before the bounded industry
+# match can start in the middle of a modifier such as "up to three".
+_MARKET_QUANTITY_PREFIX = re.compile(
+    r"\b(?:research|find|identify|discover|list)\s+(?:me\s+)?"
+    r"(?:up\s+to|at\s+least|minimum\s+of|exactly)\s+"
+    rf"(?:[1-9]\d*|{'|'.join(_WORD_COUNTS)})\s+",
+    re.IGNORECASE,
+)
 _INDUSTRY_LOCATION = re.compile(
     r"(?:^|[\s,;:])(?P<industry>[A-Za-z][A-Za-z\-/]{1,40}(?:\s+[A-Za-z][A-Za-z\-/]{1,40}){0,3})"
     r"\s+companies\s+(?:operating\s+)?in\s+(?P<location>[A-Za-z][A-Za-z.\-]{1,40}(?:\s+[A-Za-z][A-Za-z.\-]{1,40}){0,3})"
@@ -619,11 +627,17 @@ _FRAGMENT_HINTS = (
     r"^(two|three|four|five|ten)\s*(companies|prospects|leads)?\.?$",
     r"^[A-Za-z][A-Za-z.\-\s]{1,40}$",
 )
+_REPORT_LENGTH_MODIFIER = r"(?:(?:short|brief|concise|detailed)\s+)?"
+_GOAL_REPORT_SUBJECT = r"goal(?:\s+progress)?\s+evaluation"
+_GIVE_ME_REPORT = (
+    rf"give\s+me\s+(?:a|the)\s+{_REPORT_LENGTH_MODIFIER}"
+    rf"(?:(?:research|comparison|{_GOAL_REPORT_SUBJECT})\s+)?report\b"
+)
 _CLAUSE_ACTION_START = (
     r"(?:do not|don't|dont|never|research|find|discover|identify|qualify|score|rank|rate|grade|draft|prepare|"
     r"send|deliver|dispatch|mail|enrich|collect|gather|return|produce|provide|check|read|search|query|list|show|summarize|"
     r"look up|schedule|book|create|add|delete|cancel|reschedule|update|remove|move|log|upsert|write|sync|push|"
-    r"save|put|publish|post|share|browse|contact|perform|approve|charge|invoice|fax|wire|transfer|pay|refund|terminate)\b"
+    rf"save|put|publish|post|share|browse|contact|perform|approve|charge|invoice|fax|wire|transfer|pay|refund|terminate|{_GIVE_ME_REPORT})\b"
 )
 _CLAUSE_SPLIT = re.compile(
     rf"\s*(?:(?:,|;)\s*(?:and\s+)?|\band\b\s*)(?={_CLAUSE_ACTION_START})",
@@ -644,8 +658,8 @@ _RECIPIENT_LOOKUP_PROHIBITION = re.compile(
     re.IGNORECASE,
 )
 _GOAL_EVALUATION_REPORT_CLAUSE = re.compile(
-    r"^(?:return|provide|include|produce|create|prepare)\s+(?:(?:a|the)\s+)?"
-    r"goal(?:\s+progress)?\s+evaluation\s+report\b",
+    r"^(?:return|provide|include|produce|create|prepare|give\s+me)\s+(?:(?:a|the)\s+)?"
+    rf"{_REPORT_LENGTH_MODIFIER}{_GOAL_REPORT_SUBJECT}\s+report\b",
     re.IGNORECASE,
 )
 _DETAILED_RETURN_DELIVERABLE = re.compile(
@@ -654,7 +668,7 @@ _DETAILED_RETURN_DELIVERABLE = re.compile(
 )
 _REPORT_SYNTHESIS_CLAUSE = re.compile(
     r"^(?:(?:return|produce|provide|create|prepare)\b.*(?:sourced\s+comparison|comparison\s+table|comparison\s+report|report\b)|"
-    r"highlight\b.*opportunit|identify\b.*evidence\s+gaps?)",
+    rf"{_GIVE_ME_REPORT}|highlight\b.*opportunit|identify\b.*evidence\s+gaps?)",
     re.IGNORECASE,
 )
 _REPORT_SYNTHESIS_REQUEST = re.compile(
@@ -662,7 +676,7 @@ _REPORT_SYNTHESIS_REQUEST = re.compile(
     # (identity, goal evaluation, business review). It only implies research
     # synthesis when paired with an explicit research-report/comparison intent.
     r"\b(?:sourced\s+comparison|comparison\s+(?:table|report)|(?:business\s+)?intelligence\s+report|research\s+report|"
-    r"(?:return|produce|provide|create)\b[^.!?]{0,120}\breport\b|highlight\b.*opportunit)",
+    rf"(?:return|produce|provide|create)\b[^.!?]{{0,120}}\breport\b|{_GIVE_ME_REPORT}|highlight\b.*opportunit)",
     re.IGNORECASE,
 )
 _BUSINESS_REVIEW_CLAUSE = re.compile(
@@ -973,9 +987,10 @@ def _extract_target_entities(text: str) -> list[TargetEntity]:
                 confidence=0.99,
             )
         )
-    entities.extend(_extract_industry_location_entities(text))
+    market_scope = _MARKET_QUANTITY_PREFIX.sub("; ", text)
+    entities.extend(_extract_industry_location_entities(market_scope))
     if not entities:
-        entities.extend(_extract_industry_audience_entities(text))
+        entities.extend(_extract_industry_audience_entities(market_scope))
     # Prefer an explicitly scoped CRM record over an unrelated recipient in a
     # later prohibition such as "do not contact anyone".
     if not entities and re.search(r"\bhubspot\b", text, flags=re.IGNORECASE):

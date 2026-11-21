@@ -963,16 +963,34 @@ def test_completed_empty_public_search_materializes_insufficient_evidence_artifa
 
 
 @pytest.mark.parametrize("operating_city", ["Austin", "Houston"])
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        pytest.param(
+            "Research up to three publicly identifiable software development companies in Austin, Texas. "
+            "Verify them using their official websites and produce a research report. "
+            "Do not write to CRM or send messages.",
+            id="established-report-request",
+        ),
+        pytest.param(
+            "Find up to three software development companies in Austin, Texas. "
+            "Verify each one using its official website and give me a short report with source links.",
+            id="dev-ui-report-request",
+        ),
+    ],
+)
 def test_bounded_public_research_agrees_from_plan_to_saved_report(
-    pg_engine, queue_adapter, operating_city: str
+    pg_engine, queue_adapter, operating_city: str, instruction: str
 ) -> None:
     tenant_id = uuid.uuid4()
     tenant_scope = str(tenant_id)
     factory = sessionmaker(bind=pg_engine, expire_on_commit=False, autoflush=False)
     homepage = "https://cedarsoftware.example/"
     title = "Austin Software Consulting & Custom Software Development"
+    discovery_queries: list[str] = []
 
     def search(*, query: str, **_kwargs):
+        discovery_queries.append(query)
         listings = [
             {"url": f"https://listings.example/{index}", "title": f"Top {index + 5} Software Development Companies"}
             for index in range(9)
@@ -1022,13 +1040,7 @@ def test_bounded_public_research_agrees_from_plan_to_saved_report(
         ):
             response = client.post(
                 "/v1/missions/compose",
-                json={
-                    "instruction": (
-                        "Research up to three publicly identifiable software development companies in Austin, Texas. "
-                        "Verify them using their official websites and produce a research report. "
-                        "Do not write to CRM or send messages."
-                    )
-                },
+                json={"instruction": instruction},
             )
             assert response.status_code == 200, response.text
             proposal = response.json()
@@ -1053,6 +1065,7 @@ def test_bounded_public_research_agrees_from_plan_to_saved_report(
                 mission_id=mission_id,
             )
 
+    assert discovery_queries[0] == "software development companies in Austin"
     with factory() as readback:
         activate_tenant_session(readback, tenant_scope)
         app = _build_app(tenant_id=tenant_id, session=readback, queue_adapter=queue_adapter)
