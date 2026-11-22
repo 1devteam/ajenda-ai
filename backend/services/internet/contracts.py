@@ -38,6 +38,8 @@ class SearchAttempt:
     result_count: int
     status_code: int | None = None
     error: str | None = None
+    pages_fetched: int | None = None
+    sponsored_rows_skipped: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +48,12 @@ class SearchAttempt:
             "result_count": self.result_count,
             "status_code": self.status_code,
             "error": self.error,
+            **({"pages_fetched": self.pages_fetched} if self.pages_fetched is not None else {}),
+            **(
+                {"sponsored_rows_skipped": self.sponsored_rows_skipped}
+                if self.sponsored_rows_skipped is not None
+                else {}
+            ),
         }
 
 
@@ -58,6 +66,8 @@ class SearchBundle:
     error: str | None = None
     attempts: tuple[SearchAttempt, ...] = ()
     access_mode: InternetAccessMode = InternetAccessMode.PUBLIC_SEARCH
+    pages_fetched: int | None = None
+    sponsored_rows_skipped: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {

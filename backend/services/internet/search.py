@@ -17,8 +17,10 @@ import json
 import os
 from dataclasses import replace
 from html.parser import HTMLParser
+from itertools import zip_longest
+from time import monotonic
 from typing import Any, Protocol
-from urllib.parse import parse_qs, quote, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse
 
 from backend.services.internet.contracts import SearchAttempt, SearchBundle, SearchHit
 from backend.services.internet.modes import InternetAccessMode
@@ -159,59 +161,129 @@ class DuckDuckGoInstantAnswerProvider:
             return SearchBundle(provider=self.name, real=False, error=str(exc))
 
 
-class _DuckDuckGoHtmlResultParser(HTMLParser):
-    """Small, deliberately bounded parser for DuckDuckGo's HTML result page."""
+_DDG_HTML_URL = f"https://{DDG_HTML_SEARCH_HOST}/html/"
+_DDG_HTML_PREFERENCES = {"k1": "-1", "kav": "1"}
+_DDG_HTML_MAX_PAGES = 3
+_DDG_NEXT_FIELDS = frozenset({"q", "s", "dc", "vqd", "nextParams", "api", "o", "v", "kl", "df"})
 
-    def __init__(self, *, limit: int) -> None:
+
+class _DuckDuckGoHtmlResultParser(HTMLParser):
+    """Read organic links and the Next form from one bounded HTML response."""
+
+    def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self._limit = limit
-        self._in_result_link = False
-        self._in_snippet = False
+        self.hits: list[SearchHit] = []
+        self.sponsored_rows_skipped = 0
+        self.next_form: tuple[str, str, dict[str, str]] | None = None
+        self._div_depth = 0
+        self._sponsored_depth: int | None = None
+        self._form: tuple[str, str, dict[str, str]] | None = None
+        self._form_is_next = False
         self._href: str | None = None
-        self._title_parts: list[str] = []
-        self._snippet_parts: list[str] = []
-        self._result_links: list[tuple[str, str]] = []
-        self._snippets: list[str] = []
+        self._title: list[str] = []
+        self._snippet: list[str] = []
+        self._snippet_end: tuple[str, int] | None = None
+        self._snippet_target: int | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attrs_dict = dict(attrs)
-        classes = set((attrs_dict.get("class") or "").split())
-        if tag == "a" and "result__a" in classes and len(self._result_links) < self._limit:
-            self._in_result_link = True
-            self._href = attrs_dict.get("href")
-            self._title_parts = []
-        elif tag in {"a", "div"} and "result__snippet" in classes:
-            self._in_snippet = True
-            self._snippet_parts = []
+        values = {key: value or "" for key, value in attrs}
+        classes = set(values.get("class", "").split())
+        if tag == "div":
+            self._div_depth += 1
+            if "result" in classes:
+                self._snippet_end = None
+                self._snippet_target = None
+            if self._sponsored_depth is None and classes & {"result--ad", "result--sponsored", "result--ad--small"}:
+                self._sponsored_depth = self._div_depth
+                self.sponsored_rows_skipped += 1
+
+        if tag == "form":
+            self._form = (values.get("method", "get").lower(), values.get("action", ""), {})
+            self._form_is_next = False
+        elif self._form is not None and tag == "input":
+            name = values.get("name", "")
+            input_type = values.get("type", "").lower()
+            value = values.get("value", "")
+            if input_type == "hidden" and name in _DDG_NEXT_FIELDS:
+                self._form[2][name] = value
+            elif input_type == "submit" and value.casefold().startswith("next"):
+                self._form_is_next = True
+
+        if self._sponsored_depth is not None:
+            return
+        if tag == "a" and "result__a" in classes:
+            self._snippet_target = None
+            href = values.get("href", "").strip()
+            try:
+                link = urlparse(urljoin(_DDG_HTML_URL, href))
+                host = (link.hostname or "").lower().rstrip(".")
+            except ValueError:
+                return
+            if (host == DDG_REDIRECT_HOST or host.endswith(f".{DDG_REDIRECT_HOST}")) and link.path.rstrip("/") in {
+                "/aclick",
+                "/y.js",
+            }:
+                self.sponsored_rows_skipped += 1
+                return
+            self._href = href or None
+            self._title = []
+        elif self._snippet_target is not None and tag in {"a", "div"} and "result__snippet" in classes:
+            self._snippet_end = (tag, self._div_depth)
+            self._snippet = []
 
     def handle_endtag(self, tag: str) -> None:
-        if tag == "a" and self._in_result_link:
-            title = " ".join("".join(self._title_parts).split())
-            if title and self._href:
-                self._result_links.append((title[:160], self._href[:2048]))
-            self._in_result_link = False
+        if tag == "form":
+            if self._form_is_next and self.next_form is None:
+                self.next_form = self._form
+            self._form = None
+        if tag == "a" and self._href:
+            title = " ".join("".join(self._title).split())
+            try:
+                url = _unwrap_duckduckgo_result_url(self._href)
+            except ValueError:
+                url = None
+            if title and url:
+                self._snippet_target = len(self.hits)
+                self.hits.append(SearchHit(title=title[:160], snippet="", url=url, source="duckduckgo_html"))
             self._href = None
-            self._title_parts = []
-        if tag in {"a", "div"} and self._in_snippet:
-            self._snippets.append(" ".join("".join(self._snippet_parts).split())[:800])
-            self._in_snippet = False
+        if self._snippet_end == (tag, self._div_depth) and self._snippet_target is not None:
+            index = self._snippet_target
+            snippet = " ".join("".join(self._snippet).split())
+            self.hits[index] = replace(self.hits[index], snippet=snippet[:800])
+            self._snippet_end = None
+            self._snippet_target = None
+        if tag == "div":
+            if self._sponsored_depth == self._div_depth:
+                self._sponsored_depth = None
+            self._div_depth = max(0, self._div_depth - 1)
 
     def handle_data(self, data: str) -> None:
-        if self._in_result_link:
-            self._title_parts.append(data)
-        if self._in_snippet:
-            self._snippet_parts.append(data)
+        if self._href:
+            self._title.append(data)
+        if self._snippet_end is not None:
+            self._snippet.append(data)
 
-    def hits(self) -> tuple[SearchHit, ...]:
-        return tuple(
-            SearchHit(
-                title=title,
-                url=url,
-                snippet=self._snippets[index] if index < len(self._snippets) else "",
-                source="duckduckgo_html",
-            )
-            for index, (title, url) in enumerate(self._result_links)
-        )
+
+def _ddg_next_page(
+    form: tuple[str, str, dict[str, str]] | None, *, query: str, previous_offset: int
+) -> tuple[str, str, int] | None:
+    if form is None:
+        return None
+    method, action, fields = form
+    try:
+        target = urljoin(_DDG_HTML_URL, action)
+        offset = int(fields.get("s", ""))
+    except ValueError:
+        return None
+    if (
+        method not in {"get", "post"}
+        or target != _DDG_HTML_URL
+        or fields.get("q") != query
+        or not fields.get("vqd")
+        or offset <= previous_offset
+    ):
+        return None
+    return method.upper(), urlencode({**fields, **_DDG_HTML_PREFERENCES}), offset
 
 
 def _unwrap_duckduckgo_result_url(raw_url: str) -> str | None:
@@ -244,55 +316,84 @@ class DuckDuckGoHtmlSearchProvider:
     name = "duckduckgo_html"
 
     def search(self, *, query: str, limit: int, timeout_seconds: float) -> SearchBundle:
-        search_url = f"https://{DDG_HTML_SEARCH_HOST}/html/?{urlencode({'q': query.strip()})}"
-        try:
-            _dest, response = get_default_network_egress_authority().request(
-                method="GET",
-                url=search_url,
-                headers={
-                    "User-Agent": "AjendaInternet/1.0 (+public_search/duckduckgo_html)",
-                    "Accept": "text/html,application/xhtml+xml",
-                },
-                allowed_hosts=[DDG_HTML_SEARCH_HOST],
-                action_name="web.search",
-                timeout_seconds=min(timeout_seconds, 15.0),
-                response_text_limit=524_288,
-            )
-            if response.status_code >= 400:
-                return SearchBundle(
-                    provider=self.name,
-                    real=False,
-                    error=f"HTTP {response.status_code}",
-                    status_code=response.status_code,
+        query = query.strip()
+        encoded = urlencode({"q": query, **_DDG_HTML_PREFERENCES})
+        method, offset = "GET", 0
+        deadline = monotonic() + min(timeout_seconds, 15.0)
+        batches: list[list[SearchHit]] = []
+        seen_urls: set[str | None] = set()
+        sponsored_rows_skipped = 0
+        status_code: int | None = None
+        error: str | None = None
+        remaining = deadline - monotonic()
+        for _ in range(_DDG_HTML_MAX_PAGES):
+            if remaining <= 0:
+                error = "search time budget exhausted"
+                break
+            headers = {
+                "User-Agent": "AjendaInternet/1.0 (+public_search/duckduckgo_html)",
+                "Accept": "text/html,application/xhtml+xml",
+            }
+            if method == "POST":
+                headers["Content-Type"] = "application/x-www-form-urlencoded"
+                headers["Referer"] = f"https://{DDG_HTML_SEARCH_HOST}/"
+            try:
+                _dest, response = get_default_network_egress_authority().request(
+                    method=method,
+                    url=f"{_DDG_HTML_URL}?{encoded}" if method == "GET" else _DDG_HTML_URL,
+                    headers=headers,
+                    content=encoded.encode() if method == "POST" else None,
+                    allowed_hosts=[DDG_HTML_SEARCH_HOST],
+                    action_name="web.search",
+                    timeout_seconds=remaining,
+                    response_text_limit=524_288,
                 )
-            body = response.body_text or ""
-            challenge_markers = ("captcha", "verify you are human", "unusual traffic", "anomaly detected")
-            if any(marker in body.casefold() for marker in challenge_markers):
-                return SearchBundle(
-                    provider=self.name,
-                    real=False,
-                    error="provider challenge response",
-                    status_code=response.status_code,
-                )
-            if response.body_truncated:
-                return SearchBundle(
-                    provider=self.name,
-                    real=False,
-                    error="response truncated before result parse",
-                    status_code=response.status_code,
-                )
-            parser = _DuckDuckGoHtmlResultParser(limit=limit)
-            parser.feed(body)
-            parser.close()
-            results = tuple(
-                SearchHit(title=item.title, snippet=item.snippet, url=normalized, source=item.source)
-                for item in parser.hits()
-                if item.url is not None
-                if (normalized := _unwrap_duckduckgo_result_url(item.url)) is not None
-            )
-            return SearchBundle(provider=self.name, real=True, results=results, status_code=response.status_code)
-        except Exception as exc:
-            return SearchBundle(provider=self.name, real=False, error=str(exc))
+                status_code = response.status_code
+                body = response.body_text or ""
+                challenge_markers = ("captcha", "verify you are human", "unusual traffic", "anomaly detected")
+                if not 200 <= status_code < 300:
+                    error = f"HTTP {status_code}"
+                    break
+                if any(marker in body.casefold() for marker in challenge_markers):
+                    error = "provider challenge response"
+                    break
+                if response.body_truncated:
+                    error = "response truncated before result parse"
+                    break
+                parser = _DuckDuckGoHtmlResultParser()
+                parser.feed(body)
+                parser.close()
+            except Exception as exc:
+                error = str(exc)
+                break
+
+            sponsored_rows_skipped += parser.sponsored_rows_skipped
+            page: list[SearchHit] = []
+            for hit in parser.hits:
+                if hit.url not in seen_urls:
+                    seen_urls.add(hit.url)
+                    page.append(hit)
+            batches.append(page)
+            # Include a second batch even when the first fills the result
+            # limit, so a directory-heavy first page cannot use every slot.
+            if limit <= 1 or (len(batches) >= 2 and len(seen_urls) >= limit):
+                break
+            continuation = _ddg_next_page(parser.next_form, query=query, previous_offset=offset)
+            if continuation is None:
+                break
+            method, encoded, offset = continuation
+            remaining = deadline - monotonic()
+
+        results = tuple(hit for rank in zip_longest(*batches) for hit in rank if hit is not None)[:limit]
+        return SearchBundle(
+            provider=self.name,
+            real=bool(results) or (bool(batches) and error is None),
+            results=results,
+            status_code=status_code,
+            error=error,
+            pages_fetched=len(batches),
+            sponsored_rows_skipped=sponsored_rows_skipped,
+        )
 
 
 class DuckDuckGoSearchPackageProvider:
@@ -570,6 +671,8 @@ def public_search(
                 result_count=len(stamped.results),
                 status_code=stamped.status_code,
                 error=stamped.error,
+                pages_fetched=stamped.pages_fetched,
+                sponsored_rows_skipped=stamped.sponsored_rows_skipped,
             )
         )
         # Prefer real success with results; keep trying when empty or failed.
@@ -606,15 +709,7 @@ def public_search(
 def _stamp(bundle: SearchBundle) -> SearchBundle:
     if bundle.access_mode == InternetAccessMode.PUBLIC_SEARCH:
         return bundle
-    return SearchBundle(
-        provider=bundle.provider,
-        real=bundle.real,
-        results=bundle.results,
-        status_code=bundle.status_code,
-        error=bundle.error,
-        attempts=bundle.attempts,
-        access_mode=InternetAccessMode.PUBLIC_SEARCH,
-    )
+    return replace(bundle, access_mode=InternetAccessMode.PUBLIC_SEARCH)
 
 
 def _with_attempt(bundle: SearchBundle, attempts: tuple[SearchAttempt, ...] | list[SearchAttempt]) -> SearchBundle:
@@ -630,6 +725,8 @@ def _with_attempt(bundle: SearchBundle, attempts: tuple[SearchAttempt, ...] | li
                 result_count=len(bundle.results),
                 status_code=bundle.status_code,
                 error=bundle.error,
+                pages_fetched=bundle.pages_fetched,
+                sponsored_rows_skipped=bundle.sponsored_rows_skipped,
             ),
         )
     return replace(bundle, attempts=tuple(attempts))
