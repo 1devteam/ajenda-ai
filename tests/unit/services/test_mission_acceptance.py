@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from backend.services.mission_acceptance import evaluate_mission_acceptance
+from backend.services.worker_runtime_contracts import _mission_acceptance_contract
 
 
 def _task(output: dict[str, object]) -> SimpleNamespace:
@@ -285,6 +286,33 @@ def test_verified_identity_acceptance_rejects_fixture_evidence() -> None:
     )
     assert not accepted
     assert reasons
+
+
+def test_fixture_acceptance_counts_only_promoted_identities_in_compiled_fixture_scope() -> None:
+    row = {
+        "prospect_id": "fixture-1",
+        "source": "local_fixture",
+        "identity_status": "verified",
+        "real": False,
+        "identity_evidence_urls": ["fixture://fixture-1"],
+    }
+    discovery = _task({"prospect_candidates": [row]})
+    observation = _task({"verified_prospect_candidates": [row]})
+    composition = {
+        "acceptance_contract": {"require_verified_identity": True, "candidate_min": 1},
+        "coverage_assessment": {"mode": "local_fixture", "status": "supported"},
+    }
+    mission = SimpleNamespace(metadata_json={"mission_intake": {"context": {"composition": composition}}})
+
+    contract = _mission_acceptance_contract(mission)
+    assert evaluate_mission_acceptance(tasks=[discovery, observation], contract=contract) == (True, [])
+    assert not evaluate_mission_acceptance(tasks=[discovery], contract=contract)[0]
+
+    for mode in ("public_or_provider", "internal_crm"):
+        composition["coverage_assessment"]["mode"] = mode
+        assert not evaluate_mission_acceptance(tasks=[observation], contract=_mission_acceptance_contract(mission))[0]
+    del composition["coverage_assessment"]
+    assert not evaluate_mission_acceptance(tasks=[observation], contract=_mission_acceptance_contract(mission))[0]
 
 
 def test_identity_observation_empty_cannot_fall_back_to_stale_discovery() -> None:
