@@ -43,6 +43,10 @@ from backend.services.tools.web_action_identity_policy import (
     _operating_locations,
 )
 
+# Research pages frequently contain large script/style blocks before visible
+# content. Bound the capture while allowing those pages a useful observation.
+_RESEARCH_PAGE_RESPONSE_LIMIT = 524_288
+
 
 def _visible_text(snapshot: PageSnapshot) -> str:
     text = snapshot.text_preview or ""
@@ -175,7 +179,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
     page_attempt_limit = min(max(limit * 3, limit), 50)
     location = str(payload.context.get("location") or "").casefold()
     requested_city = " ".join(location.split(",", 1)[0].split())
-    market_verification = not payload.collect_contacts and bool(requested_city)
+    market_verification = bool(requested_city)
     verified_site_hosts: set[str] = set()
     support_snapshots: dict[str, PageSnapshot] = {}
     followup_page_limit = limit * 3
@@ -203,6 +207,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                         url_or_domain=support_url,
                         timeout_seconds=payload.timeout_seconds,
                         action_name=action_name,
+                        response_text_limit=_RESEARCH_PAGE_RESPONSE_LIMIT,
                         text_preview_chars=8000,
                     )
                 supporting_pages.append(support_snapshots[support_url])
@@ -554,6 +559,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             url_or_domain=url,
             timeout_seconds=payload.timeout_seconds,
             action_name=action_name,
+            response_text_limit=_RESEARCH_PAGE_RESPONSE_LIMIT,
             text_preview_chars=8000,
         )
         page_record: dict[str, object] = {
@@ -562,6 +568,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             "status_code": snapshot.status_code,
             "title": snapshot.title,
             "error": snapshot.error,
+            "body_truncated": snapshot.body_truncated,
+            "text_observed": bool(_visible_text(snapshot).strip()),
             "company": prospect.get("company"),
             "domain": prospect.get("domain") or page_host(snapshot.url),
             "fetched_at": datetime.now(UTC).isoformat(),
@@ -661,11 +669,16 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
             continue
         if market_verification:
             if market_candidate:
-                if actual_host not in verified_site_hosts:
-                    verified_site_hosts.add(actual_host)
-                    verified_prospect_candidates.append(market_candidate)
-                continue
-            if not directory_page:
+                if not payload.collect_contacts:
+                    if actual_host not in verified_site_hosts:
+                        verified_site_hosts.add(actual_host)
+                        verified_prospect_candidates.append(market_candidate)
+                    continue
+                # Continue through contact extraction using the same
+                # independently verified company and evidence.
+                prospect = market_candidate
+                listed_company = str(market_candidate["company"])
+            elif not directory_page:
                 unobserved.append({**page_record, "reason": identity_gaps[0]})
                 continue
         if identity_status != "verified":
@@ -706,6 +719,7 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                     url_or_domain=linked_url,
                     timeout_seconds=payload.timeout_seconds,
                     action_name=action_name,
+                    response_text_limit=_RESEARCH_PAGE_RESPONSE_LIMIT,
                     text_preview_chars=8000,
                 )
                 linked_text = " ".join(
@@ -761,6 +775,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                         "target_host": linked_host,
                         "status_code": linked_snapshot.status_code,
                         "page_observed": linked_snapshot.real,
+                        "body_truncated": linked_snapshot.body_truncated,
+                        "text_observed": bool(_visible_text(linked_snapshot).strip()),
                         "accepted": not reasons,
                         "reasons": reasons,
                     }
@@ -768,14 +784,35 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
                 if market_verification:
                     if linked_candidate and linked_host not in verified_site_hosts:
                         verified_site_hosts.add(linked_host)
-                        verified_prospect_candidates.append(
-                            {
-                                **linked_candidate,
-                                "prospect_id": f"web:resolved:{linked_host}",
-                                "source": "public_search",
-                                "discovery_source_url": snapshot.url,
-                            }
-                        )
+                        candidate = {
+                            **linked_candidate,
+                            "prospect_id": f"web:resolved:{linked_host}",
+                            "source": "public_search",
+                            "discovery_source_url": snapshot.url,
+                        }
+                        if payload.collect_contacts:
+                            extracted = extract_observed_contacts(
+                                text=" ".join(
+                                    part
+                                    for part in (linked_snapshot.title, linked_snapshot.text_preview)
+                                    if isinstance(part, str)
+                                ),
+                                source_url=linked_snapshot.url,
+                            )
+                            for item in extracted:
+                                contact = {
+                                    **item,
+                                    "company": candidate["company"],
+                                    "domain": linked_host,
+                                    "website": linked_snapshot.url,
+                                    "sources": candidate["sources"],
+                                    "prospect_id": candidate["prospect_id"],
+                                    "identity_status": "verified",
+                                    "identity_evidence_urls": candidate["identity_evidence_urls"],
+                                }
+                                observed_contacts.append(contact)
+                                candidate["observed_contacts"].append(contact)
+                        verified_prospect_candidates.append(candidate)
                     if len(verified_prospect_candidates) >= limit:
                         break
                     continue
@@ -974,11 +1011,8 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         else len(verified_prospect_candidates) >= minimum
     )
     limitations = (
-        [
-            "contacts are extracted from fetched HTML text only",
-            "page locality is not verified",
-            "javascript-only contact widgets are unobserved",
-        ]
+        ["contacts are extracted from fetched HTML text only", "javascript-only contact widgets are unobserved"]
+        + ([] if market_verification else ["page locality is not verified"])
         if payload.collect_contacts
         else ["public company identity is verified from fetched HTML text only"]
     )
@@ -996,7 +1030,22 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         and not verified_prospect_candidates
         and any(page.get("real") is True for page in pages)
     )
+    observation_complete = bool(pages) and (
+        all(
+            page.get("real") is True and page.get("body_truncated") is False and page.get("text_observed") is True
+            for page in pages
+        )
+        and all(page.real and not page.body_truncated for page in support_snapshots.values())
+        and all(
+            attempt.get("page_observed") is True
+            and attempt.get("body_truncated") is False
+            and attempt.get("text_observed") is True
+            for attempt in directory_link_attempts
+        )
+    )
     rejection_reason = "completed public identity verification rejected all candidate sources"
+    if not observation_complete:
+        rejection_reason += ". One or more page observations were unavailable, truncated, or lacked visible text"
     if locality_gaps and requested_city:
         location_label = str(payload.context.get("location")).split(",", 1)[0].strip()
         if "operating_location_conflicts" in locality_gaps:
@@ -1059,6 +1108,11 @@ def research_observe_contacts(invocation: ToolInvocation, context: ActionRuntime
         "valid_empty_result": (
             {
                 "classification": "valid_empty",
+                **(
+                    {"evidence_coverage": "incomplete"}
+                    if completed_identity_rejection and not observation_complete
+                    else {}
+                ),
                 "reason": (
                     rejection_reason
                     if completed_identity_rejection

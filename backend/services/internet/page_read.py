@@ -97,7 +97,9 @@ def _extract_public_links(html: str, *, base_url: str, limit: int = 50) -> list[
         parsed = urlparse(absolute)
         if parsed.scheme.lower() != "https" or not parsed.hostname:
             continue
-        normalized = absolute.split("#", 1)[0].rstrip("/")
+        # A trailing slash is part of the requested path; removing it can
+        # change the resource and trigger a redirect that page-read rejects.
+        normalized = absolute.split("#", 1)[0]
         if normalized in seen:
             continue
         seen.add(normalized)

@@ -98,6 +98,15 @@ it("distinguishes a failed verification stage from a completed empty result", as
   expect(text).not.toContain("evidence-backed empty result");
 });
 
+it("shows that incomplete source coverage does not establish an empty market", async () => {
+  const text = await readReopenedResult({
+    artifacts: { research_report: { result_semantics: "valid_empty", evidence_coverage: "incomplete", comparison: [] } },
+  });
+  expect(text).toContain("No companies were verified in this research run.");
+  expect(text).toContain("Some source pages could not be fully observed.");
+  expect(text).not.toContain("evidence-backed empty result");
+});
+
 it("shows the verification minimum separately from the requested cap", async () => {
   const text = await readReopenedResult({
     result_semantics: { public_research_stages: [{

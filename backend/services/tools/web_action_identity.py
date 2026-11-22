@@ -20,6 +20,7 @@ from backend.services.tools.web_action_identity_policy import (
     _is_directory_or_third_party_host,
     _is_directory_or_third_party_page,
     _is_generic_market_listing_label,
+    _operating_location_excerpt,
 )
 
 
@@ -55,8 +56,10 @@ def research_verify_public_identity(invocation: ToolInvocation, context: ActionR
     company_match = company_phrase_match or host_match
     industry_markers = _industry_evidence_markers(payload.industry)
     industry_match = _contains_any_identity_marker(observed, industry_markers)
-    location_markers = _identity_tokens(payload.location)
-    location_match = _contains_any_identity_marker(observed, location_markers)
+    city = payload.location.split(",", 1)[0].strip()
+    location_markers = [city] if city else []
+    location_excerpt = _operating_location_excerpt(observed, city, payload.expected_company) if city else None
+    location_match = bool(location_excerpt)
     directory = (
         _is_directory_or_third_party_host(host)
         or _is_directory_or_third_party_page(observed)
@@ -98,7 +101,7 @@ def research_verify_public_identity(invocation: ToolInvocation, context: ActionR
             "criterion": "location",
             "matched": location_match,
             "markers": list(location_markers),
-            "observed_excerpt": _identity_evidence_excerpt(observed, tuple(location_markers)),
+            "observed_excerpt": location_excerpt,
             "source_url": snapshot.url if snapshot.real else None,
         },
     ]

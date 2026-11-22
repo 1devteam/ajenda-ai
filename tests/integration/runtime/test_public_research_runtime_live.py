@@ -379,6 +379,70 @@ def test_live_public_research_preserves_provider_attempts_and_evidence_outcome(
         verify.close()
 
 
+@pytest.mark.live
+def test_live_austin_company_research_returns_source_backed_report(pg_engine, queue_adapter) -> None:
+    """Exercise the actual Austin request through API routes and queued workers."""
+    if os.environ.get(_LIVE_FLAG) != "1":
+        pytest.skip(f"set {_LIVE_FLAG}=1 to run this external read-only proof")
+
+    tenant_id = uuid.uuid4()
+    tenant_scope = str(tenant_id)
+    factory = sessionmaker(bind=pg_engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    instruction = (
+        "Find up to three software development companies in Austin, Texas. "
+        "Verify each one using its official website and give me a short report on companies with source links."
+    )
+    with factory() as session:
+        session.add(Tenant(id=tenant_id, name="Austin research", slug=f"austin-{tenant_id.hex[:8]}", plan="free"))
+        session.flush()
+        activate_tenant_session(session, tenant_scope)
+        persist_test_operating_charter(session, tenant_id=tenant_scope)
+        session.commit()
+        app = _build_app(tenant_id=tenant_id, session=session, queue_adapter=queue_adapter)
+        with (
+            patch.object(composition_module, "require_route_permission", return_value=None),
+            patch.object(mission_module, "require_route_permission", return_value=None),
+            TestClient(app) as client,
+        ):
+            response = client.post("/v1/missions/compose", json={"instruction": instruction})
+            assert response.status_code == 200, response.text
+            proposal = response.json()
+            assert proposal["ready_to_start"] is True, proposal
+            response = client.post(
+                f"/v1/missions/proposals/{proposal['proposal_id']}/confirm",
+                json={"composition": proposal["composition"], "idempotency_key": str(uuid.uuid4())},
+            )
+            assert response.status_code == 200, response.text
+            mission_id = uuid.UUID(response.json()["mission_id"])
+            response = client.post(f"/v1/missions/{mission_id}/launch")
+            assert response.status_code == 200, response.text
+            session.commit()
+            _drain_mission(
+                session=session,
+                factory=factory,
+                queue_adapter=queue_adapter,
+                tenant_id=tenant_scope,
+                mission_id=mission_id,
+            )
+
+    with factory() as session:
+        activate_tenant_session(session, tenant_scope)
+        app = _build_app(tenant_id=tenant_id, session=session, queue_adapter=queue_adapter)
+        with patch.object(deliverable_module, "require_route_permission", return_value=None), TestClient(app) as client:
+            response = client.get(f"/v1/missions/{mission_id}/deliverable")
+        assert response.status_code == 200, response.text
+        deliverable = response.json()
+        report = deliverable.get("artifacts", {}).get("research_report") or {}
+        rows = report.get("comparison") or []
+        assert deliverable["completion"]["complete"] is True, {
+            "completion": deliverable["completion"],
+            "limitations": deliverable["limitations"],
+            "result_semantics": deliverable["result_semantics"],
+        }
+        assert 1 <= len(rows) <= 3
+        assert all(row.get("identity_status") == "verified" and row.get("sources") for row in rows)
+
+
 def test_runtime_control_diagnostic_persists_through_canonical_runtime(pg_engine, queue_adapter) -> None:
     """Run Ajenda's local-only control diagnostic through queue, lease, and readback."""
 

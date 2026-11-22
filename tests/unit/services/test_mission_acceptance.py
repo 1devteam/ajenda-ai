@@ -266,3 +266,31 @@ def test_acceptance_requires_internal_crm_opportunity_projection() -> None:
     )
     assert met is False
     assert "opportunity projection" in " ".join(reasons)
+
+
+def test_verified_identity_acceptance_rejects_fixture_evidence() -> None:
+    from types import SimpleNamespace
+
+    from backend.services.mission_acceptance import evaluate_mission_acceptance
+
+    row = {
+        "prospect_id": "fixture-1",
+        "identity_status": "verified",
+        "real": False,
+        "identity_evidence_urls": ["fixture://fixture-1"],
+    }
+    task = SimpleNamespace(metadata_json={"handler_result": {"output": {"verified_prospect_candidates": [row]}}})
+    accepted, reasons = evaluate_mission_acceptance(
+        tasks=[task], contract={"require_verified_identity": True, "candidate_min": 1}
+    )
+    assert not accepted
+    assert reasons
+
+
+def test_identity_observation_empty_cannot_fall_back_to_stale_discovery() -> None:
+    discovery = _task({"prospect_candidates": [{"prospect_id": "old", "identity_status": "verified", "real": True}]})
+    observation = _task({"verified_prospect_candidates": []})
+    accepted, _ = evaluate_mission_acceptance(
+        tasks=[discovery, observation], contract={"require_verified_identity": True, "candidate_min": 1}
+    )
+    assert not accepted

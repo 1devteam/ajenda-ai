@@ -162,7 +162,7 @@ def test_public_identity_verification_requires_company_industry_and_location_evi
         real=True,
         status_code=200,
         title="Acme HVAC",
-        text_preview="Acme HVAC provides HVAC heating and cooling services in Dallas, Texas.",
+        text_preview="Acme HVAC provides HVAC heating and cooling services. We are based in Dallas, Texas.",
         body_preview="",
         access_mode=InternetAccessMode.BROWSER_SESSION,
         browser_ready=True,
@@ -172,7 +172,7 @@ def test_public_identity_verification_requires_company_industry_and_location_evi
                 {"kind": "title", "value": "Acme HVAC", "satisfied": True},
                 {
                     "kind": "body",
-                    "value": "Acme HVAC provides HVAC heating and cooling services in Dallas, Texas.",
+                    "value": "Acme HVAC provides HVAC heating and cooling services. We are based in Dallas, Texas.",
                     "satisfied": True,
                 },
             ],
@@ -400,6 +400,8 @@ def test_observe_contacts_promotes_external_directory_links_after_verification()
             "target_host": "acmehvac.example",
             "status_code": 200,
             "page_observed": True,
+            "body_truncated": False,
+            "text_observed": True,
             "accepted": True,
             "reasons": [],
         }
@@ -865,6 +867,135 @@ def test_public_identity_rejection_does_not_mark_all_fetch_failures_valid_empty(
     assert result.output["unobserved"][0]["reason"] == "web.page_read DNS resolution failed"
 
 
+def test_truncated_empty_page_is_not_a_complete_identity_rejection() -> None:
+    from backend.services.tools.web_action_contacts import research_verify_public_candidates
+
+    snapshot = PageSnapshot(
+        url="https://acmesoftware.example/",
+        real=True,
+        status_code=200,
+        title="Acme Software",
+        text_preview=None,
+        body_truncated=True,
+        access_mode=InternetAccessMode.PAGE_READ,
+    )
+    invocation = ToolInvocation(
+        action="research.verify_public_candidates",
+        input={
+            "prospects": [{"company": "Acme Software", "domain": "acmesoftware.example", "url": snapshot.url}],
+            "requested_quantity": 1,
+            "binding_required": True,
+            "context": {"industry": "software development", "location": "Austin"},
+        },
+    )
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=snapshot):
+        result = research_verify_public_candidates(invocation, _context())
+    assert result.output["verified_prospect_candidates"] == []
+    assert result.output["valid_empty_result"]["evidence_coverage"] == "incomplete"
+    assert "truncated" in result.output["valid_empty_result"]["reason"]
+    assert result.output["pages"][0]["body_truncated"] is True
+
+
+def test_contact_request_cannot_weaken_market_identity_verification() -> None:
+    from backend.services.tools.web_action_contacts import research_observe_contacts
+
+    snapshot = PageSnapshot(
+        url="https://acmesoftware.example/",
+        real=True,
+        status_code=200,
+        title="Acme Software",
+        text_preview="Acme Software offers software development services in Austin. Email hello@acmesoftware.example",
+        body_preview="",
+        access_mode=InternetAccessMode.PAGE_READ,
+        extraction={"links": []},
+    )
+    results = []
+    for collect_contacts in (False, True):
+        invocation = ToolInvocation(
+            action="research.observe_contacts",
+            input={
+                "prospects": [{"company": "Acme Software", "domain": "acmesoftware.example", "url": snapshot.url}],
+                "requested_quantity": 1,
+                "collect_contacts": collect_contacts,
+                "context": {"industry": "software development", "location": "Austin"},
+            },
+        )
+        with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=snapshot):
+            results.append(research_observe_contacts(invocation, _context()).output)
+    assert results[0]["verified_prospect_candidates"] == []
+    assert results[1]["verified_prospect_candidates"] == []
+
+
+def test_market_identity_and_contact_share_positive_company_evidence() -> None:
+    from backend.services.tools.web_action_contacts import research_observe_contacts
+
+    snapshot = PageSnapshot(
+        url="https://acmesoftware.example/",
+        real=True,
+        status_code=200,
+        title="Acme Software",
+        text_preview=(
+            "Acme Software is a software development company based in Austin. Contact hello@acmesoftware.example"
+        ),
+        body_preview="",
+        access_mode=InternetAccessMode.PAGE_READ,
+        extraction={"links": []},
+    )
+    for collect_contacts in (False, True):
+        invocation = ToolInvocation(
+            action="research.observe_contacts",
+            input={
+                "prospects": [{"company": "Acme Software", "domain": "acmesoftware.example", "url": snapshot.url}],
+                "requested_quantity": 1,
+                "collect_contacts": collect_contacts,
+                "context": {"industry": "software development", "location": "Austin"},
+            },
+        )
+        with patch("backend.services.tools.web_action_contacts.fetch_public_page", return_value=snapshot):
+            output = research_observe_contacts(invocation, _context()).output
+        assert len(output["verified_prospect_candidates"]) == 1
+        assert len(output["observed_contacts"]) == int(collect_contacts)
+
+
+def test_market_directory_contact_uses_verified_linked_company() -> None:
+    from backend.services.tools.web_action_contacts import research_observe_contacts
+
+    directory = PageSnapshot(
+        url="https://directory.example/list",
+        real=True,
+        status_code=200,
+        title="Top Software Development Companies",
+        text_preview="A directory of software companies.",
+        access_mode=InternetAccessMode.PAGE_READ,
+        extraction={"links": [{"url": "https://acmesoftware.example/", "text": "Acme Software"}]},
+    )
+    company = PageSnapshot(
+        url="https://acmesoftware.example/",
+        real=True,
+        status_code=200,
+        title="Acme Software",
+        text_preview=(
+            "Acme Software is a software development company based in Austin. Contact hello@acmesoftware.example"
+        ),
+        access_mode=InternetAccessMode.PAGE_READ,
+        extraction={"links": []},
+    )
+    invocation = ToolInvocation(
+        action="research.observe_contacts",
+        input={
+            "prospects": [{"company": directory.title, "domain": "directory.example", "url": directory.url}],
+            "requested_quantity": 1,
+            "collect_contacts": True,
+            "context": {"industry": "software development", "location": "Austin"},
+        },
+    )
+    with patch("backend.services.tools.web_action_contacts.fetch_public_page", side_effect=[directory, company]):
+        output = research_observe_contacts(invocation, _context()).output
+    assert output["verified_prospect_candidates"][0]["company"] == "Acme Software"
+    assert output["observed_contacts"][0]["source_url"] == company.url
+    assert output["accept_met"] is True
+
+
 def test_observe_contacts_normalizes_company_name_when_domain_proves_identity() -> None:
     from backend.services.tools.web_actions import research_observe_contacts
 
@@ -902,11 +1033,11 @@ def test_observe_contacts_uses_declared_industry_for_non_hvac_research() -> None
     from backend.services.tools.web_actions import research_observe_contacts
 
     page = PageSnapshot(
-        url="https://roof.example/",
+        url="https://roofexample.example/",
         real=True,
         status_code=200,
-        title="Dallas Commercial Roofing",
-        text_preview="Roof Example provides commercial roofing services in Dallas, Texas.",
+        title="Roof Example",
+        text_preview="Roof Example is a commercial roofing company based in Dallas, Texas.",
         body_preview="",
         access_mode=InternetAccessMode.PAGE_READ,
     )
@@ -917,7 +1048,7 @@ def test_observe_contacts_uses_declared_industry_for_non_hvac_research() -> None
                 {
                     "company": "Roof Example",
                     "industry": "commercial roofing",
-                    "domain": "roof.example",
+                    "domain": "roofexample.example",
                     "url": page.url,
                 }
             ],
@@ -948,6 +1079,7 @@ def test_market_report_uses_the_same_company_evidence_for_each_discovery_path(
             url=directory,
             real=True,
             title="Top Software Development Companies",
+            text_preview="A directory of software development companies.",
             extraction={"links": [{"url": homepage, "text": "Visit website"}]},
         ),
         homepage: PageSnapshot(
@@ -1046,3 +1178,33 @@ def test_market_verification_counts_a_company_only_once_across_its_pages() -> No
     assert result.output["observed_count"] == 1
     assert not result.output["accept_met"]
     fetch.assert_called_once()
+
+
+def test_single_identity_rejects_another_texas_city() -> None:
+    body = "Cedar Software builds custom software. We are based in Houston, Texas."
+    snapshot = PageSnapshot(
+        url="https://cedarsoftware.example/",
+        real=True,
+        status_code=200,
+        title="Cedar Software",
+        text_preview=body,
+        access_mode=InternetAccessMode.BROWSER_SESSION,
+        browser_ready=True,
+        extraction={
+            "observation_requirements": [{"kind": "title", "value": "Cedar Software"}, {"kind": "body", "value": body}]
+        },
+    )
+    with patch("backend.services.tools.web_action_identity.run_browser_session", return_value=snapshot):
+        result = get_default_action_registry(rebuild=True).invoke(
+            ToolInvocation(
+                action="research.verify_public_identity",
+                input={
+                    "url": snapshot.url,
+                    "expected_company": "Cedar Software",
+                    "industry": "software development",
+                    "location": "Austin, Texas",
+                },
+            ),
+            _context(),
+        )
+    assert result.output["public_identity_observation"]["identity_status"] == "unverified"

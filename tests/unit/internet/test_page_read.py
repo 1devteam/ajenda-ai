@@ -34,6 +34,17 @@ def test_extract_html_snapshot_title_and_text() -> None:
     assert extracted["links"] == [{"url": "https://invalid.local/contact", "text": "Contact Acme"}]
 
 
+def test_extract_html_snapshot_preserves_path_trailing_slash() -> None:
+    extracted = extract_html_snapshot(
+        '<a href="/about-us/#team">About</a><a href="/contact/">Contact</a>',
+        base_url="https://example.com/",
+    )
+    assert extracted["links"] == [
+        {"url": "https://example.com/about-us/", "text": "About"},
+        {"url": "https://example.com/contact/", "text": "Contact"},
+    ]
+
+
 def test_fetch_public_page_uses_egress_and_extracts() -> None:
     destination = VettedNetworkDestination(
         original_url="https://example.com/",

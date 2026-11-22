@@ -269,13 +269,21 @@ def _valid_empty_research_result(*, upstream: ExecutionTask, output: dict[str, A
         return None
     invocation = upstream.metadata_json.get("tool_invocation") if isinstance(upstream.metadata_json, dict) else None
     action = invocation.get("action") if isinstance(invocation, dict) else None
-    if action not in {"web.research", "research.verify_public_candidates", "research.observe_contacts"}:
+    if action not in {
+        "web.research",
+        "research.verify_public_candidates",
+        "research.observe_contacts",
+        "sales.qualify",
+    }:
+        return None
+    if action == "sales.qualify" and output.get("qualified_prospects") != []:
         return None
     return {
         "classification": "valid_empty",
         "reason": reason[:500],
         "source_task_id": str(upstream.id),
         "source_action": action,
+        **({"evidence_coverage": "incomplete"} if marker.get("evidence_coverage") == "incomplete" else {}),
     }
 
 
