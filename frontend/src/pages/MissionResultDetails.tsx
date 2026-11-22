@@ -124,7 +124,8 @@ export function PublicResearchResult({ report, stages }: {
       {report ? (
         <div>
           <h3>Research report</h3>
-          {report.result_semantics === "valid_empty" ? <p>The report records an evidence-backed empty result.</p> : null}
+          {report.result_semantics === "valid_empty" ? <p>No companies were verified in this research run.</p> : null}
+          {report.evidence_coverage === "incomplete" ? <p>Some source pages could not be fully observed.</p> : null}
           {comparisons.length ? (
             <ul>{comparisons.map((row, index) => (
               <li key={index}>

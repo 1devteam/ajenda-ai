@@ -34,6 +34,73 @@ def test_web_research_runs_without_external_plugins() -> None:
     assert result.output["source_partitions"]["public_search"]["candidate_count"] == 0
 
 
+def test_internal_record_id_does_not_prove_public_identity() -> None:
+    from backend.services.tools.standalone_actions import _prospect_from_record
+
+    result = _prospect_from_record(
+        {"id": "account-9", "name": "Top software companies in Austin", "domain": "directory.example"},
+        source="internal_record",
+        query="software companies in Austin",
+    )
+    assert result["identity_status"] == "unverified"
+    assert result["identity_evidence_urls"] == []
+
+
+def test_fixture_contact_projection_does_not_claim_live_identity() -> None:
+    from backend.services.tools.standalone_actions import _fixture_safe_projection
+
+    stored = {
+        "website": "fixture://test",
+        "real": True,
+        "identity_status": "verified",
+        "observed_contacts": [{"via": "local_fixture", "real": True, "contact_role_status": "verified"}],
+    }
+    result = _fixture_safe_projection(stored)
+    assert result["real"] is False
+    assert result["identity_status"] == "unverified"
+    assert result["observed_contacts"][0]["real"] is False
+    assert result["observed_contacts"][0]["contact_role_status"] == "unverified"
+    assert stored["real"] is True  # Projection never mutates the stored row.
+
+
+def test_public_discovery_pool_is_not_displaced_by_internal_records(monkeypatch) -> None:
+    from backend.services.tools import standalone_actions
+
+    class Store:
+        def search_records(self, **kwargs):  # type: ignore[no-untyped-def]
+            if kwargs["record_type"] != "account":
+                return []
+            return [
+                {"id": str(i), "name": f"Directory {i}", "website": f"https://directory{i}.example"} for i in range(3)
+            ]
+
+    monkeypatch.setattr(standalone_actions, "resolve_record_store", lambda _: Store())
+    monkeypatch.setattr(
+        standalone_actions,
+        "_fetch_governed_public_search",
+        lambda **_: {
+            "provider": "test",
+            "real": True,
+            "results": [{"title": f"Studio {i}", "url": f"https://studio{i}.example"} for i in range(9)],
+        },
+    )
+    result = standalone_actions.web_research(
+        ToolInvocation(
+            action="web.research",
+            input={
+                "query": "software companies in Austin",
+                "limit": 3,
+                "include_public_search": True,
+            },
+        ),
+        _context(),
+    ).output
+    assert len(result["internal_prospect_candidates"]) == 3
+    assert len(result["public_prospect_candidates"]) == 9
+    assert len(result["prospect_candidates"]) == 9
+    assert all(item["source_scope"] == "public_search" for item in result["prospect_candidates"])
+
+
 def test_local_fixture_research_without_eligible_candidates_is_an_evidenced_empty_result() -> None:
     result = get_default_action_registry(rebuild=True).invoke(
         ToolInvocation(

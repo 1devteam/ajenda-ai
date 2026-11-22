@@ -84,8 +84,8 @@ def _observe(*, snapshot: PageSnapshot, company: str, collect_contacts: bool = T
 @pytest.mark.parametrize(
     ("contact_text", "expected_count"),
     [
-        ("Quiet HVAC provides heating and cooling in Dallas.", 0),
-        ("Quiet HVAC provides heating and cooling in Dallas. service@quiet-hvac.example", 1),
+        ("Quiet HVAC is based in Dallas and provides heating and cooling.", 0),
+        ("Quiet HVAC is based in Dallas and provides heating and cooling. service@quiet-hvac.example", 1),
     ],
     ids=["verified-page-without-contact", "verified-page-with-actual-email"],
 )
@@ -206,7 +206,7 @@ def test_missing_contact_propagates_to_mission_acceptance_reasons() -> None:
     from backend.services.worker_runtime_contracts import _observe_acceptance_reasons
 
     result = _observe(
-        snapshot=_snapshot(text="Quiet HVAC provides cooling in Dallas."),
+        snapshot=_snapshot(text="Quiet HVAC is based in Dallas and provides heating and cooling."),
         company="Quiet HVAC",
     )
     completed = ExecutionTask(
@@ -222,6 +222,7 @@ def test_missing_contact_propagates_to_mission_acceptance_reasons() -> None:
         },
     )
     reasons = _observe_acceptance_reasons([completed], require_contacts=True)
+    assert len(result.output["verified_prospect_candidates"]) == 1
     assert reasons
     assert "produced 0" in reasons[0]
 

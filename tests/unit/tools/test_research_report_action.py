@@ -71,3 +71,21 @@ def test_research_report_preserves_proven_valid_empty_without_inventing_opportun
     assert report["market_opportunities"] == []
     assert report["evidence_gaps"] == ["public identity verification rejected all candidate sources"]
     assert report["result_semantics"] == "valid_empty"
+
+
+def test_research_report_keeps_incomplete_observation_coverage() -> None:
+    result = research_synthesize_report(
+        ToolInvocation(
+            action="research.synthesize_report",
+            input={
+                "objective": "Compare companies",
+                "binding_required": True,
+                "valid_empty_upstream": [
+                    {"classification": "valid_empty", "reason": "Page truncated", "evidence_coverage": "incomplete"}
+                ],
+            },
+        ),
+        ActionRuntimeContext(tenant_id="t", task_id=uuid.uuid4(), worker_id="w", lease_id="l"),
+    )
+    assert result.output["research_report"]["evidence_coverage"] == "incomplete"
+    assert result.output["research_report"]["evidence_gaps"] == ["Page truncated"]

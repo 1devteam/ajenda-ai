@@ -107,7 +107,7 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
         "evidence_quality": 10
         if lead.get("identity_status") == "verified" and (lead.get("source_url") or lead.get("url"))
         else 8
-        if lead.get("source") == "internal_record"
+        if lead.get("source") == "internal_record" and lead.get("identity_status") != "unverified"
         else 4
         if lead.get("signals") or lead.get("source_url") or lead.get("url")
         else 0,
@@ -117,7 +117,7 @@ def _qualify_one(lead: dict[str, Any], *, context: dict[str, Any], account_id: s
     mission_scoring = bool(context.get("mission_specific_scoring")) or "qualification_threshold_10" in context
     threshold_10 = int(context.get("qualification_threshold_10", 7) or 7)
     contactable = _has_real_contact(lead)
-    identity_verified = (
+    identity_verified = lead.get("identity_status") != "unverified" and (
         lead.get("identity_status") == "verified" or lead.get("source") == "internal_record" or bool(account_id)
     )
     # A composed qualification/ranking stage evaluates the persisted research
@@ -249,6 +249,16 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
     raw_score = primary.get("score")
     score = raw_score if isinstance(raw_score, int) and not isinstance(raw_score, bool) else None
     qualified = bool(primary.get("qualified")) if score is not None else None
+    upstream_empty = payload.context.get("valid_empty_upstream")
+    incomplete_reasons = (
+        [
+            str(item.get("reason") or "").strip()
+            for item in upstream_empty
+            if isinstance(item, dict) and item.get("evidence_coverage") == "incomplete"
+        ]
+        if isinstance(upstream_empty, list)
+        else []
+    )
     output = {
         "score": score,
         "score_10": primary.get("score_10"),
@@ -268,8 +278,11 @@ def sales_qualify(invocation: ToolInvocation, context: ActionRuntimeContext) -> 
         "valid_empty_result": (
             {
                 "classification": "valid_empty",
+                **({"evidence_coverage": "incomplete"} if incomplete_reasons else {}),
                 "reason": (
-                    "completed qualification found no prospects meeting the qualification threshold"
+                    "; ".join(filter(None, incomplete_reasons)) or "Public research evidence coverage is incomplete"
+                    if incomplete_reasons
+                    else "completed qualification found no prospects meeting the qualification threshold"
                     if scored_prospects
                     else "completed public research produced no verified prospects for qualification"
                 ),
@@ -336,10 +349,11 @@ def sales_recommend_next_action(invocation: ToolInvocation, context: ActionRunti
     payload = SalesLeadInput.model_validate(invocation.input)
     qualify_result = sales_qualify(invocation, context)
     score = qualify_result.output["score"]
-    recommendation = "draft_followup" if score is not None and score >= 60 else "research_more"
+    can_advance = qualify_result.output["qualified"] is True and score is not None and score >= 60
+    recommendation = "draft_followup" if can_advance else "research_more"
     rationale = (
         "Qualification score is high enough for follow-up."
-        if score is not None and score >= 60
+        if can_advance
         else "More account/contact context is needed."
     )
     output = {"recommendation": recommendation, "rationale": rationale, "lead": payload.lead, "score": score}

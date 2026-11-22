@@ -984,3 +984,50 @@ def test_sales_create_followup_task_preserves_record_write_payload_shape() -> No
         "title": "Follow up",
         "due": "2026-06-06",
     }
+
+
+def test_ranking_does_not_override_explicitly_unverified_internal_identity() -> None:
+    from backend.services.tools.sales_action_qualification import _qualify_one
+
+    lead = {"source": "internal_record", "company": "Directory listing", "identity_status": "unverified"}
+    result = _qualify_one(lead, context={"ranking_only": True}, account_id="account-1")
+    assert result["qualified"] is False
+    assert "identity is unverified" in result["reasons"]
+
+
+def test_qualification_preserves_incomplete_research_coverage() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    result = registry.invoke(
+        ToolInvocation(
+            action="sales.qualify",
+            input={
+                "prospects": [],
+                "context": {
+                    "binding_required": True,
+                    "valid_empty_upstream": [
+                        {
+                            "classification": "valid_empty",
+                            "reason": "Page was truncated",
+                            "evidence_coverage": "incomplete",
+                        }
+                    ],
+                },
+            },
+        ),
+        _context(),
+    )
+    assert result.output["valid_empty_result"]["evidence_coverage"] == "incomplete"
+    assert "truncated" in result.output["valid_empty_result"]["reason"]
+
+
+def test_recommendation_does_not_advance_high_scoring_unverified_lead() -> None:
+    registry = get_default_action_registry(rebuild=True)
+    lead = {
+        "company": "Acme",
+        "role": "VP",
+        "intent": "expansion",
+        "email": "avery@example.com",
+        "identity_status": "unverified",
+    }
+    result = registry.invoke(ToolInvocation(action="sales.recommend_next_action", input={"lead": lead}), _context())
+    assert result.output["recommendation"] == "research_more"

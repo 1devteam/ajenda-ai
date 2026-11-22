@@ -501,6 +501,54 @@ def test_research_report_binding_accepts_only_proven_valid_empty_upstream() -> N
     assert audit["valid_empty_upstream"] == bound["valid_empty_upstream"]
 
 
+def test_incomplete_page_coverage_survives_verifier_binding() -> None:
+    from backend.services.tools.mission_input_binding import _valid_empty_research_result
+
+    task = _task(
+        node_key="ability-research-verify",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=uuid.uuid4(),
+        tenant_id="tenant",
+    )
+    task.metadata_json["tool_invocation"]["action"] = "research.verify_public_candidates"
+    marker = _valid_empty_research_result(
+        upstream=task,
+        output={
+            "valid_empty_result": {
+                "classification": "valid_empty",
+                "reason": "Page was truncated",
+                "evidence_coverage": "incomplete",
+            }
+        },
+    )
+    assert marker is not None
+    assert marker["evidence_coverage"] == "incomplete"
+
+
+def test_incomplete_qualification_coverage_survives_binding() -> None:
+    from backend.services.tools.mission_input_binding import _valid_empty_research_result
+
+    task = _task(
+        node_key="ability-sales-qualify",
+        status=ExecutionTaskState.COMPLETED.value,
+        mission_id=uuid.uuid4(),
+        tenant_id="tenant",
+    )
+    task.metadata_json["tool_invocation"]["action"] = "sales.qualify"
+    output = {
+        "qualified_prospects": [],
+        "valid_empty_result": {
+            "classification": "valid_empty",
+            "reason": "Page was truncated",
+            "evidence_coverage": "incomplete",
+        },
+    }
+    marker = _valid_empty_research_result(upstream=task, output=output)
+    assert marker is not None and marker["evidence_coverage"] == "incomplete"
+    output["qualified_prospects"] = [{"company": "Example"}]
+    assert _valid_empty_research_result(upstream=task, output=output) is None
+
+
 def test_enrichment_binding_fails_before_handler_when_qualification_is_empty() -> None:
     mission_id = uuid.uuid4()
     tenant_id = str(uuid.uuid4())

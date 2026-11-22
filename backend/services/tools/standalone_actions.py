@@ -389,6 +389,33 @@ def _source_references(*values: Any) -> list[str]:
     return references
 
 
+def _fixture_safe_projection(value: Any, *, inherited_fixture: bool = False) -> Any:
+    """Preserve stored fixture rows without presenting their claims as live facts."""
+    if isinstance(value, list):
+        return [_fixture_safe_projection(item, inherited_fixture=inherited_fixture) for item in value]
+    if not isinstance(value, dict):
+        return value
+    is_fixture = inherited_fixture or value.get("via") == "local_fixture" or value.get("source") == "local_fixture"
+    is_fixture = is_fixture or any(
+        isinstance(value.get(key), str) and value[key].startswith("fixture://")
+        for key in ("website", "domain", "source_url")
+    )
+    sources = value.get("sources")
+    is_fixture = is_fixture or (
+        isinstance(sources, list) and any(isinstance(item, str) and item.startswith("fixture://") for item in sources)
+    )
+    result = {key: _fixture_safe_projection(item, inherited_fixture=is_fixture) for key, item in value.items()}
+    if is_fixture:
+        if "real" in result:
+            result["real"] = False
+        if "identity_status" in result:
+            result["identity_status"] = "unverified"
+        if "contact_role_status" in result:
+            result["contact_role_status"] = "unverified"
+        result["data_class"] = "fixture"
+    return result
+
+
 def _prospect_from_record(record: dict[str, Any], *, source: str, query: str) -> dict[str, Any]:
     raw_data = record.get("data")
     data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else record
@@ -437,8 +464,10 @@ def _prospect_from_record(record: dict[str, Any], *, source: str, query: str) ->
         "automation_opportunity": data.get("automation_opportunity"),
         "source": source,
         "real": True,
-        "identity_status": "verified" if record.get("id") else "unverified",
-        "identity_evidence_urls": [website] if website else [],
+        # Tenant ownership establishes that the record exists, not that its
+        # subject is a publicly verified company or owns the supplied site.
+        "identity_status": "unverified",
+        "identity_evidence_urls": [],
         "industry": data.get("industry"),
         "location": data.get("location") or data.get("city"),
     }
@@ -754,9 +783,11 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
             break
         if not isinstance(record, dict):
             continue
-        prospect = _prospect_from_record(record, source="internal_record", query=payload.query)
+        prospect = _fixture_safe_projection(
+            _prospect_from_record(record, source="internal_record", query=payload.query)
+        )
         prospect["source_scope"] = "tenant_internal"
-        prospect["evidence_class"] = "tenant_owned_record"
+        prospect["evidence_class"] = "fixture" if prospect.get("data_class") == "fixture" else "tenant_owned_record"
         if payload.local_fixture_only and store is not None:
             fixture_id = str(record.get("id") or prospect.get("id") or "unknown")
             prospect.update(
@@ -765,6 +796,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
                     "source": "local_fixture",
                     "source_scope": "local_fixture",
                     "evidence_class": "fixture",
+                    "identity_status": "verified",
                     "identity_evidence_urls": [f"fixture://{fixture_id}"],
                 }
             )
@@ -798,7 +830,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         internal_prospect_candidates.append(prospect)
     rejected_public_candidates = 0
     for index, item in enumerate(web_results):
-        if len(prospect_candidates) >= public_search_limit:
+        if len(public_prospect_candidates) >= public_search_limit:
             break
         prospect = _prospect_from_web_result(item, index=index)
         if not prospect["url"]:
@@ -816,8 +848,12 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         prospect["source_scope"] = "public_search"
         # Search phases deduplicate observed URLs. Titles and internal labels
         # cannot establish that two public observations describe the same site.
-        prospect_candidates.append(prospect)
         public_prospect_candidates.append(prospect)
+
+    # A public search must not spend its bounded verification pool on stored
+    # directory labels before independent public search results are examined.
+    if payload.include_public_search and public_prospect_candidates:
+        prospect_candidates = (public_prospect_candidates + internal_prospect_candidates)[:public_search_limit]
 
     business_context = resolve_business_context(context)
     tenant_internal_records = internal_matches + list(crm_search.results or [])
@@ -836,9 +872,9 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         "internal_prospect_candidates": internal_prospect_candidates,
         "public_prospect_candidates": public_prospect_candidates,
         "prospect_count": len(prospect_candidates),
-        "internal_records": internal_matches[: payload.limit],
+        "internal_records": _fixture_safe_projection(internal_matches[: payload.limit]),
         "internal_count": len(internal_matches),
-        "crm_brain_matches": crm_search.results[: payload.limit],
+        "crm_brain_matches": _fixture_safe_projection(crm_search.results[: payload.limit]),
         "web_results": web_results,
         "web_result_count": len(web_results),
         "search_queries": list(dict.fromkeys(executed_search_queries)) if payload.include_public_search else [],
@@ -931,8 +967,7 @@ def web_research(invocation: ToolInvocation, context: ActionRuntimeContext) -> A
         # Local fixtures remain explicit synthetic proof data.
         "real": not payload.local_fixture_only,
         "candidates_real": not payload.local_fixture_only
-        and bool(internal_matches or crm_search.results)
-        and bool(prospect_candidates),
+        and any(item.get("real") is True and item.get("identity_status") == "verified" for item in prospect_candidates),
         "data_class": "fixture" if payload.local_fixture_only else "observed",
         "plugin_required": False,
     }
@@ -1074,6 +1109,11 @@ def research_synthesize_report(invocation: ToolInvocation, context: ActionRuntim
         "evidence_gaps": limitations,
         "candidate_count": len(rows),
         "result_semantics": "valid_empty" if valid_empty_reasons and not rows else "observed_candidates",
+        **(
+            {"evidence_coverage": "incomplete"}
+            if any(item.get("evidence_coverage") == "incomplete" for item in payload.valid_empty_upstream)
+            else {}
+        ),
     }
     summary = f"Synthesized an evidence-bounded research report from {len(rows)} candidate(s)."
     return ActionResult(

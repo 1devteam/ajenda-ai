@@ -229,7 +229,13 @@ def _mission_acceptance_contract(mission: Any) -> dict[str, Any]:
     raw_composition = context.get("composition")
     composition: dict[str, Any] = raw_composition if isinstance(raw_composition, dict) else {}
     contract = composition.get("acceptance_contract")
-    return dict(contract) if isinstance(contract, dict) else {}
+    if not isinstance(contract, dict) or not contract:
+        return {}
+    coverage = composition.get("coverage_assessment")
+    # Confirmation and recompilation save the selected source scope before any
+    # handler can emit an identity verdict.
+    fixture_scope = isinstance(coverage, dict) and coverage.get("mode") == "local_fixture"
+    return {**contract, "fixture_identity_only": True} if fixture_scope else dict(contract)
 
 
 _TERMINAL_TASK_STATES: frozenset[str] = frozenset(

@@ -82,13 +82,38 @@ def evaluate_mission_acceptance(*, tasks: list[Any], contract: dict[str, Any]) -
 
     candidate_min = int(contract.get("candidate_min", 0) or 0)
     if contract.get("require_verified_identity"):
+        fixture_scope = contract.get("fixture_identity_only") is True
+
         # A public discovery row is only an input to identity observation. It
         # must never satisfy the terminal candidate count by itself. Prefer the
-        # observation-stage promotion list and fall back to explicitly verified
-        # rows for internal/legacy producers.
-        verified = [item for item in observed_candidates if item.get("identity_status") == "verified"]
-        if not verified:
-            verified = [item for item in candidates if item.get("identity_status") == "verified"]
+        # observation-stage promotion list whenever an observer ran; fall back
+        # to verified internal/legacy rows only when no observation was emitted.
+        def eligible_identity(item: dict[str, Any]) -> bool:
+            if item.get("identity_status") != "verified":
+                return False
+            sources = item.get("identity_evidence_urls")
+            if fixture_scope:
+                return (
+                    item.get("source") == "local_fixture"
+                    and item.get("real") is False
+                    and isinstance(sources, list)
+                    and any(isinstance(url, str) and url.startswith("fixture://") for url in sources)
+                )
+            source_urls = item.get("sources")
+            references = [item.get(key) for key in ("website", "url", "source_url", "domain")]
+            references.extend(sources if isinstance(sources, list) else [])
+            references.extend(source_urls if isinstance(source_urls, list) else [])
+            return (
+                item.get("real") is not False
+                and item.get("source") != "local_fixture"
+                and item.get("data_class") != "fixture"
+                and item.get("evidence_class") != "fixture"
+                and not any(isinstance(value, str) and value.startswith("fixture://") for value in references)
+            )
+
+        verified = [item for item in observed_candidates if eligible_identity(item)]
+        if not fixture_scope and not any("verified_prospect_candidates" in output for output in outputs):
+            verified = [item for item in candidates if eligible_identity(item)]
         if len(verified) < candidate_min:
             reasons.append(f"required {candidate_min} verified prospect identities, produced {len(verified)}")
     elif len(candidates) < candidate_min:
