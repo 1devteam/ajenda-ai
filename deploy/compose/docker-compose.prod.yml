@@ -43,6 +43,13 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    # Public egress (web.search / web.research / web.page_read) resolves via
+    # socket.getaddrinfo inside NetworkEgressAuthority. Pin resolvers so the
+    # container does not depend on the host's DNS, which can be nonstandard
+    # on Cloudflare-hosted Docker and previously caused DNS resolution failed.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
 
   worker:
     build:
@@ -61,6 +68,10 @@ services:
       redis:
         condition: service_started
     restart: unless-stopped
+    # Same rationale as api: mission tasks perform public search and page reads.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
 
   assurance:
     build:
@@ -79,6 +90,10 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+    # Assurance runs runtime verification that may exercise egress paths.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
 
   migrate:
     build:
