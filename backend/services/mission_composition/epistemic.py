@@ -35,7 +35,10 @@ def build_epistemic_context(
         sources.add("internal_crm")
     elif coverage.mode == "public_or_provider":
         sources.add("public_observation")
-    if intent.interpretation_evidence:
+    decision_evidence = [
+        item for item in intent.interpretation_evidence if not item.field_path.startswith("semantic_concepts.")
+    ]
+    if decision_evidence:
         sources.add("derived")
     if not sources:
         sources.add("unknown")
@@ -66,9 +69,9 @@ def build_epistemic_context(
     # exists; it is not a measured probability.
     confidence = intent.minimum_field_confidence
     if confidence is None:
-        confidence = min((item.confidence for item in intent.interpretation_evidence), default=0.0)
+        confidence = min((item.confidence for item in decision_evidence), default=0.0)
     confidence_basis = ["mission_intent"]
-    if intent.interpretation_evidence:
+    if decision_evidence:
         confidence_basis.append("deterministic_interpretation_evidence")
     if coverage.mode == "local_fixture":
         confidence_basis.append("fixture_catalog_scope")
