@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.mission_composition.service import MissionCompositionService
 from backend.services.mission_composition.semantic_lattice.resolver import (
     build_semantic_selection as build_modular_semantic_selection,
 )
@@ -190,3 +191,17 @@ def test_existing_post_job_lattice_still_reports_missing_required_job() -> None:
         selected_job_keys=(),
     )
     assert any(item.status == "conflict" for item in selection.bindings)
+
+
+def test_composition_feeds_lattice_concepts_to_interpretation() -> None:
+    instruction = "Research three HVAC prospects offering heat pump maintenance in Austin."
+    record = MissionCompositionService(db=None).compose(tenant_id="tenant", instruction=instruction)
+    matches = {
+        item.normalized_value
+        for item in record.intent.interpretation_evidence
+        if item.rule_id == "semantic_lattice.concept_match"
+    }
+    assert {"prospect", "heat_pump"}.issubset(matches)
+    assert record.composition_provenance.semantic_selection is not None
+    assert "hvac" in record.composition_provenance.semantic_selection.active_components
+    assert record.intent.requested_quantity == 3
