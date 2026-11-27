@@ -32,11 +32,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
 
-      - name: Diagnose exact Ruff edit
-        run: |
-          ruff check --diff backend/services/mission_composition/interpretation/feedback_loop.py || true
-          ruff format --diff backend/services/mission_composition/interpretation/feedback_loop.py || true
-
       - name: Validate interpretation, evidence, and lattice source
         run: |
           ruff check \
@@ -49,7 +44,8 @@ jobs:
             backend/services/mission_composition/semantic_lattice/definitions.py \
             backend/services/ontology/algorithms.py \
             tests/unit/services/test_semantic_vocabulary.py \
-            tests/unit/services/test_algorithms.py
+            tests/unit/services/test_algorithms.py \
+            tests/unit/services/test_mission_composition_epistemic.py
           ruff format --check \
             backend/services/mission_composition/intent_interpreter.py \
             backend/services/mission_composition/interpretation/feedback_loop.py \
@@ -60,7 +56,8 @@ jobs:
             backend/services/mission_composition/semantic_lattice/definitions.py \
             backend/services/ontology/algorithms.py \
             tests/unit/services/test_semantic_vocabulary.py \
-            tests/unit/services/test_algorithms.py
+            tests/unit/services/test_algorithms.py \
+            tests/unit/services/test_mission_composition_epistemic.py
 
       - name: Run interpreter, lattice, ontology, and composition regressions
         run: |
@@ -70,6 +67,7 @@ jobs:
             tests/unit/services/test_mission_interpreter_upgrade.py \
             tests/unit/services/test_mission_composition_epistemic.py \
             tests/unit/services/test_algorithms.py \
+            tests/unit/services/test_mission_composition_epistemic.py \
             tests/contract/api/test_mission_composition_routes.py
 
       - name: Prove historical mission interpretation contracts
