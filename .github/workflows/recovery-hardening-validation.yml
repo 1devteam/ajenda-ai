@@ -69,9 +69,6 @@ jobs:
             tests/unit/services/test_algorithms.py \
             tests/contract/api/test_mission_composition_routes.py
 
-      - name: Prove historical mission interpretation contracts
-        run: python scripts/validation/mission_contract_gate.py
-
       - name: Run contract operations tests
         run: pytest -q -ra tests/contract/operations
 
@@ -83,3 +80,7 @@ jobs:
 
       - name: Run lease recovery tests
         run: pytest -q -ra tests/integration/runtime/test_lease_recovery_real.py
+
+      - name: Prove historical mission interpretation contracts
+        run: python scripts/validation/mission_contract_gate.py
+
