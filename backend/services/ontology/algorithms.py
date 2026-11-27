@@ -232,7 +232,9 @@ def evaluate_composition_algorithms(
     confidence_values = [
         float(item["confidence"])
         for item in interpretation_evidence
-        if isinstance(item, dict) and isinstance(item.get("confidence"), (int, float))
+        if isinstance(item, dict)
+        and not str(item.get("field_path", "")).startswith("semantic_concepts.")
+        and isinstance(item.get("confidence"), (int, float))
     ]
     source_input = {"interpretation_evidence": interpretation_evidence, "blocking_gap_count": blocking_gap_count}
     source_confidence = sum(confidence_values) / len(confidence_values) if confidence_values else 0.0
@@ -252,7 +254,9 @@ def evaluate_composition_algorithms(
         evidence_refs=tuple(
             str(item.get("field_path"))
             for item in interpretation_evidence
-            if isinstance(item, dict) and item.get("field_path")
+            if isinstance(item, dict)
+            and item.get("field_path")
+            and not str(item["field_path"]).startswith("semantic_concepts.")
         ),
     )
     return completeness, source
