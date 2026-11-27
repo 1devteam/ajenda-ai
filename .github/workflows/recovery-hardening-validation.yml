@@ -32,6 +32,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
 
+      - name: Diagnose exact Ruff edit
+        run: |
+          ruff check --diff backend/services/mission_composition/interpretation/feedback_loop.py || true
+          ruff format --diff backend/services/mission_composition/interpretation/feedback_loop.py || true
+
       - name: Validate interpretation, evidence, and lattice source
         run: |
           ruff check \
