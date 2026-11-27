@@ -510,6 +510,22 @@ def create_mission_from_template(
 
     _enforce_profile_readiness(db=db, tenant_id=tenant_id, template_id=body.template_id)
 
+    from backend.services.mission_composition.service import build_objective_interpretation_snapshot
+
+    objective_text = body.mission_objective or body.objective or bundle.objective
+    profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=str(tenant_id))
+    try:
+        objective_interpretation = build_objective_interpretation_snapshot(
+            objective_text,
+            profile=profile,
+            source_kind="vertical_template",
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "MISSION_INTERPRETATION_INVALID", "message": str(exc)[:500]},
+        ) from exc
+
     # Charter gates apply whenever runtime-bound tasks will be materialized or queued.
     if bundle.allows_runtime_queue:
         _enforce_operating_charter(db=db, tenant_id=tenant_id, actions=actions)
@@ -528,7 +544,7 @@ def create_mission_from_template(
     role = get_vertical_role(bundle.role_key)
     mission = Mission(
         tenant_id=str(tenant_id),
-        objective=body.mission_objective or body.objective or bundle.objective,
+        objective=objective_text,
         status="planned",
         metadata_json={
             "schema_version": 1,
@@ -536,6 +552,7 @@ def create_mission_from_template(
             "template_id": body.template_id,
             "phase": bundle.phase,
             "allows_runtime_queue": bundle.allows_runtime_queue,
+            "objective_interpretation": objective_interpretation,
         },
         compliance_category=role.compliance_category,
         jurisdiction=body.jurisdiction or role.default_jurisdiction,
