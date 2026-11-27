@@ -194,6 +194,14 @@ def test_launch_task_records_mission_and_task_quota_before_queueing() -> None:
     quota_svc.check_and_record_mission_creation.assert_called_once_with(tenant_id)
     quota_svc.check_and_record_task_creation.assert_called_once_with(tenant_id)
     coordinator.queue_task.assert_called_once()
+    created_missions = [call.args[0] for call in db.add.call_args_list if isinstance(call.args[0], Mission)]
+    assert len(created_missions) == 1
+    snapshot = created_missions[0].metadata_json["objective_interpretation"]
+    assert snapshot["source_kind"] == "ability_action"
+    assert snapshot["input_scope"] == "objective_only"
+    assert snapshot["grants_execution_authority"] is False
+    assert snapshot["intent"]["raw_instruction"] == "Ability runtime task: sales.research"
+    assert snapshot["intent"]["interpretation_passes"]
 
 
 def test_launch_task_high_risk_gtm_requires_idempotency_key() -> None:
