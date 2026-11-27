@@ -67,6 +67,23 @@ contract still caps entries at 50; the interpreter now records
 - Successful unit, contract, and recovery workflows do **not** prove a
   successful real business mission or live runtime compatibility.
 
+## Historical corpus discrepancy (not waived)
+
+The historical corpus `docs/contracts/mission-interpreter-corpus.v1.json`
+currently disagrees with the interpreter on two cases:
+
+- `crm-deal-records`: corpus expects `observe_contacts` from a request to
+  save contacts, although the instruction does not explicitly ask to observe
+  or collect public contact information.
+- `internal-crm-readback`: corpus expects `qualify_prospects` although the
+  instruction requests research, contact observation, persistence, and
+  read-back without qualification language.
+
+Both relevant original #569 regex and outcome branches were inspected and
+remain unchanged by this PR. Neither expectation is silently modified to
+obtain a passing build. The corpus gate remains failing and blocks merge until
+the requested outcome semantics and corpus are adjudicated together.
+
 ## Merge gate
 
 Keep PR #729 draft until all changed-source lint/format, the focused
