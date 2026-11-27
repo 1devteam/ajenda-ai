@@ -732,15 +732,30 @@ def launch_task(
         if mission.status == MissionState.PLANNED.value:
             mission.status = MissionState.RUNNING.value
     else:
+        from backend.services.mission_composition.service import build_objective_interpretation_snapshot
+
+        mission_objective = body.mission_objective or f"Ability runtime task: {action.name}"
+        try:
+            objective_interpretation = build_objective_interpretation_snapshot(
+                mission_objective,
+                profile=profile,
+                source_kind="ability_action",
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "MISSION_INTERPRETATION_INVALID", "message": str(exc)[:500]},
+            ) from exc
         mission = Mission(
             tenant_id=str(tenant_id),
-            objective=body.mission_objective or f"Ability runtime task: {action.name}",
+            objective=mission_objective,
             status=MissionState.RUNNING.value,
             metadata_json={
                 "schema_version": 1,
                 "source": "ability-runtime",
                 "action": action.name,
                 "created_at": datetime.now(UTC).isoformat(),
+                "objective_interpretation": objective_interpretation,
             },
         )
         db.add(mission)
