@@ -279,6 +279,7 @@ def build_objective_interpretation_snapshot(
     *,
     profile: Any,
     source_kind: Literal["direct_intake", "vertical_template", "ability_action"],
+    input_origin: Literal["user", "template", "generated_action"] = "user",
 ) -> dict[str, Any]:
     """Produce a typed, non-authoritative interpretation for a mission entry.
 
@@ -289,7 +290,9 @@ def build_objective_interpretation_snapshot(
     return {
         "schema_version": 1,
         "source_kind": source_kind,
+        "input_origin": input_origin,
         "input_scope": "objective_only",
+        "interpretation_usage": "diagnostic_only",
         "authority_class": "read_model",
         "grants_execution_authority": False,
         "intent": intent.model_dump(mode="json"),
