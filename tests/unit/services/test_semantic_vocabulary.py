@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from backend.services.mission_composition import intent_interpreter as interpreter_module
 from backend.services.mission_composition.intent_interpreter import (
     _interpret_instruction_pass,
     interpret_instruction,
@@ -251,3 +254,34 @@ def test_semantic_feedback_terminates_after_no_new_grounded_meaning() -> None:
     twice = interpret_instruction(instruction)
     assert once == twice
     assert once.requested_outcomes.count("qualify_prospects") == 1
+
+
+def test_concept_only_lattice_re_evaluates_outcome_without_missing_job_conflicts() -> None:
+    selection = build_modular_semantic_selection(
+        instruction="Find three roofing companies in Austin.",
+        requested_outcomes=("research_prospects",),
+        selected_job_keys=(),
+        validate_job_bindings=False,
+    )
+    assert "prospect" in selection.concepts
+    assert selection.bindings[0].status == "informational"
+    assert selection.conflicts == ()
+
+
+def test_interpreter_re_enters_after_lattice_receives_candidate_meaning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = interpreter_module._interpret_instruction_pass
+    observed: list[tuple[str, ...]] = []
+
+    def tracked_pass(*args: object, **kwargs: object):
+        semantic_selection = kwargs["semantic_selection"]
+        observed.append(tuple(semantic_selection.concepts))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(interpreter_module, "_interpret_instruction_pass", tracked_pass)
+    intent = interpret_instruction("Find three roofing companies in Austin.")
+    assert "research_prospects" in intent.requested_outcomes
+    assert len(observed) == 2
+    assert "prospect" not in observed[0]
+    assert "prospect" in observed[1]
