@@ -41,6 +41,7 @@ jobs:
             backend/api/routes/ability_runtime.py \
             backend/domain/mission.py \
             backend/services/mission_composition/interpretation/feedback_loop.py \
+            backend/services/mission_composition/interpretation/entrypoint.py \
             backend/services/mission_composition/service.py \
             backend/services/mission_composition/contracts.py \
             backend/services/mission_composition/epistemic.py \
@@ -61,6 +62,7 @@ jobs:
             backend/api/routes/ability_runtime.py \
             backend/domain/mission.py \
             backend/services/mission_composition/interpretation/feedback_loop.py \
+            backend/services/mission_composition/interpretation/entrypoint.py \
             backend/services/mission_composition/service.py \
             backend/services/mission_composition/contracts.py \
             backend/services/mission_composition/epistemic.py \
