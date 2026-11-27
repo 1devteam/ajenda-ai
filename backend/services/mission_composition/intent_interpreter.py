@@ -2256,21 +2256,26 @@ def _interpret_instruction_pass(
         for concept in semantic_selection.concept_provenance:
             if len(evidence) >= 50:
                 break
-            matched_term = next(
-                (
-                    term
-                    for term in (concept.concept_id, concept.display_name, *concept.aliases)
-                    if normalize_concept_text(term) in matched_terms
-                ),
-                None,
-            )
-            if matched_term is None:
+            source_span: str | None = None
+            for alias in (concept.concept_id, concept.display_name, *concept.aliases):
+                normalized_alias = normalize_concept_text(alias)
+                if normalized_alias not in matched_terms:
+                    continue
+                match = re.search(
+                    rf"(?<![a-z0-9]){re.escape(normalized_alias)}(?![a-z0-9])",
+                    text,
+                    flags=re.IGNORECASE,
+                )
+                if match is not None:
+                    source_span = match.group(0)
+                    break
+            if source_span is None:
                 continue
             evidence.append(
                 InterpretationEvidence(
                     field_path=f"semantic_concepts.{concept.concept_id}",
                     source="inferred_deterministic",
-                    source_text=matched_term,
+                    source_text=source_span,
                     normalized_value=concept.concept_id,
                     confidence=1.0,
                     rule_id="semantic_lattice.concept_match",
