@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from backend.services.mission_composition.contracts import MissionIntent
+from backend.services.mission_composition.contracts import InterpretationPassTrace, MissionIntent
 from backend.services.mission_composition.semantic_lattice.definitions import SemanticSelection, normalize_concept_text
 from backend.services.mission_composition.semantic_lattice.resolver import build_semantic_selection
 
@@ -78,17 +78,28 @@ def interpret_with_semantic_feedback(
         fuzzy_enabled=fuzzy_enabled,
         semantic_selection=selection,
     )
+
+    history = [
+        InterpretationPassTrace(
+            pass_number=1,
+            requested_outcomes=tuple(current.requested_outcomes),
+            concept_ids=selection.concepts,
+            decision="initial",
+            reason="initial_interpretation",
+        )
+    ]
     seen = {(tuple(current.requested_outcomes), tuple(selection.concepts))}
-    for _ in range(1, _MAX_INTERPRETATION_PASSES):
-        # Let candidate meaning inform the *same* lattice before revisiting
-        # interpretation. No jobs have been selected yet, so job checks are
-        # informational only and cannot produce premature job conflicts.
+    stop_reason = "converged"
+    initial_conflicts = selection.conflicts
+    for pass_number in range(2, _MAX_INTERPRETATION_PASSES + 1):
+        # The lattice consumes candidate meaning without checking for jobs that
+        # cannot exist until the interpreter has finished.
         next_selection = build_semantic_selection(
             instruction=instruction,
             requested_outcomes=current.requested_outcomes,
             selected_job_keys=(),
             tenant_overrides=selection.tenant_overrides,
-            tenant_override_conflicts=selection.conflicts,
+            tenant_override_conflicts=initial_conflicts,
             validate_job_bindings=False,
         )
         hints = _semantic_outcome_feedback(instruction, next_selection, current)
@@ -104,18 +115,17 @@ def interpret_with_semantic_feedback(
             semantic_outcome_hints=hints,
         )
         signature = (tuple(candidate.requested_outcomes), tuple(next_selection.concepts))
+        rejection = ""
         if signature in seen:
-            break
-        seen.add(signature)
-        if not hints.issubset(set(candidate.requested_outcomes)):
-            break
-        # Re-entry may enrich meaning, but cannot remove user intent, downgrade
-        # interpretation readiness or rewrite source/authority contracts.
-        if not set(current.requested_outcomes).issubset(candidate.requested_outcomes):
-            break
-        if current.interpretation_ready and not candidate.interpretation_ready:
-            break
-        if (
+            rejection = "repeated_interpretation"
+            stop_reason = "cycle"
+        elif not hints.issubset(set(candidate.requested_outcomes)):
+            rejection = "feedback_not_grounded"
+        elif not set(current.requested_outcomes).issubset(candidate.requested_outcomes):
+            rejection = "existing_outcome_removed"
+        elif current.interpretation_ready and not candidate.interpretation_ready:
+            rejection = "readiness_regressed"
+        elif (
             candidate.target_entities != current.target_entities
             or candidate.requested_quantity != current.requested_quantity
             or candidate.qualification_quantity != current.qualification_quantity
@@ -129,7 +139,29 @@ def interpret_with_semantic_feedback(
             or candidate.constraints != current.constraints
             or candidate.contradictions != current.contradictions
         ):
+            rejection = "source_or_authority_contract_changed"
+        history.append(
+            InterpretationPassTrace(
+                pass_number=pass_number,
+                requested_outcomes=tuple(candidate.requested_outcomes),
+                concept_ids=next_selection.concepts,
+                feedback_hints=tuple(sorted(hints)),
+                decision="rejected" if rejection else "accepted",
+                reason=rejection or "new_semantic_information",
+            )
+        )
+        if rejection:
+            if stop_reason != "cycle":
+                stop_reason = "rejected"
             break
+        seen.add(signature)
         current = candidate
         selection = next_selection
-    return current
+    else:
+        stop_reason = "pass_limit"
+    return current.model_copy(
+        update={
+            "interpretation_passes": history,
+            "interpretation_stop_reason": stop_reason,
+        }
+    )
