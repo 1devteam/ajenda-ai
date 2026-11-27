@@ -159,6 +159,50 @@ def test_mission_intake_creates_tenant_owned_mission_without_queueing_runtime_wo
     coordinator_cls.assert_not_called()
 
 
+def test_mission_intake_resolves_tenant_aliases_without_granting_actions() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    payload = _valid_payload()
+    payload["objective"] = "Research three priority accounts in Austin."
+    payload["allowed_actions"] = []
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    profile = SimpleNamespace(
+        id="approved-profile",
+        approved_facts={
+            "semantic_terminology_overrides": [
+                {"concept_id": "prospect", "aliases": ["priority accounts"]}
+            ]
+        },
+        provenance={},
+    )
+    repo = MagicMock()
+    repo.add.return_value = _persisted_mission(tenant_id=tenant_id, mission_id=mission_id, payload=payload)
+    profile_repo = MagicMock()
+    profile_repo.get_active_profile_for_tenant.return_value = profile
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=MagicMock()),
+        patch("backend.repositories.business_profile_repository.BusinessProfileRepository", return_value=profile_repo),
+    ):
+        response = client.post("/v1/missions", json=payload)
+
+    assert response.status_code == 201
+    profile_repo.get_active_profile_for_tenant.assert_called_once_with(tenant_id=str(tenant_id))
+    created = repo.add.call_args.args[0]
+    intake = created.metadata_json[MISSION_INTAKE_METADATA_KEY]
+    assert intake["allowed_actions"] == []
+    interpretation = intake["objective_interpretation"]
+    assert interpretation["grants_execution_authority"] is False
+    assert any(
+        item["field_path"] == "semantic_concepts.prospect"
+        and item["source_text"] == "priority accounts"
+        for item in interpretation["intent"]["interpretation_evidence"]
+    )
+
+
 def test_mission_intake_rejects_missing_success_criteria() -> None:
     tenant_id = uuid.uuid4()
     payload = _valid_payload()
