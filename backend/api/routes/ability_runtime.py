@@ -715,14 +715,13 @@ def launch_task(
                 ),
             )
 
-    mission_objective: str | None = None
+    mission_objective = body.mission_objective or f"Ability runtime task: {action.name}"
     objective_interpretation: dict[str, Any] | None = None
     if body.mission_id is None:
         # No quota counters or mission writes may occur before semantic input
         # validation. The result remains diagnostic and cannot select actions.
         from backend.services.mission_composition.service import build_objective_interpretation_snapshot
 
-        mission_objective = body.mission_objective or f"Ability runtime task: {action.name}"
         try:
             objective_interpretation = build_objective_interpretation_snapshot(
                 mission_objective,
