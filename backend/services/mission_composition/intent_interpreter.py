@@ -2260,7 +2260,13 @@ def _interpret_instruction_pass(
             if len(evidence) >= 50:
                 break
             source_span: str | None = None
-            for alias in (concept.concept_id, concept.display_name, *concept.aliases):
+            tenant_aliases = tuple(
+                alias
+                for override in semantic_selection.tenant_overrides
+                if override.concept_id == concept.concept_id
+                for alias in override.aliases
+            )
+            for alias in (concept.concept_id, concept.display_name, *concept.aliases, *tenant_aliases):
                 normalized_alias = normalize_concept_text(alias)
                 if normalized_alias not in matched_terms:
                     continue
