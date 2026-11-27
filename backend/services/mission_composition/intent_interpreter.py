@@ -2249,6 +2249,9 @@ def _interpret_instruction_pass(
         semantic_units = []
         unmatched_units = []
 
+    if semantic_selection.concepts and "semantic_lattice" not in components_active:
+        components_active.append("semantic_lattice")
+
     # Preserve source-qualified lattice findings in the existing evidence contract.
     # Concept matches are semantic context, not new requested outcomes or jobs.
     if semantic_selection.concept_provenance:
@@ -2422,37 +2425,58 @@ def interpret_instruction(
         fuzzy_enabled=fuzzy_enabled,
         semantic_selection=selection,
     )
-    seen = {tuple(current.requested_outcomes)}
+    seen = {(tuple(current.requested_outcomes), tuple(selection.concepts))}
     for _ in range(1, _MAX_INTERPRETATION_PASSES):
-        hints = _semantic_outcome_feedback(instruction, selection, current)
-        if not hints:
+        # Let candidate meaning inform the *same* lattice before revisiting
+        # interpretation. No jobs have been selected yet, so job checks are
+        # informational only and cannot produce premature job conflicts.
+        next_selection = build_semantic_selection(
+            instruction=instruction,
+            requested_outcomes=current.requested_outcomes,
+            selected_job_keys=(),
+            tenant_overrides=selection.tenant_overrides,
+            tenant_override_conflicts=selection.conflicts,
+            validate_job_bindings=False,
+        )
+        hints = _semantic_outcome_feedback(instruction, next_selection, current)
+        concepts_changed = set(next_selection.concepts) != set(selection.concepts)
+        if not hints and not concepts_changed:
             break
         candidate = _interpret_instruction_pass(
             instruction,
             profile_context=profile_context,
             spelling_enabled=spelling_enabled,
             fuzzy_enabled=fuzzy_enabled,
-            semantic_selection=selection,
+            semantic_selection=next_selection,
             semantic_outcome_hints=hints,
         )
-        signature = tuple(candidate.requested_outcomes)
+        signature = (tuple(candidate.requested_outcomes), tuple(next_selection.concepts))
         if signature in seen:
             break
         seen.add(signature)
         if not hints.issubset(set(candidate.requested_outcomes)):
             break
-        # Reject any re-entry that removes prior meaning or modifies the
-        # original user's explicit target, quantity or action policy.
+        # Re-entry may enrich meaning, but cannot remove user intent, downgrade
+        # interpretation readiness or rewrite source/authority contracts.
         if not set(current.requested_outcomes).issubset(candidate.requested_outcomes):
+            break
+        if current.interpretation_ready and not candidate.interpretation_ready:
             break
         if (
             candidate.target_entities != current.target_entities
             or candidate.requested_quantity != current.requested_quantity
+            or candidate.qualification_quantity != current.qualification_quantity
             or candidate.send_policy != current.send_policy
+            or candidate.contact_policy != current.contact_policy
+            or candidate.publish_policy != current.publish_policy
+            or candidate.write_policy != current.write_policy
+            or candidate.timing_constraints != current.timing_constraints
             or candidate.forbidden_actions != current.forbidden_actions
             or candidate.forbidden_canonical_outcomes != current.forbidden_canonical_outcomes
+            or candidate.constraints != current.constraints
             or candidate.contradictions != current.contradictions
         ):
             break
         current = candidate
+        selection = next_selection
     return current
