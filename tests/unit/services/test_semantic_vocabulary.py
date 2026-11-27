@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.mission_composition.semantic_lattice.resolver import (
     build_semantic_selection as build_modular_semantic_selection,
 )
@@ -146,3 +147,46 @@ def test_semantic_selection_fails_closed_when_a_required_job_is_missing() -> Non
 
     assert selection.conflicts
     assert selection.bindings[0].status == "conflict"
+
+
+def test_pre_intent_lattice_resolves_concepts_without_job_binding_conflicts() -> None:
+    selection = build_modular_semantic_selection(
+        instruction="Research HVAC prospects offering heat pump maintenance in Austin.",
+        requested_outcomes=(),
+        selected_job_keys=(),
+    )
+    assert {"prospect", "heat_pump"}.issubset(selection.concepts)
+    assert "hvac" in selection.active_components
+    assert selection.bindings == ()
+    assert selection.conflicts == ()
+
+
+def test_interpreter_consumes_lattice_concept_evidence_without_changing_meaning() -> None:
+    instruction = "Research three HVAC prospects offering heat pump maintenance in Austin."
+    selection = build_modular_semantic_selection(
+        instruction=instruction,
+        requested_outcomes=(),
+        selected_job_keys=(),
+    )
+    intent = interpret_instruction(instruction, semantic_selection=selection)
+    direct = interpret_instruction(instruction)
+    assert intent.requested_outcomes == direct.requested_outcomes
+    assert intent.target_entities == direct.target_entities
+    assert intent.requested_quantity == direct.requested_quantity
+    assert intent.interpretation_ready == direct.interpretation_ready
+    assert any(
+        item.field_path == "semantic_concepts.heat_pump"
+        and item.source_text == "heat pump"
+        and item.rule_id == "semantic_lattice.concept_match"
+        for item in intent.interpretation_evidence
+    )
+    assert "semantic_lattice" in intent.components_executed
+
+
+def test_existing_post_job_lattice_still_reports_missing_required_job() -> None:
+    selection = build_modular_semantic_selection(
+        instruction="Qualify the prospects.",
+        requested_outcomes=("qualify_prospects",),
+        selected_job_keys=(),
+    )
+    assert any(item.status == "conflict" for item in selection.bindings)
