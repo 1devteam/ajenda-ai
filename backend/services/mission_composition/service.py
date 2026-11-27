@@ -247,6 +247,33 @@ def _tenant_semantic_overrides(profile: Any) -> tuple[tuple[TenantSemanticOverri
     return tuple(overrides), tuple(conflicts)
 
 
+def interpret_instruction_with_profile(
+    instruction: str,
+    *,
+    profile: Any,
+) -> tuple[MissionIntent, tuple[TenantSemanticOverride, ...], tuple[str, ...]]:
+    """Share the canonical interpreter input contract across mission entry points.
+
+    Approved business terminology may inform meaning, but never grants an
+    action or replaces the structured intake's explicit policies and limits.
+    """
+    overrides, override_conflicts = _tenant_semantic_overrides(profile)
+    concept_selection = build_semantic_selection(
+        instruction=instruction,
+        requested_outcomes=(),
+        selected_job_keys=(),
+        tenant_overrides=overrides,
+        tenant_override_conflicts=override_conflicts,
+        validate_job_bindings=False,
+    )
+    intent = interpret_instruction(
+        instruction,
+        profile_context=_profile_context(profile),
+        semantic_selection=concept_selection,
+    )
+    return intent, overrides, override_conflicts
+
+
 def _acceptance_score_threshold(intent: MissionIntent) -> int:
     """Keep mission acceptance aligned with the qualification action contract."""
 
@@ -390,19 +417,9 @@ class MissionCompositionService:
         profile = None
         if self._db is not None:
             profile = BusinessProfileRepository(self._db).get_active_profile_for_tenant(tenant_id=tenant_id)
-        tenant_semantic_overrides, tenant_override_conflicts = _tenant_semantic_overrides(profile)
-        # Concept-only lattice pass precedes final intent, without job-binding checks.
-        pre_intent_semantics = build_semantic_selection(
-            instruction=raw_instruction,
-            requested_outcomes=(),
-            selected_job_keys=(),
-            tenant_overrides=tenant_semantic_overrides,
-            tenant_override_conflicts=tenant_override_conflicts,
-        )
-        intent = interpret_instruction(
+        intent, tenant_semantic_overrides, tenant_override_conflicts = interpret_instruction_with_profile(
             raw_instruction,
-            profile_context=_profile_context(profile),
-            semantic_selection=pre_intent_semantics,
+            profile=profile,
         )
         # Escalation only for same actor+thread interpretation failures (durable required).
         if prior and prior.get("durable") and intent.ambiguity and not intent.interpretation_ready:
