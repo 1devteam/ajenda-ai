@@ -241,6 +241,8 @@ def test_create_mission_from_template_apply_only() -> None:
     assert body["created_task_ids"] == [str(task_id)]
     snapshot = mission_constructor.call_args.kwargs["metadata_json"]["objective_interpretation"]
     assert snapshot["source_kind"] == "vertical_template"
+    assert snapshot["input_origin"] == "template"
+    assert snapshot["interpretation_usage"] == "diagnostic_only"
     assert snapshot["input_scope"] == "objective_only"
     assert snapshot["grants_execution_authority"] is False
     assert snapshot["intent"]["raw_instruction"] == "Research competitors"
