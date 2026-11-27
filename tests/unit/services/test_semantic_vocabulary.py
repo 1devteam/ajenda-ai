@@ -19,6 +19,8 @@ from backend.services.mission_composition.service import MissionCompositionServi
 def test_shared_vocabulary_resolves_canonical_ids_and_aliases() -> None:
     assert resolve_shared_concept("prospect").concept_id == "prospect"
     assert resolve_shared_concept("  target account ").concept_id == "prospect"
+    assert resolve_shared_concept("prospects").concept_id == "prospect"
+    assert resolve_shared_concept("target accounts").concept_id == "prospect"
     assert resolve_shared_concept("follow-up").concept_id == "outreach"
 
 
