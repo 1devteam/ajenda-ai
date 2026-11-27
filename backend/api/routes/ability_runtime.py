@@ -720,7 +720,9 @@ def launch_task(
     if body.mission_id is None:
         # No quota counters or mission writes may occur before semantic input
         # validation. The result remains diagnostic and cannot select actions.
-        from backend.services.mission_composition.interpretation.entrypoint import build_objective_interpretation_snapshot
+        from backend.services.mission_composition.interpretation.entrypoint import (
+            build_objective_interpretation_snapshot,
+        )
 
         try:
             objective_interpretation = build_objective_interpretation_snapshot(
