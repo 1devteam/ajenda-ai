@@ -18,6 +18,7 @@ from backend.domain.mission import (
     MISSION_PLAN_METADATA_KEY,
     MISSION_RUNTIME_ADMISSION_METADATA_KEY,
     MISSION_TASK_GRAPH_METADATA_KEY,
+    Mission,
     build_mission_intake_metadata,
 )
 from backend.middleware.auth_context import AuthContextMiddleware
@@ -209,7 +210,7 @@ def test_direct_intake_interpretation_survives_readback_as_typed_intent() -> Non
     client = TestClient(app, raise_server_exceptions=False)
     repo = MagicMock()
 
-    def persist_mission(mission: object) -> SimpleNamespace:
+    def persist_mission(mission: Mission) -> SimpleNamespace:
         persisted = _persisted_mission(tenant_id=tenant_id, mission_id=mission_id, payload=payload)
         persisted.metadata_json = mission.metadata_json
         return persisted
