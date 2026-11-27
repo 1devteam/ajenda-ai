@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
@@ -272,6 +272,28 @@ def interpret_instruction_with_profile(
         semantic_selection=concept_selection,
     )
     return intent, overrides, override_conflicts
+
+
+def build_objective_interpretation_snapshot(
+    instruction: str,
+    *,
+    profile: Any,
+    source_kind: Literal["direct_intake", "vertical_template", "ability_action"],
+) -> dict[str, Any]:
+    """Produce a typed, non-authoritative interpretation for a mission entry.
+
+    This interprets the objective only. Structured action IDs, field values,
+    approvals and explicit policy contracts stay owned by their source route.
+    """
+    intent, _, _ = interpret_instruction_with_profile(instruction, profile=profile)
+    return {
+        "schema_version": 1,
+        "source_kind": source_kind,
+        "input_scope": "objective_only",
+        "authority_class": "read_model",
+        "grants_execution_authority": False,
+        "intent": intent.model_dump(mode="json"),
+    }
 
 
 def _acceptance_score_threshold(intent: MissionIntent) -> int:
