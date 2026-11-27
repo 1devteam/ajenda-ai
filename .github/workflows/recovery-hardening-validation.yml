@@ -32,6 +32,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
 
+      - name: Validate interpreter source and formatting
+        run: |
+          ruff check backend/services/mission_composition/intent_interpreter.py backend/services/mission_composition/service.py tests/unit/services/test_semantic_vocabulary.py
+          ruff format --check backend/services/mission_composition/intent_interpreter.py backend/services/mission_composition/service.py tests/unit/services/test_semantic_vocabulary.py
+
+      - name: Run interpreter and lattice regression tests
+        run: |
+          pytest -q -ra tests/unit/services/test_semantic_vocabulary.py tests/unit/services/test_mission_composition_engine.py tests/unit/services/test_mission_interpreter_upgrade.py
+
       - name: Run contract operations tests
         run: pytest -q -ra tests/contract/operations
 
