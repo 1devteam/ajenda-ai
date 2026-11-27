@@ -37,6 +37,8 @@ jobs:
           ruff check \
             backend/services/mission_composition/intent_interpreter.py \
             backend/api/routes/mission.py \
+            backend/api/routes/vertical_ops.py \
+            backend/api/routes/ability_runtime.py \
             backend/domain/mission.py \
             backend/services/mission_composition/interpretation/feedback_loop.py \
             backend/services/mission_composition/service.py \
@@ -49,10 +51,14 @@ jobs:
             tests/unit/services/test_algorithms.py \
             tests/unit/services/test_mission_composition_epistemic.py \
             tests/unit/api/test_mission_intake_route.py \
+            tests/unit/api/test_vertical_ops_route.py \
+            tests/unit/api/test_ability_runtime_quota_enforcement.py \
             tests/unit/domain/test_mission_intake_metadata.py
           ruff format --check \
             backend/services/mission_composition/intent_interpreter.py \
             backend/api/routes/mission.py \
+            backend/api/routes/vertical_ops.py \
+            backend/api/routes/ability_runtime.py \
             backend/domain/mission.py \
             backend/services/mission_composition/interpretation/feedback_loop.py \
             backend/services/mission_composition/service.py \
@@ -65,6 +71,8 @@ jobs:
             tests/unit/services/test_algorithms.py \
             tests/unit/services/test_mission_composition_epistemic.py \
             tests/unit/api/test_mission_intake_route.py \
+            tests/unit/api/test_vertical_ops_route.py \
+            tests/unit/api/test_ability_runtime_quota_enforcement.py \
             tests/unit/domain/test_mission_intake_metadata.py
 
       - name: Run interpreter, lattice, ontology, and composition regressions
@@ -76,6 +84,8 @@ jobs:
             tests/unit/services/test_mission_composition_epistemic.py \
             tests/unit/services/test_algorithms.py \
             tests/unit/api/test_mission_intake_route.py \
+            tests/unit/api/test_vertical_ops_route.py \
+            tests/unit/api/test_ability_runtime_quota_enforcement.py \
             tests/unit/domain/test_mission_intake_metadata.py \
             tests/contract/api/test_mission_composition_routes.py
 
