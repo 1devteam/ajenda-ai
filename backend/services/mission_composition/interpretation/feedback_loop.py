@@ -12,7 +12,6 @@ from backend.services.mission_composition.contracts import InterpretationPassTra
 from backend.services.mission_composition.semantic_lattice.definitions import SemanticSelection, normalize_concept_text
 from backend.services.mission_composition.semantic_lattice.resolver import build_semantic_selection
 
-
 _SEMANTIC_QUALIFICATION_REQUEST = re.compile(
     r"\b(?:assess|evaluate|analy[sz]e|measure)\b[^.!?]{0,80}\b(?:lead quality|qualification)\b",
     re.IGNORECASE,
