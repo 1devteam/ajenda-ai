@@ -341,16 +341,9 @@ def test_interpretation_pass_history_round_trips_and_accepts_legacy_records() ->
 
 def test_entrypoint_avoids_composition_and_runtime_dependencies() -> None:
     """Structured mission routes may import interpretation without runtime authority."""
-    path = (
-        Path(__file__).resolve().parents[3]
-        / "backend/services/mission_composition/interpretation/entrypoint.py"
-    )
+    path = Path(__file__).resolve().parents[3] / "backend/services/mission_composition/interpretation/entrypoint.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    imported = {
-        node.module
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom) and node.module is not None
-    }
+    imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module is not None}
     assert "backend.services.mission_composition.service" not in imported
     assert "backend.services.mission_composition.capability_resolver" not in imported
     assert "backend.repositories.mission_repository" not in imported
