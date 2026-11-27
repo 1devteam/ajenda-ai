@@ -61,28 +61,50 @@ contract still caps entries at 50; the interpreter now records
   lead-quality assessment; merely naming a concept cannot request work.
 - The loop is bounded deterministic re-interpretation, **not** general semantic
   reasoning, autonomous memory retrieval, or learning from failed missions.
-- Direct `POST /v1/missions` initially uses its separate structured-intake
-  contract. Its subsequent compile path can recompose, but intake has not
-  been migrated to canonical interpretation.
+- Direct `POST /v1/missions` now invokes the same tenant-aware canonical
+  interpreter before creating a mission. The full typed intent is retained in
+  `mission_intake.objective_interpretation.intent` as an explicitly
+  **objective-only**, non-authoritative read model. Structured success criteria,
+  constraints, budgets, approval requirements, allowed actions, and allowed
+  tools are still owned by intake and are not rewritten by inferred outcomes.
+  This is initial entry-point alignment, **not** a complete reconciliation
+  between structured intake policy and all interpretation findings.
 - Successful unit, contract, and recovery workflows do **not** prove a
   successful real business mission or live runtime compatibility.
 
-## Historical corpus discrepancy (not waived)
+## Historical corpus adjudication (source-backed, not bypassed)
 
-The historical corpus `docs/contracts/mission-interpreter-corpus.v1.json`
-currently disagrees with the interpreter on two cases:
+The original corpus had two cases whose expected *requested outcomes* exceeded
+what their instructions asked for. Review of original #569 interpretation rules
+confirmed this mismatch independently of PR #729:
 
-- `crm-deal-records`: corpus expects `observe_contacts` from a request to
-  save contacts, although the instruction does not explicitly ask to observe
-  or collect public contact information.
-- `internal-crm-readback`: corpus expects `qualify_prospects` although the
-  instruction requests research, contact observation, persistence, and
-  read-back without qualification language.
+- `crm-deal-records`: a requested CRM contact write does not independently
+  request public contact observation; the full-workflow instruction now
+  explicitly says to collect public contact details.
+- `internal-crm-readback`: persistence and readback do not independently
+  request qualification; the full-workflow instruction now explicitly says
+  to qualify the prospects.
 
-Both relevant original #569 regex and outcome branches were inspected and
-remain unchanged by this PR. Neither expectation is silently modified to
-obtain a passing build. The corpus gate remains failing and blocks merge until
-the requested outcome semantics and corpus are adjudicated together.
+Both original exact instruction strings remain in the corpus as new
+`-no-implied-*` cases, asserting **no invented outcome**. Thus the six-case
+gate protects both requested full workflows and the original negative
+interpretation boundaries. No implicit CRM work or contact observation was
+added to the interpreter to satisfy an invalid expected set.
+
+## Direct structured mission intake
+
+`backend/api/routes/mission.py:create_mission` calls the shared
+`interpret_instruction_with_profile` helper after existing permission and
+intake-quality checks. The helper reads only the requesting tenant's active
+business profile and supplies approved semantic aliases. The interpretation
+snapshot is stored with an explicit `input_scope=objective_only` and
+`grants_execution_authority=false`.
+
+A structured mission does **not** have its policies, allowed actions or success
+criteria inferred from this snapshot. They continue through the typed intake
+contract unchanged. A separate policy-reconciliation review is required
+before treating structured intake and freeform composition as equivalent
+sources of canonical runtime intent.
 
 ## Merge gate
 
