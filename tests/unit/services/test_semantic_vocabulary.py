@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.mission_composition.intent_interpreter import (
+    _interpret_instruction_pass,
+    interpret_instruction,
+)
 from backend.services.mission_composition.service import MissionCompositionService
 from backend.services.mission_composition.semantic_lattice.resolver import (
     build_semantic_selection as build_modular_semantic_selection,
@@ -205,3 +208,45 @@ def test_composition_feeds_lattice_concepts_to_interpretation() -> None:
     assert record.composition_provenance.semantic_selection is not None
     assert "hvac" in record.composition_provenance.semantic_selection.active_components
     assert record.intent.requested_quantity == 3
+
+
+def test_semantic_feedback_revisits_interpretation_and_adds_explicit_qualification() -> None:
+    instruction = "Assess lead quality for roofing companies in Austin."
+    initial = _interpret_instruction_pass(instruction)
+    final = interpret_instruction(instruction)
+    assert "qualify_prospects" not in initial.requested_outcomes
+    assert "qualify_prospects" in final.requested_outcomes
+    assert set(initial.requested_outcomes).issubset(final.requested_outcomes)
+    assert final.target_entities == initial.target_entities
+    assert final.send_policy == initial.send_policy
+    assert final.forbidden_actions == initial.forbidden_actions
+    assert any(
+        item.rule_id == "semantic_lattice.qualification_feedback"
+        and item.normalized_value == "qualify_prospects"
+        for item in final.interpretation_evidence
+    )
+    assert final.coverage_score >= initial.coverage_score
+
+
+def test_semantic_feedback_does_not_turn_a_noun_into_requested_work() -> None:
+    instruction = "Review the lead quality glossary in the approved business profile."
+    first = _interpret_instruction_pass(instruction)
+    result = interpret_instruction(instruction)
+    assert result.requested_outcomes == first.requested_outcomes
+    assert "qualify_prospects" not in result.requested_outcomes
+
+
+def test_semantic_feedback_respects_explicit_negation() -> None:
+    instruction = "Do not assess lead quality. Research roofing companies in Austin."
+    first = _interpret_instruction_pass(instruction)
+    result = interpret_instruction(instruction)
+    assert result.requested_outcomes == first.requested_outcomes
+    assert "qualify_prospects" not in result.requested_outcomes
+
+
+def test_semantic_feedback_terminates_after_no_new_grounded_meaning() -> None:
+    instruction = "Assess lead quality for roofing companies in Austin."
+    once = interpret_instruction(instruction)
+    twice = interpret_instruction(instruction)
+    assert once == twice
+    assert once.requested_outcomes.count("qualify_prospects") == 1
