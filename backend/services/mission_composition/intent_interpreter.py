@@ -2370,7 +2370,6 @@ def _interpret_instruction_pass(
     )
 
 
-
 def interpret_instruction(
     instruction: str,
     *,
