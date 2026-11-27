@@ -390,7 +390,20 @@ class MissionCompositionService:
         profile = None
         if self._db is not None:
             profile = BusinessProfileRepository(self._db).get_active_profile_for_tenant(tenant_id=tenant_id)
-        intent = interpret_instruction(raw_instruction, profile_context=_profile_context(profile))
+        tenant_semantic_overrides, tenant_override_conflicts = _tenant_semantic_overrides(profile)
+        # Concept-only lattice pass precedes final intent, without job-binding checks.
+        pre_intent_semantics = build_semantic_selection(
+            instruction=raw_instruction,
+            requested_outcomes=(),
+            selected_job_keys=(),
+            tenant_overrides=tenant_semantic_overrides,
+            tenant_override_conflicts=tenant_override_conflicts,
+        )
+        intent = interpret_instruction(
+            raw_instruction,
+            profile_context=_profile_context(profile),
+            semantic_selection=pre_intent_semantics,
+        )
         # Escalation only for same actor+thread interpretation failures (durable required).
         if prior and prior.get("durable") and intent.ambiguity and not intent.interpretation_ready:
             shared = set(prior.get("unresolved_fields") or []) & {c.field for c in intent.ambiguity}
@@ -427,8 +440,6 @@ class MissionCompositionService:
             )
         coverage_assessment = assess_coverage(intent, internal_capacity=internal_capacity)
         epistemic_context = build_epistemic_context(intent, coverage_assessment)
-        tenant_semantic_overrides, tenant_override_conflicts = _tenant_semantic_overrides(profile)
-
         jobs = route_jobs_for_intent(intent)
         know_how = select_vertical_know_how(intent.requested_outcomes)
         if know_how is not None:
