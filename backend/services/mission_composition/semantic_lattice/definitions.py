@@ -115,7 +115,15 @@ SHARED_BUSINESS_CONCEPTS: tuple[SemanticConcept, ...] = (
     SemanticConcept(
         concept_id="prospect",
         display_name="Prospect",
-        aliases=("lead", "leads", "prospects", "target company", "target companies", "target account", "target accounts"),
+        aliases=(
+            "lead",
+            "leads",
+            "prospects",
+            "target company",
+            "target companies",
+            "target account",
+            "target accounts",
+        ),
         concept_type="entity",
         related_concepts=("customer", "qualification", "outreach"),
         applicable_domains=("shared_business", "gtm"),
