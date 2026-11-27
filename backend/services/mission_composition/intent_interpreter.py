@@ -33,6 +33,8 @@ from backend.services.mission_composition.deliverable_contract import extract_de
 from backend.services.mission_composition.interpretation.fuzzy import fuzzy_outcome_candidates
 from backend.services.mission_composition.interpretation.lexical import classify_lexical_frame
 from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
+from backend.services.mission_composition.semantic_lattice.definitions import SemanticSelection, normalize_concept_text
+from backend.services.mission_composition.semantic_lattice.resolver import build_semantic_selection
 
 _COMPONENTS_ACTIVE = ("regex_core", "ability_vocab")
 
@@ -1206,6 +1208,7 @@ def interpret_instruction(
     profile_context: dict[str, Any] | None = None,
     spelling_enabled: bool | None = None,
     fuzzy_enabled: bool | None = None,
+    semantic_selection: SemanticSelection | None = None,
 ) -> MissionIntent:
     """Extract a candidate MissionIntent without granting execution authority."""
 
@@ -1230,6 +1233,14 @@ def interpret_instruction(
 
     norm = normalize_instruction_text(text, spelling_enabled=bool(spelling_enabled))
     text = norm.normalized
+    # Resolve concepts before intent construction. Job bindings are evaluated
+    # separately by mission composition after job selection.
+    if semantic_selection is None:
+        semantic_selection = build_semantic_selection(
+            instruction=text,
+            requested_outcomes=(),
+            selected_job_keys=(),
+        )
     components_active: list[str] = list(dict.fromkeys([*_COMPONENTS_ACTIVE, *norm.components_active]))
 
     profile_context = profile_context or {}
@@ -2223,6 +2234,38 @@ def interpret_instruction(
     except Exception:
         semantic_units = []
         unmatched_units = []
+
+    # Preserve source-qualified lattice findings in the existing evidence contract.
+    # Concept matches are semantic context, not new requested outcomes or jobs.
+    if semantic_selection.concept_provenance:
+        matched_terms = set(semantic_selection.matched_terms)
+        for concept in semantic_selection.concept_provenance:
+            if len(evidence) >= 50:
+                break
+            matched_term = next(
+                (
+                    term
+                    for term in (concept.concept_id, concept.display_name, *concept.aliases)
+                    if normalize_concept_text(term) in matched_terms
+                ),
+                None,
+            )
+            if matched_term is None:
+                continue
+            evidence.append(
+                InterpretationEvidence(
+                    field_path=f"semantic_concepts.{concept.concept_id}",
+                    source="inferred_deterministic",
+                    source_text=matched_term,
+                    normalized_value=concept.concept_id,
+                    confidence=1.0,
+                    rule_id="semantic_lattice.concept_match",
+                    interpreter_version=INTERPRETER_VERSION,
+                    components_active=["semantic_lattice"],
+                )
+            )
+            if "semantic_lattice" not in components_active:
+                components_active.append("semantic_lattice")
 
     intent = MissionIntent(
         raw_instruction=raw_instruction,
