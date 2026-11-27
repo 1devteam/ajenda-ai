@@ -1590,7 +1590,7 @@ def create_mission(
     # never turn inferred outcomes into user-allowed actions or override the
     # separately typed criteria, constraints, or budgets.
     from backend.repositories.business_profile_repository import BusinessProfileRepository
-    from backend.services.mission_composition.service import build_objective_interpretation_snapshot
+    from backend.services.mission_composition.interpretation.entrypoint import build_objective_interpretation_snapshot
 
     profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=str(tenant_id))
     try:
