@@ -171,9 +171,7 @@ def test_mission_intake_resolves_tenant_aliases_without_granting_actions() -> No
     profile = SimpleNamespace(
         id="approved-profile",
         approved_facts={
-            "semantic_terminology_overrides": [
-                {"concept_id": "prospect", "aliases": ["priority accounts"]}
-            ]
+            "semantic_terminology_overrides": [{"concept_id": "prospect", "aliases": ["priority accounts"]}]
         },
         provenance={},
     )
@@ -197,8 +195,7 @@ def test_mission_intake_resolves_tenant_aliases_without_granting_actions() -> No
     interpretation = intake["objective_interpretation"]
     assert interpretation["grants_execution_authority"] is False
     assert any(
-        item["field_path"] == "semantic_concepts.prospect"
-        and item["source_text"] == "priority accounts"
+        item["field_path"] == "semantic_concepts.prospect" and item["source_text"] == "priority accounts"
         for item in interpretation["intent"]["interpretation_evidence"]
     )
 
