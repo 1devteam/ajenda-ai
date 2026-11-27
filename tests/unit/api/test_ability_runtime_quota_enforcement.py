@@ -198,6 +198,8 @@ def test_launch_task_records_mission_and_task_quota_before_queueing() -> None:
     assert len(created_missions) == 1
     snapshot = created_missions[0].metadata_json["objective_interpretation"]
     assert snapshot["source_kind"] == "ability_action"
+    assert snapshot["input_origin"] == "generated_action"
+    assert snapshot["interpretation_usage"] == "diagnostic_only"
     assert snapshot["input_scope"] == "objective_only"
     assert snapshot["grants_execution_authority"] is False
     assert snapshot["intent"]["raw_instruction"] == "Ability runtime task: sales.research"
