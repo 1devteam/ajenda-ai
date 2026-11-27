@@ -510,7 +510,7 @@ def create_mission_from_template(
 
     _enforce_profile_readiness(db=db, tenant_id=tenant_id, template_id=body.template_id)
 
-    from backend.services.mission_composition.service import build_objective_interpretation_snapshot
+    from backend.services.mission_composition.interpretation.entrypoint import build_objective_interpretation_snapshot
 
     objective_text = body.mission_objective or body.objective or bundle.objective
     profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=str(tenant_id))
