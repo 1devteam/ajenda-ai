@@ -1953,7 +1953,7 @@ def _interpret_instruction_pass(
             goal_progress_evaluation="evaluate_goal_progress" in outcomes,
         )
         if "qualify_prospects" in semantic_outcome_hints and re.search(
-            r"\\b(?:assess|evaluate|analy[sz]e|measure)\\b[^.!?]{0,80}\\b(?:lead quality|qualification)\\b",
+            r"\b(?:assess|evaluate|analy[sz]e|measure)\b[^.!?]{0,80}\b(?:lead quality|qualification)\b",
             clause_text,
             flags=re.IGNORECASE,
         ):
@@ -2355,12 +2355,12 @@ def _interpret_instruction_pass(
 # Bounded interpretation re-entry. The existing interpreter and MissionIntent remain
 # the only semantic decision owners; the lattice supplies concept evidence only.
 _SEMANTIC_QUALIFICATION_REQUEST = re.compile(
-    r"\\b(?:assess|evaluate|analy[sz]e|measure)\\b[^.!?]{0,80}\\b(?:lead quality|qualification)\\b",
+    r"\b(?:assess|evaluate|analy[sz]e|measure)\b[^.!?]{0,80}\b(?:lead quality|qualification)\b",
     re.IGNORECASE,
 )
 _SEMANTIC_QUALIFICATION_NEGATION = re.compile(
-    r"\\b(?:do not|don't|dont|never|without)\\b[^.!?]{0,80}"
-    r"\\b(?:assess|evaluate|analy[sz]e|measure)\\b",
+    r"\b(?:do not|don't|dont|never|without)\b[^.!?]{0,80}"
+    r"\b(?:assess|evaluate|analy[sz]e|measure)\b",
     re.IGNORECASE,
 )
 _MAX_INTERPRETATION_PASSES = 3
