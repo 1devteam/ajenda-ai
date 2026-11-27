@@ -231,6 +231,10 @@ def test_semantic_feedback_revisits_interpretation_and_adds_explicit_qualificati
         for item in final.interpretation_evidence
     )
     assert final.coverage_score >= initial.coverage_score
+    assert any(
+        step.decision == "accepted" and "qualify_prospects" in step.feedback_hints
+        for step in final.interpretation_passes
+    )
 
 
 def test_semantic_feedback_does_not_turn_a_noun_into_requested_work() -> None:
@@ -286,6 +290,10 @@ def test_interpreter_re_enters_after_lattice_receives_candidate_meaning(
     assert len(observed) == 2
     assert "prospect" not in observed[0]
     assert "prospect" in observed[1]
+    assert len(intent.interpretation_passes) == 2
+    assert intent.interpretation_passes[0].decision == "initial"
+    assert intent.interpretation_passes[1].decision == "accepted"
+    assert intent.interpretation_stop_reason == "converged"
 
 
 def test_tenant_semantic_alias_provenance_survives_interpretation_loop() -> None:
@@ -311,3 +319,18 @@ def test_tenant_semantic_alias_provenance_survives_interpretation_loop() -> None
         for entry in intent.interpretation_evidence
     )
     assert selection.conflicts == ()
+
+
+def test_interpretation_pass_history_round_trips_and_accepts_legacy_records() -> None:
+    result = interpret_instruction("Find three roofing companies in Austin.")
+    payload = result.model_dump(mode="json")
+    restored = type(result).model_validate(payload)
+    assert restored.interpretation_passes == result.interpretation_passes
+    assert restored.interpretation_stop_reason == result.interpretation_stop_reason
+    payload.pop("interpretation_passes")
+    payload.pop("interpretation_stop_reason")
+    payload.pop("semantic_evidence_omitted_count")
+    legacy = type(result).model_validate(payload)
+    assert legacy.interpretation_passes == []
+    assert legacy.interpretation_stop_reason is None
+    assert legacy.semantic_evidence_omitted_count == 0
