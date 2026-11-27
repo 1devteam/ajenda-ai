@@ -33,7 +33,19 @@ It does not import PR #725 implementation or post-recovery governance.
    its default `validate_job_bindings=True`, preserving the original
    post-job conflict check.
 
-## Existing knowledge and memory
+## Lightweight entrypoint dependency boundary
+
+`backend/services/mission_composition/interpretation/entrypoint.py`
+exposes the shared tenant-approved profile context, semantic alias resolution,
+canonical interpreter invocation, and read-only objective snapshot. API routes
+for direct intake, vertical templates, and ability-runtime actions import
+**only this interpretation entrypoint**, not the full composition service.
+Composition calls the same function and retains existing source-compatible
+exports of `_profile_context` and `_tenant_semantic_overrides`.
+
+A source-level regression test prohibits direct imports of the composition
+service, execution layers or worker orchestration into this entrypoint.
+
 
 `semantic_lattice/definitions.py` holds versioned shared semantic concepts
 and relationships. Approved tenant aliases are loaded from business profile
