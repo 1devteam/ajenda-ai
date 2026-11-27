@@ -519,6 +519,7 @@ def create_mission_from_template(
             objective_text,
             profile=profile,
             source_kind="vertical_template",
+            input_origin="user" if (body.mission_objective or body.objective) else "template",
         )
     except ValueError as exc:
         raise HTTPException(
