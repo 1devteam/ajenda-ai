@@ -149,6 +149,8 @@ def test_mission_intake_creates_tenant_owned_mission_without_queueing_runtime_wo
     assert created_mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["allowed_tools"] == ["crm", "analytics"]
     interpretation = created_mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["objective_interpretation"]
     assert interpretation["input_scope"] == "objective_only"
+    assert interpretation["input_origin"] == "user"
+    assert interpretation["interpretation_usage"] == "diagnostic_only"
     assert interpretation["authority_class"] == "read_model"
     assert interpretation["grants_execution_authority"] is False
     assert interpretation["intent"]["raw_instruction"] == payload["objective"]
