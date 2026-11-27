@@ -32,24 +32,40 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
 
-      - name: Validate interpreter source and formatting
+      - name: Validate interpretation, evidence, and lattice source
         run: |
           ruff check \
             backend/services/mission_composition/intent_interpreter.py \
+            backend/services/mission_composition/interpretation/feedback_loop.py \
             backend/services/mission_composition/service.py \
+            backend/services/mission_composition/contracts.py \
+            backend/services/mission_composition/epistemic.py \
             backend/services/mission_composition/semantic_lattice/resolver.py \
             backend/services/mission_composition/semantic_lattice/definitions.py \
-            tests/unit/services/test_semantic_vocabulary.py
+            backend/services/ontology/algorithms.py \
+            tests/unit/services/test_semantic_vocabulary.py \
+            tests/unit/services/test_algorithms.py
           ruff format --check \
             backend/services/mission_composition/intent_interpreter.py \
+            backend/services/mission_composition/interpretation/feedback_loop.py \
             backend/services/mission_composition/service.py \
+            backend/services/mission_composition/contracts.py \
+            backend/services/mission_composition/epistemic.py \
             backend/services/mission_composition/semantic_lattice/resolver.py \
             backend/services/mission_composition/semantic_lattice/definitions.py \
-            tests/unit/services/test_semantic_vocabulary.py
+            backend/services/ontology/algorithms.py \
+            tests/unit/services/test_semantic_vocabulary.py \
+            tests/unit/services/test_algorithms.py
 
-      - name: Run interpreter and lattice regression tests
+      - name: Run interpreter, lattice, ontology, and composition regressions
         run: |
-          pytest -q -ra tests/unit/services/test_semantic_vocabulary.py tests/unit/services/test_mission_composition_engine.py tests/unit/services/test_mission_interpreter_upgrade.py
+          pytest -q -ra \
+            tests/unit/services/test_semantic_vocabulary.py \
+            tests/unit/services/test_mission_composition_engine.py \
+            tests/unit/services/test_mission_interpreter_upgrade.py \
+            tests/unit/services/test_mission_composition_epistemic.py \
+            tests/unit/services/test_algorithms.py \
+            tests/contract/api/test_mission_composition_routes.py
 
       - name: Run contract operations tests
         run: pytest -q -ra tests/contract/operations
