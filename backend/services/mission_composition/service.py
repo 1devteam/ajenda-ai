@@ -53,14 +53,14 @@ from backend.services.mission_composition.deliverable_runtime_state import (
     build_deliverable_runtime_state,
 )
 from backend.services.mission_composition.epistemic import build_epistemic_context
+from backend.services.mission_composition.intelligence_envelope import (
+    build_intelligence_envelope,
+    clarifications_from_layer_gaps,
+)
 from backend.services.mission_composition.interpretation.entrypoint import (
     _profile_context,  # noqa: F401 - legacy import for existing callers
     _tenant_semantic_overrides,  # noqa: F401 - compatibility with tenant terminology tests
     interpret_instruction_with_profile,
-)
-from backend.services.mission_composition.intelligence_envelope import (
-    build_intelligence_envelope,
-    clarifications_from_layer_gaps,
 )
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
 from backend.services.mission_composition.plan_compiler import (
