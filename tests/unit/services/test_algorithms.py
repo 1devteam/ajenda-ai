@@ -88,3 +88,28 @@ def test_algorithm_result_rejects_unknown_or_mismatched_provenance() -> None:
             interpretation_evidence=[{"field_path": "target", "confidence": 1.0}],
             blocking_gap_count=0,
         )
+
+
+def test_semantic_context_cannot_inflate_source_confidence() -> None:
+    """Recognized nouns are not independent evidence of requested work."""
+    input_kwargs = {
+        "requested_outcomes": ["research_prospects"],
+        "named_jobs": ["research.discover_prospects"],
+        "planned_steps": ["step-1"],
+        "blocking_gap_count": 0,
+    }
+    baseline = evaluate_composition_algorithms(
+        **input_kwargs,
+        interpretation_evidence=[{"field_path": "requested_outcomes.research_prospects", "confidence": 0.7}],
+    )[1]
+    with_lattice = evaluate_composition_algorithms(
+        **input_kwargs,
+        interpretation_evidence=[
+            {"field_path": "requested_outcomes.research_prospects", "confidence": 0.7},
+            {"field_path": "semantic_concepts.prospect", "confidence": 1.0},
+            {"field_path": "semantic_concepts.customer", "confidence": 1.0},
+        ],
+    )[1]
+    assert with_lattice.output["source_confidence"] == baseline.output["source_confidence"] == 0.7
+    assert with_lattice.output["evidence_count"] == 1
+    assert "semantic_concepts.prospect" not in with_lattice.evidence_refs
