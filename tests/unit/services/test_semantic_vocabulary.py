@@ -13,6 +13,7 @@ from backend.services.mission_composition.semantic_lattice.resolver import (
 from backend.services.mission_composition.semantic_vocabulary import (
     ALL_SEMANTIC_CONCEPTS,
     SHARED_BUSINESS_CONCEPTS,
+    TenantSemanticOverride,
     build_semantic_selection,
     resolve_shared_concept,
 )
@@ -285,3 +286,28 @@ def test_interpreter_re_enters_after_lattice_receives_candidate_meaning(
     assert len(observed) == 2
     assert "prospect" not in observed[0]
     assert "prospect" in observed[1]
+
+
+def test_tenant_semantic_alias_provenance_survives_interpretation_loop() -> None:
+    instruction = "Research priority accounts in Austin."
+    override = TenantSemanticOverride(
+        concept_id="prospect",
+        aliases=("priority accounts",),
+        source_reference="test-tenant-profile",
+        version="1.0.0",
+    )
+    selection = build_modular_semantic_selection(
+        instruction=instruction,
+        requested_outcomes=(),
+        selected_job_keys=(),
+        tenant_overrides=(override,),
+        validate_job_bindings=False,
+    )
+    intent = interpret_instruction(instruction, semantic_selection=selection)
+    assert any(
+        entry.rule_id == "semantic_lattice.concept_match"
+        and entry.field_path == "semantic_concepts.prospect"
+        and entry.source_text == "priority accounts"
+        for entry in intent.interpretation_evidence
+    )
+    assert selection.conflicts == ()
