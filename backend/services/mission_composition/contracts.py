@@ -283,6 +283,19 @@ class InterpretationEvidence(BaseModel):
     components_active: list[str] = Field(default_factory=lambda: ["regex_core"], max_length=20)
 
 
+class InterpretationPassTrace(BaseModel):
+    """Bounded, non-authoritative record of one interpretation attempt."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pass_number: int = Field(ge=1, le=3)
+    requested_outcomes: tuple[str, ...] = Field(default=(), max_length=30)
+    concept_ids: tuple[str, ...] = Field(default=(), max_length=40)
+    feedback_hints: tuple[str, ...] = Field(default=(), max_length=10)
+    decision: Literal["initial", "accepted", "rejected"] = "initial"
+    reason: str = Field(default="", max_length=120)
+
+
 class InterpretedClause(BaseModel):
     """One material/non-material span from the instruction."""
 
@@ -538,6 +551,9 @@ class MissionIntent(BaseModel):
     unmatched_material_units: list[SemanticUnit] = Field(default_factory=list, max_length=30)
     contradictions: list[Contradiction] = Field(default_factory=list, max_length=20)
     interpretation_evidence: list[InterpretationEvidence] = Field(default_factory=list, max_length=50)
+    interpretation_passes: list[InterpretationPassTrace] = Field(default_factory=list, max_length=3)
+    interpretation_stop_reason: Literal["converged", "cycle", "rejected", "pass_limit"] | None = None
+    semantic_evidence_omitted_count: int = Field(default=0, ge=0)
     coverage_score: float = Field(default=0.0, ge=0.0, le=1.0)
     minimum_field_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     interpretation_ready: bool = False
