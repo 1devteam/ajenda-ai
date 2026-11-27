@@ -1590,23 +1590,20 @@ def create_mission(
     # never turn inferred outcomes into user-allowed actions or override the
     # separately typed criteria, constraints, or budgets.
     from backend.repositories.business_profile_repository import BusinessProfileRepository
-    from backend.services.mission_composition.service import interpret_instruction_with_profile
+    from backend.services.mission_composition.service import build_objective_interpretation_snapshot
 
     profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=str(tenant_id))
     try:
-        objective_intent, _, _ = interpret_instruction_with_profile(body.objective, profile=profile)
+        objective_interpretation = build_objective_interpretation_snapshot(
+            body.objective,
+            profile=profile,
+            source_kind="direct_intake",
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=422,
             detail={"code": "MISSION_INTERPRETATION_INVALID", "message": str(exc)[:500]},
         ) from exc
-    objective_interpretation = {
-        "schema_version": 1,
-        "input_scope": "objective_only",
-        "authority_class": "read_model",
-        "grants_execution_authority": False,
-        "intent": objective_intent.model_dump(mode="json"),
-    }
 
     quota = QuotaEnforcementService(db)
     budget_limits = body.budget_limits.model_dump(exclude_none=True) if body.budget_limits else None
