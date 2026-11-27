@@ -221,8 +221,7 @@ def test_semantic_feedback_revisits_interpretation_and_adds_explicit_qualificati
     assert final.send_policy == initial.send_policy
     assert final.forbidden_actions == initial.forbidden_actions
     assert any(
-        item.rule_id == "semantic_lattice.qualification_feedback"
-        and item.normalized_value == "qualify_prospects"
+        item.rule_id == "semantic_lattice.qualification_feedback" and item.normalized_value == "qualify_prospects"
         for item in final.interpretation_evidence
     )
     assert final.coverage_score >= initial.coverage_score
