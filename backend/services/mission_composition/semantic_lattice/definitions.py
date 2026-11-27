@@ -739,134 +739,21 @@ def build_semantic_selection(
     tenant_overrides: Iterable[TenantSemanticOverride] = (),
     tenant_override_conflicts: Iterable[str] = (),
 ) -> SemanticSelection:
-    """Legacy compatibility resolver; canonical runtime selection lives in ``semantic_lattice.resolver``.
+    """Compatibility entry point: delegate to the single canonical resolver.
 
-    Historical imports continue to receive the original behavior while new
-    composition code uses the modular resolver.  Neither path grants runtime
-    authority.
+    The local import avoids a definitions/resolver import cycle. The strict
+    post-job binding validation default preserves historical behavior.
     """
-
-    selected = tuple(dict.fromkeys(str(item) for item in selected_job_keys if str(item).strip()))
-    selected_set = set(selected)
-    concepts: list[str] = []
-    terms: list[str] = []
-    bindings: list[SemanticJobBinding] = []
-    conflicts: list[str] = []
-    tenant_override_items = tuple(tenant_overrides)
-    conflicts.extend(str(item) for item in tenant_override_conflicts)
-    tenant_aliases: dict[str, str] = {}
-    for override in tenant_override_items:
-        if override.concept_id not in SHARED_BUSINESS_CONCEPTS_BY_ID:
-            conflicts.append(f"tenant semantic override references unknown concept: {override.concept_id}")
-            continue
-        for alias in override.aliases:
-            normalized_alias = normalize_concept_text(alias)
-            shared_concept_id = _ALIASES.get(normalized_alias)
-            if shared_concept_id is not None and shared_concept_id != override.concept_id:
-                conflicts.append(
-                    f"tenant semantic alias conflict: {normalized_alias!r} maps to "
-                    f"shared concept {shared_concept_id} and tenant concept {override.concept_id}"
-                )
-                continue
-            prior = tenant_aliases.get(normalized_alias)
-            if prior is not None and prior != override.concept_id:
-                conflicts.append(
-                    f"tenant semantic alias conflict: {normalized_alias!r} maps to {prior} and {override.concept_id}"
-                )
-                continue
-            tenant_aliases[normalized_alias] = override.concept_id
-    component_candidates: set[str] = {"shared_business"}
-    if requested_outcomes or selected:
-        component_candidates.add("gtm.core")
-
-    for raw_outcome in requested_outcomes:
-        outcome = normalize_concept_text(str(raw_outcome))
-        mapping = _OUTCOME_CONCEPTS.get(outcome)
-        if mapping is None:
-            continue
-        concept_id, expected = mapping
-        concept = SHARED_BUSINESS_CONCEPTS_BY_ID[concept_id]
-        component_candidates.update(concept.applicable_domains)
-        if concept_id not in concepts:
-            concepts.append(concept_id)
-        binding_status: Literal["satisfied", "conflict"] = (
-            "satisfied" if set(expected).issubset(selected_set) else "conflict"
-        )
-        if binding_status == "conflict":
-            conflicts.append(
-                f"semantic concept {concept_id} expected jobs {','.join(expected)}; "
-                f"selected {','.join(selected) or 'none'}"
-            )
-        bindings.append(
-            SemanticJobBinding(
-                concept_id=concept_id,
-                concept_version=concept.version,
-                source="requested_outcome",
-                expected_job_keys=expected,
-                selected_job_keys=selected,
-                status=binding_status,
-            )
-        )
-
-    normalized_instruction = normalize_concept_text(instruction)
-    for term, component in _INDUSTRY_COMPONENT_TERMS.items():
-        if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", normalized_instruction):
-            component_candidates.add(component)
-    for concept in ALL_SEMANTIC_CONCEPTS:
-        candidates = (concept.concept_id, concept.display_name, *concept.aliases)
-        matched = next(
-            (
-                term
-                for term in candidates
-                if re.search(
-                    rf"(?<![a-z0-9]){re.escape(normalize_concept_text(term))}(?![a-z0-9])", normalized_instruction
-                )
-            ),
-            None,
-        )
-        if matched is None:
-            continue
-        if concept.concept_id not in concepts:
-            concepts.append(concept.concept_id)
-        normalized_match = normalize_concept_text(matched)
-        if normalized_match not in terms:
-            terms.append(normalized_match)
-
-    for alias, concept_id in tenant_aliases.items():
-        if not re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized_instruction):
-            continue
-        if concept_id not in concepts:
-            concepts.append(concept_id)
-        if alias not in terms:
-            terms.append(alias)
-        concept = SHARED_BUSINESS_CONCEPTS_BY_ID[concept_id]
-        component_candidates.update(concept.applicable_domains)
-
-    normalized_components = {_COMPONENT_DOMAIN_ALIASES.get(component, component) for component in component_candidates}
-    active_components, component_conflicts = _compose_lattice_components(normalized_components)
-    conflicts.extend(component_conflicts)
-    concept_provenance = tuple(SHARED_BUSINESS_CONCEPTS_BY_ID[concept_id] for concept_id in concepts)
-    component_job_guidance = tuple(
-        SemanticComponentJobGuidance(
-            component_id=component,
-            candidate_job_keys=_COMPONENT_JOB_HINTS[component],
-            selected_job_keys=selected,
-            status=("satisfied" if set(selected).intersection(_COMPONENT_JOB_HINTS[component]) else "informational"),
-        )
-        for component in active_components
-        if component in _COMPONENT_JOB_HINTS
+    from backend.services.mission_composition.semantic_lattice.resolver import (
+        build_semantic_selection as resolve_selection,
     )
-    return SemanticSelection(
-        active_components=active_components,
-        active_component_provenance=tuple(_LATTICE_COMPONENTS_BY_ID[component] for component in active_components),
-        component_conflicts=component_conflicts,
-        component_job_guidance=component_job_guidance,
-        concepts=tuple(concepts),
-        concept_provenance=concept_provenance,
-        tenant_overrides=tenant_override_items,
-        matched_terms=tuple(terms),
-        bindings=tuple(bindings),
-        conflicts=tuple(dict.fromkeys(conflicts)),
+
+    return resolve_selection(
+        instruction=instruction,
+        requested_outcomes=requested_outcomes,
+        selected_job_keys=selected_job_keys,
+        tenant_overrides=tenant_overrides,
+        tenant_override_conflicts=tenant_override_conflicts,
     )
 
 
