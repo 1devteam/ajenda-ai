@@ -2252,13 +2252,13 @@ def _interpret_instruction_pass(
     if semantic_selection.concepts and "semantic_lattice" not in components_active:
         components_active.append("semantic_lattice")
 
+    semantic_evidence_omitted_count = 0
+
     # Preserve source-qualified lattice findings in the existing evidence contract.
     # Concept matches are semantic context, not new requested outcomes or jobs.
     if semantic_selection.concept_provenance:
         matched_terms = set(semantic_selection.matched_terms)
         for concept in semantic_selection.concept_provenance:
-            if len(evidence) >= 50:
-                break
             source_span: str | None = None
             tenant_aliases = tuple(
                 alias
@@ -2279,6 +2279,9 @@ def _interpret_instruction_pass(
                     source_span = match.group(0)
                     break
             if source_span is None:
+                continue
+            if len(evidence) >= 50:
+                semantic_evidence_omitted_count += 1
                 continue
             evidence.append(
                 InterpretationEvidence(
@@ -2328,6 +2331,7 @@ def _interpret_instruction_pass(
         semantic_units=semantic_units,
         unmatched_material_units=unmatched_units,
         interpretation_evidence=evidence,
+        semantic_evidence_omitted_count=semantic_evidence_omitted_count,
         coverage_score=round(coverage, 3),
         minimum_field_confidence=min_conf,
         components_available=list(dict.fromkeys([*components_active, "regex_core"])),
