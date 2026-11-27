@@ -34,8 +34,18 @@ jobs:
 
       - name: Validate interpreter source and formatting
         run: |
-          ruff check backend/services/mission_composition/intent_interpreter.py backend/services/mission_composition/service.py tests/unit/services/test_semantic_vocabulary.py
-          ruff format --check backend/services/mission_composition/intent_interpreter.py backend/services/mission_composition/service.py tests/unit/services/test_semantic_vocabulary.py
+          ruff check \
+            backend/services/mission_composition/intent_interpreter.py \
+            backend/services/mission_composition/service.py \
+            backend/services/mission_composition/semantic_lattice/resolver.py \
+            backend/services/mission_composition/semantic_lattice/definitions.py \
+            tests/unit/services/test_semantic_vocabulary.py
+          ruff format --check \
+            backend/services/mission_composition/intent_interpreter.py \
+            backend/services/mission_composition/service.py \
+            backend/services/mission_composition/semantic_lattice/resolver.py \
+            backend/services/mission_composition/semantic_lattice/definitions.py \
+            tests/unit/services/test_semantic_vocabulary.py
 
       - name: Run interpreter and lattice regression tests
         run: |
