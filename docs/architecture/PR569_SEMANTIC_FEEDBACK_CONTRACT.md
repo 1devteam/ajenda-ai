@@ -106,6 +106,32 @@ contract unchanged. A separate policy-reconciliation review is required
 before treating structured intake and freeform composition as equivalent
 sources of canonical runtime intent.
 
+## Other structured mission-creation entry points
+
+A source-level scan of direct `Mission` creation identified two additional
+routes on the #569 recovery baseline:
+
+- `POST /v1/vertical-ops/missions` creates a mission from an approved
+  vertical template and may immediately apply/queue its selected template tasks.
+- `POST /v1/ability-runtime/tasks` can create a mission when no existing
+  `mission_id` is provided and queue the explicitly selected action.
+
+Both now invoke the same tenant-profile-aware
+`build_objective_interpretation_snapshot` helper before creating a mission,
+and persist its output under `objective_interpretation` in their existing
+mission metadata. The provenance explicitly distinguishes
+`input_origin=user`, `template`, and `generated_action`.
+Every snapshot has `interpretation_usage=diagnostic_only` and
+`grants_execution_authority=false`.
+
+**Scope distinction:** interpreting an objective does **not** yet semantically
+resolve every structured template step, action identifier, or action input.
+Template/service action resolution and charter/permission/credential/queue
+checks remain the pre-existing authority path, not a competing new system.
+Thus these routes now participate in canonical **objective interpretation**
+but complete typed structured-command interpretation and reconciliation
+remain separate production-gate work.
+
 ## Merge gate
 
 Keep PR #729 draft until all changed-source lint/format, the focused
