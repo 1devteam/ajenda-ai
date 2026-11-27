@@ -20,6 +20,7 @@ from backend.domain.mission import (
     MISSION_TASK_GRAPH_METADATA_KEY,
     build_mission_intake_metadata,
 )
+from backend.services.mission_composition.contracts import MissionIntent
 from backend.middleware.auth_context import AuthContextMiddleware
 from backend.middleware.request_context import RequestContextMiddleware
 from backend.middleware.tenant_context import TenantContextMiddleware
@@ -198,6 +199,36 @@ def test_mission_intake_resolves_tenant_aliases_without_granting_actions() -> No
         item["field_path"] == "semantic_concepts.prospect" and item["source_text"] == "priority accounts"
         for item in interpretation["intent"]["interpretation_evidence"]
     )
+
+
+def test_direct_intake_interpretation_survives_readback_as_typed_intent() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    payload = _valid_payload()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    repo = MagicMock()
+
+    def persist_mission(mission: object) -> SimpleNamespace:
+        persisted = _persisted_mission(tenant_id=tenant_id, mission_id=mission_id, payload=payload)
+        persisted.metadata_json = mission.metadata_json
+        return persisted
+
+    repo.add.side_effect = persist_mission
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=MagicMock()),
+    ):
+        response = client.post("/v1/missions", json=payload)
+
+    assert response.status_code == 201
+    intake = response.json()["intake"]
+    intent = MissionIntent.model_validate(intake["objective_interpretation"]["intent"])
+    assert intent.raw_instruction == payload["objective"]
+    assert intent.interpretation_passes
+    assert intake["approval_required"] is True
+    assert intake["allowed_actions"] == payload["allowed_actions"]
+    assert intake["constraints"] == payload["constraints"]
 
 
 def test_mission_intake_rejects_missing_success_criteria() -> None:
