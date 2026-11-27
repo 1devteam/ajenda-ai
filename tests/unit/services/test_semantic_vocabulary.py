@@ -4,7 +4,6 @@ from backend.services.mission_composition.intent_interpreter import (
     _interpret_instruction_pass,
     interpret_instruction,
 )
-from backend.services.mission_composition.service import MissionCompositionService
 from backend.services.mission_composition.semantic_lattice.resolver import (
     build_semantic_selection as build_modular_semantic_selection,
 )
@@ -14,6 +13,7 @@ from backend.services.mission_composition.semantic_vocabulary import (
     build_semantic_selection,
     resolve_shared_concept,
 )
+from backend.services.mission_composition.service import MissionCompositionService
 
 
 def test_shared_vocabulary_resolves_canonical_ids_and_aliases() -> None:
