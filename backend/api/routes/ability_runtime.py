@@ -740,6 +740,7 @@ def launch_task(
                 mission_objective,
                 profile=profile,
                 source_kind="ability_action",
+                input_origin="user" if body.mission_objective else "generated_action",
             )
         except ValueError as exc:
             raise HTTPException(
