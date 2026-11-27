@@ -62,8 +62,9 @@ def build_semantic_selection(
     selected_job_keys: Iterable[str],
     tenant_overrides: Iterable[TenantSemanticOverride] = (),
     tenant_override_conflicts: Iterable[str] = (),
+    validate_job_bindings: bool = True,
 ) -> SemanticSelection:
-    """Resolve concepts, overlays, and advisory job bindings deterministically."""
+    """Resolve concepts; optionally validate downstream job bindings."""
 
     selected = tuple(dict.fromkeys(str(item) for item in selected_job_keys if str(item).strip()))
     selected_set = set(selected)
@@ -89,8 +90,12 @@ def build_semantic_selection(
         component_candidates.update(concept.applicable_domains)
         if concept_id not in concepts:
             concepts.append(concept_id)
-        binding_status: Literal["satisfied", "conflict"] = (
-            "satisfied" if set(expected).issubset(selected_set) else "conflict"
+        # During interpretation, no jobs exist yet: retain informational
+        # relationships without reporting missing jobs as conflicts.
+        binding_status: Literal["informational", "satisfied", "conflict"] = (
+            "informational"
+            if not validate_job_bindings
+            else ("satisfied" if set(expected).issubset(selected_set) else "conflict")
         )
         if binding_status == "conflict":
             conflicts.append(
