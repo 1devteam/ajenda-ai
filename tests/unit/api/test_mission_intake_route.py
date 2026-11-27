@@ -20,10 +20,10 @@ from backend.domain.mission import (
     MISSION_TASK_GRAPH_METADATA_KEY,
     build_mission_intake_metadata,
 )
-from backend.services.mission_composition.contracts import MissionIntent
 from backend.middleware.auth_context import AuthContextMiddleware
 from backend.middleware.request_context import RequestContextMiddleware
 from backend.middleware.tenant_context import TenantContextMiddleware
+from backend.services.mission_composition.contracts import MissionIntent
 
 
 def _build_app(tenant_id: uuid.UUID) -> FastAPI:
