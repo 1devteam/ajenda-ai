@@ -71,19 +71,19 @@ def build_mission_intake_metadata(
     preserving existing runtime queue/worker/recovery behavior.
     """
     intake: dict[str, Any] = {
-            "schema_version": MISSION_INTAKE_SCHEMA_VERSION,
-            "success_criteria": success_criteria,
-            "constraints": constraints,
-            "operator_notes": operator_notes,
-            "context": context,
-            "priority": priority,
-            "approval_required": approval_required,
-            "approval_expectations": approval_expectations,
-            "budget_limits": budget_limits,
-            "scope_limits": scope_limits,
-            "allowed_actions": allowed_actions,
-            "allowed_tools": allowed_tools,
-            "allow_legacy_v1": allow_legacy_v1,
+        "schema_version": MISSION_INTAKE_SCHEMA_VERSION,
+        "success_criteria": success_criteria,
+        "constraints": constraints,
+        "operator_notes": operator_notes,
+        "context": context,
+        "priority": priority,
+        "approval_required": approval_required,
+        "approval_expectations": approval_expectations,
+        "budget_limits": budget_limits,
+        "scope_limits": scope_limits,
+        "allowed_actions": allowed_actions,
+        "allowed_tools": allowed_tools,
+        "allow_legacy_v1": allow_legacy_v1,
     }
     if objective_interpretation is not None:
         # Informational snapshot only. Structured constraints and explicit
