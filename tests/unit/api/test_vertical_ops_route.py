@@ -216,7 +216,7 @@ def test_create_mission_from_template_apply_only() -> None:
         patch.object(vertical_ops_module, "BusinessProfileRepository") as profile_repo_cls,
         patch.object(vertical_ops_module.VerticalOpsTemplateService, "build_bundle") as build_bundle,
         patch.object(vertical_ops_module.VerticalOpsTemplateService, "apply_to_mission", return_value=applied),
-        patch.object(vertical_ops_module, "Mission", wraps=Mission),
+        patch.object(vertical_ops_module, "Mission", wraps=Mission) as mission_constructor,
     ):
         profile_repo_cls.return_value.get_active_profile_for_tenant.return_value = MagicMock(
             approved_facts={"business_name": {"value": "Acme"}, "target_customers": {"value": "Operators"}}
@@ -239,6 +239,12 @@ def test_create_mission_from_template_apply_only() -> None:
     assert body["queued"] is False
     assert body["grants_execution_authority"] is False
     assert body["created_task_ids"] == [str(task_id)]
+    snapshot = mission_constructor.call_args.kwargs["metadata_json"]["objective_interpretation"]
+    assert snapshot["source_kind"] == "vertical_template"
+    assert snapshot["input_scope"] == "objective_only"
+    assert snapshot["grants_execution_authority"] is False
+    assert snapshot["intent"]["raw_instruction"] == "Research competitors"
+    assert snapshot["intent"]["interpretation_passes"]
 
 
 def test_create_mission_with_queue_uses_apply_and_queue() -> None:
