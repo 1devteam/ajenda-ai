@@ -1202,15 +1202,16 @@ def _classify_clause(
     return outcomes, material, recognized
 
 
-def interpret_instruction(
+def _interpret_instruction_pass(
     instruction: str,
     *,
     profile_context: dict[str, Any] | None = None,
     spelling_enabled: bool | None = None,
     fuzzy_enabled: bool | None = None,
     semantic_selection: SemanticSelection | None = None,
+    semantic_outcome_hints: frozenset[str] = frozenset(),
 ) -> MissionIntent:
-    """Extract a candidate MissionIntent without granting execution authority."""
+    """Execute one interpretation pass without selecting jobs or granting authority."""
 
     raw_instruction = instruction
     text = instruction.strip()
@@ -1288,7 +1289,7 @@ def interpret_instruction(
     wants_business_profile = _contains_any(lower, _BUSINESS_PROFILE_READ_PATTERNS)
     uses_business_profile = _contains_any(lower, _BUSINESS_PROFILE_CONTEXT_PATTERNS)
     wants_draft = _contains_any(lower, _DRAFT_PATTERNS)
-    wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
+    wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS) or "qualify_prospects" in semantic_outcome_hints
     wants_email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
     internal_crm_requested = _contains_any(lower, _INTERNAL_CRM_PATTERNS)
     crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
@@ -1433,7 +1434,11 @@ def interpret_instruction(
                 source_text=text[:200],
                 normalized_value="qualify_prospects",
                 confidence=0.9,
-                rule_id="alias.qualify",
+                rule_id=(
+                    "semantic_lattice.qualification_feedback"
+                    if "qualify_prospects" in semantic_outcome_hints
+                    else "alias.qualify"
+                ),
             )
         )
     # Ability vocabulary layer (score/rank/… → canonical outcomes).
@@ -1947,6 +1952,15 @@ def interpret_instruction(
             business_income_review=business_income_review_requested,
             goal_progress_evaluation="evaluate_goal_progress" in outcomes,
         )
+        if "qualify_prospects" in semantic_outcome_hints and re.search(
+            r"\\b(?:assess|evaluate|analy[sz]e|measure)\\b[^.!?]{0,80}\\b(?:lead quality|qualification)\\b",
+            clause_text,
+            flags=re.IGNORECASE,
+        ):
+            recognized = True
+            material = True
+            if "qualify_prospects" not in mapped:
+                mapped.append("qualify_prospects")
         if "verify_runtime_controls" in outcomes and re.search(
             r"\b(?:check|verify|evidence|runtime|network|secure|private|retry|audit|local)\b",
             clause_text,
@@ -2336,3 +2350,104 @@ def interpret_instruction(
             ),
         }
     )
+
+
+# Bounded interpretation re-entry. The existing interpreter and MissionIntent remain
+# the only semantic decision owners; the lattice supplies concept evidence only.
+_SEMANTIC_QUALIFICATION_REQUEST = re.compile(
+    r"\\b(?:assess|evaluate|analy[sz]e|measure)\\b[^.!?]{0,80}\\b(?:lead quality|qualification)\\b",
+    re.IGNORECASE,
+)
+_SEMANTIC_QUALIFICATION_NEGATION = re.compile(
+    r"\\b(?:do not|don't|dont|never|without)\\b[^.!?]{0,80}"
+    r"\\b(?:assess|evaluate|analy[sz]e|measure)\\b",
+    re.IGNORECASE,
+)
+_MAX_INTERPRETATION_PASSES = 3
+
+
+def _semantic_outcome_feedback(
+    instruction: str,
+    selection: SemanticSelection,
+    intent: MissionIntent,
+) -> frozenset[str]:
+    """Return explicitly grounded, previously unresolved canonical meanings.
+
+    A concept or noun alone never requests a job. The user must supply an
+    affirmative qualifying verb and an exact lattice-recognized concept.
+    """
+    normalized = normalize_concept_text(instruction)
+    if (
+        "qualify_prospects" not in intent.requested_outcomes
+        and "qualification" in selection.concepts
+        and {"lead quality", "qualification"}.intersection(selection.matched_terms)
+        and _SEMANTIC_QUALIFICATION_REQUEST.search(normalized)
+        and not _SEMANTIC_QUALIFICATION_NEGATION.search(normalized)
+    ):
+        return frozenset({"qualify_prospects"})
+    return frozenset()
+
+
+def interpret_instruction(
+    instruction: str,
+    *,
+    profile_context: dict[str, Any] | None = None,
+    spelling_enabled: bool | None = None,
+    fuzzy_enabled: bool | None = None,
+    semantic_selection: SemanticSelection | None = None,
+) -> MissionIntent:
+    """Interpret, revisit grounded unresolved meaning, and stop at convergence.
+
+    Each re-entry reruns the original interpreter from the raw instruction.
+    Only exact semantic evidence with an explicit user action may influence an
+    unresolved outcome. Existing policy, entity and quantity contracts cannot
+    be overwritten by a later pass.
+    """
+    selection = semantic_selection
+    if selection is None:
+        selection = build_semantic_selection(
+            instruction=instruction,
+            requested_outcomes=(),
+            selected_job_keys=(),
+        )
+    current = _interpret_instruction_pass(
+        instruction,
+        profile_context=profile_context,
+        spelling_enabled=spelling_enabled,
+        fuzzy_enabled=fuzzy_enabled,
+        semantic_selection=selection,
+    )
+    seen = {tuple(current.requested_outcomes)}
+    for _ in range(1, _MAX_INTERPRETATION_PASSES):
+        hints = _semantic_outcome_feedback(instruction, selection, current)
+        if not hints:
+            break
+        candidate = _interpret_instruction_pass(
+            instruction,
+            profile_context=profile_context,
+            spelling_enabled=spelling_enabled,
+            fuzzy_enabled=fuzzy_enabled,
+            semantic_selection=selection,
+            semantic_outcome_hints=hints,
+        )
+        signature = tuple(candidate.requested_outcomes)
+        if signature in seen:
+            break
+        seen.add(signature)
+        if not hints.issubset(set(candidate.requested_outcomes)):
+            break
+        # Reject any re-entry that removes prior meaning or modifies the
+        # original user's explicit target, quantity or action policy.
+        if not set(current.requested_outcomes).issubset(candidate.requested_outcomes):
+            break
+        if (
+            candidate.target_entities != current.target_entities
+            or candidate.requested_quantity != current.requested_quantity
+            or candidate.send_policy != current.send_policy
+            or candidate.forbidden_actions != current.forbidden_actions
+            or candidate.forbidden_canonical_outcomes != current.forbidden_canonical_outcomes
+            or candidate.contradictions != current.contradictions
+        ):
+            break
+        current = candidate
+    return current
