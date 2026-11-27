@@ -145,6 +145,15 @@ def test_mission_intake_creates_tenant_owned_mission_without_queueing_runtime_wo
     created_mission = repo.add.call_args.args[0]
     assert created_mission.tenant_id == str(tenant_id)
     assert created_mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["allowed_tools"] == ["crm", "analytics"]
+    interpretation = created_mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["objective_interpretation"]
+    assert interpretation["input_scope"] == "objective_only"
+    assert interpretation["authority_class"] == "read_model"
+    assert interpretation["grants_execution_authority"] is False
+    assert interpretation["intent"]["raw_instruction"] == payload["objective"]
+    assert interpretation["intent"]["interpreter_version"]
+    assert interpretation["intent"]["interpretation_passes"]
+    assert created_mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["allowed_actions"] == payload["allowed_actions"]
+    assert created_mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["constraints"] == payload["constraints"]
     task_repo_cls.assert_not_called()
     executor_cls.assert_not_called()
     coordinator_cls.assert_not_called()
