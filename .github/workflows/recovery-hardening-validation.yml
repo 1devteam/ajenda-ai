@@ -36,6 +36,8 @@ jobs:
         run: |
           ruff check \
             backend/services/mission_composition/intent_interpreter.py \
+            backend/api/routes/mission.py \
+            backend/domain/mission.py \
             backend/services/mission_composition/interpretation/feedback_loop.py \
             backend/services/mission_composition/service.py \
             backend/services/mission_composition/contracts.py \
@@ -45,9 +47,13 @@ jobs:
             backend/services/ontology/algorithms.py \
             tests/unit/services/test_semantic_vocabulary.py \
             tests/unit/services/test_algorithms.py \
-            tests/unit/services/test_mission_composition_epistemic.py
+            tests/unit/services/test_mission_composition_epistemic.py \
+            tests/unit/api/test_mission_intake_route.py \
+            tests/unit/domain/test_mission_intake_metadata.py
           ruff format --check \
             backend/services/mission_composition/intent_interpreter.py \
+            backend/api/routes/mission.py \
+            backend/domain/mission.py \
             backend/services/mission_composition/interpretation/feedback_loop.py \
             backend/services/mission_composition/service.py \
             backend/services/mission_composition/contracts.py \
@@ -57,7 +63,9 @@ jobs:
             backend/services/ontology/algorithms.py \
             tests/unit/services/test_semantic_vocabulary.py \
             tests/unit/services/test_algorithms.py \
-            tests/unit/services/test_mission_composition_epistemic.py
+            tests/unit/services/test_mission_composition_epistemic.py \
+            tests/unit/api/test_mission_intake_route.py \
+            tests/unit/domain/test_mission_intake_metadata.py
 
       - name: Run interpreter, lattice, ontology, and composition regressions
         run: |
@@ -67,6 +75,8 @@ jobs:
             tests/unit/services/test_mission_interpreter_upgrade.py \
             tests/unit/services/test_mission_composition_epistemic.py \
             tests/unit/services/test_algorithms.py \
+            tests/unit/api/test_mission_intake_route.py \
+            tests/unit/domain/test_mission_intake_metadata.py \
             tests/contract/api/test_mission_composition_routes.py
 
       - name: Run contract operations tests
