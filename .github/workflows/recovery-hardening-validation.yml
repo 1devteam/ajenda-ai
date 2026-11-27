@@ -94,3 +94,6 @@ jobs:
       - name: Prove historical mission interpretation contracts
         run: python scripts/validation/mission_contract_gate.py
 
+      - name: Prove non-executing revenue-operations mission composition
+        run: python scripts/validation/vr01_revops_baseline.py --require-all-pass
+
