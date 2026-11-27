@@ -67,7 +67,6 @@ jobs:
             tests/unit/services/test_mission_interpreter_upgrade.py \
             tests/unit/services/test_mission_composition_epistemic.py \
             tests/unit/services/test_algorithms.py \
-            tests/unit/services/test_mission_composition_epistemic.py \
             tests/contract/api/test_mission_composition_routes.py
 
       - name: Prove historical mission interpretation contracts
