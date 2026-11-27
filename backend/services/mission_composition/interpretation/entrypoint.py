@@ -129,5 +129,3 @@ def build_objective_interpretation_snapshot(
         "grants_execution_authority": False,
         "intent": intent.model_dump(mode="json"),
     }
-
-
