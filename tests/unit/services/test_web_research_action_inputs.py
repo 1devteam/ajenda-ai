@@ -267,3 +267,45 @@ def test_public_identity_compiles_explicit_labeled_expectations() -> None:
         "location": "Dallas",
         "timeout_seconds": 15.0,
     }
+
+
+def test_public_identity_compiles_adjacent_labeled_expectations_without_leakage() -> None:
+    """A flattened operator mission must not absorb Return fields into industry."""
+    instruction = (
+        "Verify the public identity of Internet Assigned Numbers Authority. "
+        "Target URL: https://www.iana.org/domains/example "
+        "Expected company: Internet Assigned Numbers Authority "
+        "Industry: internet infrastructure and domain-name services "
+        "Location: global "
+        "Return: - source URL - final URL - page title - identity status "
+        "- evidence URLs - identity match reasons - identity gaps"
+    )
+    intent = interpret_instruction(instruction)
+    payload = build_action_input(action_name="research.verify_public_identity", intent=intent)
+
+    assert payload == {
+        "url": "https://www.iana.org/domains/example",
+        "expected_company": "Internet Assigned Numbers Authority",
+        "industry": "internet infrastructure and domain-name services",
+        "location": "global",
+        "timeout_seconds": 15.0,
+    }
+
+
+def test_public_identity_compiles_newline_labeled_expectations() -> None:
+    """Preserve field boundaries when normalization replaces newlines with spaces."""
+    instruction = (
+        "Verify the public identity of Internet Assigned Numbers Authority.\\n"
+        "Target URL: https://www.iana.org/domains/example\\n"
+        "Expected company: Internet Assigned Numbers Authority\\n"
+        "Industry: internet infrastructure and domain-name services\\n"
+        "Location: global\\n"
+        "Return: source URL, final URL, page title, identity status"
+    ).replace("\\n", "\n")
+    intent = interpret_instruction(instruction)
+    payload = build_action_input(action_name="research.verify_public_identity", intent=intent)
+
+    assert payload["expected_company"] == "Internet Assigned Numbers Authority"
+    assert payload["industry"] == "internet infrastructure and domain-name services"
+    assert payload["location"] == "global"
+    assert payload["url"] == "https://www.iana.org/domains/example"
