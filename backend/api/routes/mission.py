@@ -1585,6 +1585,26 @@ def create_mission(
         except MissionIntakeQualityDeniedError as exc:
             raise HTTPException(status_code=422, detail=exc.to_detail()) from exc
 
+    # The structured intake is also an interpreter entry point. Interpret the
+    # objective through the same tenant-aware path used by composition, but
+    # never turn inferred outcomes into user-allowed actions or override the
+    # separately typed criteria, constraints, or budgets.
+    from backend.repositories.business_profile_repository import BusinessProfileRepository
+    from backend.services.mission_composition.interpretation.entrypoint import build_objective_interpretation_snapshot
+
+    profile = BusinessProfileRepository(db).get_active_profile_for_tenant(tenant_id=str(tenant_id))
+    try:
+        objective_interpretation = build_objective_interpretation_snapshot(
+            body.objective,
+            profile=profile,
+            source_kind="direct_intake",
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "MISSION_INTERPRETATION_INVALID", "message": str(exc)[:500]},
+        ) from exc
+
     quota = QuotaEnforcementService(db)
     budget_limits = body.budget_limits.model_dump(exclude_none=True) if body.budget_limits else None
     try:
@@ -1608,6 +1628,7 @@ def create_mission(
         allowed_actions=body.allowed_actions,
         allowed_tools=body.allowed_tools,
         allow_legacy_v1=body.allow_legacy_v1,
+        objective_interpretation=objective_interpretation,
     )
     mission = MissionRepository(db).add(
         Mission(

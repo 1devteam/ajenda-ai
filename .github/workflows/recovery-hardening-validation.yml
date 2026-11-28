@@ -32,6 +32,65 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
 
+      - name: Validate interpretation, evidence, and lattice source
+        run: |
+          ruff check \
+            backend/services/mission_composition/intent_interpreter.py \
+            backend/api/routes/mission.py \
+            backend/api/routes/vertical_ops.py \
+            backend/api/routes/ability_runtime.py \
+            backend/domain/mission.py \
+            backend/services/mission_composition/interpretation/feedback_loop.py \
+            backend/services/mission_composition/interpretation/entrypoint.py \
+            backend/services/mission_composition/service.py \
+            backend/services/mission_composition/contracts.py \
+            backend/services/mission_composition/epistemic.py \
+            backend/services/mission_composition/semantic_lattice/resolver.py \
+            backend/services/mission_composition/semantic_lattice/definitions.py \
+            backend/services/ontology/algorithms.py \
+            tests/unit/services/test_semantic_vocabulary.py \
+            tests/unit/services/test_algorithms.py \
+            tests/unit/services/test_mission_composition_epistemic.py \
+            tests/unit/api/test_mission_intake_route.py \
+            tests/unit/api/test_vertical_ops_route.py \
+            tests/unit/api/test_ability_runtime_quota_enforcement.py \
+            tests/unit/domain/test_mission_intake_metadata.py
+          ruff format --check \
+            backend/services/mission_composition/intent_interpreter.py \
+            backend/api/routes/mission.py \
+            backend/api/routes/vertical_ops.py \
+            backend/api/routes/ability_runtime.py \
+            backend/domain/mission.py \
+            backend/services/mission_composition/interpretation/feedback_loop.py \
+            backend/services/mission_composition/interpretation/entrypoint.py \
+            backend/services/mission_composition/service.py \
+            backend/services/mission_composition/contracts.py \
+            backend/services/mission_composition/epistemic.py \
+            backend/services/mission_composition/semantic_lattice/resolver.py \
+            backend/services/mission_composition/semantic_lattice/definitions.py \
+            backend/services/ontology/algorithms.py \
+            tests/unit/services/test_semantic_vocabulary.py \
+            tests/unit/services/test_algorithms.py \
+            tests/unit/services/test_mission_composition_epistemic.py \
+            tests/unit/api/test_mission_intake_route.py \
+            tests/unit/api/test_vertical_ops_route.py \
+            tests/unit/api/test_ability_runtime_quota_enforcement.py \
+            tests/unit/domain/test_mission_intake_metadata.py
+
+      - name: Run interpreter, lattice, ontology, and composition regressions
+        run: |
+          pytest -q -ra \
+            tests/unit/services/test_semantic_vocabulary.py \
+            tests/unit/services/test_mission_composition_engine.py \
+            tests/unit/services/test_mission_interpreter_upgrade.py \
+            tests/unit/services/test_mission_composition_epistemic.py \
+            tests/unit/services/test_algorithms.py \
+            tests/unit/api/test_mission_intake_route.py \
+            tests/unit/api/test_vertical_ops_route.py \
+            tests/unit/api/test_ability_runtime_quota_enforcement.py \
+            tests/unit/domain/test_mission_intake_metadata.py \
+            tests/contract/api/test_mission_composition_routes.py
+
       - name: Run contract operations tests
         run: pytest -q -ra tests/contract/operations
 
@@ -43,3 +102,10 @@ jobs:
 
       - name: Run lease recovery tests
         run: pytest -q -ra tests/integration/runtime/test_lease_recovery_real.py
+
+      - name: Prove historical mission interpretation contracts
+        run: python scripts/validation/mission_contract_gate.py
+
+      - name: Prove non-executing revenue-operations mission composition
+        run: python scripts/validation/vr01_revops_baseline.py --require-all-pass
+

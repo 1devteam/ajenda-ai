@@ -1,19 +1,33 @@
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
+import pytest
+
+from backend.services.mission_composition import intent_interpreter as interpreter_module
+from backend.services.mission_composition.intent_interpreter import (
+    _interpret_instruction_pass,
+    interpret_instruction,
+)
 from backend.services.mission_composition.semantic_lattice.resolver import (
     build_semantic_selection as build_modular_semantic_selection,
 )
 from backend.services.mission_composition.semantic_vocabulary import (
     ALL_SEMANTIC_CONCEPTS,
     SHARED_BUSINESS_CONCEPTS,
+    TenantSemanticOverride,
     build_semantic_selection,
     resolve_shared_concept,
 )
+from backend.services.mission_composition.service import MissionCompositionService
 
 
 def test_shared_vocabulary_resolves_canonical_ids_and_aliases() -> None:
     assert resolve_shared_concept("prospect").concept_id == "prospect"
     assert resolve_shared_concept("  target account ").concept_id == "prospect"
+    assert resolve_shared_concept("prospects").concept_id == "prospect"
+    assert resolve_shared_concept("target accounts").concept_id == "prospect"
     assert resolve_shared_concept("follow-up").concept_id == "outreach"
 
 
@@ -146,3 +160,191 @@ def test_semantic_selection_fails_closed_when_a_required_job_is_missing() -> Non
 
     assert selection.conflicts
     assert selection.bindings[0].status == "conflict"
+
+
+def test_pre_intent_lattice_resolves_concepts_without_job_binding_conflicts() -> None:
+    selection = build_modular_semantic_selection(
+        instruction="Research HVAC prospects offering heat pump maintenance in Austin.",
+        requested_outcomes=(),
+        selected_job_keys=(),
+    )
+    assert {"prospect", "heat_pump"}.issubset(selection.concepts)
+    assert "hvac" in selection.active_components
+    assert selection.bindings == ()
+    assert selection.conflicts == ()
+
+
+def test_interpreter_consumes_lattice_concept_evidence_without_changing_meaning() -> None:
+    instruction = "Research three HVAC prospects offering heat pump maintenance in Austin."
+    selection = build_modular_semantic_selection(
+        instruction=instruction,
+        requested_outcomes=(),
+        selected_job_keys=(),
+    )
+    intent = interpret_instruction(instruction, semantic_selection=selection)
+    direct = interpret_instruction(instruction)
+    assert intent.requested_outcomes == direct.requested_outcomes
+    assert intent.target_entities == direct.target_entities
+    assert intent.requested_quantity == direct.requested_quantity
+    assert intent.interpretation_ready == direct.interpretation_ready
+    assert any(
+        item.field_path == "semantic_concepts.heat_pump"
+        and item.source_text == "heat pump"
+        and item.rule_id == "semantic_lattice.concept_match"
+        for item in intent.interpretation_evidence
+    )
+    assert "semantic_lattice" in intent.components_executed
+
+
+def test_existing_post_job_lattice_still_reports_missing_required_job() -> None:
+    selection = build_modular_semantic_selection(
+        instruction="Qualify the prospects.",
+        requested_outcomes=("qualify_prospects",),
+        selected_job_keys=(),
+    )
+    assert any(item.status == "conflict" for item in selection.bindings)
+
+
+def test_composition_feeds_lattice_concepts_to_interpretation() -> None:
+    instruction = "Research three HVAC prospects offering heat pump maintenance in Austin."
+    record = MissionCompositionService(db=None).compose(tenant_id="tenant", instruction=instruction)
+    matches = {
+        item.normalized_value
+        for item in record.intent.interpretation_evidence
+        if item.rule_id == "semantic_lattice.concept_match"
+    }
+    assert {"prospect", "heat_pump"}.issubset(matches)
+    assert record.composition_provenance.semantic_selection is not None
+    assert "hvac" in record.composition_provenance.semantic_selection.active_components
+    assert record.intent.requested_quantity == 3
+
+
+def test_semantic_feedback_revisits_interpretation_and_adds_explicit_qualification() -> None:
+    instruction = "Assess lead quality for roofing companies in Austin."
+    initial = _interpret_instruction_pass(instruction)
+    final = interpret_instruction(instruction)
+    assert "qualify_prospects" not in initial.requested_outcomes
+    assert "qualify_prospects" in final.requested_outcomes
+    assert set(initial.requested_outcomes).issubset(final.requested_outcomes)
+    assert final.target_entities == initial.target_entities
+    assert final.send_policy == initial.send_policy
+    assert final.forbidden_actions == initial.forbidden_actions
+    assert any(
+        item.rule_id == "semantic_lattice.qualification_feedback" and item.normalized_value == "qualify_prospects"
+        for item in final.interpretation_evidence
+    )
+    assert final.coverage_score >= initial.coverage_score
+    assert any(
+        step.decision == "accepted" and "qualify_prospects" in step.feedback_hints
+        for step in final.interpretation_passes
+    )
+
+
+def test_semantic_feedback_does_not_turn_a_noun_into_requested_work() -> None:
+    instruction = "Review the lead quality glossary in the approved business profile."
+    first = _interpret_instruction_pass(instruction)
+    result = interpret_instruction(instruction)
+    assert result.requested_outcomes == first.requested_outcomes
+    assert "qualify_prospects" not in result.requested_outcomes
+
+
+def test_semantic_feedback_respects_explicit_negation() -> None:
+    instruction = "Do not assess lead quality. Research roofing companies in Austin."
+    first = _interpret_instruction_pass(instruction)
+    result = interpret_instruction(instruction)
+    assert result.requested_outcomes == first.requested_outcomes
+    assert "qualify_prospects" not in result.requested_outcomes
+
+
+def test_semantic_feedback_terminates_after_no_new_grounded_meaning() -> None:
+    instruction = "Assess lead quality for roofing companies in Austin."
+    once = interpret_instruction(instruction)
+    twice = interpret_instruction(instruction)
+    assert once == twice
+    assert once.requested_outcomes.count("qualify_prospects") == 1
+
+
+def test_concept_only_lattice_re_evaluates_outcome_without_missing_job_conflicts() -> None:
+    selection = build_modular_semantic_selection(
+        instruction="Find three roofing companies in Austin.",
+        requested_outcomes=("research_prospects",),
+        selected_job_keys=(),
+        validate_job_bindings=False,
+    )
+    assert "prospect" in selection.concepts
+    assert selection.bindings[0].status == "informational"
+    assert selection.conflicts == ()
+
+
+def test_interpreter_re_enters_after_lattice_receives_candidate_meaning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = interpreter_module._interpret_instruction_pass
+    observed: list[tuple[str, ...]] = []
+
+    def tracked_pass(*args: object, **kwargs: object):
+        semantic_selection = kwargs["semantic_selection"]
+        observed.append(tuple(semantic_selection.concepts))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(interpreter_module, "_interpret_instruction_pass", tracked_pass)
+    intent = interpret_instruction("Find three roofing companies in Austin.")
+    assert "research_prospects" in intent.requested_outcomes
+    assert len(observed) == 2
+    assert "prospect" not in observed[0]
+    assert "prospect" in observed[1]
+    assert len(intent.interpretation_passes) == 2
+    assert intent.interpretation_passes[0].decision == "initial"
+    assert intent.interpretation_passes[1].decision == "accepted"
+    assert intent.interpretation_stop_reason == "converged"
+
+
+def test_tenant_semantic_alias_provenance_survives_interpretation_loop() -> None:
+    instruction = "Research priority accounts in Austin."
+    override = TenantSemanticOverride(
+        concept_id="prospect",
+        aliases=("priority accounts",),
+        source_reference="test-tenant-profile",
+        version="1.0.0",
+    )
+    selection = build_modular_semantic_selection(
+        instruction=instruction,
+        requested_outcomes=(),
+        selected_job_keys=(),
+        tenant_overrides=(override,),
+        validate_job_bindings=False,
+    )
+    intent = interpret_instruction(instruction, semantic_selection=selection)
+    assert any(
+        entry.rule_id == "semantic_lattice.concept_match"
+        and entry.field_path == "semantic_concepts.prospect"
+        and entry.source_text == "priority accounts"
+        for entry in intent.interpretation_evidence
+    )
+    assert selection.conflicts == ()
+
+
+def test_interpretation_pass_history_round_trips_and_accepts_legacy_records() -> None:
+    result = interpret_instruction("Find three roofing companies in Austin.")
+    payload = result.model_dump(mode="json")
+    restored = type(result).model_validate(payload)
+    assert restored.interpretation_passes == result.interpretation_passes
+    assert restored.interpretation_stop_reason == result.interpretation_stop_reason
+    payload.pop("interpretation_passes")
+    payload.pop("interpretation_stop_reason")
+    payload.pop("semantic_evidence_omitted_count")
+    legacy = type(result).model_validate(payload)
+    assert legacy.interpretation_passes == []
+    assert legacy.interpretation_stop_reason is None
+    assert legacy.semantic_evidence_omitted_count == 0
+
+
+def test_entrypoint_avoids_composition_and_runtime_dependencies() -> None:
+    """Structured mission routes may import interpretation without runtime authority."""
+    path = Path(__file__).resolve().parents[3] / "backend/services/mission_composition/interpretation/entrypoint.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module is not None}
+    assert "backend.services.mission_composition.service" not in imported
+    assert "backend.services.mission_composition.capability_resolver" not in imported
+    assert "backend.repositories.mission_repository" not in imported
+    assert not any("execution" in module or "worker" in module for module in imported)

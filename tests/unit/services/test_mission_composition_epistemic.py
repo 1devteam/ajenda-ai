@@ -1,4 +1,4 @@
-from backend.services.mission_composition.contracts import Contradiction
+from backend.services.mission_composition.contracts import Contradiction, InterpretationEvidence
 from backend.services.mission_composition.coverage import assess_coverage
 from backend.services.mission_composition.epistemic import build_epistemic_context
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
@@ -70,3 +70,25 @@ def test_composition_record_contains_epistemic_context() -> None:
     assert record.epistemic_context is not None
     assert record.epistemic_context.freshness == "not_observed"
     assert record.epistemic_context.grants_execution_authority is False
+
+
+def test_context_only_lattice_evidence_is_not_treated_as_decision_confidence() -> None:
+    initial = interpret_instruction("Find five HVAC companies in Dallas.")
+    context_only = initial.model_copy(
+        update={
+            "minimum_field_confidence": None,
+            "interpretation_evidence": [
+                InterpretationEvidence(
+                    field_path="semantic_concepts.heat_pump",
+                    source="inferred_deterministic",
+                    normalized_value="heat_pump",
+                    confidence=1.0,
+                    rule_id="semantic_lattice.concept_match",
+                ),
+            ],
+        }
+    )
+    context = build_epistemic_context(context_only, assess_coverage(context_only))
+    assert context.confidence == 0.0
+    assert "derived" not in context.source_classes
+    assert "deterministic_interpretation_evidence" not in context.confidence_basis

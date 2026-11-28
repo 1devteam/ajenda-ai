@@ -45,6 +45,35 @@ def test_build_mission_intake_metadata_preserves_first_class_intake_fields() -> 
     }
 
 
+def test_intake_interpretation_snapshot_is_additive_and_never_authoritative() -> None:
+    snapshot = {
+        "schema_version": 1,
+        "input_scope": "objective_only",
+        "authority_class": "read_model",
+        "grants_execution_authority": False,
+        "intent": {"requested_outcomes": ["research_prospects"]},
+    }
+    metadata = build_mission_intake_metadata(
+        success_criteria=[{"description": "Target list is documented."}],
+        constraints=[{"name": "No outreach", "description": "Do not contact anyone.", "hard": True}],
+        operator_notes=None,
+        context={"scope": "local"},
+        priority="normal",
+        approval_required=True,
+        approval_expectations=[],
+        budget_limits=None,
+        scope_limits=["Austin"],
+        allowed_actions=[],
+        allowed_tools=[],
+        objective_interpretation=snapshot,
+    )
+    intake = metadata[MISSION_INTAKE_METADATA_KEY]
+    assert intake["objective_interpretation"] == snapshot
+    assert intake["allowed_actions"] == []
+    assert intake["approval_required"] is True
+    assert intake["constraints"][0]["hard"] is True
+
+
 def test_build_mission_plan_metadata_preserves_first_class_planning_fields() -> None:
     metadata = build_mission_plan_metadata(
         planning_status="draft",

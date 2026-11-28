@@ -34,7 +34,6 @@ from backend.repositories.provider_runtime_credential_repository import (
     ProviderRuntimeCredentialRepository,
 )
 from backend.repositories.tenant_internal_record_repository import TenantInternalRecordRepository
-from backend.services.business_profile.record_sync import build_profile_brief
 from backend.services.mission_composition.capability_resolver import resolve_jobs, route_jobs_for_intent
 from backend.services.mission_composition.contracts import (
     COMPOSITION_SCHEMA_VERSION,
@@ -58,7 +57,11 @@ from backend.services.mission_composition.intelligence_envelope import (
     build_intelligence_envelope,
     clarifications_from_layer_gaps,
 )
-from backend.services.mission_composition.intent_interpreter import interpret_instruction
+from backend.services.mission_composition.interpretation.entrypoint import (
+    _profile_context,  # noqa: F401 - legacy import for existing callers
+    _tenant_semantic_overrides,  # noqa: F401 - compatibility with tenant terminology tests
+    interpret_instruction_with_profile,
+)
 from backend.services.mission_composition.job_catalog import BUSINESS_JOBS_BY_KEY
 from backend.services.mission_composition.plan_compiler import (
     compile_job_assignments,
@@ -73,7 +76,6 @@ from backend.services.mission_composition.proposal_store import (
     put_proposal,
 )
 from backend.services.mission_composition.semantic_lattice.resolver import build_semantic_selection
-from backend.services.mission_composition.semantic_vocabulary import TenantSemanticOverride
 from backend.services.mission_composition.shadow_preview import build_shadow_preview
 from backend.services.mission_composition.structured_planner import (
     PlannerRequest,
@@ -182,69 +184,6 @@ def _runtime_deliverable_request(intent: MissionIntent) -> DeliverableRequest | 
         scope="mission" if {"observe_web_page", "verify_public_identity"}.intersection(outcomes) else "per_prospect",
         fields=tuple(dict((field.field_key, field) for field in fields).values()),
     )
-
-
-def _profile_context(profile: Any) -> dict[str, Any]:
-    if profile is None:
-        return {}
-    facts = getattr(profile, "approved_facts", None) or {}
-    if not isinstance(facts, dict):
-        return {}
-    context: dict[str, Any] = {}
-    for key in (
-        "business_name",
-        "company",
-        "industry",
-        "products_services",
-        "target_customers",
-        "differentiators",
-        "description",
-        "service_area",
-        "operator_notes",
-    ):
-        value = facts.get(key)
-        if isinstance(value, (str, list, tuple)) and value:
-            context[key] = value.strip() if isinstance(value, str) else list(value)
-        elif isinstance(value, dict) and value:
-            context[key] = value
-    # Feed the interpreter the same canonical vocabulary that runtime retrieval
-    # emits; this prevents planner context from losing profile fields.
-    normalized = build_profile_brief(
-        approved_facts=facts,
-        provenance=getattr(profile, "provenance", None),
-    )["facts"]
-    context.update(normalized)
-    context["profile_id"] = str(getattr(profile, "id", ""))
-    return context
-
-
-def _tenant_semantic_overrides(profile: Any) -> tuple[tuple[TenantSemanticOverride, ...], tuple[str, ...]]:
-    """Read approved tenant aliases without changing the shared vocabulary."""
-
-    if profile is None:
-        return (), ()
-    facts = getattr(profile, "approved_facts", None) or {}
-    if not isinstance(facts, dict) or "semantic_terminology_overrides" not in facts:
-        return (), ()
-    raw = facts.get("semantic_terminology_overrides")
-    if not isinstance(raw, list):
-        return (), ("tenant semantic terminology overrides must be a list",)
-
-    profile_id = str(getattr(profile, "id", "unknown"))
-    overrides: list[TenantSemanticOverride] = []
-    conflicts: list[str] = []
-    for index, item in enumerate(raw):
-        if not isinstance(item, dict):
-            conflicts.append(f"tenant semantic override {index} must be an object")
-            continue
-        payload = dict(item)
-        payload.setdefault("source_reference", f"business_profile:{profile_id}")
-        payload.setdefault("version", "1.0.0")
-        try:
-            overrides.append(TenantSemanticOverride.model_validate(payload))
-        except ValueError as exc:
-            conflicts.append(f"tenant semantic override {index} is invalid: {str(exc)[:240]}")
-    return tuple(overrides), tuple(conflicts)
 
 
 def _acceptance_score_threshold(intent: MissionIntent) -> int:
@@ -390,7 +329,10 @@ class MissionCompositionService:
         profile = None
         if self._db is not None:
             profile = BusinessProfileRepository(self._db).get_active_profile_for_tenant(tenant_id=tenant_id)
-        intent = interpret_instruction(raw_instruction, profile_context=_profile_context(profile))
+        intent, tenant_semantic_overrides, tenant_override_conflicts = interpret_instruction_with_profile(
+            raw_instruction,
+            profile=profile,
+        )
         # Escalation only for same actor+thread interpretation failures (durable required).
         if prior and prior.get("durable") and intent.ambiguity and not intent.interpretation_ready:
             shared = set(prior.get("unresolved_fields") or []) & {c.field for c in intent.ambiguity}
@@ -427,8 +369,6 @@ class MissionCompositionService:
             )
         coverage_assessment = assess_coverage(intent, internal_capacity=internal_capacity)
         epistemic_context = build_epistemic_context(intent, coverage_assessment)
-        tenant_semantic_overrides, tenant_override_conflicts = _tenant_semantic_overrides(profile)
-
         jobs = route_jobs_for_intent(intent)
         know_how = select_vertical_know_how(intent.requested_outcomes)
         if know_how is not None:

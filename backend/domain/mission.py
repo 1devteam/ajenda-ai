@@ -62,6 +62,7 @@ def build_mission_intake_metadata(
     allowed_actions: list[str],
     allowed_tools: list[str],
     allow_legacy_v1: bool = False,
+    objective_interpretation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the durable metadata envelope for mission intake v1.
 
@@ -69,23 +70,26 @@ def build_mission_intake_metadata(
     metadata so this first block can stay additive and avoid a migration while
     preserving existing runtime queue/worker/recovery behavior.
     """
-    return {
-        MISSION_INTAKE_METADATA_KEY: {
-            "schema_version": MISSION_INTAKE_SCHEMA_VERSION,
-            "success_criteria": success_criteria,
-            "constraints": constraints,
-            "operator_notes": operator_notes,
-            "context": context,
-            "priority": priority,
-            "approval_required": approval_required,
-            "approval_expectations": approval_expectations,
-            "budget_limits": budget_limits,
-            "scope_limits": scope_limits,
-            "allowed_actions": allowed_actions,
-            "allowed_tools": allowed_tools,
-            "allow_legacy_v1": allow_legacy_v1,
-        }
+    intake: dict[str, Any] = {
+        "schema_version": MISSION_INTAKE_SCHEMA_VERSION,
+        "success_criteria": success_criteria,
+        "constraints": constraints,
+        "operator_notes": operator_notes,
+        "context": context,
+        "priority": priority,
+        "approval_required": approval_required,
+        "approval_expectations": approval_expectations,
+        "budget_limits": budget_limits,
+        "scope_limits": scope_limits,
+        "allowed_actions": allowed_actions,
+        "allowed_tools": allowed_tools,
+        "allow_legacy_v1": allow_legacy_v1,
     }
+    if objective_interpretation is not None:
+        # Informational snapshot only. Structured constraints and explicit
+        # allowlists remain the source of authority for this intake.
+        intake["objective_interpretation"] = objective_interpretation
+    return {MISSION_INTAKE_METADATA_KEY: intake}
 
 
 def mission_intake_allows_legacy_v1(metadata: dict[str, Any]) -> bool:

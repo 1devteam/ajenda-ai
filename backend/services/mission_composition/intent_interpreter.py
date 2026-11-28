@@ -33,6 +33,8 @@ from backend.services.mission_composition.deliverable_contract import extract_de
 from backend.services.mission_composition.interpretation.fuzzy import fuzzy_outcome_candidates
 from backend.services.mission_composition.interpretation.lexical import classify_lexical_frame
 from backend.services.mission_composition.interpretation.normalize import normalize_instruction_text
+from backend.services.mission_composition.semantic_lattice.definitions import SemanticSelection, normalize_concept_text
+from backend.services.mission_composition.semantic_lattice.resolver import build_semantic_selection
 
 _COMPONENTS_ACTIVE = ("regex_core", "ability_vocab")
 
@@ -1200,14 +1202,16 @@ def _classify_clause(
     return outcomes, material, recognized
 
 
-def interpret_instruction(
+def _interpret_instruction_pass(
     instruction: str,
     *,
     profile_context: dict[str, Any] | None = None,
     spelling_enabled: bool | None = None,
     fuzzy_enabled: bool | None = None,
+    semantic_selection: SemanticSelection | None = None,
+    semantic_outcome_hints: frozenset[str] = frozenset(),
 ) -> MissionIntent:
-    """Extract a candidate MissionIntent without granting execution authority."""
+    """Execute one interpretation pass without selecting jobs or granting authority."""
 
     raw_instruction = instruction
     text = instruction.strip()
@@ -1230,6 +1234,14 @@ def interpret_instruction(
 
     norm = normalize_instruction_text(text, spelling_enabled=bool(spelling_enabled))
     text = norm.normalized
+    # Resolve concepts before intent construction. Job bindings are evaluated
+    # separately by mission composition after job selection.
+    if semantic_selection is None:
+        semantic_selection = build_semantic_selection(
+            instruction=text,
+            requested_outcomes=(),
+            selected_job_keys=(),
+        )
     components_active: list[str] = list(dict.fromkeys([*_COMPONENTS_ACTIVE, *norm.components_active]))
 
     profile_context = profile_context or {}
@@ -1277,7 +1289,7 @@ def interpret_instruction(
     wants_business_profile = _contains_any(lower, _BUSINESS_PROFILE_READ_PATTERNS)
     uses_business_profile = _contains_any(lower, _BUSINESS_PROFILE_CONTEXT_PATTERNS)
     wants_draft = _contains_any(lower, _DRAFT_PATTERNS)
-    wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS)
+    wants_qualify = _contains_any(lower, _QUALIFY_PATTERNS) or "qualify_prospects" in semantic_outcome_hints
     wants_email_read = _contains_any(lower, _EMAIL_READ_PATTERNS)
     internal_crm_requested = _contains_any(lower, _INTERNAL_CRM_PATTERNS)
     crm_write_requested = _contains_any(lower, _CRM_UPDATE_PATTERNS) and not _contains_any(
@@ -1422,7 +1434,11 @@ def interpret_instruction(
                 source_text=text[:200],
                 normalized_value="qualify_prospects",
                 confidence=0.9,
-                rule_id="alias.qualify",
+                rule_id=(
+                    "semantic_lattice.qualification_feedback"
+                    if "qualify_prospects" in semantic_outcome_hints
+                    else "alias.qualify"
+                ),
             )
         )
     # Ability vocabulary layer (score/rank/… → canonical outcomes).
@@ -1936,6 +1952,15 @@ def interpret_instruction(
             business_income_review=business_income_review_requested,
             goal_progress_evaluation="evaluate_goal_progress" in outcomes,
         )
+        if "qualify_prospects" in semantic_outcome_hints and re.search(
+            r"\b(?:assess|evaluate|analy[sz]e|measure)\b[^.!?]{0,80}\b(?:lead quality|qualification)\b",
+            clause_text,
+            flags=re.IGNORECASE,
+        ):
+            recognized = True
+            material = True
+            if "qualify_prospects" not in mapped:
+                mapped.append("qualify_prospects")
         if "verify_runtime_controls" in outcomes and re.search(
             r"\b(?:check|verify|evidence|runtime|network|secure|private|retry|audit|local)\b",
             clause_text,
@@ -2224,6 +2249,55 @@ def interpret_instruction(
         semantic_units = []
         unmatched_units = []
 
+    if semantic_selection.concepts and "semantic_lattice" not in components_active:
+        components_active.append("semantic_lattice")
+
+    semantic_evidence_omitted_count = 0
+
+    # Preserve source-qualified lattice findings in the existing evidence contract.
+    # Concept matches are semantic context, not new requested outcomes or jobs.
+    if semantic_selection.concept_provenance:
+        matched_terms = set(semantic_selection.matched_terms)
+        for concept in semantic_selection.concept_provenance:
+            source_span: str | None = None
+            tenant_aliases = tuple(
+                alias
+                for override in semantic_selection.tenant_overrides
+                if override.concept_id == concept.concept_id
+                for alias in override.aliases
+            )
+            for alias in (concept.concept_id, concept.display_name, *concept.aliases, *tenant_aliases):
+                normalized_alias = normalize_concept_text(alias)
+                if normalized_alias not in matched_terms:
+                    continue
+                match = re.search(
+                    rf"(?<![a-z0-9]){re.escape(normalized_alias)}(?![a-z0-9])",
+                    text,
+                    flags=re.IGNORECASE,
+                )
+                if match is not None:
+                    source_span = match.group(0)
+                    break
+            if source_span is None:
+                continue
+            if len(evidence) >= 50:
+                semantic_evidence_omitted_count += 1
+                continue
+            evidence.append(
+                InterpretationEvidence(
+                    field_path=f"semantic_concepts.{concept.concept_id}",
+                    source="inferred_deterministic",
+                    source_text=source_span,
+                    normalized_value=concept.concept_id,
+                    confidence=1.0,
+                    rule_id="semantic_lattice.concept_match",
+                    interpreter_version=INTERPRETER_VERSION,
+                    components_active=["semantic_lattice"],
+                )
+            )
+            if "semantic_lattice" not in components_active:
+                components_active.append("semantic_lattice")
+
     intent = MissionIntent(
         raw_instruction=raw_instruction,
         normalized_instruction=text,
@@ -2257,6 +2331,7 @@ def interpret_instruction(
         semantic_units=semantic_units,
         unmatched_material_units=unmatched_units,
         interpretation_evidence=evidence,
+        semantic_evidence_omitted_count=semantic_evidence_omitted_count,
         coverage_score=round(coverage, 3),
         minimum_field_confidence=min_conf,
         components_available=list(dict.fromkeys([*components_active, "regex_core"])),
@@ -2292,4 +2367,26 @@ def interpret_instruction(
                 else []
             ),
         }
+    )
+
+
+def interpret_instruction(
+    instruction: str,
+    *,
+    profile_context: dict[str, Any] | None = None,
+    spelling_enabled: bool | None = None,
+    fuzzy_enabled: bool | None = None,
+    semantic_selection: SemanticSelection | None = None,
+) -> MissionIntent:
+    """Interpret with the existing engine and bounded semantic feedback."""
+    from backend.services.mission_composition.interpretation.feedback_loop import (
+        interpret_with_semantic_feedback,
+    )
+
+    return interpret_with_semantic_feedback(
+        instruction,
+        profile_context=profile_context,
+        spelling_enabled=spelling_enabled,
+        fuzzy_enabled=fuzzy_enabled,
+        semantic_selection=semantic_selection,
     )

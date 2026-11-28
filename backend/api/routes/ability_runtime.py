@@ -715,6 +715,28 @@ def launch_task(
                 ),
             )
 
+    mission_objective = body.mission_objective or f"Ability runtime task: {action.name}"
+    objective_interpretation: dict[str, Any] | None = None
+    if body.mission_id is None:
+        # No quota counters or mission writes may occur before semantic input
+        # validation. The result remains diagnostic and cannot select actions.
+        from backend.services.mission_composition.interpretation.entrypoint import (
+            build_objective_interpretation_snapshot,
+        )
+
+        try:
+            objective_interpretation = build_objective_interpretation_snapshot(
+                mission_objective,
+                profile=profile,
+                source_kind="ability_action",
+                input_origin="user" if body.mission_objective else "generated_action",
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "MISSION_INTERPRETATION_INVALID", "message": str(exc)[:500]},
+            ) from exc
+
     try:
         if body.mission_id is None:
             quota.check_and_record_mission_creation(tenant_id)
@@ -734,13 +756,14 @@ def launch_task(
     else:
         mission = Mission(
             tenant_id=str(tenant_id),
-            objective=body.mission_objective or f"Ability runtime task: {action.name}",
+            objective=mission_objective,
             status=MissionState.RUNNING.value,
             metadata_json={
                 "schema_version": 1,
                 "source": "ability-runtime",
                 "action": action.name,
                 "created_at": datetime.now(UTC).isoformat(),
+                "objective_interpretation": objective_interpretation,
             },
         )
         db.add(mission)

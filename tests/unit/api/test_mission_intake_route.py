@@ -18,11 +18,13 @@ from backend.domain.mission import (
     MISSION_PLAN_METADATA_KEY,
     MISSION_RUNTIME_ADMISSION_METADATA_KEY,
     MISSION_TASK_GRAPH_METADATA_KEY,
+    Mission,
     build_mission_intake_metadata,
 )
 from backend.middleware.auth_context import AuthContextMiddleware
 from backend.middleware.request_context import RequestContextMiddleware
 from backend.middleware.tenant_context import TenantContextMiddleware
+from backend.services.mission_composition.contracts import MissionIntent
 
 
 def _build_app(tenant_id: uuid.UUID) -> FastAPI:
@@ -145,9 +147,91 @@ def test_mission_intake_creates_tenant_owned_mission_without_queueing_runtime_wo
     created_mission = repo.add.call_args.args[0]
     assert created_mission.tenant_id == str(tenant_id)
     assert created_mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["allowed_tools"] == ["crm", "analytics"]
+    interpretation = created_mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["objective_interpretation"]
+    assert interpretation["input_scope"] == "objective_only"
+    assert interpretation["input_origin"] == "user"
+    assert interpretation["interpretation_usage"] == "diagnostic_only"
+    assert interpretation["authority_class"] == "read_model"
+    assert interpretation["grants_execution_authority"] is False
+    assert interpretation["intent"]["raw_instruction"] == payload["objective"]
+    assert interpretation["intent"]["interpreter_version"]
+    assert interpretation["intent"]["interpretation_passes"]
+    assert created_mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["allowed_actions"] == payload["allowed_actions"]
+    assert created_mission.metadata_json[MISSION_INTAKE_METADATA_KEY]["constraints"] == payload["constraints"]
     task_repo_cls.assert_not_called()
     executor_cls.assert_not_called()
     coordinator_cls.assert_not_called()
+
+
+def test_mission_intake_resolves_tenant_aliases_without_granting_actions() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    payload = _valid_payload()
+    payload["objective"] = "Research three priority accounts in Austin."
+    payload["allowed_actions"] = []
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    profile = SimpleNamespace(
+        id="approved-profile",
+        approved_facts={
+            "semantic_terminology_overrides": [{"concept_id": "prospect", "aliases": ["priority accounts"]}]
+        },
+        provenance={},
+    )
+    repo = MagicMock()
+    repo.add.return_value = _persisted_mission(tenant_id=tenant_id, mission_id=mission_id, payload=payload)
+    profile_repo = MagicMock()
+    profile_repo.get_active_profile_for_tenant.return_value = profile
+
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=MagicMock()),
+        patch("backend.repositories.business_profile_repository.BusinessProfileRepository", return_value=profile_repo),
+    ):
+        response = client.post("/v1/missions", json=payload)
+
+    assert response.status_code == 201
+    profile_repo.get_active_profile_for_tenant.assert_called_once_with(tenant_id=str(tenant_id))
+    created = repo.add.call_args.args[0]
+    intake = created.metadata_json[MISSION_INTAKE_METADATA_KEY]
+    assert intake["allowed_actions"] == []
+    interpretation = intake["objective_interpretation"]
+    assert interpretation["grants_execution_authority"] is False
+    assert any(
+        item["field_path"] == "semantic_concepts.prospect" and item["source_text"] == "priority accounts"
+        for item in interpretation["intent"]["interpretation_evidence"]
+    )
+
+
+def test_direct_intake_interpretation_survives_readback_as_typed_intent() -> None:
+    tenant_id = uuid.uuid4()
+    mission_id = uuid.uuid4()
+    payload = _valid_payload()
+    app = _build_app(tenant_id)
+    client = TestClient(app, raise_server_exceptions=False)
+    repo = MagicMock()
+
+    def persist_mission(mission: Mission) -> SimpleNamespace:
+        persisted = _persisted_mission(tenant_id=tenant_id, mission_id=mission_id, payload=payload)
+        persisted.metadata_json = mission.metadata_json
+        return persisted
+
+    repo.add.side_effect = persist_mission
+    with (
+        patch("backend.api.routes.mission.MissionRepository", return_value=repo),
+        patch("backend.api.routes.mission.QuotaEnforcementService", return_value=MagicMock()),
+    ):
+        response = client.post("/v1/missions", json=payload)
+
+    assert response.status_code == 201
+    intake = response.json()["intake"]
+    intent = MissionIntent.model_validate(intake["objective_interpretation"]["intent"])
+    assert intent.raw_instruction == payload["objective"]
+    assert intent.interpretation_passes
+    assert intake["approval_required"] is True
+    assert intake["allowed_actions"] == payload["allowed_actions"]
+    assert intake["constraints"] == payload["constraints"]
 
 
 def test_mission_intake_rejects_missing_success_criteria() -> None:
