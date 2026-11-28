@@ -748,7 +748,17 @@ def build_action_input(*, action_name: str, intent: MissionIntent, vertical_role
         source = _instruction_text(intent)
 
         def _labeled_value(label: str) -> str:
-            match = re.search(rf"\b{label}\s*:\s*([^.;,\n]+)", source, flags=re.IGNORECASE)
+            """Bound an explicit value by punctuation or the next known label.
+
+            Whitespace normalization can flatten separately labeled mission fields
+            into one line, so punctuation alone is not a reliable delimiter.
+            """
+            match = re.search(
+                rf"\b{re.escape(label)}\s*:\s*"
+                r"([^.;,\n]*?)(?=\s+(?:expected\s+company|industry|location|return)\s*:|[.;,\n]|$)",
+                source,
+                flags=re.IGNORECASE,
+            )
             return match.group(1).strip() if match else ""
 
         candidate_url = str(attrs.get("url") or attrs.get("website") or attrs.get("domain") or "").strip()
