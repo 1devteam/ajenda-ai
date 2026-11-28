@@ -295,13 +295,13 @@ def test_public_identity_compiles_adjacent_labeled_expectations_without_leakage(
 def test_public_identity_compiles_newline_labeled_expectations() -> None:
     """Preserve field boundaries when normalization replaces newlines with spaces."""
     instruction = (
-        "Verify the public identity of Internet Assigned Numbers Authority.\\n"
-        "Target URL: https://www.iana.org/domains/example\\n"
-        "Expected company: Internet Assigned Numbers Authority\\n"
-        "Industry: internet infrastructure and domain-name services\\n"
-        "Location: global\\n"
+        "Verify the public identity of Internet Assigned Numbers Authority.\n"
+        "Target URL: https://www.iana.org/domains/example\n"
+        "Expected company: Internet Assigned Numbers Authority\n"
+        "Industry: internet infrastructure and domain-name services\n"
+        "Location: global\n"
         "Return: source URL, final URL, page title, identity status"
-    ).replace("\\n", "\n")
+    )
     intent = interpret_instruction(instruction)
     payload = build_action_input(action_name="research.verify_public_identity", intent=intent)
 
