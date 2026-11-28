@@ -6,6 +6,7 @@ from backend.services.mission_composition.action_inputs import build_action_inpu
 from backend.services.mission_composition.contracts import MissionIntent, TargetEntity
 from backend.services.mission_composition.intent_interpreter import interpret_instruction
 from backend.services.mission_composition.service import MissionCompositionService
+from backend.services.tools.schemas import ResearchVerifyPublicIdentityInput
 
 
 def test_observe_web_page_is_a_distinct_browser_outcome() -> None:
@@ -290,6 +291,7 @@ def test_public_identity_compiles_adjacent_labeled_expectations_without_leakage(
         "location": "global",
         "timeout_seconds": 15.0,
     }
+    ResearchVerifyPublicIdentityInput.model_validate(payload)
 
 
 def test_public_identity_compiles_newline_labeled_expectations() -> None:
@@ -309,3 +311,4 @@ def test_public_identity_compiles_newline_labeled_expectations() -> None:
     assert payload["industry"] == "internet infrastructure and domain-name services"
     assert payload["location"] == "global"
     assert payload["url"] == "https://www.iana.org/domains/example"
+    assert ResearchVerifyPublicIdentityInput.model_validate(payload).industry == payload["industry"]
